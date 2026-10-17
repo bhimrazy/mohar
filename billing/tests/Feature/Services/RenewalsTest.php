@@ -138,16 +138,17 @@ test('anchored renewals do not drift across short months', function () {
         ->and($service->billing_anchor_day)->toBe(31);
 });
 
-test('addons sharing the due date go on the parent invoice', function () {
+test('each renewal invoice bills exactly one item, even when addons share the due date', function () {
     $service = Service::factory()->dueOn('2026-11-15')->create();
     $addon = ServiceAddon::factory()->dueOn('2026-11-15')->create(['service_id' => $service->id, 'recurring_amount' => 250]);
 
     runRenewals('2026-11-01');
 
-    $invoice = array_values($this->kit->invoicer->invoicesFor(BillableType::Service, $service->id))[0];
-    expect($invoice['draft']->lines)->toHaveCount(2)
-        ->and($invoice['draft']->lines[1]->billableType)->toBe(BillableType::ServiceAddon)
-        ->and($invoice['draft']->lines[1]->billableId)->toBe($addon->id)
+    $serviceInvoices = array_values($this->kit->invoicer->invoicesFor(BillableType::Service, $service->id));
+    $addonInvoices = array_values($this->kit->invoicer->invoicesFor(BillableType::ServiceAddon, $addon->id));
+    expect($serviceInvoices)->toHaveCount(1)->and($serviceInvoices[0]['draft']->lines)->toHaveCount(1)
+        ->and($addonInvoices)->toHaveCount(1)->and($addonInvoices[0]['draft']->lines)->toHaveCount(1)
+        ->and($addonInvoices[0]['draft']->lines[0]->unitAmount)->toBe(250)
         ->and($addon->refresh()->next_invoice_date->toDateString())->toBe('2026-12-15');
 });
 

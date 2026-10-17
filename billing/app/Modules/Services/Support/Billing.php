@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Support;
 
 use App\Contracts\Billing\CreditLedger;
+use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use Illuminate\Contracts\Container\Container;
 use RuntimeException;
@@ -35,6 +36,14 @@ class Billing
     public function credits(): CreditLedger
     {
         return $this->container->make(CreditLedger::class);
+    }
+
+    /**
+     * Whether an open invoice may be cancelled: never once any payment or credit was applied.
+     */
+    public function canCancel(int $invoiceId): bool
+    {
+        return ! $this->container->make(InvoiceQueries::class)->hasPayments($invoiceId);
     }
 
     public function isOpen(int $invoiceId): bool

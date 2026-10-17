@@ -5,15 +5,19 @@ namespace App\Modules\Services\Actions;
 use App\Modules\Services\Enums\InvoiceLinkKind;
 use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\ServiceInvoice;
 use App\Modules\Services\Support\Billing;
 use Carbon\CarbonImmutable;
 
 /**
- * Cancels unpaid renewal invoices of a service (and its addons) for periods from $from onwards.
+ * Cancels unpaid renewal invoices of a service (optionally also of its addons) for periods from
+ * $from onwards. Renewal invoices bill one item each (ADR 0008), so cancelling the invoice cancels
+ * exactly that item's period. Invoices with any payment or applied credit are left alone.
  *
- * Renewal invoices are issued per service (with its addons), so cancelling the invoice cancels
- * exactly this service's renewal lines.
+ * Every item whose renewal was cancelled gets next_invoice_date moved back to the earliest
+ * cancelled period, so the period is invoiced again once renewals resume (do_not_renew still
+ * blocks it while a cancellation is pending).
  */
 class CancelOpenRenewals
 {
@@ -22,26 +26,66 @@ class CancelOpenRenewals
     /**
      * @return int number of invoices cancelled
      */
-    public function handle(Service $service, ?CarbonImmutable $from = null): int
+    public function handle(Service $service, ?CarbonImmutable $from = null, bool $includeAddons = true): int
     {
-        $addonIds = $service->addons()->pluck('id');
+        $addonIds = $includeAddons ? $service->addons()->pluck('id')->all() : [];
 
-        $invoiceIds = ServiceInvoice::query()
+        $links = ServiceInvoice::query()
             ->where('kind', InvoiceLinkKind::Renewal->value)
             ->where('status', InvoiceLinkStatus::Open->value)
             ->where(fn ($query) => $query->where('service_id', $service->id)->orWhereIn('service_addon_id', $addonIds))
             ->when($from !== null, fn ($query) => $query->whereDate('period_start', '>=', $from))
-            ->distinct()
-            ->pluck('invoice_id');
+            ->orderBy('period_start')
+            ->orderBy('id')
+            ->get();
 
-        foreach ($invoiceIds as $invoiceId) {
+        $cancelled = [];
+
+        foreach ($links->groupBy('invoice_id') as $invoiceId => $invoiceLinks) {
             if ($this->billing->available()) {
+                if (! $this->billing->canCancel((int) $invoiceId)) {
+                    continue;
+                }
+
                 $this->billing->invoicer()->cancel((int) $invoiceId);
             }
 
             ServiceInvoice::query()->where('invoice_id', $invoiceId)->update(['status' => InvoiceLinkStatus::Cancelled->value]);
+            $cancelled[] = $invoiceLinks;
         }
 
-        return $invoiceIds->count();
+        $this->rewindPointers(collect($cancelled)->flatten(1)->all());
+
+        return count($cancelled);
+    }
+
+    /**
+     * @param  array<int, ServiceInvoice>  $links
+     */
+    private function rewindPointers(array $links): void
+    {
+        $earliest = [];
+
+        foreach ($links as $link) {
+            if ($link->period_start === null) {
+                continue;
+            }
+
+            $key = $link->service_id !== null ? "s{$link->service_id}" : "a{$link->service_addon_id}";
+
+            if (! isset($earliest[$key]) || $link->period_start->lt($earliest[$key])) {
+                $earliest[$key] = $link->period_start;
+            }
+        }
+
+        foreach ($earliest as $key => $start) {
+            $model = str_starts_with($key, 's')
+                ? Service::query()->find((int) substr($key, 1))
+                : ServiceAddon::query()->find((int) substr($key, 1));
+
+            if ($model !== null && ($model->next_invoice_date === null || $model->next_invoice_date->gt($start))) {
+                $model->update(['next_invoice_date' => $start]);
+            }
+        }
     }
 }

@@ -9,13 +9,14 @@ use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Services\AddonLifecycle;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\OverduePolicy;
+use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Automation task (SUSPENSIONS): suspends active services and addons overdue for at least
- * the suspend threshold (per-service override, else setting), unless exempt (services.md §4.5).
+ * the suspend threshold (service override, else product override, else setting), unless exempt (services.md §4.5).
  */
 class SuspendOverdueServices
 {
@@ -24,6 +25,7 @@ class SuspendOverdueServices
         private ModuleCommandDispatcher $commands,
         private AddonLifecycle $addons,
         private ServiceSettings $settings,
+        private Catalog $catalog,
     ) {}
 
     public function handle(CarbonImmutable $today): int
@@ -40,7 +42,7 @@ class SuspendOverdueServices
             ->whereDate('next_due_date', '<', $today)
             ->orderBy('id')
             ->each(function (Service $service) use ($today, &$count): void {
-                if ($this->shouldSuspend($service, $service->suspend_days_override, $today)) {
+                if ($this->shouldSuspend($service, $service->suspend_days_override ?? $this->catalog->product($service->product_id)?->suspendAfterDays, $today)) {
                     $this->commands->queue($service, ModuleCommandName::Suspend, ['reason' => 'overdue']);
                     $count++;
                 }
@@ -48,12 +50,13 @@ class SuspendOverdueServices
 
         ServiceAddon::query()
             ->with('service')
+            ->whereIn('service_id', Service::query()->select('id'))
             ->where('status', ServiceStatus::Active->value)
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<', $today)
             ->orderBy('id')
             ->each(function (ServiceAddon $addon) use ($today, &$count): void {
-                if (! $this->shouldSuspend($addon, $addon->service->suspend_days_override, $today)) {
+                if (! $this->shouldSuspend($addon, $addon->service->suspend_days_override ?? $this->catalog->product($addon->service->product_id)?->suspendAfterDays, $today)) {
                     return;
                 }
 

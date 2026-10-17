@@ -37,8 +37,15 @@ class ApplyServiceChange
                 return null;
             }
 
-            /** @var Service $service */
-            $service = Service::query()->lockForUpdate()->findOrFail($change->service_id);
+            $service = Service::query()->lockForUpdate()->find($change->service_id);
+
+            if ($service === null || ! in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)) {
+                $change->update(['status' => ChangeStatus::ApplyFailed]);
+                $this->activity->log('Paid change not applied: the service is no longer active', $service, $service?->client_id, ['change_id' => $change->id]);
+
+                return null;
+            }
+
             $to = $change->to_snapshot;
 
             $service->fill([
@@ -55,7 +62,7 @@ class ApplyServiceChange
                 $service->billing_anchor_day = $to['billing_anchor_day'];
             }
 
-            $cancelled = $this->cancelRenewals->handle($service, $rebased ? null : $service->next_due_date);
+            $cancelled = $this->cancelRenewals->handle($service, $rebased ? null : $service->next_due_date, includeAddons: false);
 
             if ($cancelled > 0 || $rebased) {
                 $service->next_invoice_date = $service->next_due_date;

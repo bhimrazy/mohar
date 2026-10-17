@@ -5,7 +5,6 @@ namespace App\Modules\Services\Http\Controllers\Client;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Actions\OrderServiceChange;
-use App\Modules\Services\Actions\QuoteServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
 use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
 use App\Modules\Services\Enums\ModuleCommandName;
@@ -47,12 +46,12 @@ class ServiceActionController extends Controller
         return to_route('client.services.show', $model->id);
     }
 
-    public function change(ServiceChangeRequest $request, int $service, QuoteServiceChange $quotes, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, int $service, OrderServiceChange $order): RedirectResponse
     {
         $model = $this->owned($service);
         $today = CarbonImmutable::today();
 
-        $change = $this->attempt(fn () => $order->handle($model, $quotes->handle($model, $request->integer('product_id'), $request->cycle(), $today), $today), 'product_id');
+        $change = $this->attempt(fn () => $order->handle($model, $request->integer('product_id'), $request->cycle(), $today), 'product_id');
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $change->invoice_id !== null
             ? __('Your upgrade is ready. Pay invoice #:invoice to apply it.', ['invoice' => $change->invoice_id])

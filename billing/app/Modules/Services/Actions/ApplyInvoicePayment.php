@@ -47,32 +47,74 @@ class ApplyInvoicePayment
      */
     public function handle(int $invoiceId, array $lines): void
     {
-        foreach ($lines as $line) {
+        foreach ($this->netAmounts($lines) as $index => $net) {
+            $line = $lines[$index];
+
             if ($line->billableId === null) {
                 continue;
             }
 
             match ($line->billableType) {
-                BillableType::Service => $this->applyServiceLine($invoiceId, $line, $line->billableId),
-                BillableType::ServiceAddon => $this->applyAddonLine($invoiceId, $line, $line->billableId),
+                BillableType::Service => $this->applyServiceLine($invoiceId, $line, $line->billableId, $net),
+                BillableType::ServiceAddon => $this->applyAddonLine($invoiceId, $line, $line->billableId, $net),
                 BillableType::ServiceUpgrade => $this->applyChange->handle($line->billableId),
                 default => null,
             };
         }
     }
 
-    private function applyServiceLine(int $invoiceId, InvoiceLineData $line, int $serviceId): void
+    /**
+     * Net amount per billable line: Promotion lines belong to the closest preceding Service or
+     * ServiceAddon line (Orders and renewals emit item → setup? → promotion), so the stored period
+     * amount is what the client actually paid (used for downgrade credits).
+     *
+     * @param  list<InvoiceLineData>  $lines
+     * @return array<int, int> line index => net amount
+     */
+    private function netAmounts(array $lines): array
     {
-        $result = DB::transaction(function () use ($invoiceId, $line, $serviceId): ?array {
+        $net = [];
+        $owner = null;
+
+        foreach ($lines as $index => $line) {
+            if (in_array($line->billableType, [BillableType::Service, BillableType::ServiceAddon], true)) {
+                $owner = $index;
+                $net[$index] = $line->total();
+            } elseif ($line->billableType === BillableType::Promotion && $owner !== null) {
+                $net[$owner] = max(0, $net[$owner] + $line->total());
+            } elseif ($line->billableType === BillableType::ServiceUpgrade) {
+                $net[$index] = $line->total();
+            }
+        }
+
+        return $net;
+    }
+
+    /**
+     * Whether this invoice was already applied to the item (replays of lines without a period must
+     * not re-derive a period from the moved due date).
+     */
+    private function alreadyApplied(Service|ServiceAddon $item, int $invoiceId, InvoiceLineData $line): bool
+    {
+        return $line->periodStart === null && ServiceInvoice::query()
+            ->where($item instanceof Service ? 'service_id' : 'service_addon_id', $item->id)
+            ->where('invoice_id', $invoiceId)
+            ->where('status', InvoiceLinkStatus::Paid->value)
+            ->exists();
+    }
+
+    private function applyServiceLine(int $invoiceId, InvoiceLineData $line, int $serviceId, int $net): void
+    {
+        $result = DB::transaction(function () use ($invoiceId, $line, $serviceId, $net): ?array {
             $service = Service::query()->lockForUpdate()->find($serviceId);
 
-            if ($service === null) {
+            if ($service === null || $this->alreadyApplied($service, $invoiceId, $line)) {
                 return null;
             }
 
             $wasPending = $service->status === ServiceStatus::Pending;
             [$start, $end] = $this->period($service, $line, $wasPending);
-            $this->links->record($service, $invoiceId, $wasPending ? InvoiceLinkKind::Order : InvoiceLinkKind::Renewal, $start, $end, $line->total(), InvoiceLinkStatus::Paid);
+            $this->links->record($service, $invoiceId, $wasPending ? InvoiceLinkKind::Order : InvoiceLinkKind::Renewal, $start, $end, $net, InvoiceLinkStatus::Paid);
 
             $renewed = false;
 
@@ -110,18 +152,18 @@ class ApplyInvoicePayment
         $this->liftPaymentSuspension($service);
     }
 
-    private function applyAddonLine(int $invoiceId, InvoiceLineData $line, int $addonId): void
+    private function applyAddonLine(int $invoiceId, InvoiceLineData $line, int $addonId, int $net): void
     {
-        $addon = DB::transaction(function () use ($invoiceId, $line, $addonId): ?ServiceAddon {
+        $addon = DB::transaction(function () use ($invoiceId, $line, $addonId, $net): ?ServiceAddon {
             $addon = ServiceAddon::query()->lockForUpdate()->find($addonId);
 
-            if ($addon === null) {
+            if ($addon === null || $this->alreadyApplied($addon, $invoiceId, $line)) {
                 return null;
             }
 
             $wasPending = $addon->status === ServiceStatus::Pending;
             [$start, $end] = $this->period($addon, $line, $wasPending);
-            $this->links->record($addon, $invoiceId, $wasPending ? InvoiceLinkKind::Order : InvoiceLinkKind::Renewal, $start, $end, $line->total(), InvoiceLinkStatus::Paid);
+            $this->links->record($addon, $invoiceId, $wasPending ? InvoiceLinkKind::Order : InvoiceLinkKind::Renewal, $start, $end, $net, InvoiceLinkStatus::Paid);
 
             if ($addon->cycle->isRecurring() && $addon->next_due_date !== null) {
                 $paidThrough = BillingDates::paidThrough($addon->next_due_date, ServiceInvoice::query()->where('service_addon_id', $addon->id)->get());

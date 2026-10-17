@@ -22,29 +22,33 @@ use Illuminate\Support\Facades\DB;
  * Automation task (RENEWALS): issue renewal invoices for services and addons whose next
  * uninvoiced period starts within the lead time (services.md §4.3).
  *
- * Idempotent: the next_invoice_date pointer advances in the same transaction as the invoice is
- * issued, rows are locked, and Invoicer::hasInvoiceForPeriod() guards against re-issuing a period.
- * Addons sharing the parent's period start and currency go on the parent's invoice.
+ * - One billable item per renewal invoice (ADR 0008): cancelling an invoice cancels exactly one period.
+ * - Idempotent: the next_invoice_date pointer advances in the same transaction as the invoice is
+ *   issued, rows are locked, and Invoicer::hasInvoiceForPeriod() guards against re-issuing a period.
+ * - Recurring promotions: while promotion_cycles_remaining ≠ 0 a negative Promotion line of
+ *   renewal_discount is added and the counter decremented (null = forever).
  */
 class GenerateRenewals
 {
     public function __construct(private Billing $billing, private ServiceSettings $settings, private InvoiceLinks $links) {}
 
     /**
-     * @return int number of periods invoiced
+     * @return int|string number of periods invoiced, or why the task was skipped
      */
-    public function handle(CarbonImmutable $today): int
+    public function handle(CarbonImmutable $today): int|string
     {
         if (! $this->billing->available()) {
-            return 0;
+            return 'skipped: no Billing module';
         }
 
         $horizon = $today->addDays($this->settings->maxLeadDays());
+        $billable = array_map(fn (ServiceStatus $status): string => $status->value, ServiceStatus::billable());
+        $recurring = array_map(fn (BillingCycle $cycle): string => $cycle->value, BillingCycle::recurring());
         $invoiced = 0;
 
         Service::query()
-            ->whereIn('status', array_map(fn (ServiceStatus $status): string => $status->value, ServiceStatus::billable()))
-            ->whereIn('cycle', array_map(fn (BillingCycle $cycle): string => $cycle->value, BillingCycle::recurring()))
+            ->whereIn('status', $billable)
+            ->whereIn('cycle', $recurring)
             ->where('do_not_renew', false)
             ->where('terminate_at_period_end', false)
             ->whereNotNull('next_invoice_date')
@@ -57,14 +61,15 @@ class GenerateRenewals
             });
 
         ServiceAddon::query()
-            ->whereIn('status', array_map(fn (ServiceStatus $status): string => $status->value, ServiceStatus::billable()))
-            ->whereIn('cycle', array_map(fn (BillingCycle $cycle): string => $cycle->value, BillingCycle::recurring()))
+            ->whereIn('status', $billable)
+            ->whereIn('cycle', $recurring)
+            ->whereIn('service_id', Service::query()->select('id'))
             ->whereNotNull('next_invoice_date')
             ->whereDate('next_invoice_date', '<=', $horizon)
             ->orderBy('id')
             ->chunkById(200, function ($addons) use ($today, &$invoiced): void {
                 foreach ($addons as $addon) {
-                    $invoiced += $this->renewStandaloneAddon($addon->id, $today);
+                    $invoiced += $this->renewAddon($addon->id, $today);
                 }
             });
 
@@ -94,15 +99,6 @@ class GenerateRenewals
                 return 0;
             }
 
-            $addons = $service->addons()
-                ->whereIn('status', array_map(fn (ServiceStatus $status): string => $status->value, ServiceStatus::billable()))
-                ->where('currency', $service->currency)
-                ->whereDate('next_invoice_date', $start)
-                ->lockForUpdate()
-                ->get()
-                ->filter(fn (ServiceAddon $addon): bool => $addon->cycle->isRecurring()
-                    && ! $this->billing->invoicer()->hasInvoiceForPeriod(BillableType::ServiceAddon, $addon->id, $start));
-
             $lines = [new InvoiceLineData(
                 $this->describe($service->product_name ?? 'Service', $service->domain, $start, $end),
                 $service->recurring_amount,
@@ -114,12 +110,19 @@ class GenerateRenewals
                 $end,
             )];
 
-            $addonPeriods = [];
+            $discount = $this->promotionDiscount($service);
 
-            foreach ($addons as $addon) {
-                $addonEnd = BillingDates::periodEnd($addon->cycle, $start, $addon->billing_anchor_day);
-                $addonPeriods[$addon->id] = $addonEnd;
-                $lines[] = new InvoiceLineData($this->describe($addon->name, $service->domain, $start, $addonEnd), $addon->recurring_amount, 1, true, BillableType::ServiceAddon, $addon->id, $start, $addonEnd);
+            if ($discount > 0) {
+                $lines[] = new InvoiceLineData(
+                    'Promotion discount',
+                    -$discount,
+                    1,
+                    true,
+                    BillableType::Promotion,
+                    $service->promotion_id ?? $service->id,
+                    $start,
+                    $end,
+                );
             }
 
             $result = $this->billing->invoicer()->issue(new InvoiceDraft(
@@ -131,28 +134,30 @@ class GenerateRenewals
                 paymentGateway: $service->payment_gateway,
             ));
 
-            $this->links->record($service, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $end, $service->recurring_amount, $this->linkStatus($result->status));
-            $service->update(['next_invoice_date' => $end, 'renewals_invoiced' => $service->renewals_invoiced + 1]);
+            $this->links->record($service, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $end, $service->recurring_amount - $discount, $this->linkStatus($result->status));
 
-            foreach ($addons as $addon) {
-                $this->links->record($addon, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $addonPeriods[$addon->id], $addon->recurring_amount, $this->linkStatus($result->status));
-                $addon->update(['next_invoice_date' => $addonPeriods[$addon->id]]);
+            $service->refresh()->fill(['next_invoice_date' => $end, 'renewals_invoiced' => $service->renewals_invoiced + 1]);
+
+            if ($discount > 0 && $service->promotion_cycles_remaining !== null) {
+                $service->promotion_cycles_remaining = max(0, $service->promotion_cycles_remaining - 1);
             }
 
-            return 1 + $addons->count();
+            $service->save();
+
+            return 1;
         });
     }
 
-    private function renewStandaloneAddon(int $addonId, CarbonImmutable $today): int
+    private function renewAddon(int $addonId, CarbonImmutable $today): int
     {
         return DB::transaction(function () use ($addonId, $today): int {
-            $addon = ServiceAddon::query()->with('service')->lockForUpdate()->find($addonId);
+            $addon = ServiceAddon::query()->lockForUpdate()->find($addonId);
+            $service = $addon !== null ? Service::query()->find($addon->service_id) : null;
 
-            if ($addon === null || $addon->next_invoice_date === null) {
+            if ($addon === null || $service === null || $addon->next_invoice_date === null
+                || ! in_array($addon->status, ServiceStatus::billable(), true)) {
                 return 0;
             }
-
-            $service = $addon->service;
 
             if ($service->do_not_renew || $service->terminate_at_period_end
                 || $addon->next_invoice_date->subDays($this->settings->leadDays($addon->cycle))->gt($today)) {
@@ -182,10 +187,22 @@ class GenerateRenewals
             ));
 
             $this->links->record($addon, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $end, $addon->recurring_amount, $this->linkStatus($result->status));
-            $addon->update(['next_invoice_date' => $end]);
+            $addon->refresh()->update(['next_invoice_date' => $end]);
 
             return 1;
         });
+    }
+
+    /**
+     * Renewal discount while the recurring promotion still applies (null cycles = forever).
+     */
+    private function promotionDiscount(Service $service): int
+    {
+        if ($service->renewal_discount <= 0 || $service->promotion_cycles_remaining === 0) {
+            return 0;
+        }
+
+        return min($service->renewal_discount, $service->recurring_amount);
     }
 
     private function isDue(Service $service, CarbonImmutable $today): bool

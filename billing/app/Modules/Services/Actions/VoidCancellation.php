@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Events\Services\CancellationVoided;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Exceptions\ServiceActionException;
@@ -34,5 +35,7 @@ class VoidCancellation
             $service->update(['do_not_renew' => false, 'terminate_at_period_end' => false, 'next_invoice_date' => $service->next_due_date]);
             $this->activity->log('Cancellation request voided', $service, $service->client_id);
         });
+
+        CancellationVoided::dispatch($request->service_id, $request->service->client_id, $request->id);
     }
 }

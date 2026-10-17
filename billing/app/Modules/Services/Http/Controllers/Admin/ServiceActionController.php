@@ -4,7 +4,6 @@ namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Services\Actions\OrderServiceChange;
-use App\Modules\Services\Actions\QuoteServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
 use App\Modules\Services\Actions\SetServiceStatus;
 use App\Modules\Services\Enums\ServiceStatus;
@@ -55,12 +54,12 @@ class ServiceActionController extends Controller
         return back();
     }
 
-    public function change(ServiceChangeRequest $request, Service $service, QuoteServiceChange $quotes, OrderServiceChange $order): RedirectResponse
+    public function change(ServiceChangeRequest $request, Service $service, OrderServiceChange $order): RedirectResponse
     {
         $this->authorize('services.services.manage');
         $today = CarbonImmutable::today();
 
-        $change = $this->attempt(fn () => $order->handle($service, $quotes->handle($service, $request->integer('product_id'), $request->cycle(), $today), $today));
+        $change = $this->attempt(fn () => $order->handle($service, $request->integer('product_id'), $request->cycle(), $today));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $change->invoice_id !== null
             ? __('Upgrade ordered. It is applied when invoice #:invoice is paid.', ['invoice' => $change->invoice_id])

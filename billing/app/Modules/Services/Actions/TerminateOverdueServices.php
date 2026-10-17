@@ -7,6 +7,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\OverduePolicy;
+use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
 
@@ -20,6 +21,7 @@ class TerminateOverdueServices
         private OverduePolicy $overdue,
         private ModuleCommandDispatcher $commands,
         private ServiceSettings $settings,
+        private Catalog $catalog,
     ) {}
 
     public function handle(CarbonImmutable $today): int
@@ -42,7 +44,7 @@ class TerminateOverdueServices
 
                 $days = $this->overdue->daysOverdue($service, $today);
 
-                if ($days !== null && $days >= ($service->terminate_days_override ?? $this->settings->terminateDays())) {
+                if ($days !== null && $days >= ($service->terminate_days_override ?? $this->catalog->product($service->product_id)->terminateAfterDays ?? $this->settings->terminateDays())) {
                     $this->commands->queue($service, ModuleCommandName::Terminate);
                     $count++;
                 }

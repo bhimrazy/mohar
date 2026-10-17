@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Events\Services\ServiceCompleted;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
@@ -32,12 +33,24 @@ class CompleteLimitedServices
                     return;
                 }
 
-                DB::transaction(function () use ($service): void {
-                    $service->status->assertCanTransitionTo(ServiceStatus::Completed);
-                    $service->update(['status' => ServiceStatus::Completed, 'do_not_renew' => true]);
-                    $this->activity->log('Service completed (billing cycle limit reached)', $service, $service->client_id);
+                $completed = DB::transaction(function () use ($service): bool {
+                    $locked = Service::query()->lockForUpdate()->find($service->id);
+
+                    if ($locked === null || ! $locked->status->canTransitionTo(ServiceStatus::Completed)) {
+                        return false;
+                    }
+
+                    $locked->update(['status' => ServiceStatus::Completed, 'do_not_renew' => true]);
+                    $locked->addons()->whereIn('status', ServiceStatus::occupyingValues())->update(['status' => ServiceStatus::Completed->value]);
+                    $this->activity->log('Service completed (billing cycle limit reached)', $locked, $locked->client_id);
+
+                    return true;
                 });
-                $count++;
+
+                if ($completed) {
+                    ServiceCompleted::dispatch($service->id, $service->client_id);
+                    $count++;
+                }
             });
 
         return $count;

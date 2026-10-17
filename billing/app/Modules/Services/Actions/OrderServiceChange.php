@@ -5,19 +5,21 @@ namespace App\Modules\Services\Actions;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
+use App\Enums\BillingCycle;
 use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Support\Billing;
-use App\Modules\Services\Support\ChangeQuote;
 use App\Modules\Services\Support\ServiceSettings;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Orders an upgrade/downgrade: amount due > 0 → upgrade invoice (applied when paid);
- * amount due ≤ 0 → applied immediately, with the difference credited when enabled.
+ * Orders an upgrade/downgrade. The quote is computed inside the transaction on the locked service
+ * row, so concurrent submits are serialized and the second one sees the first change.
+ * Amount due > 0 → upgrade invoice (applied when paid); ≤ 0 → applied immediately, and the
+ * difference is credited (same transaction, once per change) only when credit_on_downgrade is on.
  */
 class OrderServiceChange
 {
@@ -28,12 +30,12 @@ class OrderServiceChange
         private ServiceSettings $settings,
     ) {}
 
-    public function handle(Service $service, ChangeQuote $quote, CarbonImmutable $today): ServiceChange
+    public function handle(Service $service, int $toProductId, BillingCycle $toCycle, CarbonImmutable $today): ServiceChange
     {
-        $change = DB::transaction(function () use ($service, $quote, $today): ServiceChange {
+        $change = DB::transaction(function () use ($service, $toProductId, $toCycle, $today): ServiceChange {
             /** @var Service $locked */
             $locked = Service::query()->lockForUpdate()->findOrFail($service->id);
-            $this->quotes->assertEligible($locked, $today);
+            $quote = $this->quotes->handle($locked, $toProductId, $toCycle, $today);
 
             $change = ServiceChange::query()->create([
                 'service_id' => $locked->id,
@@ -70,18 +72,18 @@ class OrderServiceChange
                 ));
 
                 $change->update(['invoice_id' => $result->invoiceId]);
+
+                return $change;
             }
 
-            return $change;
-        });
-
-        if ($change->amount_due <= 0) {
-            if ($change->amount_due < 0 && $this->settings->creditOnDowngrade()) {
-                $this->billing->credits()->credit($service->client_id, Money::of(-$change->amount_due, $change->currency), "Downgrade credit for service #{$service->id}");
+            if ($quote->amountDue() < 0 && $this->settings->creditOnDowngrade()) {
+                $this->billing->credits()->credit($locked->client_id, Money::of(-$quote->amountDue(), $quote->currency), "Downgrade credit for service #{$locked->id} (change #{$change->id})");
             }
 
             $this->apply->handle($change->id);
-        }
+
+            return $change;
+        });
 
         return $change->refresh();
     }

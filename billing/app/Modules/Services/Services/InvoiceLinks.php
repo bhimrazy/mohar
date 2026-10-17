@@ -10,8 +10,9 @@ use App\Modules\Services\Models\ServiceInvoice;
 use Carbon\CarbonImmutable;
 
 /**
- * Maintains the local invoice ↔ period mirror (service_invoices). Recording the same
- * (invoice, item, period) twice updates one row; a paid row never goes back to open.
+ * Maintains the local invoice ↔ period mirror (service_invoices): one row per (invoice, item),
+ * because an invoice bills at most one period of an item. Recording it again updates that row;
+ * a paid row never goes back to open and keeps its period.
  */
 class InvoiceLinks
 {
@@ -29,13 +30,11 @@ class InvoiceLinks
         $link = ServiceInvoice::query()
             ->where($column, $item->id)
             ->where('invoice_id', $invoiceId)
-            ->when($periodStart !== null, fn ($query) => $query->whereDate('period_start', $periodStart), fn ($query) => $query->whereNull('period_start'))
+            ->orderBy('id')
             ->first() ?? new ServiceInvoice([$column => $item->id, 'invoice_id' => $invoiceId, 'kind' => $kind, 'status' => $status]);
 
-        $link->fill(['period_start' => $periodStart, 'period_end' => $periodEnd, 'amount' => $amount]);
-
-        if ($link->status !== InvoiceLinkStatus::Paid) {
-            $link->status = $status;
+        if ($link->status !== InvoiceLinkStatus::Paid || ! $link->exists) {
+            $link->fill(['period_start' => $periodStart, 'period_end' => $periodEnd, 'amount' => $amount, 'status' => $status]);
         }
 
         $link->save();

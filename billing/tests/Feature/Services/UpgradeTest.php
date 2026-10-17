@@ -27,10 +27,7 @@ beforeEach(function () {
 
 function orderChange(Service $service, int $product, BillingCycle $cycle, string $today): ServiceChange
 {
-    $date = CarbonImmutable::parse($today);
-    $quote = app(QuoteServiceChange::class)->handle($service, $product, $cycle, $date);
-
-    return app(OrderServiceChange::class)->handle($service, $quote, $date);
+    return app(OrderServiceChange::class)->handle($service, $product, $cycle, CarbonImmutable::parse($today));
 }
 
 test('the upgrade invoice is prorated and the service changes only once it is paid', function () {

@@ -10,6 +10,7 @@ use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\ServiceActionException;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Models\ServiceInvoice;
 use App\Modules\Services\Support\BillingDates;
 use App\Modules\Services\Support\Catalog;
@@ -48,7 +49,7 @@ class QuoteServiceChange
             throw new ServiceActionException(__('This service cannot be changed to that product.'));
         }
 
-        $quote = $priceBook->quote(new ProductSelection($toProductId, $toCycle, $service->currency, array_map('intval', $service->config_options['selections'] ?? [])));
+        $quote = $priceBook->quote(new ProductSelection($toProductId, $toCycle, $service->currency, array_map('intval', $service->config_options['selections'] ?? []), $service->client_id));
 
         if ($quote === null) {
             throw new ServiceActionException(__('That product is not offered in this billing cycle.'));
@@ -65,7 +66,7 @@ class QuoteServiceChange
         /** @var CarbonImmutable $periodEnd */
         $periodEnd = $service->next_due_date;
         $periodStart = BillingDates::periodStartBefore($service->cycle, $periodEnd, $service->billing_anchor_day);
-        $old = Proration::calculate($this->invoicedAmount($service), $quote->recurring, $periodStart, $periodEnd, $today);
+        $old = Proration::calculate($this->currentPeriodAmount($service, $periodStart), $quote->recurring, $periodStart, $periodEnd, $today);
 
         if ($cycleChanges) {
             return new ChangeQuote($kind, $toProductId, $name, $toCycle, $quote->recurring, $service->currency, Proration::fullCharge($quote->recurring, $old->credit), $toCycle->advance($today, 1, $today->day), $today->day);
@@ -93,17 +94,39 @@ class QuoteServiceChange
     }
 
     /**
-     * Net amount actually invoiced for the current period; falls back to the recurring amount.
+     * What the client effectively pays for the current period, used for the credit side:
+     * - the target price of the latest change already applied in this period (so downgrade →
+     *   upgrade loops can never mint credit: each step is priced from the previous step), else
+     * - the net amount (service line + its promotion lines) actually paid for the period, else
+     * - the recurring amount less any active renewal discount.
      */
-    private function invoicedAmount(Service $service): int
+    public function currentPeriodAmount(Service $service, CarbonImmutable $periodStart): int
     {
+        $applied = ServiceChange::query()
+            ->where('service_id', $service->id)
+            ->where('status', ChangeStatus::Applied->value)
+            ->where('applied_at', '>=', $periodStart->startOfDay())
+            ->orderByDesc('applied_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($applied !== null) {
+            return (int) $applied->to_snapshot['recurring_amount'];
+        }
+
         $link = ServiceInvoice::query()
             ->where('service_id', $service->id)
             ->where('status', InvoiceLinkStatus::Paid->value)
             ->whereDate('period_end', $service->next_due_date)
-            ->latest('id')
+            ->orderByDesc('id')
             ->first();
 
-        return $link->amount ?? $service->recurring_amount;
+        if ($link !== null) {
+            return $link->amount;
+        }
+
+        $discount = $service->promotion_cycles_remaining === 0 ? 0 : $service->renewal_discount;
+
+        return max(0, $service->recurring_amount - $discount);
     }
 }
