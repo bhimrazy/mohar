@@ -1,0 +1,153 @@
+# Single CI source of truth for the billing app (the Laravel project lives in billing/).
+# Every third-party action and image is pinned to a commit SHA / digest published at least two weeks
+# before adoption. Dependabot (.github/dependabot.yml, 14-day cooldown) updates the actions and the images
+# in billing/compose.yaml; it does NOT update `services:` images here, so the lint job fails when the
+# postgres service image drifts from compose.yaml.
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+    run:
+        working-directory: billing
+
+env:
+    XDEBUG_MODE: 'off'
+
+jobs:
+    lint:
+        name: Lint (Pint, vp check, tsc)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+              with:
+                  node: 'true'
+
+            - name: Postgres image matches compose.yaml
+              run: |
+                  pattern='postgres:[0-9.]+-alpine[0-9.]*@sha256:[0-9a-f]{64}'
+                  compose_image=$(grep -Eo "$pattern" compose.yaml | sort -u)
+                  ci_image=$(grep -Eo "$pattern" ../.github/workflows/ci.yml | sort -u)
+                  echo "compose.yaml: ${compose_image:-<none>}"
+                  echo "ci.yml:       ${ci_image:-<none>}"
+                  if [ -z "$compose_image" ] || [ "$(wc -l <<< "$compose_image")" -ne 1 ] || [ "$compose_image" != "$ci_image" ]; then
+                      echo "::error file=.github/workflows/ci.yml::tests-pgsql service image must equal the postgres image in billing/compose.yaml"
+                      exit 1
+                  fi
+
+            - name: Pint
+              run: vendor/bin/pint --parallel --test
+
+            - name: vp check (format + lint)
+              run: npx vp check
+
+            - name: TypeScript
+              run: npx tsc --noEmit
+
+    static:
+        name: Static analysis (Larastan)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: PHPStan
+              run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
+
+    tests-sqlite:
+        name: Tests (SQLite)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: Pest
+              run: vendor/bin/pest --parallel
+
+    tests-pgsql:
+        name: Tests (PostgreSQL)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        services:
+            postgres:
+                # Must equal the postgres image in billing/compose.yaml (asserted by the lint job).
+                image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+                env:
+                    POSTGRES_DB: billing_test
+                    POSTGRES_USER: billing
+                    POSTGRES_PASSWORD: billing
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U billing -d billing_test"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        env:
+            DB_CONNECTION: pgsql
+            DB_HOST: 127.0.0.1
+            DB_PORT: '5432'
+            DB_DATABASE: billing_test
+            DB_USERNAME: billing
+            DB_PASSWORD: billing
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: Migrate, seed and Pest on PostgreSQL
+              run: composer test:pgsql
+
+    build:
+        name: Build frontend
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+              with:
+                  node: 'true'
+
+            - name: Build
+              run: npm run build

@@ -5,9 +5,11 @@ namespace App\Modules\Core\Models;
 use App\Modules\Core\Database\Factories\ContactFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
@@ -31,6 +33,16 @@ class Contact extends Model
     protected function casts(): array
     {
         return ['email_preferences' => 'array'];
+    }
+
+    /**
+     * Emails are stored lowercase: unique indexes and equality lookups are case-sensitive on PostgreSQL.
+     *
+     * @return Attribute<string, string>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => Str::lower($value));
     }
 
     /**

@@ -1,0 +1,64 @@
+name: Set up billing app
+description: PHP + Composer dependencies (cached), optional Node + npm dependencies (cached), .env and app key.
+
+inputs:
+    node:
+        description: Also install Node and npm dependencies and generate Wayfinder routes.
+        required: false
+        default: 'false'
+
+runs:
+    using: composite
+    steps:
+        - name: Set up PHP
+          uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+          with:
+              php-version: '8.4'
+              tools: composer:2.10.3
+              extensions: pdo_sqlite, pdo_pgsql, pgsql
+              coverage: none
+
+        - name: Locate Composer cache
+          id: composer-cache
+          shell: bash
+          working-directory: billing
+          run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+        - name: Cache Composer downloads
+          uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+          with:
+              path: ${{ steps.composer-cache.outputs.dir }}
+              key: composer-${{ runner.os }}-${{ hashFiles('billing/composer.lock') }}
+              restore-keys: composer-${{ runner.os }}-
+
+        - name: Install Composer dependencies
+          shell: bash
+          working-directory: billing
+          run: composer install --no-interaction --no-progress --prefer-dist
+
+        - name: Prepare environment
+          shell: bash
+          working-directory: billing
+          run: |
+              cp .env.example .env
+              php artisan key:generate --ansi
+
+        - name: Set up Node
+          if: inputs.node == 'true'
+          uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+          with:
+              node-version-file: billing/.nvmrc
+              cache: npm
+              cache-dependency-path: billing/package-lock.json
+
+        - name: Install npm dependencies
+          if: inputs.node == 'true'
+          shell: bash
+          working-directory: billing
+          run: npm ci --no-audit --no-fund
+
+        - name: Generate Wayfinder routes
+          if: inputs.node == 'true'
+          shell: bash
+          working-directory: billing
+          run: php artisan wayfinder:generate --with-form
