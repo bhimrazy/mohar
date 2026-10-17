@@ -320,12 +320,13 @@ describe('product', function () {
             ->suspendAfterDays->toBe(5)
             ->terminateAfterDays->toBe(40)
             ->recurringCycleLimit->toBe(12)
-            ->termMonths->toBe(3)
+            ->termDays->toBe(90)
+            ->freeDomainRecurring->toBeFalse()
             ->allowedGateways->toBe(['bank_transfer'])
             ->and(priceBook()->productBySlug('missing'))->toBeNull()
             ->and(priceBook()->product(Product::factory()->create()->id))
             ->recurringCycleLimit->toBeNull()
-            ->termMonths->toBeNull()
+            ->termDays->toBeNull()
             ->allowedGateways->toBeNull()
             ->prorataDay->toBeNull();
     });

@@ -389,10 +389,11 @@ class CatalogPriceBook implements PriceBook
             freeDomain: $product->free_domain !== FreeDomain::None,
             freeDomainTlds: array_map('strval', $product->free_domain_tlds ?? []),
             freeDomainCycles: array_map('strval', $product->free_domain_cycles ?? []),
+            freeDomainRecurring: $product->free_domain === FreeDomain::Recurring,
             suspendAfterDays: $product->suspend_days_override,
             terminateAfterDays: $product->terminate_days_override,
             recurringCycleLimit: $product->recurring_cycles_limit > 0 ? $product->recurring_cycles_limit : null,
-            termMonths: $product->fixed_term_days > 0 ? max(1, intdiv($product->fixed_term_days + 29, 30)) : null,
+            termDays: $product->fixed_term_days > 0 ? $product->fixed_term_days : null,
             slug: $product->slug,
             allowedGateways: $product->group->allowed_gateways === null ? null : array_map('strval', $product->group->allowed_gateways),
         );
