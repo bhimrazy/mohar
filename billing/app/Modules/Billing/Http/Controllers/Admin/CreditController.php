@@ -9,6 +9,7 @@ use App\Modules\Billing\Http\Resources\CreditEntryResource;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,12 +47,12 @@ class CreditController extends Controller
         ]);
     }
 
-    public function store(CreditAdjustmentRequest $request, CreditLedgerService $ledger): RedirectResponse
+    public function store(CreditAdjustmentRequest $request, CreditLedgerService $ledger, ActivityLogger $activity): RedirectResponse
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
         $amount = Money::of($request->minor('amount', $client->currency), $client->currency);
 
-        $ledger->post(
+        $entry = $ledger->post(
             $client->id,
             $request->string('direction')->toString() === 'remove' ? $amount->negate() : $amount,
             CreditReason::Manual,
@@ -59,6 +60,7 @@ class CreditController extends Controller
             staffId: $request->user()?->id,
         );
 
+        $activity->log('Credit balance adjusted', $entry, $client->id, ['amount' => $entry->amount, 'balance_after' => $entry->balance_after, 'reason' => $entry->description]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Credit balance updated.')]);
 
         return back();

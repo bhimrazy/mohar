@@ -6,9 +6,6 @@
 */
 
 return [
-    // The simulated sandbox gateway (no money moves). Null = enabled everywhere except production.
-    'sandbox_enabled' => env('BILLING_SANDBOX_ENABLED'),
-
     // Numbering (§3)
     'number_format' => '{NUMBER}',
     'number_padding' => 0,

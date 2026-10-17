@@ -18,16 +18,16 @@ test('the sandbox gateway is disabled in production unless explicitly forced', f
 
     expect(SandboxCardDriver::enabled())->toBeFalse();
 
-    config(['billing.sandbox_enabled' => true]);
+    config(['billing_sandbox.enabled' => true]);
     expect(SandboxCardDriver::enabled())->toBeTrue();
 
     app()->detectEnvironment(fn () => 'testing');
-    config(['billing.sandbox_enabled' => null]);
+    config(['billing_sandbox.enabled' => null]);
     expect(SandboxCardDriver::enabled())->toBeTrue();
 });
 
 test('a disabled sandbox is not registered and cannot be activated', function () {
-    config(['billing.sandbox_enabled' => false]);
+    config(['billing_sandbox.enabled' => false]);
     app()->forgetInstance(GatewayManager::class);
     app()->forgetInstance(GatewayRegistry::class);
 

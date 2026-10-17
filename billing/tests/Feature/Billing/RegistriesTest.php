@@ -44,9 +44,7 @@ test('every billing permission used by the module is registered', function () {
 test('every billing config default has a setting definition', function () {
     $keys = collect(app(SettingsRegistry::class)->sections()['billing']['settings'])->map(fn (SettingDefinition $definition) => $definition->key);
     $defaults = collect(Arr::dot(config('billing')))->keys()
-        ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique()
-        // Deployment-only switch: staff must never be able to enable the sandbox at runtime.
-        ->reject(fn (string $key) => $key === 'billing.sandbox_enabled');
+        ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
 
     expect($defaults->diff($keys)->values()->all())->toBe([]);
 });
@@ -166,12 +164,12 @@ test('payments are refused when the order payment guard says so', function () {
 });
 
 test('invoice queries report whether any billing document uses a currency', function () {
-    $queries = app(App\Contracts\Billing\InvoiceQueries::class);
+    $queries = app(InvoiceQueries::class);
     billingClient();
 
     expect($queries->hasDocumentsInCurrency('USD'))->toBeFalse();
 
-    App\Modules\Billing\Models\Quote::factory()->create();
+    Quote::factory()->create();
 
     expect($queries->hasDocumentsInCurrency('usd'))->toBeTrue()
         ->and($queries->hasDocumentsInCurrency('NPR'))->toBeFalse();

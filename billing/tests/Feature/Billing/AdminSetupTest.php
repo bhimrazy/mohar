@@ -1,10 +1,13 @@
 <?php
 
+use App\Events\Billing\GatewayConfigurationChanged;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Core\Models\ActivityLog;
+use Illuminate\Support\Facades\Event;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -116,4 +119,26 @@ test('quotes are created, sent and converted once', function () {
 
     expect(Invoice::query()->where('client_id', $client->id)->count())->toBe(1);
     $this->get(route('admin.billing.quotes.show', $quote))->assertInertia(fn (Assert $page) => $page->component('admin/billing/quotes/show')->where('quote.invoice_id', $quote->fresh()->invoice_id));
+});
+
+test('gateway, tax, refund and credit changes are audit-logged without secret values', function () {
+    Event::fake([GatewayConfigurationChanged::class]);
+    actingAsStaff(['billing.*']);
+    $client = billingClient();
+
+    $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
+        'display_name' => 'Card', 'is_active' => true, 'show_on_order_form' => true, 'settings' => ['webhook_secret' => 'whsec_very_secret_value'],
+    ]);
+    $this->post(route('admin.billing.tax-rules.store'), ['name' => 'VAT', 'level' => 1, 'rate' => '5']);
+    $this->post(route('admin.billing.credit.store'), ['client_id' => $client->id, 'direction' => 'add', 'amount' => '5.00', 'description' => 'Goodwill']);
+    $payment = payInvoice(issueInvoice($client, [1_000]), 1_000);
+    $this->post(route('admin.billing.transactions.refund', $payment), ['amount' => '5.00', 'mode' => 'record_only']);
+
+    $log = ActivityLog::query()->pluck('description');
+    expect($log)->toContain('Payment gateway sandbox_card changed', 'Tax rule created', 'Credit balance adjusted', 'Refund issued');
+
+    $gatewayEntry = ActivityLog::query()->where('description', 'Payment gateway sandbox_card changed')->firstOrFail();
+    expect(json_encode($gatewayEntry->properties))->not->toContain('whsec_very_secret_value')
+        ->and($gatewayEntry->properties['changes']['settings.webhook_secret'])->toBe('rotated');
+    Event::assertDispatched(GatewayConfigurationChanged::class, fn ($event) => $event->changes['settings.webhook_secret'] === 'rotated');
 });

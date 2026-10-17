@@ -10,6 +10,7 @@ use App\Modules\Billing\Http\Resources\QuoteResource;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
@@ -124,6 +125,7 @@ class QuoteController extends Controller
     {
         $this->authorize('billing.quotes.manage');
         $invoice = $this->quotes->convert($quote);
+        app(ActivityLogger::class)->log('Quote converted to invoice', $quote, $quote->client_id, ['invoice' => $invoice->id]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Invoice :number created from the quote.', ['number' => $invoice->displayNumber()])]);
 
         return to_route('admin.billing.invoices.show', $invoice);

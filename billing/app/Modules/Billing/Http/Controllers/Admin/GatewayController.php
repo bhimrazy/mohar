@@ -59,7 +59,7 @@ class GatewayController extends Controller
             'show_on_order_form' => $request->boolean('show_on_order_form'),
             'sort_order' => $request->integer('sort_order'),
             'convert_to_currency' => $request->validated('convert_to_currency'),
-        ], $settings, $request->filled('replacement') ? $request->string('replacement')->toString() : null);
+        ], $settings, $request->filled('replacement') ? $request->string('replacement')->toString() : null, $request->user()?->id);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':gateway saved.', ['gateway' => $model->display_name])]);
 

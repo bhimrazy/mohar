@@ -57,7 +57,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
      */
     public static function enabled(): bool
     {
-        $configured = config('billing.sandbox_enabled');
+        $configured = config('billing_sandbox.enabled');
 
         return $configured === null || $configured === '' ? ! app()->isProduction() : filter_var($configured, FILTER_VALIDATE_BOOLEAN);
     }

@@ -13,6 +13,7 @@ use App\Modules\Billing\Http\Requests\Admin\RefundRequest;
 use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,8 @@ use Inertia\Response;
 
 class TransactionController extends Controller
 {
+    public function __construct(private ActivityLogger $activity) {}
+
     public function index(Request $request, GatewayManager $gateways): Response
     {
         $this->authorize('billing.transactions.view');
@@ -70,7 +73,7 @@ class TransactionController extends Controller
     {
         $client = Client::query()->findOrFail($request->integer('client_id'));
 
-        $record->handle(
+        $transactions = $record->handle(
             $client,
             TransactionType::from($request->string('type')->toString()),
             $request->minor('amount', $client->currency),
@@ -83,6 +86,9 @@ class TransactionController extends Controller
             $request->user()?->id,
         );
 
+        $this->activity->log('Manual transaction recorded', $transactions[0] ?? null, $client->id, [
+            'type' => $request->string('type')->toString(), 'amount' => $request->minor('amount', $client->currency), 'transactions' => array_map(fn ($transaction) => $transaction->id, $transactions),
+        ]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Transaction recorded.')]);
 
         return back();
@@ -90,7 +96,7 @@ class TransactionController extends Controller
 
     public function refund(RefundRequest $request, Transaction $transaction, RefundTransaction $refund): RedirectResponse
     {
-        $refund->handle(
+        $refundRow = $refund->handle(
             $transaction,
             $request->minor('amount', $transaction->currency),
             RefundMode::from($request->string('mode')->toString()),
@@ -99,6 +105,9 @@ class TransactionController extends Controller
             reason: $request->validated('description'),
         );
 
+        $this->activity->log('Refund issued', $refundRow, $transaction->client_id, [
+            'payment' => $transaction->id, 'amount' => $refundRow->amount_out, 'mode' => $request->string('mode')->toString(), 'reverse_effects' => $request->boolean('reverse_effects'),
+        ]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Refund recorded.')]);
 
         return back();

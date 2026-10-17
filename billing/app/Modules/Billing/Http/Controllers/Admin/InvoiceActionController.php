@@ -60,6 +60,7 @@ class InvoiceActionController extends Controller
     {
         $this->authorize('billing.invoices.manage');
         $reopen->handle($invoice, $request->user()?->id);
+        $this->activity->log('Invoice reopened', $invoice, $invoice->client_id);
 
         return $this->done(__('Invoice :number reopened.', ['number' => $invoice->displayNumber()]));
     }
@@ -114,6 +115,7 @@ class InvoiceActionController extends Controller
         $method = PayMethod::query()->where('client_id', $invoice->client_id)->usable()->whereKey($data['pay_method_id'])->firstOrFail();
 
         $result = $capture->handle($invoice, $method->gateway, $method->token, $method, $request->user()?->id);
+        $this->activity->log('Capture attempted', $invoice, $invoice->client_id, ['pay_method' => $method->id, 'result' => $result->status]);
 
         if (! $result->succeeded() && ! $result->isPending()) {
             throw new BillingException(__('Capture failed: :reason.', ['reason' => str_replace('_', ' ', $result->declineReason ?? $result->status)]));
@@ -129,6 +131,7 @@ class InvoiceActionController extends Controller
         $this->authorize('billing.invoices.manage');
         $data = $request->validate(['items' => ['required', 'array', 'min:1'], 'items.*' => ['integer']]);
         $cancel->handle($invoice, array_values(array_map('intval', $data['items'])), $request->user()?->id);
+        $this->activity->log('Invoice lines cancelled', $invoice, $invoice->client_id, ['items' => $data['items']]);
 
         return $this->done(__('Selected lines cancelled.'));
     }
@@ -136,6 +139,7 @@ class InvoiceActionController extends Controller
     public function applyCredit(AmountRequest $request, Invoice $invoice, ApplyCredit $apply): RedirectResponse
     {
         $apply->handle($invoice, $request->minor('amount', $invoice->currency), $request->user()?->id);
+        $this->activity->log('Credit applied to invoice', $invoice, $invoice->client_id, ['amount' => $request->minor('amount', $invoice->currency)]);
 
         return $this->done(__('Credit applied to invoice :number.', ['number' => $invoice->displayNumber()]));
     }
@@ -143,6 +147,7 @@ class InvoiceActionController extends Controller
     public function removeCredit(AmountRequest $request, Invoice $invoice, RemoveCredit $remove): RedirectResponse
     {
         $remove->handle($invoice, $request->minor('amount', $invoice->currency), $request->user()?->id);
+        $this->activity->log('Credit removed from invoice', $invoice, $invoice->client_id, ['amount' => $request->minor('amount', $invoice->currency)]);
 
         return $this->done(__('Credit removed from invoice :number.', ['number' => $invoice->displayNumber()]));
     }
@@ -176,6 +181,7 @@ class InvoiceActionController extends Controller
                     'cancel' => $cancel->handle($invoice, $request->user()?->id),
                     default => InvoicePaymentReminder::dispatch($invoice->id, $invoice->client_id, $invoice->isOverdue() ? 'overdue_1' : 'due'),
                 };
+                $this->activity->log('Bulk action: '.$data['action'], $invoice, $invoice->client_id);
                 $done++;
             } catch (BillingException) {
                 continue;
