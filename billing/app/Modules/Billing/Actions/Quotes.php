@@ -117,6 +117,7 @@ class Quotes
 
             if ($this->settings->bool('quotes.auto_invoice_on_accept')) {
                 $this->convert($quote);
+                $quote->refresh();
             }
 
             AfterCommit::dispatch(new QuoteAccepted($quote->id, $quote->client_id, $quote->invoice_id));

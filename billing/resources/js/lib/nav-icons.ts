@@ -1,11 +1,14 @@
 import type { LucideIcon } from 'lucide-react';
 import {
     Activity,
+    AlertTriangle,
+    ArrowLeftRight,
     BarChart3,
     BookOpen,
     Box,
     Boxes,
     Circle,
+    ClipboardList,
     CreditCard,
     FileText,
     Gift,
@@ -39,11 +42,14 @@ import {
  */
 export const navIcons: Record<string, LucideIcon> = {
     Activity,
+    AlertTriangle,
+    ArrowLeftRight,
     BarChart3,
     BookOpen,
     Box,
     Boxes,
     Circle,
+    ClipboardList,
     CreditCard,
     FileText,
     Gift,

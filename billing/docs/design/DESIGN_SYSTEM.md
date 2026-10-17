@@ -131,7 +131,7 @@ or kebab-case and humanises the label. Add new statuses to `STATUS_TONES` in
 | Tone             | Meaning                   | Statuses                                                                                                                                          |
 | ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | success (green)  | Healthy / settled         | invoice `paid` · order/service/domain/client `active` · ticket `open`, `answered` · quote `accepted`                                              |
-| warning (amber)  | Waiting on someone        | invoice `unpaid`, `partially_paid` · order/service/domain `pending` · domain `pending_transfer`, `grace` · ticket `customer_reply`                |
+| warning (amber)  | Waiting on someone        | invoice `unpaid`, `partially_paid`, `payment_pending` · order/service/domain `pending` · domain `pending_transfer`, `grace` · ticket `customer_reply`                |
 | danger (red)     | Money or service at risk  | invoice `overdue`, `collections` · service `suspended` · `fraud` (order/service/domain) · domain `expired`, `redemption` · `failed`               |
 | info (blue)      | Informational / in motion | invoice `refunded` · quote `delivered` · ticket `in_progress`                                                                                     |
 | neutral (grey)   | Finished / inert          | `cancelled` · service `terminated` · ticket/client `closed` · client `inactive` · ticket `on_hold` · domain `transferred_away` · quote `declined` |
