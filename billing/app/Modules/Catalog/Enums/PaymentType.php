@@ -20,6 +20,20 @@ enum PaymentType: string
     }
 
     /**
+     * Value used by the shared ProductSummary DTO.
+     *
+     * @return 'free'|'onetime'|'recurring'
+     */
+    public function summaryValue(): string
+    {
+        return match ($this) {
+            self::Free => 'free',
+            self::OneTime => 'onetime',
+            self::Recurring => 'recurring',
+        };
+    }
+
+    /**
      * Billing cycles that may carry a price row for this payment type.
      *
      * @return list<BillingCycle>

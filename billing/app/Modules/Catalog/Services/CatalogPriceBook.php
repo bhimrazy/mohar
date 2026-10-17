@@ -8,6 +8,7 @@ use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Modules\Catalog\Enums\ConfigOptionType;
+use App\Modules\Catalog\Enums\FreeDomain;
 use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\ConfigOption;
@@ -18,47 +19,41 @@ use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Catalog\Support\CyclePicker;
 use App\Modules\Catalog\Support\PriceCalculator;
+use App\Modules\Catalog\Support\RegexMatcher;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 
 /**
  * Catalog implementation of the PriceBook contract (read-only pricing for Orders and Services).
  */
 class CatalogPriceBook implements PriceBook
 {
+    /** Upper bound for quantity options without a configured maximum (keeps unit × quantity in integer range). */
+    public const MAX_QUANTITY = 1_000_000;
+
     public function product(int $productId): ?ProductSummary
     {
-        $product = Product::query()->with('group:id,name')->find($productId);
+        $product = Product::query()->with('group:id,name,allowed_gateways')->find($productId);
 
-        if ($product === null) {
-            return null;
-        }
+        return $product === null ? null : $this->summarise($product);
+    }
 
-        return new ProductSummary(
-            id: $product->id,
-            name: $product->name,
-            groupName: $product->group->name,
-            type: $product->type->value,
-            provisioningDriver: $product->provisioning_driver,
-            serverGroupId: $product->server_group_id,
-            driverConfig: $product->driver_config ?? [],
-            autoSetup: $product->auto_setup->summaryValue(),
-            welcomeEmail: $product->welcome_email_key,
-            requiresDomain: $product->requires_domain,
-            taxable: $product->is_taxable,
-            stock: $product->stock_enabled ? $product->stock_quantity : null,
-            active: ! $product->is_retired,
-        );
+    public function productBySlug(string $slug): ?ProductSummary
+    {
+        $product = Product::query()->with('group:id,name,allowed_gateways')->where('slug', strtolower(trim($slug)))->first();
+
+        return $product === null ? null : $this->summarise($product);
     }
 
     /**
      * Recurring = product price + Σ option values (unit × quantity for quantity options); setup likewise.
      * Hidden options/values are still priced when explicitly selected (existing services keep their price).
-     * Dropdown/radio options without a selection use their first visible value.
+     * Dropdown/radio options without a selection use their first visible value. With a client id, the
+     * client's group discount is applied after options, rounded half-up per line.
      *
-     * @throws InvalidArgumentException when a selection does not belong to the option or violates quantity limits
+     * Returns null (never throws) for an unknown/retired product, a cycle or currency that is not offered,
+     * an unpriced option value, or an invalid selection (foreign value id, quantity outside the limits).
      */
     public function quote(ProductSelection $selection): ?PriceQuote
     {
@@ -73,27 +68,10 @@ class CatalogPriceBook implements PriceBook
             return null;
         }
 
-        return $this->quoteProduct($product, $selection->cycle, strtoupper($selection->currency), $selection->configOptions);
-    }
+        $quote = $this->quoteProduct($product, $selection->cycle, strtoupper($selection->currency), $selection->configOptions);
+        $discount = $selection->clientId === null ? 0.0 : $this->groupDiscount($selection->clientId);
 
-    /**
-     * Quote with the client's group discount applied after options (catalog spec §3.2).
-     *
-     * Not part of the PriceBook contract yet: ProductSelection carries no client.
-     */
-    public function quoteForClient(ProductSelection $selection, ?int $clientId): ?PriceQuote
-    {
-        $quote = $this->quote($selection);
-
-        if ($quote === null || $clientId === null) {
-            return $quote;
-        }
-
-        $discount = (float) ClientGroup::query()
-            ->whereKey(Client::query()->whereKey($clientId)->select('client_group_id'))
-            ->value('discount_percent');
-
-        return $discount > 0 ? PriceCalculator::discount($quote, $discount) : $quote;
+        return $quote !== null && $discount > 0 ? PriceCalculator::discount($quote, $discount) : $quote;
     }
 
     /**
@@ -321,7 +299,7 @@ class CatalogPriceBook implements PriceBook
     }
 
     /**
-     * Fields shown on the order form (not admin-only). Extra keys: description, validation_regex, module_key.
+     * Fields shown on the order form (never admin-only). Extra keys: description, regex (PCRE with delimiters), admin_only, module_key.
      */
     public function customFieldsFor(int $productId): array
     {
@@ -338,7 +316,8 @@ class CatalogPriceBook implements PriceBook
                 'required' => $field->is_required,
                 'options' => array_map('strval', $field->options ?? []),
                 'description' => $field->description,
-                'validation_regex' => $field->validation_regex,
+                'regex' => $field->validation_regex === null || $field->validation_regex === '' ? null : RegexMatcher::normalise($field->validation_regex),
+                'admin_only' => false,
                 'module_key' => $field->module_key,
             ])
             ->all());
@@ -366,6 +345,59 @@ class CatalogPriceBook implements PriceBook
                 ->where('stock_quantity', '>', 0)
                 ->decrement('stock_quantity') === 1;
         });
+    }
+
+    /**
+     * Return stock taken by reserveStock(). No-op for unknown products or when stock control is off.
+     */
+    public function releaseStock(int $productId, int $quantity = 1): void
+    {
+        if ($quantity <= 0) {
+            return;
+        }
+
+        Product::withTrashed()->whereKey($productId)->where('stock_enabled', true)->increment('stock_quantity', $quantity);
+    }
+
+    private function summarise(Product $product): ProductSummary
+    {
+        return new ProductSummary(
+            id: $product->id,
+            name: $product->name,
+            groupName: $product->group->name,
+            type: $product->type->value,
+            provisioningDriver: $product->provisioning_driver,
+            serverGroupId: $product->server_group_id,
+            driverConfig: $product->driver_config ?? [],
+            autoSetup: $product->auto_setup->summaryValue(),
+            welcomeEmail: $product->welcome_email_key,
+            requiresDomain: $product->requires_domain,
+            taxable: $product->is_taxable,
+            stock: $product->stock_enabled ? $product->stock_quantity : null,
+            active: ! $product->is_retired,
+            paymentType: $product->payment_type->summaryValue(),
+            prorata: $product->prorata_enabled,
+            prorataDay: $product->prorata_enabled ? $product->prorata_day : null,
+            prorataChargeNextMonthDay: $product->prorata_enabled ? $product->prorata_charge_next_month_day : null,
+            freeDomain: $product->free_domain !== FreeDomain::None,
+            freeDomainTlds: array_map('strval', $product->free_domain_tlds ?? []),
+            freeDomainCycles: array_map('strval', $product->free_domain_cycles ?? []),
+            suspendAfterDays: $product->suspend_days_override,
+            terminateAfterDays: $product->terminate_days_override,
+            recurringCycleLimit: $product->recurring_cycles_limit > 0 ? $product->recurring_cycles_limit : null,
+            termMonths: $product->fixed_term_days > 0 ? max(1, intdiv($product->fixed_term_days + 29, 30)) : null,
+            slug: $product->slug,
+            allowedGateways: $product->group->allowed_gateways === null ? null : array_map('strval', $product->group->allowed_gateways),
+        );
+    }
+
+    private function groupDiscount(int $clientId): float
+    {
+        $percent = (float) ClientGroup::query()
+            ->whereKey(Client::query()->whereKey($clientId)->select('client_group_id'))
+            ->value('discount_percent');
+
+        return min(100.0, max(0.0, $percent));
     }
 
     /**
@@ -405,7 +437,7 @@ class CatalogPriceBook implements PriceBook
     }
 
     /**
-     * @return array{label: string, recurring: int, setup: int}|false|null null = no charge, false = value not priced
+     * @return array{label: string, recurring: int, setup: int}|false|null null = no charge, false = not quotable (unpriced or invalid selection)
      */
     private function optionLine(ConfigOption $option, ?int $selected, string $currency, BillingCycle $cycle): array|false|null
     {
@@ -416,8 +448,8 @@ class CatalogPriceBook implements PriceBook
         if ($option->type === ConfigOptionType::Quantity) {
             $quantity = $selected ?? ($option->quantity_min ?? 0);
 
-            if (! PriceCalculator::isValidQuantity($quantity, $option->quantity_min, $option->quantity_max, $option->quantity_step)) {
-                throw new InvalidArgumentException("Quantity [{$quantity}] is not allowed for option [{$option->name}].");
+            if (! PriceCalculator::isValidQuantity($quantity, $option->quantity_min, $option->quantity_max ?? self::MAX_QUANTITY, $option->quantity_step)) {
+                return false;
             }
 
             if ($quantity === 0) {
@@ -449,11 +481,7 @@ class CatalogPriceBook implements PriceBook
             : $option->values->firstWhere('id', $selected);
 
         if ($value === null) {
-            if ($selected !== null) {
-                throw new InvalidArgumentException("Value [{$selected}] does not belong to option [{$option->name}].");
-            }
-
-            return null;
+            return $selected === null ? null : false;
         }
 
         $price = $this->valuePrice($value, $currency, $cycle);

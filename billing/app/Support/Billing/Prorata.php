@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Catalog\Support;
+namespace App\Support\Billing;
 
 use App\Enums\BillingCycle;
 use Carbon\CarbonImmutable;
@@ -9,8 +9,8 @@ use Carbon\CarbonInterface;
 /**
  * First-period proration aligned to a fixed day of the month (catalog spec §3.4).
  *
- * Orders performs proration at checkout; this class holds the calculation so the rule lives with the
- * product settings it reads (prorata_day, prorata_charge_next_month_day). Setup fees are never prorated.
+ * Shared, pure calculation used by Orders (first invoice) and Services; inputs come from the product's
+ * prorata settings (ProductSummary::$prorataDay / $prorataChargeNextMonthDay). Setup fees are never prorated.
  */
 final class Prorata
 {
@@ -36,7 +36,7 @@ final class Prorata
 
         $periodStart = $anchor->startOfMonth()->subMonths($months);
         $periodStart = $periodStart->setDay(min($prorataDay, $periodStart->daysInMonth));
-        $partial = PriceCalculator::divideRounded(
+        $partial = self::divideRounded(
             $recurring * (int) $orderDate->diffInDays($anchor),
             (int) $periodStart->diffInDays($anchor),
         );
@@ -65,5 +65,15 @@ final class Prorata
         $nextMonth = $orderDate->startOfMonth()->addMonth();
 
         return $nextMonth->setDay(min($prorataDay, $nextMonth->daysInMonth));
+    }
+
+    /**
+     * Integer division rounded half away from zero (minor units).
+     */
+    private static function divideRounded(int $numerator, int $denominator): int
+    {
+        $sign = $numerator < 0 ? -1 : 1;
+
+        return $sign * intdiv(2 * abs($numerator) + $denominator, 2 * $denominator);
     }
 }

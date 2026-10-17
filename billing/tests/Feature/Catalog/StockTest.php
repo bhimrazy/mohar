@@ -7,7 +7,7 @@ use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Modules\Catalog\Models\Product;
 
-it('lets exactly one of two reservations take the last unit', function () {
+it('refuses a second reservation once the last unit is taken (conditional decrement)', function () {
     $product = Product::factory()->stock(1)->create();
     $book = app(PriceBook::class);
 
@@ -23,6 +23,18 @@ it('always reserves products without stock control', function () {
 
     expect(app(PriceBook::class)->reserveStock($product->id))->toBeTrue()
         ->and($product->fresh()->stock_quantity)->toBe(0);
+});
+
+it('releases stock only for products with stock control', function () {
+    $stocked = Product::factory()->stock(0)->create();
+    $unlimited = Product::factory()->create();
+
+    app(PriceBook::class)->releaseStock($stocked->id, 2);
+    app(PriceBook::class)->releaseStock($unlimited->id);
+    app(PriceBook::class)->releaseStock($stocked->id, 0);
+
+    expect($stocked->fresh()->stock_quantity)->toBe(2)
+        ->and($unlimited->fresh()->stock_quantity)->toBe(0);
 });
 
 it('refuses to reserve unknown products', function () {

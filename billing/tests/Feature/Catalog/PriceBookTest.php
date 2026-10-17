@@ -106,22 +106,26 @@ describe('quote', function () {
             ->and($quote->breakdown[1]['label'])->toBe('Extra IPs × 3');
     });
 
-    it('rejects quantities outside the option limits', function () {
-        $option = ConfigOption::factory()->quantity(1, 5)->create();
+    it('returns null instead of throwing for quantities outside the option limits', function (?int $max, int $quantity) {
+        $option = ConfigOption::factory()->quantity(1, $max)->create(['quantity_min' => $max === null ? null : 1]);
         ConfigOptionValue::factory()->for($option, 'option')->withPrice('EUR', BillingCycle::Monthly, 200)->create();
         [$product] = productWithOption($option);
 
-        priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => 6]));
-    })->throws(InvalidArgumentException::class);
+        expect(priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $quantity])))->toBeNull();
+    })->with([
+        'above max' => [5, 6],
+        'negative' => [5, -1],
+        'unbounded beyond the safety cap' => [null, CatalogPriceBook::MAX_QUANTITY + 1],
+    ]);
 
-    it('rejects a value that belongs to another option', function () {
+    it('returns null instead of throwing for a value that belongs to another option', function () {
         $option = ConfigOption::factory()->create();
         ConfigOptionValue::factory()->for($option, 'option')->withPrice('EUR', BillingCycle::Monthly, 200)->create();
         $foreign = ConfigOptionValue::factory()->create();
         [$product] = productWithOption($option);
 
-        priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $foreign->id]));
-    })->throws(InvalidArgumentException::class);
+        expect(priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $foreign->id])))->toBeNull();
+    });
 
     it('charges yes/no options only when ticked', function () {
         $option = ConfigOption::factory()->yesNo()->create(['name' => 'Backups']);
@@ -190,9 +194,18 @@ describe('quote', function () {
         $value = ConfigOptionValue::factory()->for($option, 'option')->withPrice('EUR', BillingCycle::Monthly, 500, 500)->create();
         [$product] = productWithOption($option);
 
-        $quote = app(CatalogPriceBook::class)->quoteForClient(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $value->id]), $client->id);
+        $quote = priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $value->id], clientId: $client->id));
 
-        expect($quote)->recurring->toBe(1350)->setup->toBe(900);
+        expect($quote)->recurring->toBe(1350)->setup->toBe(900)
+            ->and(priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'EUR', [$option->id => $value->id]))->recurring)->toBe(1500);
+    });
+
+    it('ignores clients without a group discount', function () {
+        Currency::factory()->create();
+        $client = Client::factory()->create();
+        $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create();
+
+        expect(priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'USD', clientId: $client->id))->breakdown)->toHaveCount(1);
     });
 });
 
@@ -278,6 +291,45 @@ describe('product', function () {
             ->active->toBeTrue();
     });
 
+    it('exposes billing, prorata, free domain and gateway rules', function () {
+        $group = ProductGroup::factory()->gateways(['bank_transfer'])->create();
+        $product = Product::factory()->for($group, 'group')->oneTime()->create([
+            'slug' => 'ssl-dv',
+            'prorata_enabled' => true,
+            'prorata_day' => 15,
+            'prorata_charge_next_month_day' => 25,
+            'free_domain' => 'once',
+            'free_domain_tlds' => ['.com'],
+            'free_domain_cycles' => ['annually'],
+            'suspend_days_override' => 5,
+            'terminate_days_override' => 40,
+            'recurring_cycles_limit' => 12,
+            'fixed_term_days' => 90,
+        ]);
+
+        expect(priceBook()->productBySlug('SSL-DV'))
+            ->id->toBe($product->id)
+            ->slug->toBe('ssl-dv')
+            ->paymentType->toBe('onetime')
+            ->prorata->toBeTrue()
+            ->prorataDay->toBe(15)
+            ->prorataChargeNextMonthDay->toBe(25)
+            ->freeDomain->toBeTrue()
+            ->freeDomainTlds->toBe(['.com'])
+            ->freeDomainCycles->toBe(['annually'])
+            ->suspendAfterDays->toBe(5)
+            ->terminateAfterDays->toBe(40)
+            ->recurringCycleLimit->toBe(12)
+            ->termMonths->toBe(3)
+            ->allowedGateways->toBe(['bank_transfer'])
+            ->and(priceBook()->productBySlug('missing'))->toBeNull()
+            ->and(priceBook()->product(Product::factory()->create()->id))
+            ->recurringCycleLimit->toBeNull()
+            ->termMonths->toBeNull()
+            ->allowedGateways->toBeNull()
+            ->prorataDay->toBeNull();
+    });
+
     it('marks retired products inactive and returns null for unknown ones', function () {
         $product = Product::factory()->retired()->create();
 
@@ -345,11 +397,13 @@ describe('order form data', function () {
 
     it('lists custom fields clients fill in on the order form', function () {
         $product = Product::factory()->create();
-        ProductCustomField::factory()->for($product)->create(['name' => 'Site', 'type' => 'dropdown', 'options' => ['WordPress', 'None'], 'is_required' => true, 'sort_order' => 1]);
+        ProductCustomField::factory()->for($product)->create(['name' => 'Site', 'type' => 'dropdown', 'options' => ['WordPress', 'None'], 'is_required' => true, 'sort_order' => 1, 'validation_regex' => '^[A-Za-z]+$']);
         ProductCustomField::factory()->for($product)->adminOnly()->create();
         ProductCustomField::factory()->for($product)->create(['show_on_order' => false]);
 
         expect(priceBook()->customFieldsFor($product->id))->toHaveCount(1)
-            ->and(priceBook()->customFieldsFor($product->id)[0])->toMatchArray(['name' => 'Site', 'type' => 'dropdown', 'required' => true, 'options' => ['WordPress', 'None']]);
+            ->and(priceBook()->customFieldsFor($product->id)[0])->toMatchArray([
+                'name' => 'Site', 'type' => 'dropdown', 'required' => true, 'options' => ['WordPress', 'None'], 'regex' => '~^[A-Za-z]+$~u', 'admin_only' => false,
+            ]);
     });
 });
