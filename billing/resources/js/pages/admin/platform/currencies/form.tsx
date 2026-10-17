@@ -125,21 +125,22 @@ export default function CurrencyForm({
                                         id="suffix"
                                         name="suffix"
                                         defaultValue={currency?.suffix ?? ''}
-                                        placeholder=" USD"
+                                        placeholder={`e.g. ${currency?.code ?? 'USD'}`}
                                     />
                                 </Field>
                                 <Field
                                     htmlFor="decimals"
                                     label="Decimal places"
                                     error={errors.decimals}
-                                    hint="Use 0 for currencies such as JPY."
+                                    hint="Amounts are stored in hundredths, so only 2-decimal currencies are supported for now."
                                 >
                                     <SelectField
                                         id="decimals"
                                         name="decimals"
                                         defaultValue={String(
-                                            currency?.decimals ?? 2,
+                                            currency?.decimals ?? decimals[0],
                                         )}
+                                        disabled={decimals.length === 1}
                                         options={decimals.map((value) => ({
                                             value: String(value),
                                             label: String(value),

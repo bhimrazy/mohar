@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Contact;
-use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
@@ -26,8 +25,6 @@ class PlatformSeeder extends Seeder
             // The seeded admin has no 2FA yet; enforce it in production only.
             $settings->set('security.staff_2fa_required', false);
         }
-
-        Currency::query()->firstOrCreate(['code' => 'JPY'], ['name' => 'Japanese Yen', 'prefix' => '¥', 'decimals' => 0, 'exchange_rate' => 149.5, 'rate_updated_at' => now()]);
 
         $resellers = ClientGroup::query()->firstOrCreate(['name' => 'Resellers'], ['colour' => '#2563eb', 'discount_percent' => 10, 'separate_invoices' => true]);
         ClientGroup::query()->firstOrCreate(['name' => 'VIP'], ['colour' => '#d97706', 'discount_percent' => 5, 'exempt_from_suspension' => true]);

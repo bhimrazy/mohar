@@ -33,8 +33,11 @@ class Currency extends Model
     /** Supported number formats (thousands/decimal separators). */
     public const FORMATS = ['1234.56', '1,234.56', '1.234,56', '1 234,56'];
 
-    /** Supported minor-unit precisions. */
-    public const DECIMALS = [0, 2, 3];
+    /**
+     * Supported minor-unit precisions. v1 stores every amount in 1/100 units (ADR 0002), so only 2-decimal
+     * currencies are allowed; the column and convertTo() already handle 0/3 for a later version.
+     */
+    public const DECIMALS = [2];
 
     protected $attributes = [
         'decimals' => 2,
@@ -75,7 +78,7 @@ class Currency extends Model
      */
     public function fromDefault(int $amount): int
     {
-        return (int) round($amount * (float) $this->exchange_rate);
+        return self::default()->convertTo($amount, $this);
     }
 
     /**

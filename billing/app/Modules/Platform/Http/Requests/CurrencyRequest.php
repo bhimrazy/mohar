@@ -20,6 +20,14 @@ class CurrencyRequest extends FormRequest
     }
 
     /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['decimals.in' => __('Only currencies with 2 decimal places are supported for now.')];
+    }
+
+    /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array

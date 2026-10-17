@@ -7,14 +7,16 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 
-test('converting 10.00 USD to a zero-decimal currency at rate 150 gives 1500 yen', function () {
+test('converting between currencies uses both rates and rounds half up', function () {
     $usd = Currency::factory()->create();
-    $jpy = Currency::factory()->create(['code' => 'JPY', 'name' => 'Yen', 'prefix' => '¥', 'decimals' => 0, 'exchange_rate' => 150, 'is_default' => false]);
+    $inr = Currency::factory()->create(['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84, 'is_default' => false]);
+    $npr = Currency::factory()->create(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => '134.4', 'is_default' => false]);
 
-    expect($usd->convertTo(1000, $jpy))->toBe(1500)
-        ->and($jpy->convertTo(1500, $usd))->toBe(1000)
-        ->and($usd->convertTo(-1000, $jpy))->toBe(-1500)
-        ->and($usd->convertTo(0, $jpy))->toBe(0);
+    expect($usd->convertTo(1000, $inr))->toBe(84000)       // $10.00 → ₹840.00
+        ->and($inr->convertTo(84000, $usd))->toBe(1000)
+        ->and($inr->convertTo(1000, $npr))->toBe(1600)      // ₹10.00 → रू 16.00
+        ->and($usd->convertTo(-1000, $inr))->toBe(-84000)
+        ->and($usd->convertTo(0, $inr))->toBe(0);
 });
 
 test('conversion rounds half up', function () {
@@ -24,6 +26,13 @@ test('conversion rounds half up', function () {
     expect($usd->convertTo(1, $eur))->toBe(1)       // 0.925 → 1
         ->and($usd->convertTo(2, $eur))->toBe(2)    // 1.85 → 2
         ->and($eur->convertTo(37, $usd))->toBe(40); // 40.0 → 40
+});
+
+test('fromDefault converts default-currency prices through the shared conversion', function () {
+    Currency::factory()->create();
+    $inr = Currency::factory()->create(['code' => 'INR', 'name' => 'Indian Rupee', 'exchange_rate' => '84.5', 'is_default' => false]);
+
+    expect($inr->fromDefault(999))->toBe(84416); // 9.99 × 84.5 = 844.155 → 844.16
 });
 
 test('currency management requires core.currencies.manage', function () {
@@ -36,18 +45,18 @@ test('a currency can be created, listed and edited', function () {
     actingAsStaff(['core.currencies.manage']);
     Currency::factory()->create();
 
-    $this->post(route('admin.platform.currencies.store'), ['code' => 'jpy', 'name' => 'Japanese Yen', 'prefix' => '¥', 'decimals' => 0, 'format' => '1,234.56', 'exchange_rate' => '150.5'])
+    $this->post(route('admin.platform.currencies.store'), ['code' => 'npr', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => '134.4'])
         ->assertRedirect(route('admin.platform.currencies.index'));
 
-    $jpy = Currency::query()->where('code', 'JPY')->sole();
-    expect($jpy)->decimals->toBe(0)->exchange_rate->toBe('150.500000')->rate_updated_at->not->toBeNull();
+    $npr = Currency::query()->where('code', 'NPR')->sole();
+    expect($npr)->decimals->toBe(2)->exchange_rate->toBe('134.400000')->rate_updated_at->not->toBeNull();
 
     $this->get(route('admin.platform.currencies.index'))
         ->assertInertia(fn (Assert $page) => $page->component('admin/platform/currencies/index')->has('currencies', 2)->where('currencies.0.is_default', true));
 
-    $this->put(route('admin.platform.currencies.update', $jpy), ['code' => 'JPY', 'name' => 'Yen', 'decimals' => 0, 'format' => '1,234.56', 'exchange_rate' => '151'])
+    $this->put(route('admin.platform.currencies.update', $npr), ['code' => 'NPR', 'name' => 'Nepalese Rupee', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => '135'])
         ->assertRedirect();
-    expect($jpy->fresh()->exchange_rate)->toBe('151.000000');
+    expect($npr->fresh()->exchange_rate)->toBe('135.000000');
 });
 
 test('currency validation rejects bad codes, decimals, formats and rates', function () {
@@ -56,6 +65,8 @@ test('currency validation rejects bad codes, decimals, formats and rates', funct
 
     $this->post(route('admin.platform.currencies.store'), ['code' => 'US', 'name' => '', 'decimals' => 1, 'format' => '1-234', 'exchange_rate' => 0])
         ->assertSessionHasErrors(['code', 'name', 'decimals', 'format', 'exchange_rate']);
+    $this->post(route('admin.platform.currencies.store'), ['code' => 'JPY', 'name' => 'Yen', 'decimals' => 0, 'format' => '1,234.56', 'exchange_rate' => 150])
+        ->assertSessionHasErrors(['decimals' => 'Only currencies with 2 decimal places are supported for now.']);
     $this->post(route('admin.platform.currencies.store'), ['code' => 'usd', 'name' => 'Dup', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => 1])
         ->assertSessionHasErrors('code');
 });
