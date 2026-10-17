@@ -296,3 +296,49 @@ test('the client profile exposes contacts, logins, links, activity and permissio
             ->where('can.impersonate', false)
             ->where('can.merge', false));
 });
+
+test('client-login management is not reachable through core.* wildcards', function () {
+    actingAsStaff(['core.*']);
+    $client = Client::factory()->withOwner()->create();
+    $outsider = User::factory()->create(['email' => 'outsider@evil.test']);
+
+    $this->post(route('admin.platform.clients.users.store', $client), ['email' => $outsider->email, 'name' => 'x', 'permissions' => []])->assertForbidden();
+    $this->post(route('admin.platform.clients.users.transfer', [$client, $client->users()->sole()]))->assertForbidden();
+    $this->post(route('admin.platform.clients.users.reset-two-factor', [$client, $client->users()->sole()]))->assertForbidden();
+
+    expect($client->users()->count())->toBe(1);
+});
+
+test('adding a login or changing the owner requires a recent password confirmation', function () {
+    $this->flushSession();
+    actingAsStaff(['core.clients.view', 'core.users.manage']);
+    $client = Client::factory()->withOwner()->create();
+    $helper = User::factory()->create();
+    $client->users()->attach($helper, ['is_owner' => false, 'permissions' => json_encode([])]);
+
+    $this->post(route('admin.platform.clients.users.store', $client), ['email' => 'new@example.com', 'name' => 'New', 'permissions' => []])->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.platform.clients.users.transfer', [$client, $helper]))->assertSessionHasErrors('password_confirmation');
+    $this->put(route('admin.platform.clients.users.update', [$client, $helper]), ['permissions' => ['billing']])->assertSessionHasErrors('password_confirmation');
+    $this->delete(route('admin.platform.clients.users.destroy', [$client, $helper]))->assertSessionHasErrors('password_confirmation');
+
+    expect($client->users()->count())->toBe(2)
+        ->and((bool) $client->users()->whereKey($helper->id)->sole()->pivot->is_owner)->toBeFalse();
+});
+
+test('the account owner and the affected user are emailed when a login is added or ownership moves', function () {
+    Notification::fake();
+    actingAsStaff(['core.clients.view', 'core.users.manage']);
+    $client = Client::factory()->withOwner()->create();
+    $owner = $client->users()->sole();
+    $existing = User::factory()->create();
+
+    $this->post(route('admin.platform.clients.users.store', $client), ['email' => $existing->email, 'name' => 'x', 'permissions' => ['billing']])->assertRedirect();
+
+    Notification::assertSentTo($owner, SecurityNotice::class, fn (SecurityNotice $notice) => $notice->subject === 'A login was added to your account');
+    Notification::assertSentTo($existing, SecurityNotice::class);
+
+    $this->post(route('admin.platform.clients.users.transfer', [$client, $existing]))->assertRedirect();
+
+    Notification::assertSentTo($owner, SecurityNotice::class, fn (SecurityNotice $notice) => $notice->subject === 'Your account has a new owner');
+    Notification::assertSentTo($existing, SecurityNotice::class, fn (SecurityNotice $notice) => $notice->subject === 'You are now the account owner');
+});

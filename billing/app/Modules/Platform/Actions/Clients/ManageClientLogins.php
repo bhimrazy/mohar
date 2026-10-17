@@ -8,6 +8,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -55,6 +56,13 @@ class ManageClientLogins
 
         $this->activity->log('Login added to the account', $user, $client->id, ['email' => $email, 'permissions' => $permissions, 'new_login' => $created], 'client.user_added');
 
+        $this->notifyOwners($client, __('A login was added to your account'), [
+            __(':email can now sign in to the :account account.', ['email' => $email, 'account' => $client->display_name]),
+        ], except: $user);
+        $user->notify(new SecurityNotice(__('You were given access to a client account'), [
+            __('Our team gave you access to the :account account.', ['account' => $client->display_name]),
+        ]));
+
         return $user;
     }
 
@@ -76,12 +84,31 @@ class ManageClientLogins
             throw ValidationException::withMessages(['user' => __('Staff logins cannot own client accounts.')]);
         }
 
+        $previousOwners = $client->users()->wherePivot('is_owner', true)->get();
+
         DB::transaction(function () use ($client, $user): void {
             DB::table('client_user')->where('client_id', $client->id)->update(['is_owner' => false]);
             $client->users()->updateExistingPivot($user->id, ['is_owner' => true]);
         });
 
         $this->activity->log('Account ownership transferred', $user, $client->id, ['email' => $user->email], 'client.owner_transferred');
+
+        $lines = [__('Ownership of the :account account was transferred to :email.', ['account' => $client->display_name, 'email' => $user->email])];
+        Notification::send($previousOwners->reject(fn (User $owner): bool => $owner->is($user)), new SecurityNotice(__('Your account has a new owner'), $lines));
+        $user->notify(new SecurityNotice(__('You are now the account owner'), $lines));
+    }
+
+    /**
+     * Tell the current owner(s) about a change to who can access their account.
+     *
+     * @param  list<string>  $lines
+     */
+    private function notifyOwners(Client $client, string $subject, array $lines, ?User $except = null): void
+    {
+        $owners = $client->users()->wherePivot('is_owner', true)->get()
+            ->reject(fn (User $owner): bool => $except !== null && $owner->is($except));
+
+        Notification::send($owners, new SecurityNotice($subject, $lines));
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Modules\Platform;
 
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
+use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
@@ -141,7 +142,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'core.contacts.manage' => 'Manage client contacts',
             'core.users.manage' => 'Manage client logins',
             'core.users.reset_2fa' => 'Reset a client login\'s two-factor authentication',
-        ], sensitive: ['core.clients.impersonate', 'core.clients.merge', 'core.clients.close']);
+        ], sensitive: ['core.clients.impersonate', 'core.clients.merge', 'core.clients.close', 'core.users.*']);
 
         $permissions->register('General', [
             'core.activity_log.view' => 'View the activity log',
@@ -170,11 +171,9 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('security.login_ip_allowlist', 'IP addresses exempt from lockout', 'text', 'One IP or CIDR range per line.', rules: ['max:2000']),
             new SettingDefinition('platform.impersonation_minutes', 'Sign-in-as-client time limit (minutes)', 'integer', 'Staff are returned to the admin area after this long.', rules: ['min:5', 'max:240']),
             new SettingDefinition('platform.invitation_expiry_days', 'Staff invitation validity (days)', 'integer', rules: ['min:1', 'max:30']),
-        ], 'core.settings.security');
-
-        $this->app->make(SettingsRegistry::class)->section('system', 'System', [
+            // Shortening retention prunes staff and security events, so it is a security setting.
             new SettingDefinition('platform.activity_log_retention_days', 'Activity log retention (days)', 'integer', 'Entries not tied to a client are pruned after this many days.', rules: ['min:30', 'max:3650']),
-        ], 'core.settings.update');
+        ], 'core.settings.security');
     }
 
     private function registerSearch(): void
@@ -183,7 +182,11 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
         $search->provider('Contacts', fn (string $term): array => array_values(Contact::query()
             ->with('client:id,first_name,last_name,company_name')
-            ->where(fn ($query) => $query->whereLike('email', $term.'%')->orWhereLike('first_name', $term.'%')->orWhereLike('last_name', $term.'%'))
+            ->where(function ($query) use ($term): void {
+                Like::where($query, 'email', Like::startsWith($term));
+                Like::where($query, 'first_name', Like::startsWith($term), 'or');
+                Like::where($query, 'last_name', Like::startsWith($term), 'or');
+            })
             ->orderBy('first_name')->orderBy('id')->limit(5)->get()
             ->map(fn (Contact $contact): array => [
                 'title' => trim("{$contact->first_name} {$contact->last_name}"),
@@ -193,7 +196,10 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
         $search->provider('Staff', fn (string $term): array => array_values(User::query()
             ->where('is_staff', true)
-            ->where(fn ($query) => $query->whereLike('name', $term.'%')->orWhereLike('email', $term.'%'))
+            ->where(function ($query) use ($term): void {
+                Like::where($query, 'name', Like::startsWith($term));
+                Like::where($query, 'email', Like::startsWith($term), 'or');
+            })
             ->orderBy('name')->orderBy('id')->limit(5)->get()
             ->map(fn (User $user): array => [
                 'title' => $user->name,

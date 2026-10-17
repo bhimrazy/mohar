@@ -59,6 +59,12 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
             Route::post('merge', [ClientLifecycleController::class, 'merge'])->name('merge');
             Route::post('impersonate', [ImpersonationController::class, 'start'])->name('impersonate');
             Route::post('users/{user}/reset-two-factor', [ClientUserController::class, 'resetTwoFactor'])->name('users.reset-two-factor')->withoutScopedBindings();
+
+            // Client logins: adding a login or changing the owner grants persistent account access.
+            Route::post('users', [ClientUserController::class, 'store'])->name('users.store');
+            Route::put('users/{user}', [ClientUserController::class, 'update'])->name('users.update')->withoutScopedBindings();
+            Route::post('users/{user}/owner', [ClientUserController::class, 'transfer'])->name('users.transfer')->withoutScopedBindings();
+            Route::delete('users/{user}', [ClientUserController::class, 'destroy'])->name('users.destroy')->withoutScopedBindings();
         });
         Route::get('merge-preview', [ClientLifecycleController::class, 'mergePreview'])->name('merge-preview');
 
@@ -66,10 +72,6 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
         Route::put('contacts/{contact}', [ClientContactController::class, 'update'])->name('contacts.update');
         Route::delete('contacts/{contact}', [ClientContactController::class, 'destroy'])->name('contacts.destroy');
 
-        Route::post('users', [ClientUserController::class, 'store'])->name('users.store');
-        Route::put('users/{user}', [ClientUserController::class, 'update'])->name('users.update')->withoutScopedBindings();
-        Route::post('users/{user}/owner', [ClientUserController::class, 'transfer'])->name('users.transfer')->withoutScopedBindings();
-        Route::delete('users/{user}', [ClientUserController::class, 'destroy'])->name('users.destroy')->withoutScopedBindings();
     });
 
     Route::get('impersonation/{impersonation}', [ImpersonationController::class, 'enter'])->middleware('signed')->name('impersonation.enter');
