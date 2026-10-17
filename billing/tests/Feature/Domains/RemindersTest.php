@@ -51,3 +51,25 @@ test('auto-renew-off and free domains follow the reminder settings', function ()
 
     expect(app(SendExpiryReminders::class)->handle(CarbonImmutable::parse('2027-01-01')))->toBe(0);
 });
+
+test('a missed automation day is caught up without repeating or skipping ahead', function () {
+    Event::fake([DomainExpiring::class, DomainExpiryDigest::class]);
+    $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
+    $reminders = app(SendExpiryReminders::class);
+
+    expect($reminders->handle(CarbonImmutable::parse('2027-01-03')))->toBe(1)
+        ->and($reminders->handle(CarbonImmutable::parse('2027-01-04')))->toBe(0);
+
+    Event::assertDispatched(DomainExpiring::class, fn (DomainExpiring $event) => $event->daysLeft === 28);
+    expect(DomainReminder::query()->where('domain_id', $domain->id)->sole())
+        ->offset_days->toBe(30)
+        ->dispatched_at->not->toBeNull();
+});
+
+test('domains whose renewal for the cycle is paid get no reminder', function () {
+    Event::fake([DomainExpiring::class, DomainExpiryDigest::class]);
+    $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id]);
+    $domain->invoices()->create(['invoice_id' => 5, 'kind' => 'renewal', 'period_start' => '2027-01-31', 'years' => 1, 'status' => 'paid']);
+
+    expect(app(SendExpiryReminders::class)->handle(CarbonImmutable::parse('2027-01-01')))->toBe(0);
+});
