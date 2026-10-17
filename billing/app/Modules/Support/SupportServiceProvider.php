@@ -8,8 +8,10 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
 use App\Modules\Support\Actions\PurgeInboundRaw;
+use App\Modules\Support\Enums\IncidentStatus;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\KbArticle;
+use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
 use App\Modules\Support\Services\SupportSettings;
@@ -26,6 +28,7 @@ use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -70,7 +73,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
-        $navigation->add('admin', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', 'Support', 10, 'support.tickets.view', 'admin.support.tickets.*'));
+        $navigation->add('admin', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', 'Support', 10, 'support.tickets.view', 'admin.support.tickets.*',
+            badge: fn (?User $user): ?int => $user !== null ? ($this->awaitingQuery($user)->count() ?: null) : null));
         $navigation->add('admin', new NavItem('Departments', 'admin.support.departments.index', 'Inbox', 'Support', 20, 'support.departments.manage', 'admin.support.departments.*'));
         $navigation->add('admin', new NavItem('Canned replies', 'admin.support.canned-replies.index', 'Mail', 'Support', 30, 'support.canned.manage', 'admin.support.canned-replies.*'));
         $navigation->add('admin', new NavItem('Knowledge base', 'admin.support.kb.articles.index', 'BookOpen', 'Support', 40, 'support.kb.manage', 'admin.support.kb.*'));
@@ -84,6 +88,7 @@ class SupportServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Network status', 'support.network.index', 'Activity', 'Support', 40, null, 'support.network.*'));
 
         $navigation->add('admin-client', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', order: 50, permission: 'support.tickets.view'));
+        $navigation->add('admin-create', new NavItem('New ticket', 'admin.support.tickets.create', 'LifeBuoy', order: 40, permission: 'support.tickets.open'));
     }
 
     private function registerDashboard(): void
@@ -102,7 +107,7 @@ class SupportServiceProvider extends ModuleServiceProvider
 
         $dashboard->card('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Awaiting staff reply',
-            'value' => $scoped($user)->whereIn('status', app(SupportSettings::class)->awaitingReplyStatuses())->count(),
+            'value' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'icon' => 'Inbox',
         ], 'support.tickets.view', 61);
@@ -114,12 +119,59 @@ class SupportServiceProvider extends ModuleServiceProvider
             'icon' => 'UserRound',
         ], 'support.tickets.view', 62);
 
+        $dashboard->widget('admin', 'support.awaiting_list', 'list', fn (?User $user): array => [
+            'title' => 'Tickets awaiting reply',
+            'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
+            'empty' => 'No tickets are waiting for a reply.',
+            'items' => $user === null ? [] : array_values($this->awaitingQuery($user)->with('department:id,name')
+                ->orderByDesc('last_reply_at')->orderByDesc('id')->limit(5)->get()
+                ->map(fn (Ticket $ticket): array => [
+                    'title' => '#'.$ticket->number.' '.$ticket->subject,
+                    'subtitle' => $ticket->requester_name.' · '.$ticket->department->name,
+                    'href' => route('admin.support.tickets.show', $ticket),
+                    'meta' => $ticket->last_reply_at?->diffForHumans(),
+                    'status' => $ticket->status->value,
+                ])->all()),
+        ], 'support.tickets.view', 63, 'md');
+
+        $dashboard->todo('admin', 'support.awaiting', fn (?User $user): array => [
+            'label' => 'Tickets awaiting staff reply',
+            'count' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
+            'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
+            'tone' => 'warning',
+        ], 'support.tickets.view', 20);
+
+        $dashboard->todo('admin', 'support.unassigned', fn (?User $user): array => [
+            'label' => 'Unassigned open tickets',
+            'count' => $scoped($user)->whereNull('assigned_to')->where('status', '!=', TicketStatus::Closed->value)->count(),
+            'href' => route('admin.support.tickets.index', ['view' => 'unassigned']),
+            'tone' => 'info',
+        ], 'support.tickets.view', 21);
+
+        $dashboard->todo('admin', 'support.incidents', fn (?User $user): array => [
+            'label' => 'Active network incidents',
+            'count' => NetworkIncident::query()->whereNotIn('status', [IncidentStatus::Resolved->value, IncidentStatus::Scheduled->value])->count(),
+            'href' => route('admin.support.network.index'),
+            'tone' => 'danger',
+        ], 'support.network.manage', 22);
+
         $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [
             'label' => 'Open tickets',
             'value' => Ticket::query()->notMerged()->where('client_id', $client->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('client.support.tickets.index'),
             'icon' => 'LifeBuoy',
         ], order: 60);
+    }
+
+    /**
+     * Tickets awaiting a staff reply that the staff member may see (status index + department scope).
+     *
+     * @return Builder<Ticket>
+     */
+    private function awaitingQuery(User $user): Builder
+    {
+        return app(TicketAccess::class)->scope(Ticket::query()->notMerged(), $user)
+            ->whereIn('status', app(SupportSettings::class)->awaitingReplyStatuses());
     }
 
     private function registerPermissions(): void

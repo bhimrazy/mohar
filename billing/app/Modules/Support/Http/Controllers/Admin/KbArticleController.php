@@ -3,6 +3,7 @@
 namespace App\Modules\Support\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Support\Actions\SaveKbArticle;
 use App\Modules\Support\Http\Requests\KbArticleRequest;
 use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\KbCategory;
@@ -10,7 +11,6 @@ use App\Modules\Support\Services\MarkdownRenderer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -59,14 +59,9 @@ class KbArticleController extends Controller
         return Inertia::render('admin/support/kb/form', ['categories' => $this->categoryOptions()]);
     }
 
-    public function store(KbArticleRequest $request): RedirectResponse
+    public function store(KbArticleRequest $request, SaveKbArticle $save): RedirectResponse
     {
-        $article = DB::transaction(function () use ($request): KbArticle {
-            $article = KbArticle::query()->create($request->attributesForModel());
-            $article->categories()->sync($request->categoryIds());
-
-            return $article;
-        });
+        $article = $save->handle(null, $request->attributesForModel(), $request->categoryIds());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Article ":title" created.', ['title' => $article->title])]);
 
@@ -89,12 +84,9 @@ class KbArticleController extends Controller
         ]);
     }
 
-    public function update(KbArticleRequest $request, KbArticle $article): RedirectResponse
+    public function update(KbArticleRequest $request, KbArticle $article, SaveKbArticle $save): RedirectResponse
     {
-        DB::transaction(function () use ($request, $article): void {
-            $article->update($request->attributesForModel());
-            $article->categories()->sync($request->categoryIds());
-        });
+        $save->handle($article, $request->attributesForModel(), $request->categoryIds());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Article ":title" updated.', ['title' => $article->title])]);
 

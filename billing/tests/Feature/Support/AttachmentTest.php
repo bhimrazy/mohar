@@ -138,3 +138,16 @@ test('pruned attachments answer 410', function () {
 
     $this->get(route('client.support.tickets.attachments.show', [$ticket->number, $attachment->id]))->assertStatus(410);
 });
+
+test('deleting a ticket removes its stored files', function () {
+    $department = Department::factory()->create();
+    $ticket = clientTicket(Client::factory()->create(), $department);
+    app(AddNote::class)->handle($ticket, User::factory()->staff()->create(), 'log', [IncomingFile::fromContents('a.txt', 'x')]);
+    $path = TicketAttachment::query()->sole()->path;
+    supportStaff([$department], ['support.tickets.view', 'support.tickets.delete']);
+
+    $this->delete(route('admin.support.tickets.destroy', $ticket))->assertRedirect(route('admin.support.tickets.index'));
+
+    Storage::disk('objects')->assertMissing($path);
+    expect(TicketAttachment::query()->count())->toBe(0);
+});

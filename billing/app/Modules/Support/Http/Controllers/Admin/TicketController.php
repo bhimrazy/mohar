@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Actions\CloseTicket;
+use App\Modules\Support\Actions\DeleteTicket;
 use App\Modules\Support\Actions\MergeTickets;
 use App\Modules\Support\Actions\OpenTicket;
 use App\Modules\Support\Actions\UpdateTicket;
@@ -34,7 +35,6 @@ use App\Modules\Support\Services\TicketRecorder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -219,13 +219,13 @@ class TicketController extends Controller
             : to_route('admin.support.tickets.index');
     }
 
-    public function destroy(Request $request, Ticket $ticket): RedirectResponse
+    public function destroy(Request $request, Ticket $ticket, DeleteTicket $delete): RedirectResponse
     {
         $this->authorize('support.tickets.delete');
         $this->authorizeTicket($request, $ticket);
         $number = $ticket->number;
 
-        DB::transaction(fn () => $ticket->delete());
+        $delete->handle($ticket);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Ticket #:number deleted.', ['number' => $number])]);
 
@@ -249,7 +249,7 @@ class TicketController extends Controller
         return to_route('admin.support.tickets.show', $target);
     }
 
-    public function bulk(BulkTicketRequest $request, CloseTicket $close, UpdateTicket $update): RedirectResponse
+    public function bulk(BulkTicketRequest $request, CloseTicket $close, UpdateTicket $update, DeleteTicket $delete): RedirectResponse
     {
         /** @var User $user */
         $user = $request->user();
@@ -260,7 +260,7 @@ class TicketController extends Controller
             match ($action) {
                 'close' => $close->handle($ticket, ClosedBy::Staff, TicketAuthor::staff($user)),
                 'assign' => $update->handle($ticket, $user, ['assigned_to' => $request->filled('assigned_to') ? $request->integer('assigned_to') : null]),
-                default => $ticket->delete(),
+                default => $delete->handle($ticket),
             };
         }
 

@@ -4,6 +4,7 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Models\Department;
+use App\Modules\Support\Models\NetworkIncident;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
@@ -61,4 +62,24 @@ test('merge fields resolve tickets and replies', function () {
         ->and($fields['email_subject'])->toBe("[#{$ticket->number}] {$ticket->subject}")
         ->and($reply)->ticket_id->toBe($ticket->id)->message_id->toStartWith('<');
     expect(Client::query()->count())->toBe(0);
+});
+
+test('dashboard widgets, todos, nav badge and quick-create are registered for support staff', function () {
+    $department = Department::factory()->create();
+    clientTicket(Client::factory()->create(), $department);
+    clientTicket(Client::factory()->create(), Department::factory()->create());
+    NetworkIncident::factory()->create();
+    $staff = supportStaff([$department], ['support.tickets.view', 'support.tickets.open', 'support.network.manage']);
+
+    $dashboard = app(Dashboard::class);
+    $list = collect($dashboard->resolveWidgets('admin', $staff))->firstWhere('key', 'support.awaiting_list');
+    $todos = collect($dashboard->resolveTodos('admin', $staff))->keyBy('key');
+    $tickets = collect(collect(app(Navigation::class)->forUser('admin', $staff))->firstWhere('title', 'Support')['items'])->firstWhere('title', 'Tickets');
+
+    expect($list['type'])->toBe('list')->and($list['items'])->toHaveCount(1)
+        ->and($todos['support.awaiting']['count'])->toBe(1)
+        ->and($todos['support.unassigned']['count'])->toBe(1)
+        ->and($todos['support.incidents']['count'])->toBe(1)
+        ->and($tickets['badge'])->toBe(1)
+        ->and(collect(app(Navigation::class)->quickActions($staff))->pluck('title')->all())->toContain('New ticket');
 });

@@ -4,10 +4,10 @@ namespace App\Modules\Support\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Support\Actions\SaveDepartment;
 use App\Modules\Support\Http\Requests\DepartmentRequest;
 use App\Modules\Support\Models\Department;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -40,14 +40,9 @@ class DepartmentController extends Controller
         return Inertia::render('admin/support/departments/form', ['staff' => $this->staffOptions()]);
     }
 
-    public function store(DepartmentRequest $request): RedirectResponse
+    public function store(DepartmentRequest $request, SaveDepartment $save): RedirectResponse
     {
-        $department = DB::transaction(function () use ($request): Department {
-            $department = Department::query()->create($request->attributesForModel());
-            $department->staff()->sync($request->staffIds());
-
-            return $department;
-        });
+        $department = $save->handle(null, $request->attributesForModel(), $request->staffIds());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Department :name created.', ['name' => $department->name])]);
 
@@ -67,12 +62,9 @@ class DepartmentController extends Controller
         ]);
     }
 
-    public function update(DepartmentRequest $request, Department $department): RedirectResponse
+    public function update(DepartmentRequest $request, Department $department, SaveDepartment $save): RedirectResponse
     {
-        DB::transaction(function () use ($request, $department): void {
-            $department->update($request->attributesForModel());
-            $department->staff()->sync($request->staffIds());
-        });
+        $save->handle($department, $request->attributesForModel(), $request->staffIds());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Department :name updated.', ['name' => $department->name])]);
 
