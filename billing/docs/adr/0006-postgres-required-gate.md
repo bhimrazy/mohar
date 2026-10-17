@@ -12,7 +12,7 @@ workers, scheduler) and `pglite-socket` serves one connection at a time.
 
 PostgreSQL (`postgres:18.6-alpine`, digest-pinned, in `compose.yaml`) is the production-parity database. CI runs
 the full suite on both SQLite and PostgreSQL; a red PostgreSQL job blocks merging. Code follows the portability
-rules in `docs/ARCHITECTURE.md` (Database section). npm is the single package manager (pnpm files removed).
+rules listed under **Database** → "PostgreSQL portability" in `docs/ARCHITECTURE.md` (Conventions). npm is the single package manager (pnpm files removed).
 
 ## Consequences
 

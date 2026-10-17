@@ -23,7 +23,7 @@ cd billing
 composer install && npm ci
 cp -n .env.example .env && php artisan key:generate
 touch database/database.sqlite
-docker compose up -d --wait          # rustfs (S3, :9000, console :9001) + postgres (:5432 on 127.0.0.1)
+docker compose up -d --wait          # rustfs (S3 :9000, console :9001) + postgres (:5432), all on 127.0.0.1
 php artisan objects:ensure-bucket    # creates the "billing" bucket used by the objects disk
 php artisan migrate:fresh --seed     # admin@example.com / demo@example.com, password "password"
 php artisan wayfinder:generate --with-form
@@ -71,22 +71,31 @@ then `php artisan config:clear && php artisan migrate:fresh --seed`. Switch back
 
 ```bash
 XDEBUG_MODE=off vendor/bin/pest --parallel     # SQLite in-memory (phpunit.xml)
-composer test:pgsql                            # same suite on the compose PostgreSQL (billing_test)
-composer ci                                    # every CI gate below, in CI order
+composer test:pgsql                            # migrate:fresh --seed + same suite on PostgreSQL (billing_test)
+composer ci                                    # every CI gate below, in CI order (incl. test:pgsql)
 ```
 
-`composer test:pgsql` is equivalent to
-`DB_CONNECTION=pgsql DB_HOST=127.0.0.1 DB_PORT=5432 DB_DATABASE=billing_test DB_USERNAME=billing DB_PASSWORD=billing vendor/bin/pest --parallel`
-— real environment variables win over the `<env>` defaults in `phpunit.xml` and over `.env`.
-Run `php artisan config:clear` first if you ever cached config.
+`composer test:pgsql` clears cached config, then runs `php artisan migrate:fresh --seed --force` and
+`vendor/bin/pest --parallel` with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
+`DB_USERNAME` / `DB_PASSWORD` taken from your shell, defaulting to the compose values
+(`127.0.0.1` / `5432` / `billing_test` / `billing` / `billing`). `.env` is not consulted for these: real
+environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI `tests-pgsql`
+job runs the same script.
 
-| CI job         | Local equivalent                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `lint`         | `vendor/bin/pint --parallel --test` · `php artisan wayfinder:generate --with-form` · `npx vp check` · `npx tsc --noEmit` |
-| `static`       | `vendor/bin/phpstan analyse --memory-limit=1G`                                                                           |
-| `tests-sqlite` | `vendor/bin/pest --parallel`                                                                                             |
-| `tests-pgsql`  | `php artisan migrate:fresh --seed` on PostgreSQL, then `composer test:pgsql`                                             |
-| `build`        | `npm run build` (runs Wayfinder via the Vite plugin, so PHP must be available)                                           |
+Two worktrees can run it at the same time against the shared server with different databases — a missing
+database is created by `migrate --force`, and parallel workers add `<name>_test_<n>` copies:
+
+```bash
+DB_DATABASE=billing_test_orders composer test:pgsql
+```
+
+| CI job         | Local equivalent                                                                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint`         | postgres image in `ci.yml` = `compose.yaml` · `vendor/bin/pint --parallel --test` · `php artisan wayfinder:generate --with-form` · `npx vp check` · `npx tsc --noEmit` |
+| `static`       | `vendor/bin/phpstan analyse --memory-limit=1G`                                                                                                                         |
+| `tests-sqlite` | `vendor/bin/pest --parallel`                                                                                                                                           |
+| `tests-pgsql`  | `composer test:pgsql` (migrate:fresh --seed, then the suite)                                                                                                           |
+| `build`        | `npm run build` (runs Wayfinder via the Vite plugin, so PHP must be available)                                                                                         |
 
 Validate workflow changes with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 (download the
 release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from the repository root).
@@ -103,10 +112,9 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 
 ## Screenshots
 
-`docs/PROGRESS.md` references `node scripts/screenshots.mjs` (headless Playwright, output in
-`docs/screenshots/`). The script is not committed yet; until it is, capture the design-system showcase at
-`/dev/components` and module pages with Playwright's Chromium (`~/.cache/ms-playwright`) against
-`composer dev` (`APP_URL=http://localhost:8000`).
+Screenshots for `docs/PROGRESS.md` live in `docs/screenshots/` and are captured with headless Playwright
+(Chromium in `~/.cache/ms-playwright`) against a running instance (`composer dev`,
+`APP_URL=http://localhost:8000`); the design-system showcase is at `/dev/components`.
 
 ## Worktree workflow
 
