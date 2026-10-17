@@ -2,14 +2,24 @@
 
 namespace App\Modules\Core;
 
+use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
+use App\Contracts\Services\ClientServiceDirectory;
+use App\Contracts\Services\ProvisioningDrivers;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\NullCatalogUsage;
+use App\Modules\Core\Support\NullClientServiceDirectory;
+use App\Modules\Core\Support\NullGatewayDirectory;
+use App\Modules\Core\Support\NullInvoiceQueries;
+use App\Modules\Core\Support\NullPaymentGuard;
+use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -35,6 +45,11 @@ class CoreServiceProvider extends ModuleServiceProvider
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
         $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);
+        $this->app->bindIf(ProvisioningDrivers::class, NullProvisioningDrivers::class);
+        $this->app->bindIf(ClientServiceDirectory::class, NullClientServiceDirectory::class);
+        $this->app->bindIf(PaymentGuard::class, NullPaymentGuard::class);
+        $this->app->bindIf(GatewayDirectory::class, NullGatewayDirectory::class);
+        $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
     }
 
     protected function schedule(Schedule $schedule): void
