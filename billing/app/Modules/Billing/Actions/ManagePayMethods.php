@@ -1,0 +1,83 @@
+<?php
+
+namespace App\Modules\Billing\Actions;
+
+use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\PayMethod;
+use App\Modules\Billing\Services\GatewayCharger;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Store, default and remove tokenised pay methods. One default per client.
+ */
+class ManagePayMethods
+{
+    public function __construct(
+        private GatewayManager $gateways,
+        private GatewayCharger $charger,
+    ) {}
+
+    public function store(int $clientId, string $gatewayKey, string $token, bool $makeDefault = false): PayMethod
+    {
+        $gateway = $this->charger->activeGateway($gatewayKey);
+        $driver = $this->gateways->driver($gatewayKey);
+
+        if (! $driver->supports(GatewayDriver::TOKENIZE)) {
+            throw new BillingException(__('This payment method can\'t be saved.'));
+        }
+
+        $details = $driver->tokenDetails($gateway, $token) ?? throw new BillingException(__('The card details could not be verified. Enter them again.'));
+
+        return DB::transaction(function () use ($clientId, $gatewayKey, $details, $makeDefault): PayMethod {
+            $isFirst = ! PayMethod::query()->where('client_id', $clientId)->usable()->exists();
+            $method = PayMethod::query()->create([
+                'client_id' => $clientId,
+                'gateway' => $gatewayKey,
+                'kind' => 'card',
+                'token' => $details->token,
+                'brand' => mb_substr($details->brand, 0, 30),
+                'last4' => mb_substr($details->last4, 0, 4),
+                'expiry_month' => $details->expiryMonth,
+                'expiry_year' => $details->expiryYear,
+            ]);
+
+            if ($makeDefault || $isFirst) {
+                $this->makeDefault($method);
+            }
+
+            return $method;
+        });
+    }
+
+    public function makeDefault(PayMethod $method): void
+    {
+        DB::transaction(function () use ($method): void {
+            PayMethod::query()->where('client_id', $method->client_id)->whereKeyNot($method->id)->update(['is_default' => false]);
+            $method->update(['is_default' => true]);
+        });
+    }
+
+    public function delete(PayMethod $method): void
+    {
+        DB::transaction(function () use ($method): void {
+            $method->delete();
+
+            if ($method->is_default) {
+                PayMethod::query()->where('client_id', $method->client_id)->usable()->orderBy('id')->first()?->update(['is_default' => true]);
+            }
+        });
+    }
+
+    /**
+     * Pay method used for automatic capture: the client's default, else the first usable one for the gateway.
+     */
+    public function forCapture(int $clientId, ?string $gateway): ?PayMethod
+    {
+        $methods = PayMethod::query()->where('client_id', $clientId)->usable()->orderByDesc('is_default')->orderBy('id')->get()
+            ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE));
+
+        return $methods->firstWhere('is_default', true) ?? $methods->firstWhere('gateway', $gateway) ?? $methods->first();
+    }
+}
