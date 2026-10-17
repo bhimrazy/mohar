@@ -20,7 +20,7 @@ Implementation notes (v1 deviations from this spec):
   `security.staff_2fa_required`, `security.login_max_attempts`, `security.login_lockout_minutes`,
   `security.login_ip_allowlist`, `platform.impersonation_minutes`, `platform.invitation_expiry_days`,
   `platform.activity_log_retention_days`.
-- Sensitive permissions (impersonate, merge, close, `core.staff.*`, `core.roles.*`, `core.settings.security`) are
+- Sensitive permissions (impersonate, merge, close, `core.users.*`, `core.staff.*`, `core.roles.*`, `core.settings.security`) are
   never granted by wildcards and need a recent password confirmation (see `docs/security/STANDARDS.md`).
 - Currencies: v1 supports 2-decimal currencies only (ADR 0002); the `decimals` column is kept for later.
 - Client merge: Core moves contacts and logins and dispatches `ClientMerged` inside the transaction; every other module

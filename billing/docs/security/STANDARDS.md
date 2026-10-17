@@ -12,7 +12,8 @@ Each rule has an enforcement point; reviews check for it.
   `base-uri 'self'`, `form-action 'self'`. The Vite dev-server origin is added only while `public/hot` exists.
 - `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`
   (`no-referrer` on pages with a token in the URL), a minimal `Permissions-Policy`, and
-  `Strict-Transport-Security` on HTTPS.
+  `Strict-Transport-Security` on HTTPS. It is global middleware, so 404s, error pages and auth redirects carry the
+  headers too.
 - Production sets `SESSION_SECURE_COOKIE=true`.
 
 Do not add third-party script or style origins. If a feature really needs one, change the policy in that middleware
@@ -22,8 +23,8 @@ and get the security reviewer's sign-off.
 
 - Register high-risk permissions as sensitive:
   `PermissionRegistry::register($group, $permissions, sensitive: ['module.area.action', 'module.area.*'])`.
-  Examples are impersonation, merges, closing accounts, staff and role management, security settings, refunds and
-  gateway or server credentials.
+  Examples are impersonation, merges, closing accounts, client-login management (adding logins, changing the owner,
+  2FA resets), staff and role management, security settings, refunds and gateway or server credentials.
 - `Role::allows()` grants a sensitive permission only by its exact key or by `*` (the full-administrator grant).
   A `module.*` or `module.area.*` wildcard never covers it. So a permission added later never reaches existing roles
   silently.
@@ -58,12 +59,35 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - The request user and IP are recorded only for real HTTP requests (a matched route). Console and queued work is
   recorded as `system`.
 
-## 5. Secrets
+## 5. Search input
 
-- Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString`). The cache
+- User search terms are literal. Build every LIKE through `App\Modules\Core\Support\Like` (`contains()` /
+  `startsWith()` + `Like::where()`). It escapes `%` and `_` with `ESCAPE '!'` (portable to SQLite, PostgreSQL and
+  MySQL) and compares case-insensitively.
+
+## 6. Secrets
+
+- Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString` of
+  `{key, value}`, so ciphertext is bound to its key). Only registered secrets are ever decrypted. The cache
   holds only the ciphertext, and only `get()` decrypts. They are write-only: never in Inertia props or HTML, masked in
   the audit diff, and a blank submission keeps the stored value.
 - Module credentials (gateways, registrars, servers) are encrypted at rest with Laravel's encrypter, never cached in
   plaintext, and never sent to the browser. Tests assert that no secret value appears in any rendered page.
 - Tokens in URLs (invitations, password resets) are hashed at rest, single-use, expiring, and served with
   `Referrer-Policy: no-referrer`.
+
+## Go-live checklist
+
+- [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
+      encrypted settings stay readable).
+- [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see
+      `docs/devops/LOCAL_SETUP.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
+      proxy, and HSTS is never sent.
+- [ ] HTTPS only. `SESSION_SECURE_COOKIE=true`. Check that `Strict-Transport-Security` and
+      `Content-Security-Policy` headers are present on `/login`, on a 404 and on `/admin` as a guest.
+- [ ] `security.staff_2fa_required` is on (the demo seeder turns it off locally only) and every full administrator
+      has 2FA.
+- [ ] The scheduler and a queue worker are running (the dashboard flags automation that has not run for 26 h).
+- [ ] Mail is configured, because security notices (email changes, 2FA resets, ownership transfers) depend on it.
+- [ ] The `dev/components` showcase is not reachable (registered only in `local`).
+

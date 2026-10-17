@@ -114,6 +114,34 @@ Screenshots for `docs/PROGRESS.md` live in `docs/screenshots/` and are captured 
 (Chromium in `~/.cache/ms-playwright`) against a running instance (`composer dev`,
 `APP_URL=http://localhost:8000`); the design-system showcase is at `/dev/components`.
 
+## Reverse proxies and `TrustProxies`
+
+Locally (`artisan serve`, Vite) there is no proxy, and no proxies are trusted, so `X-Forwarded-*` headers are ignored.
+Keep it that way unless a proxy really sits in front of the app: trusting `X-Forwarded-For` from anyone would let
+clients spoof their IP.
+
+Behind a load balancer or reverse proxy (production, or a local Traefik/nginx), configure trusted proxies in
+`bootstrap/app.php`. Use the proxy's address range, never `*` on a public network:
+
+```php
+->withMiddleware(function (Middleware $middleware): void {
+    $middleware->trustProxies(
+        at: ['10.0.0.0/8'], // the load balancer's private range
+        headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST
+            | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO,
+    );
+})
+```
+
+Without it, `request()->ip()` is the proxy's address and `isSecure()` is false. So:
+
+- the login lockout (per email + IP) would lock an email for every visitor once a few bad passwords came through,
+- the activity log would record the proxy IP,
+- HSTS would never be sent.
+
+Check after deploying: sign in, then confirm that the activity log shows your real IP and the response has
+`Strict-Transport-Security`.
+
 ## Worktree workflow
 
 Every workstream works in its own git worktree, branched from `develop`:
