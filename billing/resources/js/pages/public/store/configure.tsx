@@ -895,7 +895,7 @@ export default function Configure({
                                 </li>
                             )}
                         </ul>
-                        {quote && quote.item.errors.length > 0 && (
+                        {quote && quote.item.errors.length > 0 && (form.data.domain_name !== '' || !product.requires_domain) && (
                             <div className="px-5 pb-3">
                                 {quote.item.errors.map((error) => (
                                     <p
@@ -912,7 +912,7 @@ export default function Configure({
                             <span className="font-medium">Due today</span>
                             <span className="text-right">
                                 <Money
-                                    amount={quote?.subtotal}
+                                    amount={quote?.item.due_today}
                                     currency={currency}
                                     className="text-xl font-semibold"
                                 />

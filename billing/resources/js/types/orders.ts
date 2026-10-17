@@ -44,6 +44,8 @@ export type PricedCart = {
     subtotal: number;
     setup_total: number;
     discount_total: number;
+    /** Due today after discounts, before tax. */
+    net_total: number;
     taxes: { name: string; rate: number; amount: number }[];
     tax_total: number;
     total: number;

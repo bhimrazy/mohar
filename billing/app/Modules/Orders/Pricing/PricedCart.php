@@ -71,9 +71,17 @@ final class PricedCart
         return array_sum(array_map(fn (PricedLine $line): int => $line->totalDiscount(), $this->validLines()));
     }
 
+    /**
+     * Due today after discounts, before tax (tax depends on the buyer's address, prices do not).
+     */
+    public function netTotal(): int
+    {
+        return $this->subtotal() - $this->discountTotal();
+    }
+
     public function total(): int
     {
-        return $this->subtotal() - $this->discountTotal() + $this->taxTotal;
+        return $this->netTotal() + $this->taxTotal;
     }
 
     public function isEmpty(): bool
@@ -154,6 +162,7 @@ final class PricedCart
             'subtotal' => $this->subtotal(),
             'setup_total' => $this->setupTotal(),
             'discount_total' => $this->discountTotal(),
+            'net_total' => $this->netTotal(),
             'taxes' => $this->taxes,
             'tax_total' => $this->taxTotal,
             'total' => $this->total(),

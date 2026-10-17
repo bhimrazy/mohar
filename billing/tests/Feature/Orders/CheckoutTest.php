@@ -127,6 +127,30 @@ it('returns the first order on a double submit', function () {
     expect(Order::query()->count())->toBe(1);
 });
 
+it('stops checkout when prices changed since the customer reviewed them', function () {
+    [, $client] = actingAsClient();
+    OrdersFakes::cartFor($client, [OrdersFakes::productItem(1)]);
+    $this->fakes->catalog->setPrice(1, 'monthly', 1200);
+
+    $this->post(route('store.checkout.store'), checkoutPayload(['expected_net_total' => 1000]))
+        ->assertSessionHasErrors(['cart' => 'Prices in your cart have changed. Review the updated total and place your order again.']);
+
+    expect(Order::query()->count())->toBe(0);
+});
+
+it('does not treat a tax change from the new address as a price change', function () {
+    Currency::factory()->create();
+    $this->fakes->billing->taxRate = 20;
+    $cart = OrdersFakes::cartFor(null, [OrdersFakes::productItem(1)]);
+
+    $this->withSession([CartManager::SESSION_TOKEN => $cart->token])->post(route('store.checkout.store'), checkoutPayload([
+        'expected_net_total' => 1000,
+        'first_name' => 'Ada', 'last_name' => 'L', 'email' => 'ada@example.com', 'password' => 'password', 'password_confirmation' => 'password',
+    ]))->assertSessionHasNoErrors();
+
+    expect(Order::query()->sole()->total)->toBe(1200);
+});
+
 it('refuses checkout for staff without a client account', function () {
     Currency::factory()->create();
     actingAsStaff();

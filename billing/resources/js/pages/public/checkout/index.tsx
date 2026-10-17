@@ -42,7 +42,7 @@ type CheckoutForm = {
     accept_tos: boolean;
     notes: string;
     idempotency_key: string;
-    expected_total: number;
+    expected_net_total: number;
     first_name: string;
     last_name: string;
     company_name: string;
@@ -70,7 +70,7 @@ export default function Checkout({
         accept_tos: false,
         notes: '',
         idempotency_key: idempotencyKey,
-        expected_total: cart.total,
+        expected_net_total: cart.net_total,
         first_name: '',
         last_name: '',
         company_name: '',

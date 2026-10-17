@@ -248,7 +248,7 @@ class PlaceOrder
             throw ValidationException::withMessages(['promotion_code' => $cart->promotionError]);
         }
 
-        if ($data->expectedTotal !== null && $data->expectedTotal !== $cart->total()) {
+        if ($data->expectedNetTotal !== null && $data->expectedNetTotal !== $cart->netTotal()) {
             throw ValidationException::withMessages([
                 'cart' => __('Prices in your cart have changed. Review the updated total and place your order again.'),
             ]);

@@ -13,6 +13,7 @@ final readonly class CheckoutData
     /**
      * @param  list<CartItem>  $items
      * @param  array{first_name: string, last_name: string, email: string, password: string, company_name?: ?string, country?: ?string}|null  $registration
+     * @param  int|null  $expectedNetTotal  the pre-tax total the customer confirmed; checkout stops when prices changed since
      * @param  array<string, int>  $priceOverrides  cart item key => recurring amount (staff orders only)
      */
     public function __construct(
@@ -32,7 +33,7 @@ final readonly class CheckoutData
         public bool $applyCredit = false,
         public bool $skipFraud = false,
         public bool $notifyInvoice = true,
-        public ?int $expectedTotal = null,
+        public ?int $expectedNetTotal = null,
         public array $priceOverrides = [],
     ) {}
 }

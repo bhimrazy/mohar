@@ -30,7 +30,7 @@ class CheckoutRequest extends FormRequest
             'accept_tos' => $settings->get('orders.require_tos', true) ? ['accepted'] : ['nullable', 'boolean'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'idempotency_key' => ['required', 'string', 'max:100'],
-            'expected_total' => ['nullable', 'integer'],
+            'expected_net_total' => ['nullable', 'integer'],
             'apply_credit' => ['nullable', 'boolean'],
         ];
 

@@ -103,7 +103,7 @@ class CheckoutController extends Controller
             idempotencyKey: $request->string('idempotency_key')->toString(),
             referralCode: CaptureReferralAndPromo::referralFrom($request),
             applyCredit: $request->boolean('apply_credit'),
-            expectedTotal: $request->filled('expected_total') ? $request->integer('expected_total') : null,
+            expectedNetTotal: $request->filled('expected_net_total') ? $request->integer('expected_net_total') : null,
         ));
 
         $this->carts->clear($cart, $request);
