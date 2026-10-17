@@ -19,7 +19,11 @@ type GatewayRow = {
     capabilities: string[];
 };
 
-export default function GatewaysIndex({ gateways }: { gateways: GatewayRow[] }) {
+export default function GatewaysIndex({
+    gateways,
+}: {
+    gateways: GatewayRow[];
+}) {
     const columns: DataTableColumn<GatewayRow>[] = [
         {
             key: 'name',
@@ -28,32 +32,65 @@ export default function GatewaysIndex({ gateways }: { gateways: GatewayRow[] }) 
             cell: (gateway) => (
                 <div>
                     <div>{gateway.display_name}</div>
-                    <div className="text-xs text-muted-foreground">{gateway.driver_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                        {gateway.driver_name}
+                    </div>
                 </div>
             ),
         },
-        { key: 'status', header: 'Status', cell: (gateway) => <StatusBadge status={gateway.is_active ? 'active' : 'inactive'} /> },
-        { key: 'clients', header: 'Shown to clients', hideOnMobile: true, cell: (gateway) => (gateway.show_on_order_form ? 'Yes' : 'No') },
+        {
+            key: 'status',
+            header: 'Status',
+            cell: (gateway) => (
+                <StatusBadge
+                    status={gateway.is_active ? 'active' : 'inactive'}
+                />
+            ),
+        },
+        {
+            key: 'clients',
+            header: 'Shown to clients',
+            hideOnMobile: true,
+            cell: (gateway) => (gateway.show_on_order_form ? 'Yes' : 'No'),
+        },
         {
             key: 'capabilities',
             header: 'Capabilities',
             hideOnMobile: true,
             cell: (gateway) =>
                 gateway.capabilities.length ? (
-                    <span className="text-sm text-muted-foreground">{gateway.capabilities.map(humanize).join(', ')}</span>
+                    <span className="text-sm text-muted-foreground">
+                        {gateway.capabilities.map(humanize).join(', ')}
+                    </span>
                 ) : (
-                    <span className="text-sm text-muted-foreground">Offline, staff-recorded</span>
+                    <span className="text-sm text-muted-foreground">
+                        Offline, staff-recorded
+                    </span>
                 ),
         },
-        { key: 'currency', header: 'Converts to', hideOnMobile: true, cell: (gateway) => gateway.convert_to_currency ?? '—' },
+        {
+            key: 'currency',
+            header: 'Converts to',
+            hideOnMobile: true,
+            cell: (gateway) => gateway.convert_to_currency ?? '—',
+        },
     ];
 
     return (
         <>
             <Head title="Payment gateways" />
             <Page>
-                <PageHeader title="Payment gateways" description="Enable the ways clients can pay and configure each gateway." />
-                <DataTable caption="Payment gateways" columns={columns} rows={gateways} getRowKey={(gateway) => gateway.key} rowHref={(gateway) => edit(gateway.key)} />
+                <PageHeader
+                    title="Payment gateways"
+                    description="Enable the ways clients can pay and configure each gateway."
+                />
+                <DataTable
+                    caption="Payment gateways"
+                    columns={columns}
+                    rows={gateways}
+                    getRowKey={(gateway) => gateway.key}
+                    rowHref={(gateway) => edit(gateway.key)}
+                />
             </Page>
         </>
     );

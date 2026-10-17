@@ -30,7 +30,11 @@ export function LineItems({ items, currency, select }: LineItemsProps) {
             header: 'Description',
             primary: true,
             cell: (item) => (
-                <div className={cn(item.cancelled && 'text-muted-foreground line-through')}>
+                <div
+                    className={cn(
+                        item.cancelled && 'text-muted-foreground line-through',
+                    )}
+                >
                     <div className="whitespace-normal">{item.description}</div>
                     {item.period_start && item.period_end && (
                         <div className="text-xs text-muted-foreground">
@@ -46,7 +50,9 @@ export function LineItems({ items, currency, select }: LineItemsProps) {
             header: 'Qty',
             align: 'right',
             className: 'w-16',
-            cell: (item) => <span className="tabular-nums">{item.quantity}</span>,
+            cell: (item) => (
+                <span className="tabular-nums">{item.quantity}</span>
+            ),
         },
         {
             key: 'unit',

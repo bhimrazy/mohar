@@ -1,5 +1,11 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { CreditCard, Download, MoreHorizontal, Pencil, Send } from 'lucide-react';
+import {
+    CreditCard,
+    Download,
+    MoreHorizontal,
+    Pencil,
+    Send,
+} from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
@@ -18,7 +24,12 @@ import { FormDialog } from '@/components/billing/form-dialog';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { SelectField } from '@/components/billing/select-field';
-import type { GatewayOption, Invoice, PayMethod, Transaction } from '@/components/billing/types';
+import type {
+    GatewayOption,
+    Invoice,
+    PayMethod,
+    Transaction,
+} from '@/components/billing/types';
 import { humanize, toDecimalInput } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -45,7 +56,12 @@ import {
     removeCredit,
     reopen,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceActionController';
-import { destroy, edit, index, updateDetails } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
+import {
+    destroy,
+    edit,
+    index,
+    updateDetails,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 
@@ -62,8 +78,16 @@ const PAYABLE = ['unpaid', 'payment_pending', 'collections'];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-function RefundDialog({ transaction, gateways }: { transaction: Transaction; gateways: GatewayOption[] }) {
-    const canRefundAtGateway = gateways.find((gateway) => gateway.value === transaction.gateway)?.refund ?? false;
+function RefundDialog({
+    transaction,
+    gateways,
+}: {
+    transaction: Transaction;
+    gateways: GatewayOption[];
+}) {
+    const canRefundAtGateway =
+        gateways.find((gateway) => gateway.value === transaction.gateway)
+            ?.refund ?? false;
 
     return (
         <FormDialog
@@ -75,7 +99,12 @@ function RefundDialog({ transaction, gateways }: { transaction: Transaction; gat
             title={`Refund ${transaction.gateway_txn_id ?? `transaction #${transaction.id}`}?`}
             description={
                 <>
-                    Up to <Money amount={transaction.refundable_remaining} currency={transaction.currency} /> can be refunded.
+                    Up to{' '}
+                    <Money
+                        amount={transaction.refundable_remaining}
+                        currency={transaction.currency}
+                    />{' '}
+                    can be refunded.
                 </>
             }
             submitLabel="Refund payment"
@@ -90,23 +119,43 @@ function RefundDialog({ transaction, gateways }: { transaction: Transaction; gat
         >
             {(form) => (
                 <div className="grid gap-4">
-                    <Field htmlFor="refund-amount" label="Amount" error={form.errors.amount}>
+                    <Field
+                        htmlFor="refund-amount"
+                        label="Amount"
+                        error={form.errors.amount}
+                    >
                         <Input
                             id="refund-amount"
                             inputMode="decimal"
                             value={form.data.amount}
-                            onChange={(event) => form.setData('amount', event.target.value)}
+                            onChange={(event) =>
+                                form.setData('amount', event.target.value)
+                            }
                             aria-invalid={!!form.errors.amount}
                         />
                     </Field>
-                    <Field htmlFor="refund-mode" label="Refund to" error={form.errors.mode}>
+                    <Field
+                        htmlFor="refund-mode"
+                        label="Refund to"
+                        error={form.errors.mode}
+                    >
                         <SelectField
                             id="refund-mode"
                             value={form.data.mode}
                             onChange={(value) => form.setData('mode', value)}
                             options={[
-                                ...(canRefundAtGateway ? [{ value: 'gateway', label: 'Original payment method (gateway)' }] : []),
-                                { value: 'record_only', label: 'Record only (refunded outside the system)' },
+                                ...(canRefundAtGateway
+                                    ? [
+                                          {
+                                              value: 'gateway',
+                                              label: 'Original payment method (gateway)',
+                                          },
+                                      ]
+                                    : []),
+                                {
+                                    value: 'record_only',
+                                    label: 'Record only (refunded outside the system)',
+                                },
                                 { value: 'to_credit', label: 'Account credit' },
                             ]}
                         />
@@ -115,10 +164,19 @@ function RefundDialog({ transaction, gateways }: { transaction: Transaction; gat
                         <Checkbox
                             id="refund-reverse"
                             checked={form.data.reverse_effects}
-                            onCheckedChange={(checked) => form.setData('reverse_effects', checked === true)}
+                            onCheckedChange={(checked) =>
+                                form.setData(
+                                    'reverse_effects',
+                                    checked === true,
+                                )
+                            }
                         />
-                        <Label htmlFor="refund-reverse" className="leading-snug font-normal">
-                            Reverse what the payment granted (roll back service due dates, affiliate commission)
+                        <Label
+                            htmlFor="refund-reverse"
+                            className="leading-snug font-normal"
+                        >
+                            Reverse what the payment granted (roll back service
+                            due dates, affiliate commission)
                         </Label>
                     </div>
                 </div>
@@ -127,25 +185,58 @@ function RefundDialog({ transaction, gateways }: { transaction: Transaction; gat
     );
 }
 
-export default function InvoiceShow({ invoice, transactions, credit_available, gateways, pay_methods, can }: Props) {
-    const [dialog, setDialog] = useState<null | 'payment' | 'details' | 'cancel' | 'markPaid' | 'capture' | 'credit' | 'removeCredit'>(null);
+export default function InvoiceShow({
+    invoice,
+    transactions,
+    credit_available,
+    gateways,
+    pay_methods,
+    can,
+}: Props) {
+    const [dialog, setDialog] = useState<
+        | null
+        | 'payment'
+        | 'details'
+        | 'cancel'
+        | 'markPaid'
+        | 'capture'
+        | 'credit'
+        | 'removeCredit'
+    >(null);
     const [selectedLines, setSelectedLines] = useState<number[]>([]);
     const isDraft = invoice.status === 'draft';
     const isPayable = PAYABLE.includes(invoice.status) && invoice.balance > 0;
     const items = invoice.items ?? [];
     const snapshot = invoice.client_snapshot ?? {};
     const close = (open: boolean) => !open && setDialog(null);
-    const gatewayName = (key: string | null) => gateways.find((gateway) => gateway.value === key)?.label ?? (key ? humanize(key) : null);
+    const gatewayName = (key: string | null) =>
+        gateways.find((gateway) => gateway.value === key)?.label ??
+        (key ? humanize(key) : null);
 
     const transactionColumns: DataTableColumn<Transaction>[] = [
-        { key: 'date', header: 'Date', primary: true, cell: (txn) => <DateTime value={txn.occurred_at} format="datetime" /> },
+        {
+            key: 'date',
+            header: 'Date',
+            primary: true,
+            cell: (txn) => (
+                <DateTime value={txn.occurred_at} format="datetime" />
+            ),
+        },
         { key: 'type', header: 'Type', cell: (txn) => humanize(txn.type) },
-        { key: 'gateway', header: 'Gateway', cell: (txn) => gatewayName(txn.gateway) },
+        {
+            key: 'gateway',
+            header: 'Gateway',
+            cell: (txn) => gatewayName(txn.gateway),
+        },
         {
             key: 'reference',
             header: 'Reference',
             hideOnMobile: true,
-            cell: (txn) => <span className="font-mono text-xs">{txn.gateway_txn_id ?? '—'}</span>,
+            cell: (txn) => (
+                <span className="font-mono text-xs">
+                    {txn.gateway_txn_id ?? '—'}
+                </span>
+            ),
         },
         {
             key: 'amount',
@@ -153,10 +244,20 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
             align: 'right',
             cell: (txn) => (
                 <div>
-                    <Money amount={txn.amount_out > 0 ? -txn.amount_out : txn.amount_in} currency={txn.currency} tone="ledger" />
+                    <Money
+                        amount={
+                            txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
+                        }
+                        currency={txn.currency}
+                        tone="ledger"
+                    />
                     {txn.gateway_currency && txn.gateway_amount !== null && (
                         <div className="text-xs text-muted-foreground">
-                            <Money amount={txn.gateway_amount} currency={txn.gateway_currency} /> @ {txn.exchange_rate}
+                            <Money
+                                amount={txn.gateway_amount}
+                                currency={txn.gateway_currency}
+                            />{' '}
+                            @ {txn.exchange_rate}
                         </div>
                     )}
                 </div>
@@ -167,7 +268,10 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             hideOnMobile: true,
-            cell: (txn) => (can.refunds && txn.refundable ? <RefundDialog transaction={txn} gateways={gateways} /> : null),
+            cell: (txn) =>
+                can.refunds && txn.refundable ? (
+                    <RefundDialog transaction={txn} gateways={gateways} />
+                ) : null,
         },
     ];
 
@@ -179,11 +283,22 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                     back={{ href: index(), label: 'Invoices' }}
                     title={invoice.number}
                     status={invoice.display_status}
-                    badges={invoice.kind === 'add_funds' ? <StatusBadge status="add_funds" tone="info" label="Add funds" /> : undefined}
+                    badges={
+                        invoice.kind === 'add_funds' ? (
+                            <StatusBadge
+                                status="add_funds"
+                                tone="info"
+                                label="Add funds"
+                            />
+                        ) : undefined
+                    }
                     meta={
                         <>
                             {invoice.client && (
-                                <Link href={showClient(invoice.client.id)} className="hover:text-foreground hover:underline">
+                                <Link
+                                    href={showClient(invoice.client.id)}
+                                    className="hover:text-foreground hover:underline"
+                                >
                                     {invoice.client.display_name}
                                 </Link>
                             )}
@@ -191,7 +306,8 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                                 <>
                                     <span aria-hidden="true">·</span>
                                     <span>
-                                        Due <DateTime value={invoice.due_date} />
+                                        Due{' '}
+                                        <DateTime value={invoice.due_date} />
                                     </span>
                                 </>
                             )}
@@ -201,7 +317,11 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                         <>
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" size="icon" aria-label="More actions">
+                                    <Button
+                                        variant="outline"
+                                        size="icon"
+                                        aria-label="More actions"
+                                    >
                                         <MoreHorizontal />
                                     </Button>
                                 </DropdownMenuTrigger>
@@ -214,43 +334,85 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                                     </DropdownMenuItem>
                                     {can.manage && isPayable && (
                                         <DropdownMenuItem
-                                            onSelect={() => router.post(remind.url(invoice.id), {}, { preserveScroll: true })}
+                                            onSelect={() =>
+                                                router.post(
+                                                    remind.url(invoice.id),
+                                                    {},
+                                                    { preserveScroll: true },
+                                                )
+                                            }
                                         >
                                             <Send />
                                             Send reminder
                                         </DropdownMenuItem>
                                     )}
                                     {can.manage && !isDraft && (
-                                        <DropdownMenuItem onSelect={() => setDialog('details')}>
+                                        <DropdownMenuItem
+                                            onSelect={() =>
+                                                setDialog('details')
+                                            }
+                                        >
                                             <Pencil />
                                             Edit details
                                         </DropdownMenuItem>
                                     )}
                                     {can.payments && isPayable && (
-                                        <DropdownMenuItem onSelect={() => setDialog('markPaid')}>Mark paid (write off)</DropdownMenuItem>
-                                    )}
-                                    {can.manage && invoice.status === 'cancelled' && (
-                                        <DropdownMenuItem onSelect={() => router.post(reopen.url(invoice.id), {}, { preserveScroll: true })}>
-                                            Reopen invoice
+                                        <DropdownMenuItem
+                                            onSelect={() =>
+                                                setDialog('markPaid')
+                                            }
+                                        >
+                                            Mark paid (write off)
                                         </DropdownMenuItem>
                                     )}
-                                    {can.manage && (isDraft || PAYABLE.includes(invoice.status)) && (
-                                        <>
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem variant="destructive" onSelect={() => setDialog('cancel')}>
-                                                {isDraft ? 'Delete draft' : 'Cancel invoice'}
+                                    {can.manage &&
+                                        invoice.status === 'cancelled' && (
+                                            <DropdownMenuItem
+                                                onSelect={() =>
+                                                    router.post(
+                                                        reopen.url(invoice.id),
+                                                        {},
+                                                        {
+                                                            preserveScroll: true,
+                                                        },
+                                                    )
+                                                }
+                                            >
+                                                Reopen invoice
                                             </DropdownMenuItem>
-                                        </>
-                                    )}
+                                        )}
+                                    {can.manage &&
+                                        (isDraft ||
+                                            PAYABLE.includes(
+                                                invoice.status,
+                                            )) && (
+                                            <>
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                    variant="destructive"
+                                                    onSelect={() =>
+                                                        setDialog('cancel')
+                                                    }
+                                                >
+                                                    {isDraft
+                                                        ? 'Delete draft'
+                                                        : 'Cancel invoice'}
+                                                </DropdownMenuItem>
+                                            </>
+                                        )}
                                 </DropdownMenuContent>
                             </DropdownMenu>
                             {isDraft && can.manage && (
                                 <>
                                     <Button variant="outline" asChild>
-                                        <Link href={edit(invoice.id)}>Edit</Link>
+                                        <Link href={edit(invoice.id)}>
+                                            Edit
+                                        </Link>
                                     </Button>
                                     <ConfirmDialog
-                                        trigger={<Button>Publish invoice</Button>}
+                                        trigger={
+                                            <Button>Publish invoice</Button>
+                                        }
                                         title={`Publish ${invoice.number}?`}
                                         description="The invoice gets its number, tax is calculated with the current rules and the client is notified. Lines can't be edited afterwards."
                                         confirmLabel="Publish invoice"
@@ -270,16 +432,53 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                 />
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                    <StatCard label="Total" value={<Money amount={invoice.total} currency={invoice.currency} />} />
-                    <StatCard label="Paid" value={<Money amount={invoice.amount_paid} currency={invoice.currency} />} />
+                    <StatCard
+                        label="Total"
+                        value={
+                            <Money
+                                amount={invoice.total}
+                                currency={invoice.currency}
+                            />
+                        }
+                    />
+                    <StatCard
+                        label="Paid"
+                        value={
+                            <Money
+                                amount={invoice.amount_paid}
+                                currency={invoice.currency}
+                            />
+                        }
+                    />
                     <StatCard
                         label="Balance"
-                        value={<Money amount={invoice.balance} currency={invoice.currency} tone="ledger" />}
-                        hint={invoice.credit_applied > 0 ? <>incl. <Money amount={invoice.credit_applied} currency={invoice.currency} /> credit</> : undefined}
+                        value={
+                            <Money
+                                amount={invoice.balance}
+                                currency={invoice.currency}
+                                tone="ledger"
+                            />
+                        }
+                        hint={
+                            invoice.credit_applied > 0 ? (
+                                <>
+                                    incl.{' '}
+                                    <Money
+                                        amount={invoice.credit_applied}
+                                        currency={invoice.currency}
+                                    />{' '}
+                                    credit
+                                </>
+                            ) : undefined
+                        }
                     />
                     <StatCard
                         label={invoice.paid_at ? 'Paid on' : 'Due'}
-                        value={<DateTime value={invoice.paid_at ?? invoice.due_date} />}
+                        value={
+                            <DateTime
+                                value={invoice.paid_at ?? invoice.due_date}
+                            />
+                        }
                     />
                 </div>
 
@@ -289,21 +488,31 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                             title="Line items"
                             flush
                             actions={
-                                can.manage && isPayable && selectedLines.length > 0 ? (
+                                can.manage &&
+                                isPayable &&
+                                selectedLines.length > 0 ? (
                                     <ConfirmDialog
                                         trigger={
                                             <Button variant="outline" size="sm">
-                                                Cancel {selectedLines.length} {selectedLines.length === 1 ? 'line' : 'lines'}
+                                                Cancel {selectedLines.length}{' '}
+                                                {selectedLines.length === 1
+                                                    ? 'line'
+                                                    : 'lines'}
                                             </Button>
                                         }
                                         title="Cancel the selected lines?"
                                         description="A credit note for the selected lines is added to this invoice. The lines stay visible, struck through."
                                         confirmLabel="Cancel lines"
                                         onConfirm={() =>
-                                            router.post(cancelLines.url(invoice.id), { items: selectedLines }, {
-                                                preserveScroll: true,
-                                                onSuccess: () => setSelectedLines([]),
-                                            })
+                                            router.post(
+                                                cancelLines.url(invoice.id),
+                                                { items: selectedLines },
+                                                {
+                                                    preserveScroll: true,
+                                                    onSuccess: () =>
+                                                        setSelectedLines([]),
+                                                },
+                                            )
                                         }
                                     />
                                 ) : undefined
@@ -318,10 +527,27 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                                               item.cancelled ? null : (
                                                   <Checkbox
                                                       aria-label={`Select ${item.description}`}
-                                                      checked={selectedLines.includes(item.id)}
-                                                      onCheckedChange={(checked) =>
-                                                          setSelectedLines((current) =>
-                                                              checked === true ? [...current, item.id] : current.filter((id) => id !== item.id),
+                                                      checked={selectedLines.includes(
+                                                          item.id,
+                                                      )}
+                                                      onCheckedChange={(
+                                                          checked,
+                                                      ) =>
+                                                          setSelectedLines(
+                                                              (current) =>
+                                                                  checked ===
+                                                                  true
+                                                                      ? [
+                                                                            ...current,
+                                                                            item.id,
+                                                                        ]
+                                                                      : current.filter(
+                                                                            (
+                                                                                id,
+                                                                            ) =>
+                                                                                id !==
+                                                                                item.id,
+                                                                        ),
                                                           )
                                                       }
                                                   />
@@ -338,7 +564,12 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                                 rows={transactions}
                                 getRowKey={(txn) => txn.id}
                                 className="rounded-none border-0 shadow-none"
-                                empty={<EmptyState title="No payments yet" description="Payments, refunds and write-offs for this invoice appear here." />}
+                                empty={
+                                    <EmptyState
+                                        title="No payments yet"
+                                        description="Payments, refunds and write-offs for this invoice appear here."
+                                    />
+                                }
                             />
                         </SectionCard>
 
@@ -347,8 +578,16 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                                 <DescriptionList
                                     columns={1}
                                     items={[
-                                        { label: 'Shown to the client', value: invoice.notes, full: true },
-                                        { label: 'Staff only', value: invoice.admin_notes, full: true },
+                                        {
+                                            label: 'Shown to the client',
+                                            value: invoice.notes,
+                                            full: true,
+                                        },
+                                        {
+                                            label: 'Staff only',
+                                            value: invoice.admin_notes,
+                                            full: true,
+                                        },
                                     ]}
                                 />
                             </SectionCard>
@@ -360,7 +599,8 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                             <InvoiceTotals invoice={invoice} />
                             {invoice.tax_exempt_reason && (
                                 <p className="mt-3 text-xs text-muted-foreground">
-                                    {invoice.tax_exempt_reason === 'reverse_charge'
+                                    {invoice.tax_exempt_reason ===
+                                    'reverse_charge'
                                         ? 'EU reverse charge: the customer accounts for VAT.'
                                         : 'Client is tax exempt.'}
                                 </p>
@@ -371,56 +611,131 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                             <DescriptionList
                                 columns={1}
                                 items={[
-                                    { label: 'Name', value: snapshot.company ? `${snapshot.company} (${snapshot.name ?? ''})` : snapshot.name },
+                                    {
+                                        label: 'Name',
+                                        value: snapshot.company
+                                            ? `${snapshot.company} (${snapshot.name ?? ''})`
+                                            : snapshot.name,
+                                    },
                                     {
                                         label: 'Address',
-                                        value: [snapshot.address_1, snapshot.address_2, [snapshot.postcode, snapshot.city].filter(Boolean).join(' '), snapshot.state, snapshot.country]
+                                        value: [
+                                            snapshot.address_1,
+                                            snapshot.address_2,
+                                            [snapshot.postcode, snapshot.city]
+                                                .filter(Boolean)
+                                                .join(' '),
+                                            snapshot.state,
+                                            snapshot.country,
+                                        ]
                                             .filter(Boolean)
                                             .join(', '),
                                     },
                                     { label: 'Tax ID', value: snapshot.tax_id },
-                                    { label: 'Gateway', value: gatewayName(invoice.payment_gateway) },
-                                    { label: 'Issued', value: invoice.issue_date && <DateTime value={invoice.issue_date} /> },
-                                    ...(invoice.proforma_number && invoice.legal_number ? [{ label: 'Proforma number', value: invoice.proforma_number }] : []),
+                                    {
+                                        label: 'Gateway',
+                                        value: gatewayName(
+                                            invoice.payment_gateway,
+                                        ),
+                                    },
+                                    {
+                                        label: 'Issued',
+                                        value: invoice.issue_date && (
+                                            <DateTime
+                                                value={invoice.issue_date}
+                                            />
+                                        ),
+                                    },
+                                    ...(invoice.proforma_number &&
+                                    invoice.legal_number
+                                        ? [
+                                              {
+                                                  label: 'Proforma number',
+                                                  value: invoice.proforma_number,
+                                              },
+                                          ]
+                                        : []),
                                 ]}
                             />
                         </SectionCard>
 
-                        {can.payments && (isPayable || invoice.credit_applied > 0) && invoice.kind === 'standard' && (
-                            <SectionCard title="Account credit" description="Credit available to this client.">
-                                <div className="flex items-center justify-between gap-4">
-                                    <Money amount={credit_available} currency={invoice.currency} tone="ledger" className="text-lg font-semibold" />
-                                    <div className="flex gap-2">
-                                        {invoice.credit_applied > 0 && PAYABLE.includes(invoice.status) && (
-                                            <Button variant="outline" size="sm" onClick={() => setDialog('removeCredit')}>
-                                                Remove
-                                            </Button>
-                                        )}
-                                        {isPayable && credit_available > 0 && (
-                                            <Button variant="outline" size="sm" onClick={() => setDialog('credit')}>
-                                                Apply credit
-                                            </Button>
-                                        )}
+                        {can.payments &&
+                            (isPayable || invoice.credit_applied > 0) &&
+                            invoice.kind === 'standard' && (
+                                <SectionCard
+                                    title="Account credit"
+                                    description="Credit available to this client."
+                                >
+                                    <div className="flex items-center justify-between gap-4">
+                                        <Money
+                                            amount={credit_available}
+                                            currency={invoice.currency}
+                                            tone="ledger"
+                                            className="text-lg font-semibold"
+                                        />
+                                        <div className="flex gap-2">
+                                            {invoice.credit_applied > 0 &&
+                                                PAYABLE.includes(
+                                                    invoice.status,
+                                                ) && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() =>
+                                                            setDialog(
+                                                                'removeCredit',
+                                                            )
+                                                        }
+                                                    >
+                                                        Remove
+                                                    </Button>
+                                                )}
+                                            {isPayable &&
+                                                credit_available > 0 && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() =>
+                                                            setDialog('credit')
+                                                        }
+                                                    >
+                                                        Apply credit
+                                                    </Button>
+                                                )}
+                                        </div>
                                     </div>
-                                </div>
-                            </SectionCard>
-                        )}
+                                </SectionCard>
+                            )}
 
-                        {can.payments && isPayable && pay_methods.length > 0 && invoice.status !== 'payment_pending' && (
-                            <SectionCard title="Stored payment methods">
-                                <ul className="mb-3 space-y-1 text-sm">
-                                    {pay_methods.map((method) => (
-                                        <li key={method.id} className="flex justify-between">
-                                            <span>{method.label}</span>
-                                            <span className="text-muted-foreground">{method.is_default ? 'Default' : method.expiry}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                                <Button variant="outline" size="sm" onClick={() => setDialog('capture')}>
-                                    Attempt capture
-                                </Button>
-                            </SectionCard>
-                        )}
+                        {can.payments &&
+                            isPayable &&
+                            pay_methods.length > 0 &&
+                            invoice.status !== 'payment_pending' && (
+                                <SectionCard title="Stored payment methods">
+                                    <ul className="mb-3 space-y-1 text-sm">
+                                        {pay_methods.map((method) => (
+                                            <li
+                                                key={method.id}
+                                                className="flex justify-between"
+                                            >
+                                                <span>{method.label}</span>
+                                                <span className="text-muted-foreground">
+                                                    {method.is_default
+                                                        ? 'Default'
+                                                        : method.expiry}
+                                                </span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setDialog('capture')}
+                                    >
+                                        Attempt capture
+                                    </Button>
+                                </SectionCard>
+                            )}
                     </div>
                 </div>
             </Page>
@@ -443,44 +758,86 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                 >
                     {(form) => (
                         <div className="grid gap-4 sm:grid-cols-2">
-                            <Field htmlFor="payment-amount" label={`Amount (${invoice.currency})`} error={form.errors.amount}>
+                            <Field
+                                htmlFor="payment-amount"
+                                label={`Amount (${invoice.currency})`}
+                                error={form.errors.amount}
+                            >
                                 <Input
                                     id="payment-amount"
                                     inputMode="decimal"
                                     value={form.data.amount}
-                                    onChange={(event) => form.setData('amount', event.target.value)}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'amount',
+                                            event.target.value,
+                                        )
+                                    }
                                     aria-invalid={!!form.errors.amount}
                                 />
                             </Field>
-                            <Field htmlFor="payment-date" label="Date" error={form.errors.occurred_at}>
+                            <Field
+                                htmlFor="payment-date"
+                                label="Date"
+                                error={form.errors.occurred_at}
+                            >
                                 <Input
                                     id="payment-date"
                                     type="date"
                                     value={form.data.occurred_at}
-                                    onChange={(event) => form.setData('occurred_at', event.target.value)}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'occurred_at',
+                                            event.target.value,
+                                        )
+                                    }
                                 />
                             </Field>
-                            <Field htmlFor="payment-gateway" label="Gateway" error={form.errors.gateway}>
+                            <Field
+                                htmlFor="payment-gateway"
+                                label="Gateway"
+                                error={form.errors.gateway}
+                            >
                                 <SelectField
                                     id="payment-gateway"
                                     value={form.data.gateway}
-                                    onChange={(value) => form.setData('gateway', value)}
+                                    onChange={(value) =>
+                                        form.setData('gateway', value)
+                                    }
                                     options={gateways}
                                 />
                             </Field>
-                            <Field htmlFor="payment-fee" label="Fee" optional error={form.errors.fee}>
+                            <Field
+                                htmlFor="payment-fee"
+                                label="Fee"
+                                optional
+                                error={form.errors.fee}
+                            >
                                 <Input
                                     id="payment-fee"
                                     inputMode="decimal"
                                     value={form.data.fee}
-                                    onChange={(event) => form.setData('fee', event.target.value)}
+                                    onChange={(event) =>
+                                        form.setData('fee', event.target.value)
+                                    }
                                 />
                             </Field>
-                            <Field htmlFor="payment-reference" label="Transaction ID" optional error={form.errors.gateway_txn_id} className="sm:col-span-2">
+                            <Field
+                                htmlFor="payment-reference"
+                                label="Transaction ID"
+                                optional
+                                error={form.errors.gateway_txn_id}
+                                className="sm:col-span-2"
+                            >
                                 <Input
                                     id="payment-reference"
                                     value={form.data.gateway_txn_id}
-                                    onChange={(event) => form.setData('gateway_txn_id', event.target.value)}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'gateway_txn_id',
+                                            event.target.value,
+                                        )
+                                    }
                                 />
                             </Field>
                         </div>
@@ -505,27 +862,69 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                 {(form) => (
                     <div className="grid gap-4">
                         <div className="grid gap-4 sm:grid-cols-2">
-                            <Field htmlFor="details-due" label="Due date" error={form.errors.due_date}>
-                                <Input id="details-due" type="date" value={form.data.due_date} onChange={(event) => form.setData('due_date', event.target.value)} />
+                            <Field
+                                htmlFor="details-due"
+                                label="Due date"
+                                error={form.errors.due_date}
+                            >
+                                <Input
+                                    id="details-due"
+                                    type="date"
+                                    value={form.data.due_date}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'due_date',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
                             </Field>
-                            <Field htmlFor="details-gateway" label="Gateway" error={form.errors.payment_gateway}>
+                            <Field
+                                htmlFor="details-gateway"
+                                label="Gateway"
+                                error={form.errors.payment_gateway}
+                            >
                                 <SelectField
                                     id="details-gateway"
                                     value={form.data.payment_gateway}
-                                    onChange={(value) => form.setData('payment_gateway', value)}
+                                    onChange={(value) =>
+                                        form.setData('payment_gateway', value)
+                                    }
                                     options={gateways}
                                 />
                             </Field>
                         </div>
-                        <Field htmlFor="details-notes" label="Notes shown to the client" optional error={form.errors.notes}>
-                            <Textarea id="details-notes" rows={3} value={form.data.notes} onChange={(event) => form.setData('notes', event.target.value)} />
+                        <Field
+                            htmlFor="details-notes"
+                            label="Notes shown to the client"
+                            optional
+                            error={form.errors.notes}
+                        >
+                            <Textarea
+                                id="details-notes"
+                                rows={3}
+                                value={form.data.notes}
+                                onChange={(event) =>
+                                    form.setData('notes', event.target.value)
+                                }
+                            />
                         </Field>
-                        <Field htmlFor="details-admin-notes" label="Staff notes" optional error={form.errors.admin_notes}>
+                        <Field
+                            htmlFor="details-admin-notes"
+                            label="Staff notes"
+                            optional
+                            error={form.errors.admin_notes}
+                        >
                             <Textarea
                                 id="details-admin-notes"
                                 rows={3}
                                 value={form.data.admin_notes}
-                                onChange={(event) => form.setData('admin_notes', event.target.value)}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'admin_notes',
+                                        event.target.value,
+                                    )
+                                }
                             />
                         </Field>
                     </div>
@@ -539,16 +938,36 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                     title="Apply account credit"
                     description={
                         <>
-                            Available: <Money amount={credit_available} currency={invoice.currency} />.
+                            Available:{' '}
+                            <Money
+                                amount={credit_available}
+                                currency={invoice.currency}
+                            />
+                            .
                         </>
                     }
                     submitLabel="Apply credit"
                     action={applyCredit(invoice.id)}
-                    initial={{ amount: toDecimalInput(Math.min(credit_available, invoice.balance)) }}
+                    initial={{
+                        amount: toDecimalInput(
+                            Math.min(credit_available, invoice.balance),
+                        ),
+                    }}
                 >
                     {(form) => (
-                        <Field htmlFor="credit-amount" label="Amount" error={form.errors.amount}>
-                            <Input id="credit-amount" inputMode="decimal" value={form.data.amount} onChange={(event) => form.setData('amount', event.target.value)} />
+                        <Field
+                            htmlFor="credit-amount"
+                            label="Amount"
+                            error={form.errors.amount}
+                        >
+                            <Input
+                                id="credit-amount"
+                                inputMode="decimal"
+                                value={form.data.amount}
+                                onChange={(event) =>
+                                    form.setData('amount', event.target.value)
+                                }
+                            />
                         </Field>
                     )}
                 </FormDialog>
@@ -565,12 +984,18 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                     initial={{ amount: toDecimalInput(invoice.credit_applied) }}
                 >
                     {(form) => (
-                        <Field htmlFor="remove-credit-amount" label="Amount" error={form.errors.amount}>
+                        <Field
+                            htmlFor="remove-credit-amount"
+                            label="Amount"
+                            error={form.errors.amount}
+                        >
                             <Input
                                 id="remove-credit-amount"
                                 inputMode="decimal"
                                 value={form.data.amount}
-                                onChange={(event) => form.setData('amount', event.target.value)}
+                                onChange={(event) =>
+                                    form.setData('amount', event.target.value)
+                                }
                             />
                         </Field>
                     )}
@@ -584,20 +1009,39 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                     title={`Charge ${invoice.number}`}
                     description={
                         <>
-                            Charges the balance of <Money amount={invoice.balance} currency={invoice.currency} /> to a stored payment method.
+                            Charges the balance of{' '}
+                            <Money
+                                amount={invoice.balance}
+                                currency={invoice.currency}
+                            />{' '}
+                            to a stored payment method.
                         </>
                     }
                     submitLabel="Attempt capture"
                     action={capture(invoice.id)}
-                    initial={{ pay_method_id: String(pay_methods.find((method) => method.is_default)?.id ?? pay_methods[0].id) }}
+                    initial={{
+                        pay_method_id: String(
+                            pay_methods.find((method) => method.is_default)
+                                ?.id ?? pay_methods[0].id,
+                        ),
+                    }}
                 >
                     {(form) => (
-                        <Field htmlFor="capture-method" label="Payment method" error={form.errors.pay_method_id}>
+                        <Field
+                            htmlFor="capture-method"
+                            label="Payment method"
+                            error={form.errors.pay_method_id}
+                        >
                             <SelectField
                                 id="capture-method"
                                 value={form.data.pay_method_id}
-                                onChange={(value) => form.setData('pay_method_id', value)}
-                                options={pay_methods.map((method) => ({ value: String(method.id), label: method.label }))}
+                                onChange={(value) =>
+                                    form.setData('pay_method_id', value)
+                                }
+                                options={pay_methods.map((method) => ({
+                                    value: String(method.id),
+                                    label: method.label,
+                                }))}
                             />
                         </Field>
                     )}
@@ -607,7 +1051,11 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
             <ConfirmDialog
                 open={dialog === 'cancel'}
                 onOpenChange={close}
-                title={isDraft ? `Delete ${invoice.number}?` : `Cancel invoice ${invoice.number}?`}
+                title={
+                    isDraft
+                        ? `Delete ${invoice.number}?`
+                        : `Cancel invoice ${invoice.number}?`
+                }
                 description={
                     isDraft
                         ? 'The draft and its lines are removed. This can’t be undone.'
@@ -623,7 +1071,12 @@ export default function InvoiceShow({ invoice, transactions, credit_available, g
                 title={`Mark ${invoice.number} as paid?`}
                 description={
                     <>
-                        The remaining <Money amount={invoice.balance} currency={invoice.currency} /> is written off — no income is recorded.
+                        The remaining{' '}
+                        <Money
+                            amount={invoice.balance}
+                            currency={invoice.currency}
+                        />{' '}
+                        is written off — no income is recorded.
                     </>
                 }
                 confirmLabel="Mark paid"

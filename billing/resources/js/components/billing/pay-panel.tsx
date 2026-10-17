@@ -72,7 +72,11 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
         (method) => method.gateway === gateway,
     );
     const [method, setMethod] = useState<string>(
-        String(methods.find((item) => item.is_default)?.id ?? methods[0]?.id ?? NEW_CARD),
+        String(
+            methods.find((item) => item.is_default)?.id ??
+                methods[0]?.id ??
+                NEW_CARD,
+        ),
     );
     const card = useCardForm();
     const [saveCard, setSaveCard] = useState(true);
@@ -96,7 +100,10 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
         };
 
         if (effectiveMethod === NEW_CARD) {
-            const result = await tokenizeCard(selected.vault_url ?? '', card.card);
+            const result = await tokenizeCard(
+                selected.vault_url ?? '',
+                card.card,
+            );
             card.setErrors(result.errors ?? {});
 
             if (!result.token) {
@@ -120,8 +127,8 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
     if (options.gateways.length === 0) {
         return (
             <p className="text-sm text-muted-foreground">
-                Online payment isn't available right now. Contact us to pay
-                this invoice.
+                Online payment isn't available right now. Contact us to pay this
+                invoice.
             </p>
         );
     }
@@ -142,9 +149,15 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             onChange={setGateway}
                         >
                             {option.kind === 'card' ? (
-                                <CreditCard className="size-4 text-muted-foreground" aria-hidden="true" />
+                                <CreditCard
+                                    className="size-4 text-muted-foreground"
+                                    aria-hidden="true"
+                                />
                             ) : (
-                                <Landmark className="size-4 text-muted-foreground" aria-hidden="true" />
+                                <Landmark
+                                    className="size-4 text-muted-foreground"
+                                    aria-hidden="true"
+                                />
                             )}
                             {option.name}
                         </Choice>
@@ -171,7 +184,9 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                                     key={item.id}
                                     name="pay_method"
                                     value={String(item.id)}
-                                    checked={effectiveMethod === String(item.id)}
+                                    checked={
+                                        effectiveMethod === String(item.id)
+                                    }
                                     onChange={setMethod}
                                 >
                                     <span className="flex-1">{item.label}</span>
@@ -202,18 +217,34 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                                 <Checkbox
                                     id="save-card"
                                     checked={saveCard}
-                                    onCheckedChange={(checked) => setSaveCard(checked === true)}
+                                    onCheckedChange={(checked) =>
+                                        setSaveCard(checked === true)
+                                    }
                                 />
-                                <Label htmlFor="save-card" className="font-normal">
+                                <Label
+                                    htmlFor="save-card"
+                                    className="font-normal"
+                                >
                                     Save this card for future payments
                                 </Label>
                             </div>
                         </div>
                     )}
 
-                    <InputError message={errors.payment ?? errors.billing ?? errors.token ?? errors.pay_method_id} />
+                    <InputError
+                        message={
+                            errors.payment ??
+                            errors.billing ??
+                            errors.token ??
+                            errors.pay_method_id
+                        }
+                    />
 
-                    <Button type="submit" disabled={processing} className="w-full sm:w-auto sm:justify-self-end">
+                    <Button
+                        type="submit"
+                        disabled={processing}
+                        className="w-full sm:w-auto sm:justify-self-end"
+                    >
                         {processing && <Spinner />}
                         Pay <Money amount={amount} currency={currency} />
                     </Button>

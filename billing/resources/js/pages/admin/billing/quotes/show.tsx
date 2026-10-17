@@ -13,18 +13,57 @@ import { QuoteTotals } from '@/components/billing/invoice-totals';
 import type { Quote, QuoteItem } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
-import { convert, deliver, destroy, edit, index, pdf } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/QuoteController';
+import {
+    convert,
+    deliver,
+    destroy,
+    edit,
+    index,
+    pdf,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/QuoteController';
 
 type Props = { quote: Quote; can: { manage: boolean } };
 
 export default function QuoteShow({ quote, can }: Props) {
     const editable = ['draft', 'delivered', 'on_hold'].includes(quote.stage);
     const columns: DataTableColumn<QuoteItem>[] = [
-        { key: 'description', header: 'Description', primary: true, cell: (item) => item.description },
-        { key: 'quantity', header: 'Qty', align: 'right', cell: (item) => item.quantity },
-        { key: 'unit', header: 'Unit price', align: 'right', hideOnMobile: true, cell: (item) => <Money amount={item.unit_amount} currency={quote.currency} /> },
-        { key: 'discount', header: 'Discount', align: 'right', hideOnMobile: true, cell: (item) => (item.discount_percent > 0 ? `${item.discount_percent}%` : '—') },
-        { key: 'amount', header: 'Amount', align: 'right', cell: (item) => <Money amount={item.amount} currency={quote.currency} /> },
+        {
+            key: 'description',
+            header: 'Description',
+            primary: true,
+            cell: (item) => item.description,
+        },
+        {
+            key: 'quantity',
+            header: 'Qty',
+            align: 'right',
+            cell: (item) => item.quantity,
+        },
+        {
+            key: 'unit',
+            header: 'Unit price',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (item) => (
+                <Money amount={item.unit_amount} currency={quote.currency} />
+            ),
+        },
+        {
+            key: 'discount',
+            header: 'Discount',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (item) =>
+                item.discount_percent > 0 ? `${item.discount_percent}%` : '—',
+        },
+        {
+            key: 'amount',
+            header: 'Amount',
+            align: 'right',
+            cell: (item) => (
+                <Money amount={item.amount} currency={quote.currency} />
+            ),
+        },
     ];
 
     return (
@@ -52,7 +91,11 @@ export default function QuoteShow({ quote, can }: Props) {
                             </Button>
                             {can.manage && quote.stage === 'draft' && (
                                 <ConfirmDialog
-                                    trigger={<Button variant="outline">Delete</Button>}
+                                    trigger={
+                                        <Button variant="outline">
+                                            Delete
+                                        </Button>
+                                    }
                                     title={`Delete ${quote.number}?`}
                                     description="The draft quote is removed. This can't be undone."
                                     confirmLabel="Delete quote"
@@ -64,22 +107,31 @@ export default function QuoteShow({ quote, can }: Props) {
                                     <Link href={edit(quote.id)}>Edit</Link>
                                 </Button>
                             )}
-                            {can.manage && quote.invoice_id === null && quote.stage !== 'declined' && quote.stage !== 'expired' && (
-                                <ConfirmDialog
-                                    trigger={<Button variant="outline">Convert to invoice</Button>}
-                                    title={`Convert ${quote.number} to an invoice?`}
-                                    description="An unpaid invoice with these lines is created and the quote is marked accepted."
-                                    confirmLabel="Convert to invoice"
-                                    destructive={false}
-                                    action={convert(quote.id)}
-                                />
-                            )}
+                            {can.manage &&
+                                quote.invoice_id === null &&
+                                quote.stage !== 'declined' &&
+                                quote.stage !== 'expired' && (
+                                    <ConfirmDialog
+                                        trigger={
+                                            <Button variant="outline">
+                                                Convert to invoice
+                                            </Button>
+                                        }
+                                        title={`Convert ${quote.number} to an invoice?`}
+                                        description="An unpaid invoice with these lines is created and the quote is marked accepted."
+                                        confirmLabel="Convert to invoice"
+                                        destructive={false}
+                                        action={convert(quote.id)}
+                                    />
+                                )}
                             {can.manage && editable && (
                                 <ConfirmDialog
                                     trigger={
                                         <Button>
                                             <Send />
-                                            {quote.stage === 'draft' ? 'Send quote' : 'Resend quote'}
+                                            {quote.stage === 'draft'
+                                                ? 'Send quote'
+                                                : 'Resend quote'}
                                         </Button>
                                     }
                                     title={`Send ${quote.number} to ${quote.client?.display_name ?? 'the client'}?`}
@@ -96,11 +148,19 @@ export default function QuoteShow({ quote, can }: Props) {
                     <div className="grid content-start gap-4 lg:col-span-2">
                         {quote.proposal_text && (
                             <SectionCard title="Proposal">
-                                <p className="text-sm whitespace-pre-line">{quote.proposal_text}</p>
+                                <p className="text-sm whitespace-pre-line">
+                                    {quote.proposal_text}
+                                </p>
                             </SectionCard>
                         )}
                         <SectionCard title="Lines" flush>
-                            <DataTable caption="Quote lines" columns={columns} rows={quote.items ?? []} getRowKey={(item) => item.id} className="rounded-none border-0 shadow-none" />
+                            <DataTable
+                                caption="Quote lines"
+                                columns={columns}
+                                rows={quote.items ?? []}
+                                getRowKey={(item) => item.id}
+                                className="rounded-none border-0 shadow-none"
+                            />
                         </SectionCard>
                     </div>
                     <div className="grid content-start gap-4">
@@ -111,19 +171,53 @@ export default function QuoteShow({ quote, can }: Props) {
                             <DescriptionList
                                 columns={1}
                                 items={[
-                                    { label: 'Valid until', value: <DateTime value={quote.valid_until} /> },
-                                    { label: 'Sent', value: quote.delivered_at && <DateTime value={quote.delivered_at} relative /> },
-                                    { label: 'Accepted', value: quote.accepted_at && <DateTime value={quote.accepted_at} relative /> },
+                                    {
+                                        label: 'Valid until',
+                                        value: (
+                                            <DateTime
+                                                value={quote.valid_until}
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        label: 'Sent',
+                                        value: quote.delivered_at && (
+                                            <DateTime
+                                                value={quote.delivered_at}
+                                                relative
+                                            />
+                                        ),
+                                    },
+                                    {
+                                        label: 'Accepted',
+                                        value: quote.accepted_at && (
+                                            <DateTime
+                                                value={quote.accepted_at}
+                                                relative
+                                            />
+                                        ),
+                                    },
                                     {
                                         label: 'Invoice',
                                         value: quote.invoice_id && (
-                                            <Link href={showInvoice(quote.invoice_id)} className="hover:underline">
+                                            <Link
+                                                href={showInvoice(
+                                                    quote.invoice_id,
+                                                )}
+                                                className="hover:underline"
+                                            >
                                                 View invoice
                                             </Link>
                                         ),
                                     },
-                                    { label: 'Notes for the client', value: quote.customer_notes },
-                                    { label: 'Staff notes', value: quote.admin_notes },
+                                    {
+                                        label: 'Notes for the client',
+                                        value: quote.customer_notes,
+                                    },
+                                    {
+                                        label: 'Staff notes',
+                                        value: quote.admin_notes,
+                                    },
                                 ]}
                             />
                         </SectionCard>

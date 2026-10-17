@@ -79,8 +79,10 @@ export function CardFields({
     errors = {},
     idPrefix = 'card',
 }: CardFieldsProps) {
-    const set = (key: keyof CardDetails) => (event: React.ChangeEvent<HTMLInputElement>) =>
-        onChange({ ...value, [key]: event.target.value });
+    const set =
+        (key: keyof CardDetails) =>
+        (event: React.ChangeEvent<HTMLInputElement>) =>
+            onChange({ ...value, [key]: event.target.value });
 
     return (
         <div className="grid gap-4 sm:grid-cols-4">
@@ -159,5 +161,11 @@ export function useCardForm() {
     const [card, setCard] = useState<CardDetails>(emptyCard);
     const [errors, setErrors] = useState<VaultErrors>({});
 
-    return { card, setCard, errors, setErrors, reset: () => setCard(emptyCard) };
+    return {
+        card,
+        setCard,
+        errors,
+        setErrors,
+        reset: () => setCard(emptyCard),
+    };
 }

@@ -22,13 +22,32 @@ type Entry = {
     created_at: string | null;
 };
 
-type Props = { entries: LaravelPaginated<Entry>; filters: Record<string, string>; gateways: SelectOption[] };
+type Props = {
+    entries: LaravelPaginated<Entry>;
+    filters: Record<string, string>;
+    gateways: SelectOption[];
+};
 
 export default function GatewayLogIndex({ entries, gateways }: Props) {
     const columns: DataTableColumn<Entry>[] = [
-        { key: 'date', header: 'Time', primary: true, cell: (entry) => <DateTime value={entry.created_at} format="datetime" /> },
-        { key: 'gateway', header: 'Gateway', cell: (entry) => humanize(entry.gateway) },
-        { key: 'direction', header: 'Direction', cell: (entry) => humanize(entry.direction) },
+        {
+            key: 'date',
+            header: 'Time',
+            primary: true,
+            cell: (entry) => (
+                <DateTime value={entry.created_at} format="datetime" />
+            ),
+        },
+        {
+            key: 'gateway',
+            header: 'Gateway',
+            cell: (entry) => humanize(entry.gateway),
+        },
+        {
+            key: 'direction',
+            header: 'Direction',
+            cell: (entry) => humanize(entry.direction),
+        },
         { key: 'result', header: 'Result', cell: (entry) => entry.result },
         {
             key: 'invoice',
@@ -36,7 +55,10 @@ export default function GatewayLogIndex({ entries, gateways }: Props) {
             hideOnMobile: true,
             cell: (entry) =>
                 entry.invoice_id ? (
-                    <Link href={showInvoice(entry.invoice_id)} className="hover:underline">
+                    <Link
+                        href={showInvoice(entry.invoice_id)}
+                        className="hover:underline"
+                    >
                         #{entry.invoice_id}
                     </Link>
                 ) : (
@@ -49,7 +71,10 @@ export default function GatewayLogIndex({ entries, gateways }: Props) {
             hideOnMobile: true,
             className: 'max-w-md',
             cell: (entry) => (
-                <code className="block truncate text-xs text-muted-foreground" title={JSON.stringify(entry.payload)}>
+                <code
+                    className="block truncate text-xs text-muted-foreground"
+                    title={JSON.stringify(entry.payload)}
+                >
                     {entry.payload ? JSON.stringify(entry.payload) : '—'}
                 </code>
             ),
@@ -60,13 +85,20 @@ export default function GatewayLogIndex({ entries, gateways }: Props) {
         <>
             <Head title="Gateway log" />
             <Page>
-                <PageHeader title="Gateway log" description="Requests to and callbacks from payment gateways. Sensitive values are redacted." />
+                <PageHeader
+                    title="Gateway log"
+                    description="Requests to and callbacks from payment gateways. Sensitive values are redacted."
+                />
                 <FilterBar
                     searchParam={null}
                     filterKeys={['gateway', 'direction']}
                     filters={
                         <>
-                            <FilterSelect name="gateway" label="Gateways" options={gateways} />
+                            <FilterSelect
+                                name="gateway"
+                                label="Gateways"
+                                options={gateways}
+                            />
                             <FilterSelect
                                 name="direction"
                                 label="Directions"
@@ -84,8 +116,16 @@ export default function GatewayLogIndex({ entries, gateways }: Props) {
                     columns={columns}
                     rows={entries.data}
                     getRowKey={(entry) => entry.id}
-                    empty={<EmptyState icon={Webhook} title="Nothing logged yet" description="Gateway calls and callbacks appear here." />}
-                    footer={<Pagination paginator={entries} itemLabel="entries" />}
+                    empty={
+                        <EmptyState
+                            icon={Webhook}
+                            title="Nothing logged yet"
+                            description="Gateway calls and callbacks appear here."
+                        />
+                    }
+                    footer={
+                        <Pagination paginator={entries} itemLabel="entries" />
+                    }
                 />
             </Page>
         </>

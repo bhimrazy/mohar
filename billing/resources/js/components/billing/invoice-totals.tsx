@@ -62,10 +62,7 @@ export function InvoiceTotals({ invoice }: { invoice: Invoice }) {
             ))}
             {invoice.amount_paid !== 0 && (
                 <Row label="Paid" muted>
-                    <Money
-                        amount={-invoice.amount_paid}
-                        currency={currency}
-                    />
+                    <Money amount={-invoice.amount_paid} currency={currency} />
                 </Row>
             )}
             <Row label="Balance due" strong>

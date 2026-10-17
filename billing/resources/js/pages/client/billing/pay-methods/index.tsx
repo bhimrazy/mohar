@@ -8,13 +8,29 @@ import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { StatusBadge } from '@/components/app/status-badge';
-import { CardFields, tokenizeCard, useCardForm } from '@/components/billing/card-form';
+import {
+    CardFields,
+    tokenizeCard,
+    useCardForm,
+} from '@/components/billing/card-form';
 import type { PayMethod } from '@/components/billing/types';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
-import { destroy, makeDefault, store } from '@/actions/App/Modules/Billing/Http/Controllers/Client/PayMethodController';
+import {
+    destroy,
+    makeDefault,
+    store,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Client/PayMethodController';
 
 type Props = {
     pay_methods: PayMethod[];
@@ -22,7 +38,11 @@ type Props = {
     can_remove: boolean;
 };
 
-function AddCardDialog({ gateway }: { gateway: { key: string; name: string; vault_url: string } }) {
+function AddCardDialog({
+    gateway,
+}: {
+    gateway: { key: string; name: string; vault_url: string };
+}) {
     const [open, setOpen] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [serverError, setServerError] = useState<string | undefined>();
@@ -42,7 +62,11 @@ function AddCardDialog({ gateway }: { gateway: { key: string; name: string; vaul
 
         router.post(
             store.url(),
-            { gateway: gateway.key, token: result.token.token, make_default: false },
+            {
+                gateway: gateway.key,
+                token: result.token.token,
+                make_default: false,
+            },
             {
                 preserveScroll: true,
                 onSuccess: () => {
@@ -56,7 +80,10 @@ function AddCardDialog({ gateway }: { gateway: { key: string; name: string; vaul
     };
 
     return (
-        <Dialog open={open} onOpenChange={(next) => !processing && setOpen(next)}>
+        <Dialog
+            open={open}
+            onOpenChange={(next) => !processing && setOpen(next)}
+        >
             <DialogTrigger asChild>
                 <Button>
                     <Plus />
@@ -67,12 +94,25 @@ function AddCardDialog({ gateway }: { gateway: { key: string; name: string; vaul
                 <form onSubmit={submit} className="grid gap-4">
                     <DialogHeader>
                         <DialogTitle>Add a card</DialogTitle>
-                        <DialogDescription>Card details go straight to {gateway.name}; we only keep a secure token.</DialogDescription>
+                        <DialogDescription>
+                            Card details go straight to {gateway.name}; we only
+                            keep a secure token.
+                        </DialogDescription>
                     </DialogHeader>
-                    <CardFields value={card.card} onChange={card.setCard} errors={card.errors} idPrefix="new-card" />
+                    <CardFields
+                        value={card.card}
+                        onChange={card.setCard}
+                        errors={card.errors}
+                        idPrefix="new-card"
+                    />
                     <InputError message={serverError} />
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={processing}>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => setOpen(false)}
+                            disabled={processing}
+                        >
                             Cancel
                         </Button>
                         <Button type="submit" disabled={processing}>
@@ -86,7 +126,11 @@ function AddCardDialog({ gateway }: { gateway: { key: string; name: string; vaul
     );
 }
 
-export default function PayMethods({ pay_methods, gateways, can_remove }: Props) {
+export default function PayMethods({
+    pay_methods,
+    gateways,
+    can_remove,
+}: Props) {
     const columns: DataTableColumn<PayMethod>[] = [
         {
             key: 'card',
@@ -94,12 +138,19 @@ export default function PayMethods({ pay_methods, gateways, can_remove }: Props)
             primary: true,
             cell: (method) => (
                 <span className="inline-flex items-center gap-2">
-                    <CreditCard className="size-4 text-muted-foreground" aria-hidden="true" />
+                    <CreditCard
+                        className="size-4 text-muted-foreground"
+                        aria-hidden="true"
+                    />
                     {method.label}
                 </span>
             ),
         },
-        { key: 'expiry', header: 'Expires', cell: (method) => method.expiry ?? '—' },
+        {
+            key: 'expiry',
+            header: 'Expires',
+            cell: (method) => method.expiry ?? '—',
+        },
         {
             key: 'status',
             header: 'Status',
@@ -121,7 +172,17 @@ export default function PayMethods({ pay_methods, gateways, can_remove }: Props)
             cell: (method) => (
                 <div className="flex justify-end gap-1">
                     {!method.is_default && !method.disabled && (
-                        <Button variant="ghost" size="sm" onClick={() => router.post(makeDefault.url(method.id), {}, { preserveScroll: true })}>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                                router.post(
+                                    makeDefault.url(method.id),
+                                    {},
+                                    { preserveScroll: true },
+                                )
+                            }
+                        >
                             Make default
                         </Button>
                     )}
@@ -150,14 +211,22 @@ export default function PayMethods({ pay_methods, gateways, can_remove }: Props)
                 <PageHeader
                     title="Payment methods"
                     description="Your default card is charged automatically shortly before invoices are due."
-                    actions={gateways[0] && <AddCardDialog gateway={gateways[0]} />}
+                    actions={
+                        gateways[0] && <AddCardDialog gateway={gateways[0]} />
+                    }
                 />
                 <DataTable
                     caption="Saved payment methods"
                     columns={columns}
                     rows={pay_methods}
                     getRowKey={(method) => method.id}
-                    empty={<EmptyState icon={CreditCard} title="You don’t have any saved cards." description="Save a card to pay invoices automatically." />}
+                    empty={
+                        <EmptyState
+                            icon={CreditCard}
+                            title="You don’t have any saved cards."
+                            description="Save a card to pay invoices automatically."
+                        />
+                    }
                 />
             </Page>
         </>

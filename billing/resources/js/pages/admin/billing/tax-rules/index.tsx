@@ -15,7 +15,11 @@ import { FormDialog } from '@/components/billing/form-dialog';
 import { SelectField } from '@/components/billing/select-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { destroy, store, update } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TaxRuleController';
+import {
+    destroy,
+    store,
+    update,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TaxRuleController';
 
 type TaxRule = {
     id: number;
@@ -30,10 +34,25 @@ type TaxRule = {
 
 type Props = {
     rules: TaxRule[];
-    settings: { enabled: boolean; mode: string; compound: boolean; calculation: string; vat_enabled: boolean; vat_home_country: string };
+    settings: {
+        enabled: boolean;
+        mode: string;
+        compound: boolean;
+        calculation: string;
+        vat_enabled: boolean;
+        vat_home_country: string;
+    };
 };
 
-function RuleDialog({ rule, open, onOpenChange }: { rule: TaxRule | null; open: boolean; onOpenChange: (open: boolean) => void }) {
+function RuleDialog({
+    rule,
+    open,
+    onOpenChange,
+}: {
+    rule: TaxRule | null;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+}) {
     return (
         <FormDialog
             key={rule?.id ?? 'new'}
@@ -52,17 +71,49 @@ function RuleDialog({ rule, open, onOpenChange }: { rule: TaxRule | null; open: 
                 priority: String(rule?.priority ?? 0),
                 effective_from: rule?.effective_from ?? '',
             }}
-            transform={(data) => ({ ...data, level: Number(data.level), priority: Number(data.priority) || 0, effective_from: data.effective_from || null })}
+            transform={(data) => ({
+                ...data,
+                level: Number(data.level),
+                priority: Number(data.priority) || 0,
+                effective_from: data.effective_from || null,
+            })}
         >
             {(form) => (
                 <div className="grid gap-4 sm:grid-cols-2">
-                    <Field htmlFor="rule-name" label="Name" error={form.errors.name}>
-                        <Input id="rule-name" value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} placeholder="VAT" />
+                    <Field
+                        htmlFor="rule-name"
+                        label="Name"
+                        error={form.errors.name}
+                    >
+                        <Input
+                            id="rule-name"
+                            value={form.data.name}
+                            onChange={(event) =>
+                                form.setData('name', event.target.value)
+                            }
+                            placeholder="VAT"
+                        />
                     </Field>
-                    <Field htmlFor="rule-rate" label="Rate (%)" error={form.errors.rate}>
-                        <Input id="rule-rate" inputMode="decimal" value={form.data.rate} onChange={(event) => form.setData('rate', event.target.value)} placeholder="20" />
+                    <Field
+                        htmlFor="rule-rate"
+                        label="Rate (%)"
+                        error={form.errors.rate}
+                    >
+                        <Input
+                            id="rule-rate"
+                            inputMode="decimal"
+                            value={form.data.rate}
+                            onChange={(event) =>
+                                form.setData('rate', event.target.value)
+                            }
+                            placeholder="20"
+                        />
                     </Field>
-                    <Field htmlFor="rule-level" label="Level" error={form.errors.level}>
+                    <Field
+                        htmlFor="rule-level"
+                        label="Level"
+                        error={form.errors.level}
+                    >
                         <SelectField
                             id="rule-level"
                             value={form.data.level}
@@ -73,17 +124,73 @@ function RuleDialog({ rule, open, onOpenChange }: { rule: TaxRule | null; open: 
                             ]}
                         />
                     </Field>
-                    <Field htmlFor="rule-priority" label="Priority" optional error={form.errors.priority}>
-                        <Input id="rule-priority" inputMode="numeric" value={form.data.priority} onChange={(event) => form.setData('priority', event.target.value)} />
+                    <Field
+                        htmlFor="rule-priority"
+                        label="Priority"
+                        optional
+                        error={form.errors.priority}
+                    >
+                        <Input
+                            id="rule-priority"
+                            inputMode="numeric"
+                            value={form.data.priority}
+                            onChange={(event) =>
+                                form.setData('priority', event.target.value)
+                            }
+                        />
                     </Field>
-                    <Field htmlFor="rule-country" label="Country" optional hint="ISO code; empty = all" error={form.errors.country}>
-                        <Input id="rule-country" maxLength={2} value={form.data.country} onChange={(event) => form.setData('country', event.target.value.toUpperCase())} />
+                    <Field
+                        htmlFor="rule-country"
+                        label="Country"
+                        optional
+                        hint="ISO code; empty = all"
+                        error={form.errors.country}
+                    >
+                        <Input
+                            id="rule-country"
+                            maxLength={2}
+                            value={form.data.country}
+                            onChange={(event) =>
+                                form.setData(
+                                    'country',
+                                    event.target.value.toUpperCase(),
+                                )
+                            }
+                        />
                     </Field>
-                    <Field htmlFor="rule-state" label="State" optional error={form.errors.state}>
-                        <Input id="rule-state" value={form.data.state} onChange={(event) => form.setData('state', event.target.value)} />
+                    <Field
+                        htmlFor="rule-state"
+                        label="State"
+                        optional
+                        error={form.errors.state}
+                    >
+                        <Input
+                            id="rule-state"
+                            value={form.data.state}
+                            onChange={(event) =>
+                                form.setData('state', event.target.value)
+                            }
+                        />
                     </Field>
-                    <Field htmlFor="rule-effective" label="Effective from" optional hint="Schedule a rate change" error={form.errors.effective_from} className="sm:col-span-2">
-                        <Input id="rule-effective" type="date" value={form.data.effective_from} onChange={(event) => form.setData('effective_from', event.target.value)} />
+                    <Field
+                        htmlFor="rule-effective"
+                        label="Effective from"
+                        optional
+                        hint="Schedule a rate change"
+                        error={form.errors.effective_from}
+                        className="sm:col-span-2"
+                    >
+                        <Input
+                            id="rule-effective"
+                            type="date"
+                            value={form.data.effective_from}
+                            onChange={(event) =>
+                                form.setData(
+                                    'effective_from',
+                                    event.target.value,
+                                )
+                            }
+                        />
                     </Field>
                 </div>
             )}
@@ -97,11 +204,39 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
     const [deleting, setDeleting] = useState<TaxRule | null>(null);
 
     const columns: DataTableColumn<TaxRule>[] = [
-        { key: 'name', header: 'Name', primary: true, cell: (rule) => rule.name },
-        { key: 'level', header: 'Level', cell: (rule) => `Level ${rule.level}` },
-        { key: 'location', header: 'Applies to', cell: (rule) => (rule.country ? [rule.country, rule.state].filter(Boolean).join(' · ') : 'All locations') },
-        { key: 'rate', header: 'Rate', align: 'right', cell: (rule) => <span className="tabular-nums">{rule.rate}%</span> },
-        { key: 'effective', header: 'Effective from', hideOnMobile: true, cell: (rule) => <DateTime value={rule.effective_from} fallback="Always" /> },
+        {
+            key: 'name',
+            header: 'Name',
+            primary: true,
+            cell: (rule) => rule.name,
+        },
+        {
+            key: 'level',
+            header: 'Level',
+            cell: (rule) => `Level ${rule.level}`,
+        },
+        {
+            key: 'location',
+            header: 'Applies to',
+            cell: (rule) =>
+                rule.country
+                    ? [rule.country, rule.state].filter(Boolean).join(' · ')
+                    : 'All locations',
+        },
+        {
+            key: 'rate',
+            header: 'Rate',
+            align: 'right',
+            cell: (rule) => <span className="tabular-nums">{rule.rate}%</span>,
+        },
+        {
+            key: 'effective',
+            header: 'Effective from',
+            hideOnMobile: true,
+            cell: (rule) => (
+                <DateTime value={rule.effective_from} fallback="Always" />
+            ),
+        },
         {
             key: 'actions',
             header: <span className="sr-only">Actions</span>,
@@ -119,7 +254,11 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                     >
                         Edit
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleting(rule)}>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleting(rule)}
+                    >
                         Delete
                     </Button>
                 </div>
@@ -146,15 +285,45 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                         </Button>
                     }
                 />
-                <SectionCard title="Tax settings" description="Change these in Settings → Billing.">
+                <SectionCard
+                    title="Tax settings"
+                    description="Change these in Settings → Billing."
+                >
                     <DescriptionList
                         columns={3}
                         items={[
-                            { label: 'Tax', value: settings.enabled ? 'Enabled' : 'Disabled' },
-                            { label: 'Prices are', value: settings.mode === 'inclusive' ? 'Inclusive of tax' : 'Exclusive of tax' },
-                            { label: 'Level 2', value: settings.compound ? 'Compound (on net + level 1)' : 'On net amount' },
-                            { label: 'Calculation', value: settings.calculation === 'per_invoice' ? 'Per invoice' : 'Per line' },
-                            { label: 'EU VAT rules', value: settings.vat_enabled ? `Enabled (home ${settings.vat_home_country})` : 'Disabled' },
+                            {
+                                label: 'Tax',
+                                value: settings.enabled
+                                    ? 'Enabled'
+                                    : 'Disabled',
+                            },
+                            {
+                                label: 'Prices are',
+                                value:
+                                    settings.mode === 'inclusive'
+                                        ? 'Inclusive of tax'
+                                        : 'Exclusive of tax',
+                            },
+                            {
+                                label: 'Level 2',
+                                value: settings.compound
+                                    ? 'Compound (on net + level 1)'
+                                    : 'On net amount',
+                            },
+                            {
+                                label: 'Calculation',
+                                value:
+                                    settings.calculation === 'per_invoice'
+                                        ? 'Per invoice'
+                                        : 'Per line',
+                            },
+                            {
+                                label: 'EU VAT rules',
+                                value: settings.vat_enabled
+                                    ? `Enabled (home ${settings.vat_home_country})`
+                                    : 'Disabled',
+                            },
                         ]}
                     />
                 </SectionCard>
@@ -163,7 +332,13 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                     columns={columns}
                     rows={rules}
                     getRowKey={(rule) => rule.id}
-                    empty={<EmptyState icon={Percent} title="No tax rules yet" description="Add a rule per country or state to charge tax on invoices." />}
+                    empty={
+                        <EmptyState
+                            icon={Percent}
+                            title="No tax rules yet"
+                            description="Add a rule per country or state to charge tax on invoices."
+                        />
+                    }
                 />
             </Page>
             <RuleDialog rule={editing} open={open} onOpenChange={setOpen} />

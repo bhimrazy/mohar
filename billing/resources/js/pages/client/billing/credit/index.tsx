@@ -25,37 +25,108 @@ type Props = {
     currency: string;
     entries: ResourcePaginated<CreditEntry>;
     transactions: ResourcePaginated<Transaction>;
-    add_funds: { unavailable_reason: string | null; min: number; max: number; max_balance: number };
+    add_funds: {
+        unavailable_reason: string | null;
+        min: number;
+        max: number;
+        max_balance: number;
+    };
 };
 
-export default function ClientCredit({ balance, currency, entries, transactions, add_funds }: Props) {
+export default function ClientCredit({
+    balance,
+    currency,
+    entries,
+    transactions,
+    add_funds,
+}: Props) {
     const form = useForm({ amount: '' });
     const errors = form.errors as Record<string, string | undefined>;
 
     const entryColumns: DataTableColumn<CreditEntry>[] = [
-        { key: 'date', header: 'Date', primary: true, cell: (entry) => <DateTime value={entry.created_at} /> },
-        { key: 'description', header: 'Description', cell: (entry) => entry.description ?? humanize(entry.reason) },
-        { key: 'amount', header: 'Amount', align: 'right', cell: (entry) => <Money amount={entry.amount} currency={entry.currency} signed tone="ledger" /> },
-        { key: 'balance', header: 'Balance', align: 'right', hideOnMobile: true, cell: (entry) => <Money amount={entry.balance_after} currency={entry.currency} /> },
+        {
+            key: 'date',
+            header: 'Date',
+            primary: true,
+            cell: (entry) => <DateTime value={entry.created_at} />,
+        },
+        {
+            key: 'description',
+            header: 'Description',
+            cell: (entry) => entry.description ?? humanize(entry.reason),
+        },
+        {
+            key: 'amount',
+            header: 'Amount',
+            align: 'right',
+            cell: (entry) => (
+                <Money
+                    amount={entry.amount}
+                    currency={entry.currency}
+                    signed
+                    tone="ledger"
+                />
+            ),
+        },
+        {
+            key: 'balance',
+            header: 'Balance',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (entry) => (
+                <Money amount={entry.balance_after} currency={entry.currency} />
+            ),
+        },
     ];
 
     const transactionColumns: DataTableColumn<Transaction>[] = [
-        { key: 'date', header: 'Date', primary: true, cell: (txn) => <DateTime value={txn.occurred_at} /> },
-        { key: 'invoice', header: 'Invoice', cell: (txn) => txn.invoice_number ?? '—' },
+        {
+            key: 'date',
+            header: 'Date',
+            primary: true,
+            cell: (txn) => <DateTime value={txn.occurred_at} />,
+        },
+        {
+            key: 'invoice',
+            header: 'Invoice',
+            cell: (txn) => txn.invoice_number ?? '—',
+        },
         { key: 'type', header: 'Type', cell: (txn) => humanize(txn.type) },
-        { key: 'amount', header: 'Amount', align: 'right', cell: (txn) => <Money amount={txn.amount_out > 0 ? -txn.amount_out : txn.amount_in} currency={txn.currency} tone="ledger" /> },
+        {
+            key: 'amount',
+            header: 'Amount',
+            align: 'right',
+            cell: (txn) => (
+                <Money
+                    amount={
+                        txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
+                    }
+                    currency={txn.currency}
+                    tone="ledger"
+                />
+            ),
+        },
     ];
 
     return (
         <>
             <Head title="Credit & funds" />
             <Page>
-                <PageHeader title="Credit & funds" description="Credit is used for your invoices automatically or whenever you choose to apply it." />
+                <PageHeader
+                    title="Credit & funds"
+                    description="Credit is used for your invoices automatically or whenever you choose to apply it."
+                />
                 <div className="grid gap-4 lg:grid-cols-3">
-                    <StatCard label="Credit balance" value={<Money amount={balance} currency={currency} />} icon={Wallet} />
+                    <StatCard
+                        label="Credit balance"
+                        value={<Money amount={balance} currency={currency} />}
+                        icon={Wallet}
+                    />
                     <SectionCard title="Add funds" className="lg:col-span-2">
                         {add_funds.unavailable_reason ? (
-                            <p className="text-sm text-muted-foreground">{add_funds.unavailable_reason}</p>
+                            <p className="text-sm text-muted-foreground">
+                                {add_funds.unavailable_reason}
+                            </p>
                         ) : (
                             <form
                                 className="grid gap-3"
@@ -70,7 +141,17 @@ export default function ClientCredit({ balance, currency, entries, transactions,
                                         label={`Amount (${currency})`}
                                         hint={
                                             <>
-                                                Between <Money amount={add_funds.min} currency={currency} /> and <Money amount={add_funds.max} currency={currency} />.
+                                                Between{' '}
+                                                <Money
+                                                    amount={add_funds.min}
+                                                    currency={currency}
+                                                />{' '}
+                                                and{' '}
+                                                <Money
+                                                    amount={add_funds.max}
+                                                    currency={currency}
+                                                />
+                                                .
                                             </>
                                         }
                                         error={errors.amount}
@@ -81,12 +162,21 @@ export default function ClientCredit({ balance, currency, entries, transactions,
                                             inputMode="decimal"
                                             placeholder="50.00"
                                             value={form.data.amount}
-                                            onChange={(event) => form.setData('amount', event.target.value)}
+                                            onChange={(event) =>
+                                                form.setData(
+                                                    'amount',
+                                                    event.target.value,
+                                                )
+                                            }
                                             aria-invalid={!!errors.amount}
                                             aria-describedby="add-funds-amount-description"
                                         />
                                     </Field>
-                                    <Button type="submit" disabled={form.processing} className="sm:mt-[1.375rem]">
+                                    <Button
+                                        type="submit"
+                                        disabled={form.processing}
+                                        className="sm:mt-[1.375rem]"
+                                    >
                                         {form.processing && <Spinner />}
                                         Add funds
                                     </Button>
@@ -103,8 +193,21 @@ export default function ClientCredit({ balance, currency, entries, transactions,
                         rows={entries.data}
                         getRowKey={(entry) => entry.id}
                         className="rounded-none border-0 shadow-none"
-                        empty={<EmptyState title="No credit activity yet." description="Overpayments, deposits and refunds to credit appear here." />}
-                        footer={entries.meta.last_page > 1 ? <Pagination paginator={entries} pageName="credit_page" itemLabel="entries" /> : undefined}
+                        empty={
+                            <EmptyState
+                                title="No credit activity yet."
+                                description="Overpayments, deposits and refunds to credit appear here."
+                            />
+                        }
+                        footer={
+                            entries.meta.last_page > 1 ? (
+                                <Pagination
+                                    paginator={entries}
+                                    pageName="credit_page"
+                                    itemLabel="entries"
+                                />
+                            ) : undefined
+                        }
                     />
                 </SectionCard>
                 <SectionCard title="Transactions" flush>
@@ -115,7 +218,15 @@ export default function ClientCredit({ balance, currency, entries, transactions,
                         getRowKey={(txn) => txn.id}
                         className="rounded-none border-0 shadow-none"
                         empty={<EmptyState title="No payments yet." />}
-                        footer={transactions.meta.last_page > 1 ? <Pagination paginator={transactions} pageName="transactions_page" itemLabel="transactions" /> : undefined}
+                        footer={
+                            transactions.meta.last_page > 1 ? (
+                                <Pagination
+                                    paginator={transactions}
+                                    pageName="transactions_page"
+                                    itemLabel="transactions"
+                                />
+                            ) : undefined
+                        }
                     />
                 </SectionCard>
             </Page>

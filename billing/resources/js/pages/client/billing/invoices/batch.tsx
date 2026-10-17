@@ -20,33 +20,79 @@ type Props = {
 
 export default function PaymentBatchShow({ batch, invoices, payment }: Props) {
     const columns: DataTableColumn<Invoice>[] = [
-        { key: 'number', header: 'Invoice', primary: true, cell: (invoice) => invoice.number },
-        { key: 'due', header: 'Due', cell: (invoice) => <DateTime value={invoice.due_date} /> },
-        { key: 'status', header: 'Status', cell: (invoice) => <StatusBadge status={invoice.display_status} /> },
-        { key: 'balance', header: 'Amount', align: 'right', cell: (invoice) => <Money amount={invoice.balance} currency={invoice.currency} /> },
+        {
+            key: 'number',
+            header: 'Invoice',
+            primary: true,
+            cell: (invoice) => invoice.number,
+        },
+        {
+            key: 'due',
+            header: 'Due',
+            cell: (invoice) => <DateTime value={invoice.due_date} />,
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            cell: (invoice) => <StatusBadge status={invoice.display_status} />,
+        },
+        {
+            key: 'balance',
+            header: 'Amount',
+            align: 'right',
+            cell: (invoice) => (
+                <Money amount={invoice.balance} currency={invoice.currency} />
+            ),
+        },
     ];
 
     return (
         <>
             <Head title="Pay invoices" />
             <Page size="narrow">
-                <PageHeader back={{ href: index(), label: 'Invoices' }} title="Pay invoices" description="One payment for all selected invoices, applied oldest first." />
+                <PageHeader
+                    back={{ href: index(), label: 'Invoices' }}
+                    title="Pay invoices"
+                    description="One payment for all selected invoices, applied oldest first."
+                />
                 <SectionCard title={`${invoices.length} invoices`} flush>
-                    <DataTable caption="Invoices in this payment" columns={columns} rows={invoices} getRowKey={(invoice) => invoice.id} className="rounded-none border-0 shadow-none" />
+                    <DataTable
+                        caption="Invoices in this payment"
+                        columns={columns}
+                        rows={invoices}
+                        getRowKey={(invoice) => invoice.id}
+                        className="rounded-none border-0 shadow-none"
+                    />
                 </SectionCard>
                 {payment ? (
                     <SectionCard
                         title="Payment"
                         description={
                             <>
-                                Total: <Money amount={batch.total} currency={batch.currency} />
+                                Total:{' '}
+                                <Money
+                                    amount={batch.total}
+                                    currency={batch.currency}
+                                />
                             </>
                         }
                     >
-                        <PayPanel options={{ ...payment, gateways: payment.gateways.filter((gateway) => gateway.kind === 'card') }} amount={batch.total} currency={batch.currency} action={pay(batch.id)} />
+                        <PayPanel
+                            options={{
+                                ...payment,
+                                gateways: payment.gateways.filter(
+                                    (gateway) => gateway.kind === 'card',
+                                ),
+                            }}
+                            amount={batch.total}
+                            currency={batch.currency}
+                            action={pay(batch.id)}
+                        />
                     </SectionCard>
                 ) : (
-                    <p className="text-sm text-muted-foreground">This payment has already been processed.</p>
+                    <p className="text-sm text-muted-foreground">
+                        This payment has already been processed.
+                    </p>
                 )}
             </Page>
         </>

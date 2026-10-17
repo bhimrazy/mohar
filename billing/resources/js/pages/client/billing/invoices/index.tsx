@@ -15,32 +15,79 @@ import type { Invoice } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { index as creditIndex } from '@/actions/App/Modules/Billing/Http/Controllers/Client/CreditController';
-import { index, show } from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
+import {
+    index,
+    show,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
 import { store as createBatch } from '@/actions/App/Modules/Billing/Http/Controllers/Client/PaymentBatchController';
 import type { ResourcePaginated } from '@/types/app';
 
 type Props = {
     invoices: ResourcePaginated<Invoice>;
     filters: { status?: string };
-    summary: { unpaid_count: number; unpaid_total: number; overdue_count: number; currency: string; credit: number };
+    summary: {
+        unpaid_count: number;
+        unpaid_total: number;
+        overdue_count: number;
+        currency: string;
+        credit: number;
+    };
     mass_pay: boolean;
 };
 
-export default function ClientInvoices({ invoices, filters, summary, mass_pay }: Props) {
+export default function ClientInvoices({
+    invoices,
+    filters,
+    summary,
+    mass_pay,
+}: Props) {
     const { apply } = useQueryParams();
     const tab = filters.status ?? 'all';
 
     const columns: DataTableColumn<Invoice>[] = [
-        { key: 'number', header: 'Invoice', primary: true, cell: (invoice) => invoice.number },
-        { key: 'issued', header: 'Date', hideOnMobile: true, cell: (invoice) => <DateTime value={invoice.issue_date} /> },
-        { key: 'due', header: 'Due', cell: (invoice) => <DateTime value={invoice.due_date} /> },
-        { key: 'status', header: 'Status', cell: (invoice) => <StatusBadge status={invoice.display_status} /> },
-        { key: 'total', header: 'Total', align: 'right', cell: (invoice) => <Money amount={invoice.total} currency={invoice.currency} /> },
+        {
+            key: 'number',
+            header: 'Invoice',
+            primary: true,
+            cell: (invoice) => invoice.number,
+        },
+        {
+            key: 'issued',
+            header: 'Date',
+            hideOnMobile: true,
+            cell: (invoice) => <DateTime value={invoice.issue_date} />,
+        },
+        {
+            key: 'due',
+            header: 'Due',
+            cell: (invoice) => <DateTime value={invoice.due_date} />,
+        },
+        {
+            key: 'status',
+            header: 'Status',
+            cell: (invoice) => <StatusBadge status={invoice.display_status} />,
+        },
+        {
+            key: 'total',
+            header: 'Total',
+            align: 'right',
+            cell: (invoice) => (
+                <Money amount={invoice.total} currency={invoice.currency} />
+            ),
+        },
         {
             key: 'balance',
             header: 'Amount due',
             align: 'right',
-            cell: (invoice) => (invoice.balance > 0 ? <Money amount={invoice.balance} currency={invoice.currency} /> : <span className="text-muted-foreground">—</span>),
+            cell: (invoice) =>
+                invoice.balance > 0 ? (
+                    <Money
+                        amount={invoice.balance}
+                        currency={invoice.currency}
+                    />
+                ) : (
+                    <span className="text-muted-foreground">—</span>
+                ),
         },
     ];
 
@@ -58,8 +105,14 @@ export default function ClientInvoices({ invoices, filters, summary, mass_pay }:
                     actions={
                         mass_pay &&
                         summary.unpaid_count > 1 && (
-                            <Button onClick={() => router.post(createBatch.url())}>
-                                Pay all <Money amount={summary.unpaid_total} currency={summary.currency} />
+                            <Button
+                                onClick={() => router.post(createBatch.url())}
+                            >
+                                Pay all{' '}
+                                <Money
+                                    amount={summary.unpaid_total}
+                                    currency={summary.currency}
+                                />
                             </Button>
                         )
                     }
@@ -68,14 +121,38 @@ export default function ClientInvoices({ invoices, filters, summary, mass_pay }:
                 <div className="grid gap-4 sm:grid-cols-2">
                     <StatCard
                         label="Amount due"
-                        value={<Money amount={summary.unpaid_total} currency={summary.currency} />}
-                        hint={summary.overdue_count > 0 ? `${summary.overdue_count} overdue` : `${summary.unpaid_count} unpaid`}
+                        value={
+                            <Money
+                                amount={summary.unpaid_total}
+                                currency={summary.currency}
+                            />
+                        }
+                        hint={
+                            summary.overdue_count > 0
+                                ? `${summary.overdue_count} overdue`
+                                : `${summary.unpaid_count} unpaid`
+                        }
                         icon={Receipt}
                     />
-                    <StatCard label="Credit balance" value={<Money amount={summary.credit} currency={summary.currency} />} icon={Wallet} href={creditIndex()} />
+                    <StatCard
+                        label="Credit balance"
+                        value={
+                            <Money
+                                amount={summary.credit}
+                                currency={summary.currency}
+                            />
+                        }
+                        icon={Wallet}
+                        href={creditIndex()}
+                    />
                 </div>
 
-                <Tabs value={tab} onValueChange={(value) => apply({ status: value === 'all' ? null : value })}>
+                <Tabs
+                    value={tab}
+                    onValueChange={(value) =>
+                        apply({ status: value === 'all' ? null : value })
+                    }
+                >
                     <TabsList>
                         <TabsTrigger value="all">All</TabsTrigger>
                         <TabsTrigger value="unpaid">Unpaid</TabsTrigger>
@@ -92,18 +169,30 @@ export default function ClientInvoices({ invoices, filters, summary, mass_pay }:
                     empty={
                         <EmptyState
                             icon={Receipt}
-                            title={tab === 'all' ? 'You don’t have any invoices yet.' : `No ${tab} invoices.`}
-                            description={tab === 'all' ? 'Invoices for your orders and renewals will appear here.' : undefined}
+                            title={
+                                tab === 'all'
+                                    ? 'You don’t have any invoices yet.'
+                                    : `No ${tab} invoices.`
+                            }
+                            description={
+                                tab === 'all'
+                                    ? 'Invoices for your orders and renewals will appear here.'
+                                    : undefined
+                            }
                             action={
                                 tab !== 'all' && (
                                     <Button variant="outline" size="sm" asChild>
-                                        <Link href={index()}>Show all invoices</Link>
+                                        <Link href={index()}>
+                                            Show all invoices
+                                        </Link>
                                     </Button>
                                 )
                             }
                         />
                     }
-                    footer={<Pagination paginator={invoices} itemLabel="invoices" />}
+                    footer={
+                        <Pagination paginator={invoices} itemLabel="invoices" />
+                    }
                 />
             </Page>
         </>

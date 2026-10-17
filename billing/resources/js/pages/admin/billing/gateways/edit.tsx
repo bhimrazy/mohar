@@ -11,10 +11,18 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { index, update } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/GatewayController';
+import {
+    index,
+    update,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/GatewayController';
 import type { SelectOption } from '@/types/app';
 
-type SettingField = { key: string; label: string; type: 'string' | 'text' | 'secret'; help?: string };
+type SettingField = {
+    key: string;
+    label: string;
+    type: 'string' | 'text' | 'secret';
+    help?: string;
+};
 
 type Props = {
     gateway: {
@@ -36,7 +44,19 @@ type Props = {
 
 const NO_CONVERSION = 'none';
 
-function ToggleRow({ id, title, description, checked, onChange }: { id: string; title: string; description: string; checked: boolean; onChange: (value: boolean) => void }) {
+function ToggleRow({
+    id,
+    title,
+    description,
+    checked,
+    onChange,
+}: {
+    id: string;
+    title: string;
+    description: string;
+    checked: boolean;
+    onChange: (value: boolean) => void;
+}) {
     return (
         <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
             <div className="space-y-0.5">
@@ -50,7 +70,13 @@ function ToggleRow({ id, title, description, checked, onChange }: { id: string; 
     );
 }
 
-export default function GatewayEdit({ gateway, fields, currencies, replacements, webhook_url }: Props) {
+export default function GatewayEdit({
+    gateway,
+    fields,
+    currencies,
+    replacements,
+    webhook_url,
+}: Props) {
     const form = useForm({
         display_name: gateway.display_name,
         is_active: gateway.is_active,
@@ -68,7 +94,10 @@ export default function GatewayEdit({ gateway, fields, currencies, replacements,
         form.transform((data) => ({
             ...data,
             sort_order: Number(data.sort_order) || 0,
-            convert_to_currency: data.convert_to_currency === NO_CONVERSION ? null : data.convert_to_currency,
+            convert_to_currency:
+                data.convert_to_currency === NO_CONVERSION
+                    ? null
+                    : data.convert_to_currency,
             replacement: data.replacement || null,
         }));
         form.submit(update(gateway.key));
@@ -78,41 +107,110 @@ export default function GatewayEdit({ gateway, fields, currencies, replacements,
         <>
             <Head title={gateway.display_name} />
             <Page size="narrow">
-                <PageHeader back={{ href: index(), label: 'Payment gateways' }} title={gateway.display_name} description={gateway.driver_name} />
+                <PageHeader
+                    back={{ href: index(), label: 'Payment gateways' }}
+                    title={gateway.display_name}
+                    description={gateway.driver_name}
+                />
                 <form onSubmit={submit} className="grid gap-6">
                     <SectionCard title="General">
                         <div className="grid gap-6 sm:grid-cols-2">
-                            <Field htmlFor="display_name" label="Name shown to clients" error={errors.display_name} className="sm:col-span-2">
-                                <Input id="display_name" value={form.data.display_name} onChange={(event) => form.setData('display_name', event.target.value)} />
+                            <Field
+                                htmlFor="display_name"
+                                label="Name shown to clients"
+                                error={errors.display_name}
+                                className="sm:col-span-2"
+                            >
+                                <Input
+                                    id="display_name"
+                                    value={form.data.display_name}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'display_name',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
                             </Field>
                             <ToggleRow
                                 id="is_active"
                                 title="Active"
                                 description="Payments and callbacks are accepted."
                                 checked={form.data.is_active}
-                                onChange={(value) => form.setData('is_active', value)}
+                                onChange={(value) =>
+                                    form.setData('is_active', value)
+                                }
                             />
                             <ToggleRow
                                 id="show_on_order_form"
                                 title="Offer to clients"
                                 description="Clients can choose it when paying."
                                 checked={form.data.show_on_order_form}
-                                onChange={(value) => form.setData('show_on_order_form', value)}
+                                onChange={(value) =>
+                                    form.setData('show_on_order_form', value)
+                                }
                             />
-                            <Field htmlFor="sort_order" label="Display order" error={errors.sort_order}>
-                                <Input id="sort_order" inputMode="numeric" value={form.data.sort_order} onChange={(event) => form.setData('sort_order', event.target.value)} />
+                            <Field
+                                htmlFor="sort_order"
+                                label="Display order"
+                                error={errors.sort_order}
+                            >
+                                <Input
+                                    id="sort_order"
+                                    inputMode="numeric"
+                                    value={form.data.sort_order}
+                                    onChange={(event) =>
+                                        form.setData(
+                                            'sort_order',
+                                            event.target.value,
+                                        )
+                                    }
+                                />
                             </Field>
-                            <Field htmlFor="convert_to_currency" label="Charge in currency" hint="Converts the balance at the configured exchange rate." error={errors.convert_to_currency}>
+                            <Field
+                                htmlFor="convert_to_currency"
+                                label="Charge in currency"
+                                hint="Converts the balance at the configured exchange rate."
+                                error={errors.convert_to_currency}
+                            >
                                 <SelectField
                                     id="convert_to_currency"
                                     value={form.data.convert_to_currency}
-                                    onChange={(value) => form.setData('convert_to_currency', value)}
-                                    options={[{ value: NO_CONVERSION, label: 'Invoice currency' }, ...currencies.map((code) => ({ value: code, label: code }))]}
+                                    onChange={(value) =>
+                                        form.setData(
+                                            'convert_to_currency',
+                                            value,
+                                        )
+                                    }
+                                    options={[
+                                        {
+                                            value: NO_CONVERSION,
+                                            label: 'Invoice currency',
+                                        },
+                                        ...currencies.map((code) => ({
+                                            value: code,
+                                            label: code,
+                                        })),
+                                    ]}
                                 />
                             </Field>
                             {deactivating && (
-                                <Field htmlFor="replacement" label="Move unpaid invoices to" optional hint="Unpaid invoices using this gateway are reassigned." className="sm:col-span-2">
-                                    <SelectField id="replacement" value={form.data.replacement} onChange={(value) => form.setData('replacement', value)} options={replacements} placeholder="Keep as is" />
+                                <Field
+                                    htmlFor="replacement"
+                                    label="Move unpaid invoices to"
+                                    optional
+                                    hint="Unpaid invoices using this gateway are reassigned."
+                                    className="sm:col-span-2"
+                                >
+                                    <SelectField
+                                        id="replacement"
+                                        value={form.data.replacement}
+                                        onChange={(value) =>
+                                            form.setData('replacement', value)
+                                        }
+                                        options={replacements}
+                                        placeholder="Keep as is"
+                                    />
                                 </Field>
                             )}
                         </div>
@@ -123,21 +221,52 @@ export default function GatewayEdit({ gateway, fields, currencies, replacements,
                             <div className="grid gap-6">
                                 {fields.map((field) => {
                                     const id = `setting-${field.key}`;
-                                    const value = form.data.settings[field.key] ?? '';
-                                    const set = (next: string) => form.setData('settings', { ...form.data.settings, [field.key]: next });
+                                    const value =
+                                        form.data.settings[field.key] ?? '';
+                                    const set = (next: string) =>
+                                        form.setData('settings', {
+                                            ...form.data.settings,
+                                            [field.key]: next,
+                                        });
 
                                     return (
                                         <Field
                                             key={field.key}
                                             htmlFor={id}
                                             label={field.label}
-                                            hint={field.type === 'secret' && gateway.secrets_set[field.key] ? 'A value is stored. Leave empty to keep it.' : field.help}
-                                            error={errors[`settings.${field.key}`]}
+                                            hint={
+                                                field.type === 'secret' &&
+                                                gateway.secrets_set[field.key]
+                                                    ? 'A value is stored. Leave empty to keep it.'
+                                                    : field.help
+                                            }
+                                            error={
+                                                errors[`settings.${field.key}`]
+                                            }
                                         >
                                             {field.type === 'text' ? (
-                                                <Textarea id={id} rows={4} value={value} onChange={(event) => set(event.target.value)} />
+                                                <Textarea
+                                                    id={id}
+                                                    rows={4}
+                                                    value={value}
+                                                    onChange={(event) =>
+                                                        set(event.target.value)
+                                                    }
+                                                />
                                             ) : (
-                                                <Input id={id} type={field.type === 'secret' ? 'password' : 'text'} autoComplete="off" value={value} onChange={(event) => set(event.target.value)} />
+                                                <Input
+                                                    id={id}
+                                                    type={
+                                                        field.type === 'secret'
+                                                            ? 'password'
+                                                            : 'text'
+                                                    }
+                                                    autoComplete="off"
+                                                    value={value}
+                                                    onChange={(event) =>
+                                                        set(event.target.value)
+                                                    }
+                                                />
                                             )}
                                         </Field>
                                     );
@@ -147,8 +276,13 @@ export default function GatewayEdit({ gateway, fields, currencies, replacements,
                     )}
 
                     {webhook_url && (
-                        <SectionCard title="Webhook" description="Configure this URL at the gateway. Callbacks are verified by signature.">
-                            <code className="block rounded-md bg-muted px-3 py-2 text-sm break-all">{webhook_url}</code>
+                        <SectionCard
+                            title="Webhook"
+                            description="Configure this URL at the gateway. Callbacks are verified by signature."
+                        >
+                            <code className="block rounded-md bg-muted px-3 py-2 text-sm break-all">
+                                {webhook_url}
+                            </code>
                         </SectionCard>
                     )}
 

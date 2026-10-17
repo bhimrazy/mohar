@@ -16,17 +16,52 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
-import { accept, decline, index, pdf } from '@/actions/App/Modules/Billing/Http/Controllers/Client/QuoteController';
+import {
+    accept,
+    decline,
+    index,
+    pdf,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Client/QuoteController';
 
-export default function ClientQuoteShow({ quote, require_tos }: { quote: Quote; require_tos: boolean }) {
+export default function ClientQuoteShow({
+    quote,
+    require_tos,
+}: {
+    quote: Quote;
+    require_tos: boolean;
+}) {
     const open = ['delivered', 'on_hold'].includes(quote.stage);
     const form = useForm({ accept_tos: false });
     const errors = form.errors as Record<string, string | undefined>;
     const columns: DataTableColumn<QuoteItem>[] = [
-        { key: 'description', header: 'Description', primary: true, cell: (item) => item.description },
-        { key: 'quantity', header: 'Qty', align: 'right', cell: (item) => item.quantity },
-        { key: 'discount', header: 'Discount', align: 'right', hideOnMobile: true, cell: (item) => (item.discount_percent > 0 ? `${item.discount_percent}%` : '—') },
-        { key: 'amount', header: 'Amount', align: 'right', cell: (item) => <Money amount={item.amount} currency={quote.currency} /> },
+        {
+            key: 'description',
+            header: 'Description',
+            primary: true,
+            cell: (item) => item.description,
+        },
+        {
+            key: 'quantity',
+            header: 'Qty',
+            align: 'right',
+            cell: (item) => item.quantity,
+        },
+        {
+            key: 'discount',
+            header: 'Discount',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (item) =>
+                item.discount_percent > 0 ? `${item.discount_percent}%` : '—',
+        },
+        {
+            key: 'amount',
+            header: 'Amount',
+            align: 'right',
+            cell: (item) => (
+                <Money amount={item.amount} currency={quote.currency} />
+            ),
+        },
     ];
 
     return (
@@ -44,7 +79,8 @@ export default function ClientQuoteShow({ quote, require_tos }: { quote: Quote; 
                                 <>
                                     <span aria-hidden="true">·</span>
                                     <span>
-                                        Valid until <DateTime value={quote.valid_until} />
+                                        Valid until{' '}
+                                        <DateTime value={quote.valid_until} />
                                     </span>
                                 </>
                             )}
@@ -63,11 +99,19 @@ export default function ClientQuoteShow({ quote, require_tos }: { quote: Quote; 
                     <div className="grid content-start gap-4 lg:col-span-2">
                         {quote.proposal_text && (
                             <SectionCard title="Proposal">
-                                <p className="text-sm whitespace-pre-line">{quote.proposal_text}</p>
+                                <p className="text-sm whitespace-pre-line">
+                                    {quote.proposal_text}
+                                </p>
                             </SectionCard>
                         )}
                         <SectionCard title="Items" flush>
-                            <DataTable caption="Quote items" columns={columns} rows={quote.items ?? []} getRowKey={(item) => item.id} className="rounded-none border-0 shadow-none" />
+                            <DataTable
+                                caption="Quote items"
+                                columns={columns}
+                                rows={quote.items ?? []}
+                                getRowKey={(item) => item.id}
+                                className="rounded-none border-0 shadow-none"
+                            />
                         </SectionCard>
                     </div>
                     <div className="grid content-start gap-4">
@@ -85,20 +129,42 @@ export default function ClientQuoteShow({ quote, require_tos }: { quote: Quote; 
                                 >
                                     {require_tos && (
                                         <div className="flex items-start gap-2">
-                                            <Checkbox id="accept-tos" checked={form.data.accept_tos} onCheckedChange={(checked) => form.setData('accept_tos', checked === true)} />
-                                            <Label htmlFor="accept-tos" className="leading-snug font-normal">
+                                            <Checkbox
+                                                id="accept-tos"
+                                                checked={form.data.accept_tos}
+                                                onCheckedChange={(checked) =>
+                                                    form.setData(
+                                                        'accept_tos',
+                                                        checked === true,
+                                                    )
+                                                }
+                                            />
+                                            <Label
+                                                htmlFor="accept-tos"
+                                                className="leading-snug font-normal"
+                                            >
                                                 I accept the terms of service
                                             </Label>
                                         </div>
                                     )}
-                                    <InputError message={errors.accept_tos ?? errors.billing} />
-                                    <Button type="submit" disabled={form.processing}>
+                                    <InputError
+                                        message={
+                                            errors.accept_tos ?? errors.billing
+                                        }
+                                    />
+                                    <Button
+                                        type="submit"
+                                        disabled={form.processing}
+                                    >
                                         {form.processing && <Spinner />}
                                         Accept quote
                                     </Button>
                                     <ConfirmDialog
                                         trigger={
-                                            <Button type="button" variant="outline">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                            >
                                                 Decline quote
                                             </Button>
                                         }
@@ -113,13 +179,17 @@ export default function ClientQuoteShow({ quote, require_tos }: { quote: Quote; 
                         {quote.invoice_id && (
                             <SectionCard title="Invoice">
                                 <Button variant="outline" asChild>
-                                    <Link href={showInvoice(quote.invoice_id)}>View invoice</Link>
+                                    <Link href={showInvoice(quote.invoice_id)}>
+                                        View invoice
+                                    </Link>
                                 </Button>
                             </SectionCard>
                         )}
                         {quote.customer_notes && (
                             <SectionCard title="Notes">
-                                <p className="text-sm whitespace-pre-line">{quote.customer_notes}</p>
+                                <p className="text-sm whitespace-pre-line">
+                                    {quote.customer_notes}
+                                </p>
                             </SectionCard>
                         )}
                     </div>
