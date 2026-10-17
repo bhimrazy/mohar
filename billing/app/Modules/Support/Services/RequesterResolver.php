@@ -41,6 +41,29 @@ class RequesterResolver
     }
 
     /**
+     * Name of the login or contact using this address, if any.
+     */
+    public function nameFor(string $email): ?string
+    {
+        $email = mb_strtolower(trim($email));
+        $user = DB::table('users')->whereRaw('lower(email) = ?', [$email])->value('name');
+
+        if (is_string($user) && $user !== '') {
+            return $user;
+        }
+
+        $contact = Contact::query()->whereRaw('lower(email) = ?', [$email])->orderBy('id')->first();
+
+        if ($contact !== null) {
+            return trim($contact->first_name.' '.$contact->last_name);
+        }
+
+        $client = Client::query()->whereRaw('lower(email) = ?', [$email])->orderBy('id')->first();
+
+        return $client !== null ? trim($client->first_name.' '.$client->last_name) : null;
+    }
+
+    /**
      * Whether the address may reply to the ticket by email (spec §6.6): requester, CC, or any
      * login or contact of the ticket's client.
      */

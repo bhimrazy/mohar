@@ -64,7 +64,7 @@ class GenericDriver implements InboundDriver
             to: $this->addresses($payload['to'] ?? []),
             cc: $this->addresses($payload['cc'] ?? []),
             deliveredTo: isset($payload['delivered_to']) ? strtolower((string) $payload['delivered_to']) : ($headers['delivered-to'] ?? null),
-            subject: mb_substr(trim((string) ($payload['subject'] ?? '')), 0, 255),
+            subject: mb_substr(trim((string) preg_replace('/\p{Cc}+/u', ' ', (string) ($payload['subject'] ?? ''))), 0, 255),
             text: (string) ($payload['text'] ?? ''),
             headers: $headers,
             inReplyTo: isset($payload['in_reply_to']) ? (string) $payload['in_reply_to'] : ($headers['in-reply-to'] ?? null),
@@ -74,7 +74,45 @@ class GenericDriver implements InboundDriver
             ))),
             date: isset($payload['date']) ? (string) $payload['date'] : ($headers['date'] ?? null),
             attachments: $attachments,
+            authenticated: $this->authenticationVerdict($payload, $headers),
         );
+    }
+
+    /**
+     * The provider's sender-authentication verdict, from an "auth" object ({"spf": "pass", "dkim": "pass",
+     * "dmarc": "pass"}) or an Authentication-Results header. DMARC pass, or SPF and DKIM pass, counts as
+     * authenticated; any explicit fail without such a pass counts as failed; nothing known is null.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, string>  $headers
+     */
+    private function authenticationVerdict(array $payload, array $headers): ?bool
+    {
+        $results = [];
+
+        if (is_array($payload['auth'] ?? null)) {
+            foreach (['spf', 'dkim', 'dmarc'] as $method) {
+                if (isset($payload['auth'][$method]) && is_scalar($payload['auth'][$method])) {
+                    $results[$method] = strtolower((string) $payload['auth'][$method]);
+                }
+            }
+        } elseif (isset($headers['authentication-results'])) {
+            preg_match_all('/\b(spf|dkim|dmarc)=([a-z]+)/i', $headers['authentication-results'], $matches, PREG_SET_ORDER);
+
+            foreach ($matches as $match) {
+                $results[strtolower($match[1])] ??= strtolower($match[2]);
+            }
+        }
+
+        if ($results === []) {
+            return null;
+        }
+
+        if (($results['dmarc'] ?? null) === 'pass' || (($results['spf'] ?? null) === 'pass' && ($results['dkim'] ?? null) === 'pass')) {
+            return true;
+        }
+
+        return in_array('fail', $results, true) || in_array('softfail', $results, true) ? false : null;
     }
 
     /**
@@ -89,10 +127,10 @@ class GenericDriver implements InboundDriver
         $value = trim(is_scalar($value) ? (string) $value : '');
 
         if (preg_match('/^(.*)<([^>]+)>$/', $value, $match) === 1) {
-            return [strtolower(trim($match[2])), trim($match[1], " \"'")];
+            return [mb_substr(strtolower(trim($match[2])), 0, 255), mb_substr(trim($match[1], " \"'"), 0, 255)];
         }
 
-        return [strtolower($value), ''];
+        return [mb_substr(strtolower($value), 0, 255), ''];
     }
 
     /**

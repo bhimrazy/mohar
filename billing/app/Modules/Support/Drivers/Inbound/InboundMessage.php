@@ -13,6 +13,7 @@ final readonly class InboundMessage
      * @param  list<string>  $references
      * @param  array<string, string>  $headers  lowercase header name => value
      * @param  list<array{name: string, content: string}>  $attachments  decoded file contents
+     * @param  bool|null  $authenticated  provider's SPF/DKIM/DMARC verdict: true = pass, false = fail, null = unknown
      */
     public function __construct(
         public string $provider,
@@ -29,6 +30,7 @@ final readonly class InboundMessage
         public array $references = [],
         public ?string $date = null,
         public array $attachments = [],
+        public ?bool $authenticated = null,
     ) {}
 
     public function header(string $name): ?string

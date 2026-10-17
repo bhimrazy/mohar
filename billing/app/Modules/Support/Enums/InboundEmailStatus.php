@@ -12,6 +12,8 @@ enum InboundEmailStatus: string
     case ReplyAdded = 'reply_added';
     case Blocked = 'blocked';
     case Imported = 'imported';
+    /** Processing threw; the provider's retry re-processes the same Message-ID. */
+    case Failed = 'failed';
     case RejectedAutoSubmitted = 'rejected_auto_submitted';
     case RejectedLoop = 'rejected_loop';
     case RejectedRateLimit = 'rejected_rate_limit';

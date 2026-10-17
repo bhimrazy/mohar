@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Modules\Support\Actions\ProcessInboundEmail;
 use App\Modules\Support\Drivers\Inbound\GenericDriver;
 use App\Modules\Support\Drivers\Inbound\InboundDriver;
+use App\Modules\Support\Enums\InboundEmailStatus;
+use App\Modules\Support\Services\AttachmentStore;
 use App\Modules\Support\Services\SupportSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,9 +20,16 @@ class InboundEmailWebhookController extends Controller
     /** @var array<string, class-string<InboundDriver>> */
     public const DRIVERS = ['generic' => GenericDriver::class];
 
-    public function __invoke(Request $request, string $provider, ProcessInboundEmail $pipeline, SupportSettings $settings): JsonResponse
+    public function __invoke(Request $request, string $provider, ProcessInboundEmail $pipeline, SupportSettings $settings, AttachmentStore $attachments): JsonResponse
     {
         abort_unless(isset(self::DRIVERS[$provider]), 404);
+
+        // Base64 attachments (4/3 overhead) at the configured limits plus 2 MB for text and headers.
+        $maxBody = (int) ceil($attachments->maxFiles() * $attachments->maxBytes() * 4 / 3) + 2 * 1024 * 1024;
+
+        if (strlen($request->getContent()) > $maxBody) {
+            return response()->json(['message' => 'Payload too large.'], 413);
+        }
 
         /** @var InboundDriver $driver */
         $driver = app(self::DRIVERS[$provider]);
@@ -37,11 +46,13 @@ class InboundEmailWebhookController extends Controller
 
         $record = $pipeline->handle($driver->parse($payload), $payload);
 
+        $accepted = in_array($record->status, [InboundEmailStatus::TicketCreated, InboundEmailStatus::ReplyAdded], true);
+
         return response()->json([
             'id' => $record->id,
             'status' => $record->status->value,
             'duplicate' => ! $record->wasRecentlyCreated,
             'ticket' => $record->ticket()->value('number'),
-        ], $record->wasRecentlyCreated ? 201 : 200);
+        ], ! $record->wasRecentlyCreated ? 200 : ($accepted ? 201 : 202));
     }
 }

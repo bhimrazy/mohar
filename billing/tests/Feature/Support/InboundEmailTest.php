@@ -75,7 +75,7 @@ test('the webhook rejects bad signatures, unknown providers and a missing secret
 });
 
 test('auto-submitted mail is dropped and logged', function () {
-    inboundEmail(['headers' => ['Auto-Submitted' => 'auto-replied']])->assertCreated()->assertJsonPath('status', 'rejected_auto_submitted');
+    inboundEmail(['headers' => ['Auto-Submitted' => 'auto-replied']])->assertAccepted()->assertJsonPath('status', 'rejected_auto_submitted');
     inboundEmail(['headers' => ['Precedence' => 'bulk']])->assertJsonPath('status', 'rejected_auto_submitted');
     inboundEmail(['from' => 'MAILER-DAEMON@mx.example.com'])->assertJsonPath('status', 'rejected_auto_submitted');
 
@@ -125,7 +125,7 @@ test('a reply whose In-Reply-To matches a stored message id is appended as custo
 test('a reply is matched by the [#number] subject token', function () {
     $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
 
-    inboundEmail(['subject' => "Re: [#{$ticket->number}] Help needed"])->assertJsonPath('status', 'reply_added');
+    inboundEmail(['subject' => "Re: [#{$ticket->number}] Help needed", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'reply_added');
 
     expect($ticket->messages()->count())->toBe(2);
 });
@@ -199,12 +199,12 @@ test('email replies reopen closed tickets unless prevented', function () {
     $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
     $ticket->forceFill(['status' => TicketStatus::Closed, 'closed_at' => now()])->save();
 
-    inboundEmail(['subject' => "[#{$ticket->number}]"])->assertJsonPath('status', 'reply_added');
+    inboundEmail(['subject' => "[#{$ticket->number}]", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'reply_added');
     expect($ticket->fresh()->status)->toBe(TicketStatus::CustomerReply);
 
     $ticket->fresh()->forceFill(['status' => TicketStatus::Closed, 'closed_at' => now()])->save();
     app(Settings::class)->set('support.prevent_email_reopen', true);
-    inboundEmail(['subject' => "[#{$ticket->number}] again"])->assertJsonPath('status', 'bounced_closed');
+    inboundEmail(['subject' => "[#{$ticket->number}] again", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'bounced_closed');
     expect($ticket->fresh()->status)->toBe(TicketStatus::Closed);
     Event::assertDispatched(InboundEmailBounced::class, fn (InboundEmailBounced $event) => $event->template === 'ticket.closed_bounce');
 });
@@ -225,7 +225,7 @@ test('inbound replies to a merged ticket land in the target', function () {
     $newer = clientTicket($client, $this->department);
     app(MergeTickets::class)->handle([$older->id, $newer->id], User::factory()->staff()->create());
 
-    inboundEmail(['subject' => "Re: [#{$newer->number}]", 'text' => 'Following up'])->assertJsonPath('status', 'reply_added');
+    inboundEmail(['subject' => "Re: [#{$newer->number}]", 'text' => 'Following up', 'auth' => ['spf' => 'pass', 'dkim' => 'pass']])->assertJsonPath('status', 'reply_added');
 
     expect(TicketMessage::query()->where('ticket_id', $older->id)->latest('id')->value('body'))->toBe('Following up');
 });
@@ -253,4 +253,78 @@ test('overlong subjects are truncated before storage', function () {
     inboundEmail(['subject' => str_repeat('a', 400)])->assertJsonPath('status', 'ticket_created');
 
     expect(mb_strlen(Ticket::query()->sole()->subject))->toBeLessThanOrEqual(255);
+});
+
+test('a spoofed From with only the [#number] subject token is held back, not posted as the client', function () {
+    $client = Client::factory()->create(['email' => 'victim@example.com']);
+    $ticket = clientTicket($client, $this->department);
+
+    inboundEmail(['from' => 'victim@example.com', 'subject' => "Re: [#{$ticket->number}]", 'text' => 'Spoofed', 'headers' => ['Authentication-Results' => 'mx.example; spf=fail dkim=fail dmarc=fail']])
+        ->assertAccepted()->assertJsonPath('status', 'blocked');
+    inboundEmail(['from' => 'victim@example.com', 'subject' => "Re: [#{$ticket->number}]", 'text' => 'No verdict'])
+        ->assertJsonPath('status', 'blocked');
+
+    expect($ticket->messages()->count())->toBe(1)
+        ->and(InboundEmail::query()->where('status', 'blocked')->value('reason'))->toContain('could not be verified');
+});
+
+test('an explicit DMARC fail blocks even a threaded reply', function () {
+    $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
+    $first = $ticket->messages()->firstOrFail();
+
+    inboundEmail(['in_reply_to' => $first->email_message_id, 'headers' => ['Authentication-Results' => 'mx; dmarc=fail']])->assertJsonPath('status', 'blocked');
+
+    expect($ticket->messages()->count())->toBe(1);
+});
+
+test('an inbound Message-ID equal to one of our outbound ids is dropped as a loop, not a 500', function () {
+    $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
+    $outbound = $ticket->messages()->firstOrFail()->email_message_id;
+
+    inboundEmail(['message_id' => $outbound])->assertAccepted()->assertJsonPath('status', 'rejected_loop');
+
+    expect(Ticket::query()->count())->toBe(1);
+});
+
+test('a processing failure is recorded and the provider retry processes the mail again', function () {
+    $calls = 0;
+    Ticket::creating(function () use (&$calls) {
+        if (++$calls === 1) {
+            throw new RuntimeException('database hiccup');
+        }
+    });
+
+    $this->withoutExceptionHandling();
+    expect(fn () => inboundEmail(['message_id' => '<retry@mail.example>']))->toThrow(RuntimeException::class);
+    expect(InboundEmail::query()->sole()->status->value)->toBe('failed');
+
+    inboundEmail(['message_id' => '<retry@mail.example>'])->assertOk()->assertJsonPath('status', 'ticket_created');
+    expect(Ticket::query()->count())->toBe(1);
+});
+
+test('loop and list headers are dropped', function (array $headers) {
+    inboundEmail(['headers' => $headers])->assertJsonPath('status', 'rejected_auto_submitted');
+})->with([
+    'X-Autoreply' => [['X-Autoreply' => 'yes']],
+    'List-Id' => [['List-Id' => '<news.example.com>']],
+    'empty Return-Path' => [['Return-Path' => '<>']],
+]);
+
+test('oversized webhook bodies are refused before parsing', function () {
+    app(Settings::class)->set('support.attachment_max_files', 1);
+    app(Settings::class)->set('support.attachment_max_mb', 1);
+
+    inboundEmail(['text' => str_repeat('a', 4 * 1024 * 1024)])->assertStatus(413);
+
+    expect(InboundEmail::query()->count())->toBe(0);
+});
+
+test('a sender without a display name gets the name of the matching login', function () {
+    $client = Client::factory()->create(['email' => 'casey@example.com']);
+    User::factory()->create(['email' => 'casey@example.com', 'name' => 'Casey Jones']);
+
+    inboundEmail(['from' => 'casey@example.com']);
+
+    expect(Ticket::query()->sole()->requester_name)->toBe('Casey Jones')
+        ->and($client->exists)->toBeTrue();
 });

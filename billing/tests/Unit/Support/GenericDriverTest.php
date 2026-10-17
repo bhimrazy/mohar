@@ -33,3 +33,19 @@ test('the dedupe key falls back to a hash of from, date and subject', function (
 test('signatures are HMAC-SHA256 of the raw body', function () {
     expect(GenericDriver::sign('{}', 'secret'))->toBe('sha256='.hash_hmac('sha256', '{}', 'secret'));
 });
+
+test('the driver reads the provider authentication verdict', function (array $payload, ?bool $expected) {
+    expect((new GenericDriver)->parse(['from' => 'a@b.c', ...$payload])->authenticated)->toBe($expected);
+})->with([
+    'dmarc pass' => [['auth' => ['dmarc' => 'pass']], true],
+    'spf and dkim pass' => [['auth' => ['spf' => 'pass', 'dkim' => 'pass']], true],
+    'spf pass only' => [['auth' => ['spf' => 'pass']], null],
+    'dmarc fail' => [['auth' => ['dmarc' => 'fail']], false],
+    'header pass' => [['headers' => ['Authentication-Results' => 'mx.example; spf=pass smtp.mailfrom=a; dkim=pass header.d=x; dmarc=pass']], true],
+    'header fail' => [['headers' => ['Authentication-Results' => 'mx; spf=softfail; dkim=none']], false],
+    'unknown' => [[], null],
+]);
+
+test('control characters are stripped from subjects', function () {
+    expect((new GenericDriver)->parse(['from' => 'a@b.c', 'subject' => "Hello\r\nBcc: evil@x"])->subject)->toBe('Hello Bcc: evil@x');
+});
