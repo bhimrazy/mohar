@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
+use Carbon\CarbonInterface;
 use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -30,7 +31,12 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $remember_token
  * @property bool $is_staff
  * @property int|null $role_id
+ * @property bool $is_active
  * @property Carbon|null $last_login_at
+ * @property string|null $last_login_ip
+ * @property CarbonInterface|null $invited_at
+ * @property bool $must_change_password
+ * @property CarbonInterface|null $password_changed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -46,6 +52,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
      */
     protected $attributes = [
         'is_staff' => false,
+        'is_active' => true,
     ];
 
     /**
@@ -60,7 +67,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'is_staff' => 'boolean',
+            'is_active' => 'boolean',
             'last_login_at' => 'datetime',
+            'invited_at' => 'datetime',
+            'must_change_password' => 'boolean',
+            'password_changed_at' => 'datetime',
         ];
     }
 
@@ -87,6 +98,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
      */
     public function hasPermission(string $permission): bool
     {
-        return $this->is_staff && $this->role !== null && $this->role->allows($permission);
+        return $this->is_staff && $this->is_active && $this->role !== null && $this->role->allows($permission);
     }
 }

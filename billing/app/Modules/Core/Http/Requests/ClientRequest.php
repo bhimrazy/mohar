@@ -11,7 +11,7 @@ class ClientRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('core.clients.manage') ?? false;
+        return $this->user()?->hasPermission($this->route('client') === null ? 'core.clients.create' : 'core.clients.update') ?? false;
     }
 
     /**

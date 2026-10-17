@@ -16,15 +16,16 @@ class CoreSeeder extends Seeder
         Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'prefix' => '€', 'exchange_rate' => 0.92]);
         Currency::query()->firstOrCreate(['code' => 'GBP'], ['name' => 'Pound Sterling', 'prefix' => '£', 'exchange_rate' => 0.79]);
 
-        $admin = Role::query()->firstOrCreate(['name' => 'Full Administrator'], ['permissions' => ['*']]);
-        Role::query()->firstOrCreate(['name' => 'Billing'], ['permissions' => ['core.clients.*', 'billing.*', 'orders.*', 'reports.*']]);
-        Role::query()->firstOrCreate(['name' => 'Support'], ['permissions' => ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view']]);
+        $admin = Role::query()->firstOrCreate(['name' => 'Full Administrator'], ['description' => 'Unrestricted access to everything.', 'permissions' => ['*'], 'is_system' => true]);
+        Role::query()->firstOrCreate(['name' => 'Billing'], ['description' => 'Clients, orders, invoices and billing reports.', 'permissions' => ['core.clients.*', 'core.contacts.manage', 'billing.*', 'orders.*', 'reports.*'], 'is_system' => true]);
+        Role::query()->firstOrCreate(['name' => 'Support'], ['description' => 'Tickets plus read access to clients, services and domains.', 'permissions' => ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view'], 'is_system' => true]);
+        Role::query()->firstOrCreate(['name' => 'Sales'], ['description' => 'Read clients and orders, accept orders, manage quotes.', 'permissions' => ['core.clients.view', 'orders.orders.view', 'orders.orders.accept', 'billing.quotes.view', 'billing.quotes.manage'], 'is_system' => true]);
 
         User::query()->firstOrCreate(['email' => 'admin@example.com'], [
             'name' => 'Admin',
             'password' => 'password',
             'email_verified_at' => now(),
-        ])->forceFill(['is_staff' => true, 'role_id' => $admin->id])->save();
+        ])->forceFill(['is_staff' => true, 'role_id' => $admin->id, 'password_changed_at' => now()])->save();
 
         $demoUser = User::query()->firstOrCreate(['email' => 'demo@example.com'], [
             'name' => 'Demo Customer',

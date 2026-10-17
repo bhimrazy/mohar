@@ -13,10 +13,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * @property int $id
  * @property string $name
+ * @property string|null $description
  * @property list<string> $permissions
+ * @property bool $is_system
  */
 #[UseFactory(RoleFactory::class)]
-#[Fillable(['name', 'permissions'])]
+#[Fillable(['name', 'description', 'permissions', 'is_system'])]
 class Role extends Model
 {
     /** @use HasFactory<RoleFactory> */
@@ -24,7 +26,7 @@ class Role extends Model
 
     protected function casts(): array
     {
-        return ['permissions' => 'array'];
+        return ['permissions' => 'array', 'is_system' => 'boolean'];
     }
 
     /**

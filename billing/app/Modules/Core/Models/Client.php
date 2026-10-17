@@ -35,6 +35,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $language
  * @property string $status
  * @property string|null $notes
+ * @property int|null $merged_into_client_id
+ * @property CarbonImmutable|null $closed_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read string $display_name
@@ -54,7 +56,7 @@ class Client extends Model
 
     protected function casts(): array
     {
-        return ['tax_exempt' => 'boolean'];
+        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime'];
     }
 
     /**

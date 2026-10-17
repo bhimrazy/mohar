@@ -38,6 +38,8 @@ class ClientResource extends JsonResource
             'notes' => $this->when($request->user()?->is_staff, $this->notes),
             'client_group_id' => $this->client_group_id,
             'group' => $this->whenLoaded('group', fn () => $this->group?->only(['id', 'name', 'colour'])),
+            'closed_at' => $this->closed_at?->toIso8601String(),
+            'merged_into_client_id' => $this->merged_into_client_id,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
