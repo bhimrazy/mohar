@@ -40,8 +40,11 @@ loads only Core + Billing.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
-4. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
-5. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
+4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
+   kernel → module imports, non-interface contracts, non-final DTOs/events, debug calls, and `DB` facade use in
+   controllers all fail the build. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
+6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
 
 ### Contracts (implementer → consumers)
@@ -118,7 +121,11 @@ Route::clientArea(fn () => Route::prefix('invoices')->name('invoices.')->group(.
 app(Navigation::class)->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*'));
 app(Navigation::class)->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10));
 app(Navigation::class)->add('admin-client', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', order: 10, permission: 'billing.invoices.view')); // link on client profile (?client=ID)
+app(Navigation::class)->add('admin-create', new NavItem('New invoice', 'admin.billing.invoices.create', 'FileText', permission: 'billing.invoices.manage')); // quick-create menu
+// Sidebar count badge (cheap indexed count): new NavItem(..., badge: fn ($user) => Ticket::awaitingStaff()->count())
 app(Dashboard::class)->card('admin', 'billing.overdue', fn ($user) => ['label' => ..., 'value' => ..., 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
+app(Dashboard::class)->widget('admin', 'billing.income', 'chart', fn ($user) => [...], 'billing.invoices.view', size: 'md', deferred: true); // list|chart widgets
+app(Dashboard::class)->todo('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue invoices', 'count' => 3, 'href' => ..., 'tone' => 'danger'], 'billing.invoices.view'); // "Needs attention"
 ```
 
 Icon names must exist in `resources/js/lib/nav-icons.ts` (add one line if needed).
@@ -152,8 +159,20 @@ backoff; automation registered in the provider's `schedule()` with `->withoutOve
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 9xxxxx).
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx).
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
+
+PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):
+
+1. User search: `whereLike($column, "%{$term}%")` (case-insensitive), never raw `like`.
+2. `sum()`/`avg()` return strings on PostgreSQL — cast `(int)` before `Money`.
+3. Never hardcode ids in tests or links; sequences are not reset between tests.
+4. `orderBy(...)->orderBy('id')` wherever order matters.
+5. Strict `GROUP BY`; no SQLite-only functions (`strftime`, `ifnull`, `julianday`); no backticks.
+6. Validate string lengths against column sizes (PostgreSQL rejects overlong values).
+7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
+8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
+9. Booleans as `where('flag', true)`; no explicit ids in seeders.
 
 ## Testing (Pest)
 
@@ -171,15 +190,19 @@ Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PH
 vendor/bin/pint --parallel                       # format
 vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7, zero errors, no ignores/baselines
 php artisan test --compact                       # all tests green (whole suite, not just yours)
+composer test:pgsql                              # same suite on PostgreSQL (docker compose up -d postgres)
 php artisan wayfinder:generate --with-form && npx tsc --noEmit && npm run check
 npm run build                                    # pages compile
 ```
 
 ## Git workflow
 
-- Integration branch: `develop`. One branch per workstream: `feature/<module>`; Conventional Commits
-  (`feat(billing): apply partial payments`, `fix(...)`, `test(...)`, `docs(...)`), small focused commits.
-- Before requesting review: rebase/merge latest `develop`, all gates green, update `CHANGELOG.md` under
-  `## [Unreleased]` (one bullet group per module) and `docs/PROGRESS.md` (your module's row).
-- Review gates: Staff Engineer review → QA → AI-slop review → CTO merge (`--no-ff`) into `develop`.
+- Integration branch: `develop` (`main` receives tagged releases). One branch per workstream: `feature/<module>`
+  in its own worktree (`scripts/new-worktree.sh <module>`); Conventional Commits, small focused commits.
+- Before review: merge latest `develop`, all gates green; report CHANGELOG bullets and screenshots to the CTO
+  (the CTO maintains `CHANGELOG.md` and `docs/PROGRESS.md` to avoid merge conflicts).
+- Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
+  `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
+  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit
+  (`gh pr merge --merge`). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
 - Never commit `.env`, `vendor/`, `node_modules/`, generated Wayfinder files, or `database/*.sqlite`.
