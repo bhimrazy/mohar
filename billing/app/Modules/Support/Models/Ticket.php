@@ -73,6 +73,17 @@ class Ticket extends Model
 
     protected $hidden = ['access_key'];
 
+    /**
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'version' => 1,
+        'is_pinned' => false,
+        'prevent_client_close' => false,
+        'source' => 'web',
+        'priority' => 'medium',
+    ];
+
     protected function casts(): array
     {
         return [

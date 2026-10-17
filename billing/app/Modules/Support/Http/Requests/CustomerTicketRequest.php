@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support\Http\Requests;
 
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Support\Enums\TicketPriority;
 use App\Modules\Support\Http\Requests\Concerns\ValidatesAttachments;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -16,9 +17,13 @@ class CustomerTicketRequest extends FormRequest
 {
     use ValidatesAttachments;
 
+    /**
+     * Client-area requests need the "support" permission on the current account; guest requests
+     * are authorised by the access key in the controller.
+     */
     public function authorize(): bool
     {
-        return true;
+        return ! $this->routeIs('client.*') || app(ClientContext::class)->can('support');
     }
 
     /**
@@ -26,7 +31,7 @@ class CustomerTicketRequest extends FormRequest
      */
     public function rules(): array
     {
-        $guest = $this->user() === null || $this->routeIs('support.tickets.*');
+        $guest = ! $this->routeIs('client.*');
 
         return [
             'department_id' => ['required', 'integer', Rule::exists('support_departments', 'id')],
