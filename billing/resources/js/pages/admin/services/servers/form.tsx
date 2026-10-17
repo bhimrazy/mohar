@@ -181,7 +181,10 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
                                         setData('driver', value)
                                     }
                                 >
-                                    <SelectTrigger id="driver">
+                                    <SelectTrigger
+                                        id="driver"
+                                        className="w-full"
+                                    >
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -366,7 +369,7 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
                         </div>
                     </SectionCard>
 
-                    <FormActions sticky>
+                    <FormActions>
                         <Button variant="outline" asChild>
                             <Link href={ServerController.index()}>Cancel</Link>
                         </Button>

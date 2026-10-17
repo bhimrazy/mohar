@@ -104,7 +104,10 @@ export default function ServerGroupForm({ group, fillTypes, servers }: Props) {
                                         setData('fill_type', value)
                                     }
                                 >
-                                    <SelectTrigger id="fill_type">
+                                    <SelectTrigger
+                                        id="fill_type"
+                                        className="w-full"
+                                    >
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>

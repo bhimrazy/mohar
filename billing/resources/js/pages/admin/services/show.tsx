@@ -404,9 +404,16 @@ export default function ServiceShow({
                         label="Next due"
                         value={<DateTime value={service.next_due_date} />}
                         hint={
-                            service.next_invoice_date
-                                ? `Invoiced through ${service.next_invoice_date}`
-                                : 'No renewals'
+                            service.next_invoice_date ? (
+                                <>
+                                    Invoiced through{' '}
+                                    <DateTime
+                                        value={service.next_invoice_date}
+                                    />
+                                </>
+                            ) : (
+                                'No renewals'
+                            )
                         }
                         icon={CalendarClock}
                     />

@@ -150,7 +150,10 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
                                         setData('server_id', value)
                                     }
                                 >
-                                    <SelectTrigger id="server_id">
+                                    <SelectTrigger
+                                        id="server_id"
+                                        className="w-full"
+                                    >
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -219,7 +222,10 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
                                         setData('cycle', value)
                                     }
                                 >
-                                    <SelectTrigger id="cycle">
+                                    <SelectTrigger
+                                        id="cycle"
+                                        className="w-full"
+                                    >
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -379,7 +385,7 @@ export default function ServiceEdit({ service, cycles, servers }: Props) {
                         </div>
                     </SectionCard>
 
-                    <FormActions sticky>
+                    <FormActions>
                         <Button variant="outline" asChild>
                             <Link href={ServiceController.show(service.id)}>
                                 Cancel

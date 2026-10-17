@@ -121,7 +121,7 @@ class ServicesSeeder extends Seeder
             'requested_by_user_id' => $demo->users()->value('users.id'), 'status' => CancellationStatus::Open, 'process_after' => $leaving->next_due_date,
         ]);
 
-        app(LogDriver::class)->failNext('change_package', message: 'Package "business-plus" does not exist on web2.demo-host.net');
+        app(LogDriver::class)->failNext('change_package', message: 'Package "business-plus" does not exist on the server');
         $this->execute($active, ModuleCommandName::ChangePackage, ['previous' => ['product_id' => 1]]);
     }
 
