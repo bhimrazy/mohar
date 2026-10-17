@@ -11,5 +11,6 @@ final class ServiceActivated
     public function __construct(
         public int $serviceId,
         public int $clientId,
+        public ?string $nextDueDate = null,
     ) {}
 }
