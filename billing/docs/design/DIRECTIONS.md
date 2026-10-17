@@ -5,8 +5,9 @@ There are four candidate looks for the admin panel, the client area and (later) 
 ## How to compare them
 
 - Pages (local env, logged in): `/dev/dashboard-preview`, `/dev/invoice-preview`, `/dev/client-preview`, `/dev/components`.
-- Use the **palette button** in the page header (or in the `/dev/components` showcase) to switch direction and Light/Dark/System. The choice is saved in `localStorage` (`theme`, `appearance`).
-- Implementation: one token file per direction in `resources/css/themes/<id>.css`, switched with `<html data-theme="<id>">`. All directions share the same component code. Only tokens differ: colour, semantic status, charts, radius, elevation, shell, density, font.
+- **Decision (2026-10-17): Calm Fintech is the default.** The other three ship as presets selectable per area in Admin → Settings → Appearance, alongside custom themes.
+- On the dev previews the **palette button** switches theme via `?theme=<key>` (local only); elsewhere it saves the staff member's own admin theme. Light/Dark/System stays in `localStorage`/cookie (`appearance`).
+- Implementation: each direction is a preset document in `app/Modules/Themes/Resources/presets/<key>.json` (schema `billing-theme` v1). The server renders its tokens as CSS variables. All directions share the same component code. Only tokens differ: colour, semantic status, charts, radius, elevation, shell, density, font.
 - Screenshots are in `docs/design/directions/<id>/`: `dashboard-{light,dark}.png`, `invoice-{light,dark}.png`, `client-{light,dark}.png` (1440px wide, full page) and `dashboard-{light,dark}-mobile.png` (390px).
 
 ## What every direction shares

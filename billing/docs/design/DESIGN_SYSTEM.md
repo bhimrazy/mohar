@@ -201,12 +201,17 @@ never shift timezone.
   and an AA `-text` colour (`text-success-text`). Never use raw `emerald-*`, `red-*` or similar.
   `StatusBadge`, `StatCard`, `NeedsAttention` and `Money` already use them.
 - **No hard-coded neutrals** (`gray-*`, `neutral-*`, `white`, `black`).
-- **Design directions** live in `resources/css/themes/<id>.css` and are switched with
-  `<html data-theme>` (`lib/themes.ts`, `hooks/use-theme.ts`). Each one defines colours,
-  `chart-1…6` and `chart-grid`, radius (`--radius`, `--badge-radius`), elevation
-  (`elevation-card`/`elevation-hover` utilities), shell (`--shell-*`), density (`--cell-py`,
-  `--table-head-h`, `--card-p`, `--stat-p`, `--page-gap`, `--nav-item-h`, `--root-font-size`) and
-  type (`font-display`, `font-numeric`, `eyebrow` utilities). See `docs/design/DIRECTIONS.md`.
+- **Themes** are data, not CSS files: presets in `app/Modules/Themes/Resources/presets/*.json`
+  and custom themes from Admin → Settings → Appearance (editor with live preview and a WCAG AA
+  guard). The server renders the active theme's variables into a nonce'd `<style>` in the root
+  view; `app.css` uses `@theme inline`, so utilities read the raw variables and a wrapper can
+  re-theme its subtree (editor preview). Each theme defines colours, `chart-1…6` and
+  `chart-grid`, radius (`--radius`, `--badge-radius`), elevation (`elevation-card`/
+  `elevation-hover` utilities), shell (`--shell-*`), density (`--cell-py`, `--table-head-h`,
+  `--card-p`, `--stat-p`, `--page-gap`, `--nav-item-h`, `--root-font-size`) and type
+  (`font-display`, `font-numeric`, `eyebrow` utilities). See `docs/design/DIRECTIONS.md`.
+- **Brand**: render logos with `<BrandLogo>` / `<AppLogoIcon>` (shared `brand` prop); never
+  hard-code the product name or logo.
 - Cards: `rounded-xl border bg-card elevation-card`. Use padding/gap tokens (`p-(--stat-p)`,
   `gap-(--page-gap)`) for dashboard surfaces so density follows the theme.
 - Charts: `TimeSeriesChart` / `Sparkline` (shadcn Chart on Recharts). Series take `--chart-N` in
