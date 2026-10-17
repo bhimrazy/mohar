@@ -17,7 +17,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Support                                             | Senior Engineer         | `feature/support`       | ⏳ queued                 |                                                                      |
 | Notifications                                       | Senior Engineer         | `feature/notifications` | ⏳ queued                 |                                                                      |
 | Affiliates                                          | Senior Engineer         | `feature/affiliates`    | ⏳ queued                 |                                                                      |
-| Platform admin (staff, roles, currencies, settings) | Senior Engineer         | `feature/platform`      | ⏳ queued                 |                                                                      |
+| Platform admin (staff, roles, currencies, settings) | Senior Engineer         | `feature/platform`      | 🔍 in review              | 148 tests (+87), Larastan L7 clean, screenshots in docs/screenshots  |
 | Reports                                             | Senior Engineer         | `feature/reports`       | ⏳ after billing/services | read model                                                           |
 
 ## Timeline
