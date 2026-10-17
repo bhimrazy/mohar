@@ -83,6 +83,7 @@ class GatewayController extends Controller
             'sort_order' => $model->sort_order,
             'convert_to_currency' => $model->convert_to_currency,
             'capabilities' => $driver->capabilities(),
+            'sandbox' => str_starts_with($driver->key(), 'sandbox'),
         ];
     }
 }

@@ -73,10 +73,9 @@ class StartHostedPayment
 
         $attempt = DB::transaction(function () use ($invoice, $gatewayKey, $amount, $balance, $rate, $driver, $config): PaymentAttempt {
             Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
-            $sequence = PaymentAttempt::query()->where('invoice_id', $invoice->id)->count() + 1;
 
             return PaymentAttempt::query()->create([
-                'reference' => mb_substr('inv-'.$invoice->id.'-a'.$sequence, 0, 20),
+                'reference' => PaymentAttempt::newReference(),
                 'gateway' => $gatewayKey,
                 'client_id' => $invoice->client_id,
                 'invoice_id' => $invoice->id,

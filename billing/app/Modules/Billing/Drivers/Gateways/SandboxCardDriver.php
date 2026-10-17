@@ -49,9 +49,22 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
     /** Cache prefix standing in for the provider's own database (hosted flow). */
     private const PROVIDER_STATE = 'billing.sandbox.provider.';
 
+    public const KEY = 'sandbox_card';
+
+    /**
+     * The sandbox lets anyone "pay" without money moving, so it never exists in production unless explicitly
+     * forced with BILLING_SANDBOX_ENABLED=true (driver, routes and activation are all gated by this).
+     */
+    public static function enabled(): bool
+    {
+        $configured = config('billing.sandbox_enabled');
+
+        return $configured === null || $configured === '' ? ! app()->isProduction() : filter_var($configured, FILTER_VALIDATE_BOOLEAN);
+    }
+
     public function key(): string
     {
-        return 'sandbox_card';
+        return self::KEY;
     }
 
     public function name(): string
@@ -203,7 +216,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
         $reference = $request->input('ref');
 
         return new ReturnHint(
-            reference: is_string($reference) && preg_match('/^[a-z0-9-]{3,20}$/', $reference) === 1 ? $reference : null,
+            reference: is_string($reference) && preg_match('/^[a-z0-9-]{3,40}$/', $reference) === 1 ? $reference : null,
             providerRef: is_string($request->input('pidx')) ? $request->input('pidx') : null,
             claimedStatus: is_string($request->input('status')) ? $request->input('status') : null,
             raw: $request->only(['ref', 'pidx', 'status']),

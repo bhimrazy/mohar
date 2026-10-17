@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Http\Controllers\Admin\CreditController as AdminCreditController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayLogController;
@@ -106,12 +107,13 @@ Route::match(['get', 'post'], 'billing/gateways/{gateway}/return', GatewayReturn
     ->middleware('throttle:60,1')
     ->name('billing.gateways.return');
 
-// The sandbox gateway's simulated hosted payment page.
-Route::get('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'show'])->where('reference', '[a-z0-9-]{3,20}')->name('billing.sandbox.checkout');
-Route::post('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'pay'])->where('reference', '[a-z0-9-]{3,20}')->middleware('throttle:30,1')->name('billing.sandbox.checkout.pay');
+// The sandbox gateway's simulated hosted page and card vault. Never registered in production (see SandboxCardDriver::enabled()).
+if (SandboxCardDriver::enabled()) {
+    Route::get('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'show'])->where('reference', '[a-z0-9-]{3,40}')->name('billing.sandbox.checkout');
+    Route::post('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'pay'])->where('reference', '[a-z0-9-]{3,40}')->middleware('throttle:30,1')->name('billing.sandbox.checkout.pay');
 
-// Sandbox gateway "hosted fields": the browser posts card data here (JSON) and receives a token.
-Route::post('billing/sandbox/tokens', SandboxVaultController::class)
-    ->withoutMiddleware(PreventRequestForgery::class)
-    ->middleware(['auth', 'throttle:30,1'])
-    ->name('billing.sandbox.tokens');
+    // Sandbox "hosted fields": the browser posts card data here (JSON, CSRF-protected) and receives a token.
+    Route::post('billing/sandbox/tokens', SandboxVaultController::class)
+        ->middleware(['auth', 'throttle:30,1'])
+        ->name('billing.sandbox.tokens');
+}

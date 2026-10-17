@@ -6,6 +6,7 @@ use App\Contracts\Billing\GatewayDriver;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\StorePayMethodRequest;
 use App\Modules\Billing\Http\Resources\PayMethodResource;
@@ -14,6 +15,7 @@ use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -31,8 +33,8 @@ class PayMethodController extends Controller
         return Inertia::render('client/billing/pay-methods/index', [
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $this->context->id())->orderByDesc('is_default')->orderBy('id')->get()),
             'gateways' => array_values($gateways->clientGateways()
-                ->filter(fn (Gateway $gateway): bool => $gateways->supports($gateway->key, GatewayDriver::TOKENIZE))
-                ->map(fn (Gateway $gateway): array => ['key' => $gateway->key, 'name' => $gateway->display_name, 'vault_url' => route('billing.sandbox.tokens')])
+                ->filter(fn (Gateway $gateway): bool => $gateways->supports($gateway->key, GatewayDriver::TOKENIZE) && Route::has('billing.sandbox.tokens'))
+                ->map(fn (Gateway $gateway): array => ['key' => $gateway->key, 'name' => $gateway->display_name, 'vault_url' => route('billing.sandbox.tokens'), 'sandbox' => $gateway->key === SandboxCardDriver::KEY])
                 ->all()),
             'can_remove' => $settings->bool('allow_pay_method_removal'),
         ]);

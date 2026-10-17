@@ -17,6 +17,7 @@ type GatewayRow = {
     sort_order: number;
     convert_to_currency: string | null;
     capabilities: string[];
+    sandbox: boolean;
 };
 
 export default function GatewaysIndex({
@@ -31,7 +32,16 @@ export default function GatewaysIndex({
             primary: true,
             cell: (gateway) => (
                 <div>
-                    <div>{gateway.display_name}</div>
+                    <div className="flex items-center gap-2">
+                        {gateway.display_name}
+                        {gateway.sandbox && (
+                            <StatusBadge
+                                status="sandbox"
+                                tone="warning"
+                                label="Sandbox"
+                            />
+                        )}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                         {gateway.driver_name}
                     </div>

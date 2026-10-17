@@ -1,5 +1,6 @@
 import { Head, Link, useForm } from '@inertiajs/react';
 import { Field } from '@/components/app/field';
+import { StatusBadge } from '@/components/app/status-badge';
 import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
@@ -89,6 +90,7 @@ type Props = {
         key: string;
         driver_name: string;
         display_name: string;
+        sandbox: boolean;
         is_active: boolean;
         show_on_order_form: boolean;
         sort_order: number;
@@ -170,6 +172,15 @@ export default function GatewayEdit({
                 <PageHeader
                     back={{ href: index(), label: 'Payment gateways' }}
                     title={gateway.display_name}
+                    badges={
+                        gateway.sandbox ? (
+                            <StatusBadge
+                                status="sandbox"
+                                tone="warning"
+                                label="Sandbox — no money moves"
+                            />
+                        ) : undefined
+                    }
                     description={gateway.driver_name}
                 />
                 <form onSubmit={submit} className="grid gap-6">

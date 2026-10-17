@@ -186,7 +186,7 @@ return new class extends Migration
 
         Schema::create('payment_attempts', function (Blueprint $table) {
             $table->id();
-            $table->string('reference', 20)->unique();
+            $table->string('reference', 40)->unique();
             $table->string('gateway', 50);
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
             $table->foreignId('invoice_id')->nullable()->constrained()->nullOnDelete();

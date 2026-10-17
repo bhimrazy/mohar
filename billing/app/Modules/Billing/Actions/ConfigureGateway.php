@@ -3,7 +3,9 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +24,10 @@ class ConfigureGateway
      */
     public function handle(string $key, array $attributes, array $settings, ?string $replacement = null): Gateway
     {
+        if (str_starts_with($key, 'sandbox') && ! SandboxCardDriver::enabled() && ($attributes['is_active'] ?? false)) {
+            throw new BillingException(__('Sandbox gateways can\'t be activated in production.'));
+        }
+
         $driver = $this->gateways->driver($key);
         $gateway = $this->gateways->gateway($key);
         $wasActive = $gateway->exists && $gateway->is_active;

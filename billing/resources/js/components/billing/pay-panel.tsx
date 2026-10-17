@@ -2,6 +2,7 @@ import { router, usePage } from '@inertiajs/react';
 import { CreditCard, Landmark } from 'lucide-react';
 import { useState } from 'react';
 import { Money } from '@/components/app/money';
+import { StatusBadge } from '@/components/app/status-badge';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -159,7 +160,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             checked={gateway === option.key}
                             onChange={setGateway}
                         >
-                            {option.kind === 'card' ? (
+                            {option.kind !== 'offline' ? (
                                 <CreditCard
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
@@ -171,6 +172,14 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                                 />
                             )}
                             {option.name}
+                            {option.sandbox && (
+                                <StatusBadge
+                                    status="sandbox"
+                                    tone="warning"
+                                    label="Sandbox"
+                                    className="ml-auto"
+                                />
+                            )}
                         </Choice>
                     ))}
                 </fieldset>

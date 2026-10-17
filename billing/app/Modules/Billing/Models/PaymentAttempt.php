@@ -61,6 +61,23 @@ class PaymentAttempt extends Model
     }
 
     /**
+     * Unguessable attempt reference: 26 base32 characters ([a-z2-7], 130 bits of randomness). Public return and
+     * sandbox URLs carry it, so it must not be enumerable. Drivers whose provider caps reference length map
+     * their own id through provider_ref.
+     */
+    public static function newReference(): string
+    {
+        $alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+        $reference = '';
+
+        foreach (str_split(random_bytes(26)) as $byte) {
+            $reference .= $alphabet[ord($byte) & 31];
+        }
+
+        return $reference;
+    }
+
+    /**
      * @return BelongsTo<Invoice, $this>
      */
     public function invoice(): BelongsTo

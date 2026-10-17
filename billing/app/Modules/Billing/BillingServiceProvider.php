@@ -69,7 +69,9 @@ class BillingServiceProvider extends ModuleServiceProvider
             $manager = new GatewayManager;
             $manager->register(new BankTransferDriver);
             $manager->register(new ManualDriver);
-            $manager->register(new SandboxCardDriver);
+            if (SandboxCardDriver::enabled()) {
+                $manager->register(new SandboxCardDriver);
+            }
 
             return $manager;
         });

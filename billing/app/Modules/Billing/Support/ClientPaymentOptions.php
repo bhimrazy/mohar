@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Support;
 
 use App\Contracts\Billing\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\PayMethodResource;
@@ -12,6 +13,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
+use Illuminate\Support\Facades\Route;
 
 /**
  * What a client may pay with, and resolution of a pay request into gateway + token (scoped to the client).
@@ -157,7 +159,8 @@ class ClientPaymentOptions
                     'name' => $gateway->display_name,
                     'kind' => $this->kind($gateway->key),
                     'instructions' => $invoice !== null ? $driver->instructions($this->gateways->config($gateway), $invoice->displayNumber()) : null,
-                    'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) ? route('billing.sandbox.tokens') : null,
+                    'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) && Route::has('billing.sandbox.tokens') ? route('billing.sandbox.tokens') : null,
+                    'sandbox' => $driver instanceof SandboxCardDriver,
                 ];
             }, $gateways)),
             'can_choose_gateway' => $this->settings->bool('clients_choose_gateway'),

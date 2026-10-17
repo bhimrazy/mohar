@@ -110,7 +110,7 @@ test('the sandbox hosted flow pays only after the lookup, and a replayed return 
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'sandbox_card'], ['X-Inertia' => 'true'])->assertStatus(409);
     $attempt = PaymentAttempt::query()->where('invoice_id', $invoice->id)->firstOrFail();
-    expect($attempt)->status->toBe(AttemptStatus::Pending)->amount->toBe(5_000)->reference->toBe('inv-'.$invoice->id.'-a1');
+    expect($attempt)->status->toBe(AttemptStatus::Pending)->amount->toBe(5_000)->reference->toMatch('/^[a-z2-7]{26}$/');
 
     $this->get(route('billing.sandbox.checkout', $attempt->reference))->assertOk()->assertSee('SANDBOX');
     $returnUrl = $this->post(route('billing.sandbox.checkout.pay', $attempt->reference), ['card_number' => '4242424242424242'])->assertRedirect()->headers->get('Location');

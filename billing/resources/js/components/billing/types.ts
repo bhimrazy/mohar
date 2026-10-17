@@ -153,6 +153,7 @@ export type ClientGatewayOption = {
     kind: 'card' | 'redirect' | 'offline';
     instructions: string | null;
     vault_url: string | null;
+    sandbox?: boolean;
 };
 
 export type PaymentOptions = {
