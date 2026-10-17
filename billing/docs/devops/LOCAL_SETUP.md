@@ -89,13 +89,11 @@ database is created by `migrate --force`, and parallel workers add `<name>_test_
 DB_DATABASE=billing_test_orders composer test:pgsql
 ```
 
-| CI job         | Local equivalent                                                                                                                                                       |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lint`         | postgres image in `ci.yml` = `compose.yaml` · `vendor/bin/pint --parallel --test` · `php artisan wayfinder:generate --with-form` · `npx vp check` · `npx tsc --noEmit` |
-| `static`       | `vendor/bin/phpstan analyse --memory-limit=1G`                                                                                                                         |
-| `tests-sqlite` | `vendor/bin/pest --parallel`                                                                                                                                           |
-| `tests-pgsql`  | `composer test:pgsql` (migrate:fresh --seed, then the suite)                                                                                                           |
-| `build`        | `npm run build` (runs Wayfinder via the Vite plugin, so PHP must be available)                                                                                         |
+CI runs the same gates in one job — see [CI.md](CI.md) for the step list, triggers and caching, and
+[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for pinning, the 7-day cooldown and `composer deps:check`.
+`composer ci` runs, in order: `deps:check` (lockfiles in sync, `composer audit`, `npm audit`, dependency
+cooldown and binding checks — needs network), Pint, Wayfinder, `vp check`, tsc, Vitest (`npm test`), Larastan,
+Pest on SQLite, `test:pgsql`, build.
 
 Validate workflow changes with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 (download the
 release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from the repository root).
