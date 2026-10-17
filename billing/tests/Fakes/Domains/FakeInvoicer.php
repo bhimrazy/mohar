@@ -1,0 +1,112 @@
+<?php
+
+namespace Tests\Fakes\Domains;
+
+use App\Contracts\Billing\Invoicer;
+use App\Data\Billing\InvoiceDraft;
+use App\Data\Billing\InvoiceLineData;
+use App\Data\Billing\InvoiceResult;
+use App\Enums\BillableType;
+use App\Events\Billing\InvoicePaid;
+use Carbon\CarbonImmutable;
+
+/**
+ * In-memory Invoicer for Domains tests (Billing is a sibling module).
+ */
+class FakeInvoicer implements Invoicer
+{
+    /** @var array<int, array{draft: InvoiceDraft, status: string}> */
+    public array $invoices = [];
+
+    /** @var list<int> */
+    public array $cancelled = [];
+
+    private int $nextId = 1000;
+
+    public static function bind(): self
+    {
+        $fake = new self;
+        app()->instance(Invoicer::class, $fake);
+
+        return $fake;
+    }
+
+    public function issue(InvoiceDraft $draft): InvoiceResult
+    {
+        $id = ++$this->nextId;
+        $total = array_sum(array_map(fn (InvoiceLineData $line): int => $line->total(), $draft->lines));
+        $this->invoices[$id] = ['draft' => $draft, 'status' => $draft->status];
+
+        return new InvoiceResult($id, 'INV-'.$id, $draft->status, $draft->currency, $total, 0, $total);
+    }
+
+    public function cancel(int $invoiceId): void
+    {
+        if (isset($this->invoices[$invoiceId]) && in_array($this->invoices[$invoiceId]['status'], ['unpaid', 'draft'], true)) {
+            $this->invoices[$invoiceId]['status'] = 'cancelled';
+            $this->cancelled[] = $invoiceId;
+        }
+    }
+
+    public function hasOpenInvoiceFor(BillableType $type, int $billableId): bool
+    {
+        foreach ($this->invoices as $invoice) {
+            if (in_array($invoice['status'], ['unpaid', 'draft'], true) && $this->bills($invoice['draft'], $type, $billableId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasInvoiceForPeriod(BillableType $type, int $billableId, CarbonImmutable $periodStart): bool
+    {
+        foreach ($this->invoices as $invoice) {
+            if ($invoice['status'] === 'cancelled') {
+                continue;
+            }
+
+            foreach ($invoice['draft']->lines as $line) {
+                if ($line->billableType === $type && $line->billableId === $billableId && $line->periodStart?->isSameDay($periodStart)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function status(int $invoiceId): ?string
+    {
+        return $this->invoices[$invoiceId]['status'] ?? null;
+    }
+
+    /**
+     * Mark paid and dispatch InvoicePaid like Billing would.
+     */
+    public function pay(int $invoiceId): void
+    {
+        $this->invoices[$invoiceId]['status'] = 'paid';
+        $draft = $this->invoices[$invoiceId]['draft'];
+        event(new InvoicePaid($invoiceId, $draft->clientId, $draft->lines));
+    }
+
+    /**
+     * @return list<array{draft: InvoiceDraft, status: string}>
+     */
+    public function issued(): array
+    {
+        return array_values($this->invoices);
+    }
+
+    private function bills(InvoiceDraft $draft, BillableType $type, int $billableId): bool
+    {
+        foreach ($draft->lines as $line) {
+            if ($line->billableType === $type && $line->billableId === $billableId) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
