@@ -128,7 +128,9 @@ last_synced_at, last_sync_status (ok|error|unsupported), last_error (text), regi
 
 - Global switch `domains.grace_redemption_enabled: true`. When off (or TLD has 0 days), an unpaid renewal invoice is cancelled the day after expiry. **MUST**
 - On entering `grace` with `grace_fee > 0` (or `redemption` with `redemption_fee > 0`): cancel the open renewal invoice and issue a replacement containing renewal + fee (never edit an issued invoice). Fee converted to invoice currency. **MUST**
-- On entering `expired`: single-line renewal invoice → cancelled; multi-line → line removed via Billing adjustment and `InvoiceModified` notification. **MUST**
+- On entering `expired`: the open renewal invoice is cancelled. **MUST** _Resolved by design (ADR 0008): renewal invoices
+  are issued per domain (one billable item each), so cancelling the invoice is equivalent to removing the line and keeps
+  issued invoices immutable; there is no multi-line case to adjust._
 - Renewal paid during redemption: driver `renew` is called with `restore = true` flag (driver may map to a restore command). **SHOULD**
 
 ### 4.6 Transfer-in flow
@@ -171,7 +173,7 @@ last_synced_at, last_sync_status (ok|error|unsupported), last_error (text), regi
 
 ## 6. Lookup & suggestions
 
-- `GET /api/domains/lookup?q=` — normalise (trim, lowercase, strip scheme/`www.`/path, IDN → punycode if `domains.allow_idn: false` rejects non-ASCII). **MUST**
+- `GET /domains/lookup?q=` (web group, so prices follow the signed-in client's currency/group) — normalise (trim, lowercase, strip scheme/`www.`/path, IDN → punycode if `domains.allow_idn: false` rejects non-ASCII). **MUST**
 - No TLD in query → check spotlight TLDs (max 8) + `domains.lookup_tlds`. Unknown TLD → `unsupported`. **MUST**
 - Provider = `domains.lookup_registrar` (driver with `availability`), batch call; results cached `domains.lookup_cache_seconds: 300`. **MUST**
 - Suggestions: driver `suggest` if capable; else generate SLD × `domains.suggestion_tlds` filtered to available, max `domains.suggestion_limit: 10`. **SHOULD**
@@ -201,6 +203,11 @@ last_synced_at, last_sync_status (ok|error|unsupported), last_error (text), regi
 | `domains:lifecycle`        | daily (`automation.daily_run_time`) | apply date-based transitions §3 (fallback when no sync), grace/redemption invoice swap §4.5                                                                                                                                                                                                                                                                                                          |
 | `domains:invoice-renewals` | daily                               | §4.3                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `domains:send-reminders`   | daily                               | offsets `domains.reminder_offsets: [30, 7, -3]` (≤5 entries, negative = days after due); skips if renewal invoice paid, auto-renew off and `domains.remind_when_auto_renew_off: true` decides, free domains unless `domains.remind_free_domains: false`; aggregates multiple domains per client per day into one email; writes `domain_reminders`. Default meets "2 before + 1 after" ICANN minimum. |
+
+- Reminder emails are sent by Notifications from `DomainExpiryDigest` (one per client per run), not from the per-domain
+  `DomainExpiring` event. `domain_reminders.dispatched_at` records the hand-off; delivery is in Notifications' email log.
+- A missed automation day is caught up for up to 7 days (never past the next offset); domains whose renewal for the
+  cycle is paid are skipped.
 
 - Sync never moves `expiry_date` backwards by more than 1 year without flagging for staff review. **MUST**
 - Sync updates `next_due_date` only when no open renewal invoice exists for the current due date. **MUST**
@@ -242,7 +249,8 @@ All dispatched after DB commit.
 11. Given expiry yesterday and grace 30 days with fee 0, When lifecycle runs, Then status = grace and the renewal invoice is untouched.
 12. Given grace fee > 0, When the domain enters grace, Then the original invoice is cancelled and a new one with renewal + fee is created.
 13. Given grace & redemption = 0 and an unpaid single-line renewal invoice, When the day after expiry is processed, Then status = expired and the invoice is cancelled.
-14. Given a multi-line invoice containing an expired domain, Then only the domain line is removed and `InvoiceModified` is emitted.
+14. ~~Given a multi-line invoice containing an expired domain, Then only the domain line is removed and `InvoiceModified` is emitted.~~
+    Resolved by design (ADR 0008): renewal invoices hold one domain each and are cancelled at expiry (AC13).
 15. Given expiry 2030-06-01 today 2026-10-17, When renewal terms are listed, Then terms exceeding 2036-10-16 are hidden.
 16. Given TLD `epp_required`, When a transfer is added without EPP, Then validation fails.
 17. Given `pending_transfer`, When transfer sync returns completed with expiry X, Then status = active, expiry = X, EPP code wiped, `DomainTransferred` fired.
