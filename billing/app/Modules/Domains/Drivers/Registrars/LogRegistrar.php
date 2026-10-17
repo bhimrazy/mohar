@@ -14,8 +14,10 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Support\DomainName;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
 /**
  * Deterministic demo registrar that only writes to the application log.
@@ -70,12 +72,19 @@ class LogRegistrar implements Registrar
     {
         $this->log('suggest', ['term' => $term, 'tlds' => $tlds]);
         $suggestions = [];
+        $label = DomainName::toUnicode($term);
 
-        foreach ([$term, "get{$term}", "{$term}hq", "my{$term}", "{$term}online", "try{$term}"] as $candidate) {
+        foreach ([$label, "get{$label}", "{$label}hq", "my{$label}", "{$label}online", "try{$label}"] as $unicode) {
+            try {
+                $candidate = DomainName::toAscii($unicode);
+            } catch (InvalidArgumentException) {
+                continue;
+            }
+
             foreach ($tlds as $tld) {
                 $result = $this->availabilityOf($candidate, $tld);
 
-                if ($result->isAvailable() && strlen($candidate) <= 63) {
+                if ($result->isAvailable()) {
                     $suggestions[] = $result;
                 }
 

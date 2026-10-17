@@ -3,10 +3,14 @@
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
+use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use Illuminate\Support\Facades\File;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
 
@@ -95,10 +99,54 @@ test('lookups are rate limited per IP', function () {
     $this->getJson(route('domains.lookup', ['q' => 'a3']))->assertTooManyRequests();
 });
 
-test('lookups are cached and logged without a domain', function () {
-    $this->getJson(route('domains.lookup', ['q' => 'cached.com']));
-    $this->getJson(route('domains.lookup', ['q' => 'cached.com']));
+test('repeated lookups are served from a serialising cache store', function () {
+    config(['cache.default' => 'file', 'cache.stores.file.path' => storage_path('framework/testing/cache-'.uniqid())]);
 
-    $this->assertDatabaseCount('registrar_command_log', 2);
-    $this->assertDatabaseHas('registrar_command_log', ['domain_id' => null, 'command' => 'availability']);
+    $first = $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->json();
+    $this->getJson(route('domains.lookup', ['q' => 'cached']))->assertOk()->assertExactJson($first);
+    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
+    $this->get(route('domains.search', ['q' => 'cached']))->assertOk();
+
+    expect($first['results'][0]['status'])->toBe('available')
+        ->and($first['suggestions'])->not->toBe([]);
+
+    File::deleteDirectory(config('cache.stores.file.path'));
+});
+
+test('successful lookups are not written to the command log; failures are', function () {
+    $this->getJson(route('domains.lookup', ['q' => 'quiet.com']))->assertOk();
+    $this->assertDatabaseCount('registrar_command_log', 0);
+
+    RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['simulate' => 'none']]);
+    app(RegistrarManager::class)->extend('log', fn () => new class extends LogRegistrar
+    {
+        public function checkAvailability(string $sld, array $tlds): array
+        {
+            throw new RuntimeException('registry offline');
+        }
+    });
+
+    $this->getJson(route('domains.lookup', ['q' => 'loud.com']))->assertOk()->assertJsonPath('results.0.status', 'unknown');
+    $this->assertDatabaseHas('registrar_command_log', ['domain_id' => null, 'command' => 'availability', 'success' => false]);
+});
+
+test('a disabled lookup registrar reports availability as unknown', function () {
+    RegistrarAccount::query()->create(['key' => 'log', 'is_active' => false]);
+
+    $this->getJson(route('domains.lookup', ['q' => 'example.com']))->assertJsonPath('results.0.status', 'unknown');
+});
+
+test('premium names are not sellable while premium sales are off', function () {
+    $this->getJson(route('domains.lookup', ['q' => 'premiumname.com']))
+        ->assertJsonPath('results.0.is_premium', true)
+        ->assertJsonPath('results.0.sellable', false);
+});
+
+test('spaces are dropped and IDN suggestions are built from the unicode label', function () {
+    $this->getJson(route('domains.lookup', ['q' => 'Hello World.com']))->assertJsonPath('normalised', 'helloworld.com');
+
+    $suggestions = collect($this->getJson(route('domains.lookup', ['q' => '例え']))->json('suggestions'));
+
+    expect($suggestions->pluck('domain_unicode'))->toContain('get例え.com')
+        ->and($suggestions->pluck('domain')->filter(fn ($name) => str_contains($name, 'xn--'))->every(fn ($name) => str_starts_with($name, 'xn--')))->toBeTrue();
 });

@@ -55,6 +55,9 @@ return [
     'suggestion_limit' => 10,
     'lookup_rate_limit' => 30,
 
+    // Premium names (spec §4.1, COULD): not sold until premium pricing is implemented.
+    'premium_enabled' => false,
+
     // Route name of the Orders cart "add domain" action, used by the public search when present.
     'order_route' => 'store.cart.domains.add',
 ];

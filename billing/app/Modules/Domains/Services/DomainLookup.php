@@ -11,6 +11,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Support\DomainName;
 use App\Modules\Domains\Support\SettingList;
+use Closure;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
 use InvalidArgumentException;
@@ -37,7 +38,7 @@ class DomainLookup
         $response = ['query' => $query, 'normalised' => null, 'error' => null, 'currency' => $currency, 'results' => [], 'suggestions' => []];
 
         try {
-            $ascii = DomainName::toAscii($query, (bool) $this->settings->get('domains.allow_idn', true));
+            $ascii = DomainName::toAscii((string) preg_replace('/\s+/u', '', $query), (bool) $this->settings->get('domains.allow_idn', true));
         } catch (InvalidArgumentException $exception) {
             return [...$response, 'error' => $exception->getMessage()];
         }
@@ -98,12 +99,12 @@ class DomainLookup
         $ttl = (int) $this->settings->get('domains.lookup_cache_seconds', 300);
 
         try {
-            /** @var list<AvailabilityResult> $results */
-            $results = Cache::remember($key, $ttl, fn (): array => $this->gateway->call(
+            $results = $this->cachedResults($key, $ttl, fn (): array => $this->gateway->call(
                 $registrar,
                 'availability',
                 fn (Registrar $driver): array => $driver->checkAvailability($sld, $tlds),
                 request: ['sld' => $sld, 'tlds' => $tlds],
+                logSuccess: false,
             ));
         } catch (RegistrarException) {
             return array_map(fn (string $tld): AvailabilityResult => new AvailabilityResult($sld.$tld, 'unknown'), $tlds);
@@ -133,11 +134,12 @@ class DomainLookup
 
         try {
             if (in_array('suggestions', $capabilities, true)) {
-                $results = Cache::remember('domains.suggest.'.$registrar.'.'.$sld.'.'.md5(implode(',', $tlds)), (int) $this->settings->get('domains.lookup_cache_seconds', 300), fn (): array => $this->gateway->call(
+                $results = $this->cachedResults('domains.suggest.'.$registrar.'.'.$sld.'.'.md5(implode(',', $tlds)), (int) $this->settings->get('domains.lookup_cache_seconds', 300), fn (): array => $this->gateway->call(
                     $registrar,
                     'suggestions',
                     fn (Registrar $driver): array => $driver->suggest($sld, $tlds, $limit + count($checked)),
                     request: ['term' => $sld, 'tlds' => $tlds],
+                    logSuccess: false,
                 ));
             } else {
                 $results = $this->availability($sld, array_values(array_diff($tlds, $checked)));
@@ -169,6 +171,20 @@ class DomainLookup
     }
 
     /**
+     * Cache driver results as plain arrays and rebuild the DTOs on read.
+     *
+     * @param  Closure(): list<AvailabilityResult>  $fetch
+     * @return list<AvailabilityResult>
+     */
+    private function cachedResults(string $key, int $ttl, Closure $fetch): array
+    {
+        /** @var list<array{domain: string, status: string, is_premium?: bool, premium_register_cost?: int|null, premium_renew_cost?: int|null}> $rows */
+        $rows = Cache::remember($key, $ttl, fn (): array => array_map(fn (AvailabilityResult $result): array => $result->toArray(), $fetch()));
+
+        return array_map(fn (array $row): AvailabilityResult => AvailabilityResult::fromArray($row), $rows);
+    }
+
+    /**
      * Names held by a non-terminal domain here are reported as registered (and not transferable).
      *
      * @param  list<AvailabilityResult>  $results
@@ -194,12 +210,13 @@ class DomainLookup
 
         $registerTerms = $tld === null ? [] : array_map(fn (int $years): array => [
             'years' => $years,
-            'price' => (int) $this->pricing->price($extension, 'register', $years, $currency, $clientGroupId),
+            'price' => (int) $this->pricing->priceForGroup($extension, 'register', $years, $currency, $clientGroupId),
         ], $this->pricing->terms($extension, 'register', $currency, $clientGroupId));
 
         $transferTerm = $tld === null ? [] : $this->pricing->terms($extension, 'transfer', $currency, $clientGroupId);
-        $transferPrice = $transferTerm === [] ? null : $this->pricing->price($extension, 'transfer', $transferTerm[0], $currency, $clientGroupId);
-        $available = $result->isAvailable();
+        $transferPrice = $transferTerm === [] ? null : $this->pricing->priceForGroup($extension, 'transfer', $transferTerm[0], $currency, $clientGroupId);
+        $premiumBlocked = $result->isPremium && ! $this->settings->get('domains.premium_enabled', false);
+        $available = $result->isAvailable() && ! $premiumBlocked;
         $status = $result->status === 'in_system' ? 'registered' : $result->status;
 
         return [
@@ -210,9 +227,9 @@ class DomainLookup
             'in_system' => $result->status === 'in_system',
             'is_premium' => $result->isPremium,
             'badge' => $tld?->badge,
-            'sellable' => $registerTerms !== [],
+            'sellable' => $registerTerms !== [] && ! $premiumBlocked,
             'register' => $registerTerms,
-            'renew' => $this->pricing->price($extension, 'renew', 1, $currency, $clientGroupId),
+            'renew' => $this->pricing->priceForGroup($extension, 'renew', 1, $currency, $clientGroupId),
             'transfer' => $transferPrice,
             'transferable' => $status === 'registered' && $result->status !== 'in_system' && $transferPrice !== null,
             'epp_required' => $tld->epp_required ?? true,
