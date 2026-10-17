@@ -30,13 +30,11 @@ final class Like
     }
 
     /**
-     * @param  string  $column  a trusted column name (never user input)
-     * @param  string  $pattern  built with contains() / startsWith()
+     * @param  literal-string  $column  a column name written in code (never user input)
+     * @param  string  $pattern  built with contains() / startsWith(); bound as a parameter
      */
     public static function where(Builder $query, string $column, string $pattern, string $boolean = 'and'): void
     {
-        $wrapped = $query->getGrammar()->wrap($column);
-
-        $query->whereRaw("lower({$wrapped}) like ? escape '!'", [mb_strtolower($pattern)], $boolean);
+        $query->whereRaw("lower({$column}) like ? escape '!'", [mb_strtolower($pattern)], $boolean);
     }
 }

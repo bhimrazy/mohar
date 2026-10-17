@@ -90,4 +90,3 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - [ ] The scheduler and a queue worker are running (the dashboard flags automation that has not run for 26 h).
 - [ ] Mail is configured, because security notices (email changes, 2FA resets, ownership transfers) depend on it.
 - [ ] The `dev/components` showcase is not reachable (registered only in `local`).
-
