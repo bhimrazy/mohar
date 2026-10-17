@@ -90,23 +90,29 @@ class SettlePaymentAttempt
         }
 
         $invoice = $attempt->invoice_id !== null ? Invoice::query()->find($attempt->invoice_id) : null;
-        $converted = $attempt->currency !== $attempt->document_currency;
 
-        if ($invoice !== null) {
-            $transaction = $this->applyPayment->handle($invoice, new PaymentData(
-                amount: $attempt->document_amount,
-                gateway: $attempt->gateway,
-                gatewayTxnId: $result->providerTxnId,
-                fee: $result->fee,
-                raw: GatewayLogger::redact($result->raw),
-                gatewayAmount: $converted ? $attempt->amount : null,
-                gatewayCurrency: $converted ? $attempt->currency : null,
-                exchangeRate: $converted && $attempt->fx_rate !== null ? (float) $attempt->fx_rate : null,
-                fromGateway: true,
-            ));
-            $attempt->transaction_id = $transaction->id;
+        if ($invoice === null) {
+            // Money was taken but there is nothing to apply it to (e.g. the invoice was deleted): staff decide.
+            $this->review($attempt, 'Provider reported success but the attempt has no invoice');
+            $attempt->provider_txn_id = $result->providerTxnId;
+
+            return;
         }
 
+        $converted = $attempt->currency !== $attempt->document_currency;
+
+        $transaction = $this->applyPayment->handle($invoice, new PaymentData(
+            amount: $attempt->document_amount,
+            gateway: $attempt->gateway,
+            gatewayTxnId: $result->providerTxnId,
+            fee: $result->fee,
+            raw: GatewayLogger::redact($result->raw),
+            gatewayAmount: $converted ? $attempt->amount : null,
+            gatewayCurrency: $converted ? $attempt->currency : null,
+            exchangeRate: $converted && $attempt->fx_rate !== null ? (float) $attempt->fx_rate : null,
+            fromGateway: true,
+        ));
+        $attempt->transaction_id = $transaction->id;
         $attempt->provider_txn_id = $result->providerTxnId;
         $attempt->status = AttemptStatus::Succeeded;
         $attempt->review_reason = null;
