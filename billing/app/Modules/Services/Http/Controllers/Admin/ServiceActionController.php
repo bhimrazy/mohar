@@ -3,11 +3,13 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Services\Actions\AddServiceAddon;
 use App\Modules\Services\Actions\OrderServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
 use App\Modules\Services\Actions\SetServiceStatus;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Controllers\Concerns\ConvertsServiceErrors;
+use App\Modules\Services\Http\Requests\AddAddonRequest;
 use App\Modules\Services\Http\Requests\CancellationRequestForm;
 use App\Modules\Services\Http\Requests\RunCommandRequest;
 use App\Modules\Services\Http\Requests\ServiceChangeRequest;
@@ -64,6 +66,17 @@ class ServiceActionController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => $change->invoice_id !== null
             ? __('Upgrade ordered. It is applied when invoice #:invoice is paid.', ['invoice' => $change->invoice_id])
             : __('Change applied.')]);
+
+        return back();
+    }
+
+    public function addAddon(AddAddonRequest $request, Service $service, AddServiceAddon $add): RedirectResponse
+    {
+        /** @var array{name: string, addon_id?: ?int, cycle: string, recurring_amount: int, setup_fee: int, next_due_date?: ?string, status: string, suspend_parent_on_overdue?: bool} $data */
+        $data = $request->validated();
+        $addon = $this->attempt(fn () => $add->handle($service, $data, CarbonImmutable::today()));
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Addon :name added.', ['name' => $addon->name])]);
 
         return back();
     }

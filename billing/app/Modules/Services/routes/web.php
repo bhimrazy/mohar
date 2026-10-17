@@ -37,6 +37,7 @@ Route::adminArea(function (): void {
             Route::post('status', [ServiceActionController::class, 'status'])->name('status');
             Route::post('change', [ServiceActionController::class, 'change'])->name('change');
             Route::post('cancellation', [ServiceActionController::class, 'cancel'])->name('cancel');
+            Route::post('addons', [ServiceActionController::class, 'addAddon'])->name('addons.store');
         });
     });
 });

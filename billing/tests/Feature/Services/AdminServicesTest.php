@@ -303,3 +303,31 @@ test('dashboard todos, the renewals widget and the cancellation badge reflect op
 
     $this->get(route('admin.services.index'))->assertInertia(fn (Assert $page) => $page->where('navigation', fn ($groups) => collect(collect($groups)->firstWhere('title', 'Services')['items'])->firstWhere('title', 'Cancellation requests')['badge'] === 1));
 });
+
+test('staff add an addon without an invoice and it renews from the parent due date', function () {
+    actingAsStaff(['services.services.manage']);
+    $service = Service::factory()->dueOn(today()->addDays(12))->create();
+
+    $this->post(route('admin.services.services.addons.store', $service), [
+        'name' => 'Extra IP', 'cycle' => 'monthly', 'recurring_amount' => 400, 'setup_fee' => 0, 'status' => 'active', 'suspend_parent_on_overdue' => true,
+    ])->assertSessionHasNoErrors();
+
+    $addon = $service->addons()->sole();
+    expect($addon)->status->toBe(ServiceStatus::Active)->recurring_amount->toBe(400)->suspend_parent_on_overdue->toBeTrue()
+        ->and($addon->next_due_date->toDateString())->toBe(today()->addDays(12)->toDateString())
+        ->and($this->kit->invoicer->invoices)->toBeEmpty();
+});
+
+test('adding addons is validated and requires the manage permission', function () {
+    actingAsStaff(['services.services.view']);
+    $service = Service::factory()->create();
+    $this->post(route('admin.services.services.addons.store', $service), ['name' => 'X'])->assertForbidden();
+
+    actingAsStaff(['services.services.manage']);
+    $this->post(route('admin.services.services.addons.store', $service), ['cycle' => 'weekly', 'recurring_amount' => -1, 'status' => 'fraud'])
+        ->assertSessionHasErrors(['name', 'cycle', 'recurring_amount', 'setup_fee', 'status']);
+
+    $ended = Service::factory()->status(ServiceStatus::Terminated)->create();
+    $this->post(route('admin.services.services.addons.store', $ended), ['name' => 'X', 'cycle' => 'monthly', 'recurring_amount' => 0, 'setup_fee' => 0, 'status' => 'active'])
+        ->assertSessionHasErrors(['action']);
+});

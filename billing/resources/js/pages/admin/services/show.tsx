@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
+import InputError from '@/components/input-error';
+import { toMinor } from '@/lib/money';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';
@@ -59,7 +61,11 @@ import { index as moduleLogIndex } from '@/routes/admin/services/module-log';
 import { index as servicesIndex } from '@/routes/admin/services';
 import { show as showClient } from '@/routes/admin/clients';
 import type { SelectOption } from '@/types/app';
-import { cycleLabel, suspensionReasonLabel } from '@/types/services';
+import {
+    CYCLE_LABELS,
+    cycleLabel,
+    suspensionReasonLabel,
+} from '@/types/services';
 import type {
     AddonRow,
     ChangeOptions,
@@ -124,6 +130,7 @@ type DialogName =
     | 'cancel'
     | 'terminate'
     | 'delete'
+    | 'addon'
     | null;
 
 const PRIMARY_COMMANDS = ['create', 'unsuspend', 'suspend'];
@@ -179,6 +186,14 @@ export default function ServiceShow({
     const commandForm = useForm({ command: '', reason: '', password: '' });
     const statusForm = useForm({ status: '', note: '' });
     const cancelForm = useForm({ type: 'end_of_period', reason: '' });
+    const addonForm = useForm({
+        name: '',
+        cycle: service.cycle,
+        recurring_amount: '0.00',
+        setup_fee: '0.00',
+        status: 'active',
+        suspend_parent_on_overdue: false,
+    });
 
     const commandAction = ServiceActionController.command(service.id);
     const primary = commands.find((command) =>
@@ -609,6 +624,17 @@ export default function ServiceShow({
                             title="Addons"
                             flush
                             description="Addons have their own billing dates and status."
+                            actions={
+                                can.manage && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setDialog('addon')}
+                                    >
+                                        Add addon
+                                    </Button>
+                                )
+                            }
                         >
                             <DataTable
                                 className="rounded-none border-0 shadow-none"
@@ -1134,6 +1160,97 @@ export default function ServiceShow({
                 confirmLabel="Delete record"
                 action={ServiceController.destroy(service.id)}
             />
+
+            <FormDialog
+                open={dialog === 'addon'}
+                onOpenChange={(open) => setDialog(open ? 'addon' : null)}
+                title="Add addon"
+                description="Added without an invoice. It renews from the service's next due date."
+                submitLabel="Add addon"
+                processing={addonForm.processing}
+                onSubmit={() => {
+                    addonForm.transform((values) => ({
+                        ...values,
+                        recurring_amount: toMinor(values.recurring_amount),
+                        setup_fee: toMinor(values.setup_fee),
+                    }));
+                    addonForm.submit(
+                        ServiceActionController.addAddon(service.id),
+                        {
+                            preserveScroll: true,
+                            onSuccess: () => {
+                                addonForm.reset();
+                                setDialog(null);
+                            },
+                        },
+                    );
+                }}
+            >
+                <Field
+                    htmlFor="addon-name"
+                    label="Name"
+                    error={addonForm.errors.name}
+                >
+                    <Input
+                        id="addon-name"
+                        value={addonForm.data.name}
+                        onChange={(event) =>
+                            addonForm.setData('name', event.target.value)
+                        }
+                    />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                        htmlFor="addon-amount"
+                        label={`Recurring (${service.currency})`}
+                        error={addonForm.errors.recurring_amount}
+                    >
+                        <Input
+                            id="addon-amount"
+                            inputMode="decimal"
+                            value={addonForm.data.recurring_amount}
+                            onChange={(event) =>
+                                addonForm.setData(
+                                    'recurring_amount',
+                                    event.target.value,
+                                )
+                            }
+                        />
+                    </Field>
+                    <Field
+                        htmlFor="addon-cycle"
+                        label="Billing cycle"
+                        error={addonForm.errors.cycle}
+                    >
+                        <Select
+                            value={addonForm.data.cycle}
+                            onValueChange={(value) =>
+                                addonForm.setData('cycle', value)
+                            }
+                        >
+                            <SelectTrigger id="addon-cycle" className="w-full">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {Object.entries(CYCLE_LABELS).map(
+                                    ([value, label]) => (
+                                        <SelectItem key={value} value={value}>
+                                            {label}
+                                        </SelectItem>
+                                    ),
+                                )}
+                            </SelectContent>
+                        </Select>
+                    </Field>
+                </div>
+                <InputError
+                    message={
+                        addonForm.errors.setup_fee ??
+                        addonForm.errors.status ??
+                        errors.action
+                    }
+                />
+            </FormDialog>
         </>
     );
 }
