@@ -6,26 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-### Catalog
-
-- Product groups (slug, visibility, ordering, allowed payment gateways with a warning when visible groups share none),
-  products (shared/reseller/server/other; hidden, retired, featured; stock; quantity modes; auto-setup policy;
-  welcome/upgrade/fixed-term email keys; recurring-cycle limit; fixed term; prorata settings; free domain;
-  suspend/terminate overrides; provisioning driver, server group and driver config stored for Services).
-- Prices per currency × billing cycle with setup fees in minor units (polymorphic `prices` for products, addons and
-  option values); no silent conversion; price edits never touch existing services; optional daily
-  `catalog.convert-prices` automation task / `catalog:convert-prices` command (off by default).
-- Configurable option groups (dropdown, radio, yes/no, quantity with min/max/step), hidden options/values that keep
-  pricing existing selections, and a blocking check that every option value is priced for each cycle a product sells.
-- Product custom fields (with timeout-safe regex validation), product addons (own cycles, applicable products,
-  visibility matrix), upgrade/downgrade paths, duplicate product.
-- `PriceBook` implementation: quotes with options and quantity pricing, addon cycle fallback, available cycles,
-  upgrade eligibility, storefront, order-form data, atomic row-locked stock reservation; stock returned on
-  `OrderCancelled`/`OrderMarkedFraud` before activation.
-- Admin "Setup" pages: products (filters, pricing matrix editor and tabbed editor), product groups (reorder),
-  configurable options, addons. Permissions `catalog.{products,options,addons}.{view,manage}`, `catalog.settings.manage`;
-  catalog settings; product global search; `product` merge fields; demo `CatalogSeeder` (USD/EUR/GBP).
-
 ### Platform foundation
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
