@@ -1,10 +1,10 @@
 <?php
 
+use App\Events\Domains\DomainAutoRenewChanged;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\DomainAutoRenewChanged;
 use App\Modules\Domains\Jobs\TransferDomain;
 use App\Modules\Domains\Models\Domain;
 use Illuminate\Support\Facades\Event;

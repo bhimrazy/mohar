@@ -1,9 +1,9 @@
 <?php
 
 use App\Events\Domains\DomainExpiring;
+use App\Events\Domains\DomainExpiryDigest;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Actions\SendExpiryReminders;
-use App\Modules\Domains\Events\DomainExpiryDigest;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainReminder;
 use Carbon\CarbonImmutable;

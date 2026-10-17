@@ -2,13 +2,13 @@
 
 use App\Enums\BillableType;
 use App\Events\Domains\DomainExpired;
+use App\Events\Domains\FreeDomainRenewalBlocked;
 use App\Events\Services\ServiceRenewed;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SetAutoRenew;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\FreeDomainRenewalBlocked;
 use App\Modules\Domains\Models\Domain;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;

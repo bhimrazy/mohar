@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Domains\Events;
+namespace App\Events\Domains;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A transfer has been pending longer than domains.transfer_stale_days (staff notification).
- *
- * Module-local until promoted to App\Events\Domains by the shared-kernel owners.
  */
 final class DomainTransferStale
 {

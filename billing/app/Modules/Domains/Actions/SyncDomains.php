@@ -2,10 +2,10 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Events\Domains\DomainSyncReport;
+use App\Events\Domains\DomainTransferStale;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\DomainSyncReport;
-use App\Modules\Domains\Events\DomainTransferStale;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use Carbon\CarbonImmutable;

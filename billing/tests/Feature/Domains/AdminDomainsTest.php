@@ -1,10 +1,10 @@
 <?php
 
+use App\Events\Domains\DomainEppCodeRetrieved;
+use App\Events\Domains\DomainStatusChanged;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\DomainEppCodeRetrieved;
-use App\Modules\Domains\Events\DomainStatusChanged;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Jobs\RenewDomain;
 use App\Modules\Domains\Models\Domain;

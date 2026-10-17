@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Domains\Events;
+namespace App\Events\Domains;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Nameservers changed at the registrar.
- *
- * Module-local until promoted to App\Events\Domains by the shared-kernel owners.
  */
 final class DomainNameserversUpdated
 {

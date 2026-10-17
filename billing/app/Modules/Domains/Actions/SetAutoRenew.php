@@ -2,8 +2,8 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Events\Domains\DomainAutoRenewChanged;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Events\DomainAutoRenewChanged;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;

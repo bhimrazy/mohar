@@ -3,10 +3,10 @@
 namespace App\Modules\Domains\Services;
 
 use App\Events\Domains\DomainExpired;
+use App\Events\Domains\DomainStatusChanged;
+use App\Events\Domains\DomainTransferredAway;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\DomainStatusChanged;
-use App\Modules\Domains\Events\DomainTransferredAway;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Models\Domain;
 use Illuminate\Support\Facades\DB;

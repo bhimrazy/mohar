@@ -2,10 +2,10 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Events\Domains\DomainNameserversUpdated;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Events\DomainNameserversUpdated;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RegistrarGateway;

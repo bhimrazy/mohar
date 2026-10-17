@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Domains\Events;
+namespace App\Events\Domains;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * An EPP/transfer code was retrieved; actor is "client" or "staff".
- *
- * Module-local until promoted to App\Events\Domains by the shared-kernel owners.
  */
 final class DomainEppCodeRetrieved
 {

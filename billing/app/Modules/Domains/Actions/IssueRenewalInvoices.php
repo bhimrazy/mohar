@@ -3,10 +3,10 @@
 namespace App\Modules\Domains\Actions;
 
 use App\Enums\BillableType;
+use App\Events\Domains\FreeDomainRenewalBlocked;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\FreeDomainRenewalBlocked;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RenewalInvoices;

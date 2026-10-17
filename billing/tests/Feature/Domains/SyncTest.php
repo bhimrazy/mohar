@@ -1,14 +1,14 @@
 <?php
 
 use App\Events\Domains\DomainRegistered;
+use App\Events\Domains\DomainSyncReport;
 use App\Events\Domains\DomainTransferFailed;
 use App\Events\Domains\DomainTransferred;
+use App\Events\Domains\DomainTransferredAway;
 use App\Modules\Domains\Actions\SyncDomains;
 use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Events\DomainSyncReport;
-use App\Modules\Domains\Events\DomainTransferredAway;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\RenewalInvoices;
 use Carbon\CarbonImmutable;

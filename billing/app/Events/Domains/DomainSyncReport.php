@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Domains\Events;
+namespace App\Events\Domains;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Staff digest of a registrar sync run with at least one change or error.
- *
- * Module-local until promoted to App\Events\Domains by the shared-kernel owners.
  */
 final class DomainSyncReport
 {

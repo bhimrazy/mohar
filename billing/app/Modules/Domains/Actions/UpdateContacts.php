@@ -2,11 +2,11 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Events\Domains\DomainContactsUpdated;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Events\DomainContactsUpdated;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainEvents;

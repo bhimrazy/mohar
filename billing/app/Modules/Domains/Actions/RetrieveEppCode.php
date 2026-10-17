@@ -2,11 +2,11 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Events\Domains\DomainEppCodeRetrieved;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
-use App\Modules\Domains\Events\DomainEppCodeRetrieved;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RegistrarGateway;
