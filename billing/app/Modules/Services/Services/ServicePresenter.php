@@ -62,7 +62,7 @@ class ServicePresenter
      */
     public function statusTargets(Service $service): array
     {
-        return array_values(array_map(fn (ServiceStatus $status): array => ['value' => $status->value, 'label' => ucfirst($status->value)], $service->status->allowedTransitions()));
+        return array_map(fn (ServiceStatus $status): array => ['value' => $status->value, 'label' => ucfirst($status->value)], $service->status->allowedTransitions());
     }
 
     /**
@@ -75,7 +75,7 @@ class ServicePresenter
         $priceBook = $this->catalog->priceBook();
 
         if ($priceBook === null) {
-            return ['available' => false, 'reason' => __('Upgrades are not available right now.'), 'options' => []];
+            return ['available' => false, 'reason' => 'Upgrades are not available right now.', 'options' => []];
         }
 
         try {
@@ -110,6 +110,6 @@ class ServicePresenter
             }
         }
 
-        return ['available' => $options !== [], 'reason' => $options === [] ? __('There are no upgrade or downgrade options for this service.') : null, 'options' => $options];
+        return ['available' => $options !== [], 'reason' => $options === [] ? 'There are no upgrade or downgrade options for this service.' : null, 'options' => $options];
     }
 }

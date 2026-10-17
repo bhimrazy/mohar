@@ -53,7 +53,7 @@ class ServiceResource extends JsonResource
                 'nameservers' => $this->server->nameservers ?? [],
             ]),
             'client' => $this->when($staff && $this->relationLoaded('client'), fn (): array => ['id' => $this->client->id, 'name' => $this->client->display_name]),
-            $this->mergeWhen($staff, fn (): array => [
+            ...($staff ? [
                 'order_id' => $this->order_id,
                 'server_id' => $this->server_id,
                 'billing_anchor_day' => $this->billing_anchor_day,
@@ -68,7 +68,7 @@ class ServiceResource extends JsonResource
                 'config_options' => $this->config_options['selections'] ?? [],
                 'admin_notes' => $this->admin_notes,
                 'deleted_at' => $this->deleted_at?->toIso8601String(),
-            ]),
+            ] : []),
         ];
     }
 }

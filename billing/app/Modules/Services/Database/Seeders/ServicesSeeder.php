@@ -68,7 +68,7 @@ class ServicesSeeder extends Seeder
         $others = Client::query()->where('email', '!=', 'demo@example.com')->orderBy('id')->limit(8)->get();
 
         if ($demo !== null) {
-            $this->seedDemoClient($demo, $servers->all(), $today);
+            $this->seedDemoClient($demo, $today);
         }
 
         foreach ($others as $index => $client) {
@@ -81,10 +81,7 @@ class ServicesSeeder extends Seeder
         $this->seedUsage($today);
     }
 
-    /**
-     * @param  list<Server>  $servers
-     */
-    private function seedDemoClient(Client $demo, array $servers, CarbonImmutable $today): void
+    private function seedDemoClient(Client $demo, CarbonImmutable $today): void
     {
         $active = $this->pending($demo, 2, BillingCycle::Monthly, 'demolabs.io', $today->subMonths(5)->subDays(9));
         $this->execute($active, ModuleCommandName::Create);

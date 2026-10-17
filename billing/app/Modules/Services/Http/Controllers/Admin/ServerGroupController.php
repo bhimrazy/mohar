@@ -23,7 +23,7 @@ class ServerGroupController extends Controller
 
     public function store(ServerGroupRequest $request, SaveServerGroup $save): RedirectResponse
     {
-        $group = $save->handle(null, $request->safe()->only(['name', 'fill_type']), $request->input('server_ids', []));
+        $group = $save->handle(null, $this->attributes($request), $request->input('server_ids', []));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server group :name created.', ['name' => $group->name])]);
 
@@ -47,7 +47,7 @@ class ServerGroupController extends Controller
 
     public function update(ServerGroupRequest $request, ServerGroup $serverGroup, SaveServerGroup $save): RedirectResponse
     {
-        $save->handle($serverGroup, $request->safe()->only(['name', 'fill_type']), $request->input('server_ids', []));
+        $save->handle($serverGroup, $this->attributes($request), $request->input('server_ids', []));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server group :name updated.', ['name' => $serverGroup->name])]);
 
@@ -62,6 +62,14 @@ class ServerGroupController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server group :name deleted.', ['name' => $serverGroup->name])]);
 
         return to_route('admin.services.servers.index');
+    }
+
+    /**
+     * @return array{name: string, fill_type: string}
+     */
+    private function attributes(ServerGroupRequest $request): array
+    {
+        return ['name' => $request->string('name')->toString(), 'fill_type' => $request->string('fill_type')->toString()];
     }
 
     /**
