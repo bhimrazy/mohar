@@ -133,7 +133,7 @@ class GuestTicketController extends Controller
     public function attachment(Request $request, string $number, TicketAttachment $attachment, AttachmentResponder $responder): StreamedResponse
     {
         $ticket = $this->ticket($request, $number);
-        abort_unless($attachment->ticket_id === $ticket->id && ($attachment->message === null || ! $attachment->message->isNote()), 404);
+        abort_unless($attachment->ticket_id === $ticket->id && $attachment->isCustomerVisible(), 404);
 
         return $responder->respond($attachment, $request->boolean('inline'));
     }

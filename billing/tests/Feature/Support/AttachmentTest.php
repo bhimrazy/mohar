@@ -4,6 +4,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Support\Actions\AddNote;
+use App\Modules\Support\Actions\EditMessage;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\TicketAttachment;
 use App\Modules\Support\Services\AttachmentStore;
@@ -150,4 +151,32 @@ test('deleting a ticket removes its stored files', function () {
 
     Storage::disk('objects')->assertMissing($path);
     expect(TicketAttachment::query()->count())->toBe(0);
+});
+
+test('attachments of a deleted internal note are removed, never exposed to the client or guest', function () {
+    [, $client] = actingAsClient();
+    $department = Department::factory()->create();
+    $ticket = clientTicket($client, $department);
+    $staff = User::factory()->staff(['support.tickets.view', 'support.tickets.edit_messages'])->create();
+    $department->staff()->attach($staff->id);
+    $note = app(AddNote::class)->handle($ticket, $staff, 'internal', [IncomingFile::fromContents('secret.txt', "secret\n")]);
+    $attachment = TicketAttachment::query()->sole();
+
+    app(EditMessage::class)->delete($note, $staff);
+
+    $this->get(route('client.support.tickets.attachments.show', [$ticket->number, $attachment->id]))->assertNotFound();
+    auth()->logout();
+    $this->get(route('support.tickets.attachments.show', [$ticket->number, $attachment->id, 'key' => $ticket->access_key]))->assertNotFound();
+    expect(TicketAttachment::query()->count())->toBe(0);
+    Storage::disk('objects')->assertMissing($attachment->path);
+});
+
+test('attachments without a public parent message are never served to customers', function () {
+    [, $client] = actingAsClient();
+    $ticket = clientTicket($client);
+    $this->post(route('client.support.tickets.reply', $ticket->number), ['body' => 'pic', 'attachments' => [pngUpload()]]);
+    $attachment = TicketAttachment::query()->sole();
+    $attachment->forceFill(['message_id' => null])->save();
+
+    $this->get(route('client.support.tickets.attachments.show', [$ticket->number, $attachment->id]))->assertNotFound();
 });

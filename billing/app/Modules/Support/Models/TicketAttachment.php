@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support\Models;
 
+use App\Modules\Support\Enums\MessageType;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Table;
@@ -52,6 +53,14 @@ class TicketAttachment extends Model
     public function message(): BelongsTo
     {
         return $this->belongsTo(TicketMessage::class, 'message_id');
+    }
+
+    /**
+     * Whether clients and guests may download it: it must belong to an existing public reply.
+     */
+    public function isCustomerVisible(): bool
+    {
+        return $this->message_id !== null && $this->message !== null && $this->message->type === MessageType::Reply;
     }
 
     public function isImage(): bool
