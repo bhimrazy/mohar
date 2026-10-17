@@ -40,8 +40,11 @@ loads only Core + Billing.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
-4. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
-5. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
+4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
+   kernel → module imports, non-interface contracts, non-final DTOs/events, debug calls, and `DB` facade use in
+   controllers all fail the build. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
+6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
 
 ### Contracts (implementer → consumers)
