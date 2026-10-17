@@ -2,6 +2,7 @@
 
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Domains\Database\Seeders\DomainsSeeder;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
@@ -125,4 +126,27 @@ test('registrar configuration needs its permission', function () {
     actingAsStaff(['domains.tlds.*']);
 
     $this->get(route('admin.domains.registrars.index'))->assertForbidden();
+});
+
+test('zero register or renew prices and registrable terms without a renewal price are rejected', function () {
+    actingAsStaff(['domains.tlds.*']);
+    $tld = DomainFixtures::com('log');
+
+    $this->put(route('admin.domains.tlds.prices', $tld), ['currency' => 'USD', 'prices' => [
+        ['years' => 1, 'register' => 0, 'transfer' => 0, 'renew' => 0],
+        ['years' => 2, 'register' => 2400, 'transfer' => null, 'renew' => null],
+    ]])->assertSessionHasErrors(['prices.0.register', 'prices.0.renew', 'prices.1.renew'])->assertSessionDoesntHaveErrors('prices.0.transfer');
+
+    expect(TldPrice::query()->where('years', 1)->value('renew'))->toBe(1400);
+});
+
+test('the seeder prices every TLD in every configured currency', function () {
+    Currency::factory()->create(['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84, 'is_default' => false]);
+    Currency::factory()->create(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => 134.4, 'is_default' => false]);
+
+    $this->seed(DomainsSeeder::class);
+
+    expect(TldPrice::query()->distinct()->orderBy('currency')->pluck('currency')->all())->toBe(['INR', 'NPR', 'USD'])
+        ->and(TldPrice::query()->whereHas('tld', fn ($query) => $query->where('extension', '.com'))->where('currency', 'INR')->where('years', 1)->value('register'))->toBe(109900)
+        ->and(TldPrice::query()->whereIn('currency', ['INR', 'NPR', 'USD'])->where('years', 1)->whereNull('renew')->exists())->toBeFalse();
 });

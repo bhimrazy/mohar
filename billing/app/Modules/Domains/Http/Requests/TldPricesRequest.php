@@ -23,9 +23,25 @@ class TldPricesRequest extends FormRequest
             'client_group_id' => ['nullable', 'integer', Rule::exists('client_groups', 'id')],
             'prices' => ['required', 'array', 'max:10'],
             'prices.*.years' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
-            'prices.*.register' => ['nullable', 'integer', 'min:0'],
-            'prices.*.transfer' => ['nullable', 'integer', 'min:0'],
-            'prices.*.renew' => ['nullable', 'integer', 'min:0'],
+            'prices.*.register' => ['nullable', 'integer', 'min:1', 'max:100000000'],
+            'prices.*.transfer' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'prices.*.renew' => ['nullable', 'integer', 'min:1', 'max:100000000', 'required_with:prices.*.register'],
+        ];
+    }
+
+    /**
+     * Amounts are minor units; a register or renew price of 0 is never a valid "free" price here
+     * (free domains are bundled through Catalog), so 0 is rejected instead of saved silently.
+     *
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'prices.*.register.min' => 'Enter a register price above zero, or leave the term empty.',
+            'prices.*.renew.min' => 'Enter a renewal price above zero.',
+            'prices.*.renew.required_with' => 'Enter a renewal price for every term that can be registered.',
+            'prices.*.*.integer' => 'Enter a valid amount.',
         ];
     }
 

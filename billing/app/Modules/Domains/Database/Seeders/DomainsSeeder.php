@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Database\Seeders;
 
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
@@ -15,21 +16,17 @@ use Illuminate\Database\Seeder;
 class DomainsSeeder extends Seeder
 {
     /**
-     * Yearly base prices in minor units: register, transfer, renew per currency.
+     * Yearly prices in the default currency (minor units): register, transfer, renew. Other currencies are
+     * derived from the seeded exchange rates and rounded to retail-style amounts (e.g. ₹1,099.00).
      *
-     * @var array<string, array{settings: array<string, mixed>, prices: array<string, array{0: int, 1: int, 2: int}>}>
+     * @var array<string, array{settings: array<string, mixed>, prices: array{0: int, 1: int, 2: int}}>
      */
     private const TLDS = [
-        '.com' => ['settings' => ['is_spotlight' => true, 'badge' => 'hot', 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 1],
-            'prices' => ['USD' => [1299, 1199, 1499], 'EUR' => [1199, 1099, 1399], 'GBP' => [999, 949, 1199]]],
-        '.net' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 2],
-            'prices' => ['USD' => [1499, 1399, 1699], 'EUR' => [1399, 1299, 1599], 'GBP' => [1199, 1099, 1349]]],
-        '.org' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'grace_fee' => 1000, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 3],
-            'prices' => ['USD' => [1399, 1299, 1599], 'EUR' => [1299, 1199, 1499], 'GBP' => [1099, 999, 1249]]],
-        '.io' => ['settings' => ['is_spotlight' => true, 'badge' => 'new', 'max_years' => 5, 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 12000, 'sort_order' => 4],
-            'prices' => ['USD' => [3999, 3899, 4499], 'EUR' => [3699, 3599, 4199], 'GBP' => [3199, 3099, 3599]]],
-        '.co.uk' => ['settings' => ['is_spotlight' => true, 'epp_required' => true, 'grace_days' => 30, 'redemption_days' => 60, 'redemption_fee' => 5000, 'renew_window_days' => 180, 'sort_order' => 5],
-            'prices' => ['USD' => [999, 0, 1099], 'EUR' => [899, 0, 999], 'GBP' => [799, 0, 899]]],
+        '.com' => ['settings' => ['is_spotlight' => true, 'badge' => 'hot', 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 1], 'prices' => [1299, 1199, 1499]],
+        '.net' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 2], 'prices' => [1499, 1399, 1699]],
+        '.org' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'grace_fee' => 1000, 'redemption_days' => 30, 'redemption_fee' => 8000, 'sort_order' => 3], 'prices' => [1399, 1299, 1599]],
+        '.io' => ['settings' => ['is_spotlight' => true, 'badge' => 'new', 'max_years' => 5, 'grace_days' => 30, 'redemption_days' => 30, 'redemption_fee' => 12000, 'sort_order' => 4], 'prices' => [3999, 3899, 4499]],
+        '.co.uk' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'redemption_days' => 60, 'redemption_fee' => 5000, 'renew_window_days' => 180, 'sort_order' => 5], 'prices' => [999, 0, 1099]],
     ];
 
     public function run(): void
@@ -54,10 +51,12 @@ class DomainsSeeder extends Seeder
             ]);
             $tlds[$extension] = $tld;
 
-            foreach ($definition['prices'] as $currency => [$register, $transfer, $renew]) {
+            foreach (Currency::query()->orderBy('code')->get() as $currency) {
+                [$register, $transfer, $renew] = array_map(fn (int $amount): int => $this->retail($amount, $currency), $definition['prices']);
+
                 for ($years = 1; $years <= $tld->max_years; $years++) {
                     TldPrice::query()->firstOrCreate(
-                        ['tld_id' => $tld->id, 'currency' => $currency, 'client_group_id' => null, 'years' => $years],
+                        ['tld_id' => $tld->id, 'currency' => $currency->code, 'client_group_id' => null, 'years' => $years],
                         ['register' => $register * $years, 'transfer' => $years === 1 ? $transfer : null, 'renew' => $renew * $years],
                     );
                 }
@@ -95,6 +94,21 @@ class DomainsSeeder extends Seeder
         }
     }
 
+    /**
+     * Convert a default-currency amount and round it to a retail price: amounts of 100 or more major units
+     * end in 9 (1091.16 → 1099.00); smaller amounts keep the converted cents.
+     */
+    private function retail(int $amount, Currency $currency): int
+    {
+        $converted = $currency->is_default ? $amount : $currency->fromDefault($amount);
+
+        if ($converted < 10000) {
+            return $converted;
+        }
+
+        return ((int) ceil($converted / 1000) * 10 - 1) * 100;
+    }
+
     private function domain(Client $client, Tld $tld, string $sld, DomainStatus $status, ?CarbonImmutable $expiry): void
     {
         $today = CarbonImmutable::today();
@@ -127,8 +141,8 @@ class DomainsSeeder extends Seeder
             'registrar_lock' => $pending ? null : true,
             'nameservers' => ['ns1.example-host.com', 'ns2.example-host.com'],
             'epp_code' => $status === DomainStatus::PendingTransfer ? 'DEMO-EPP-4821' : null,
-            'last_synced_at' => $pending ? null : now()->subHours(3),
-            'last_sync_status' => $pending ? null : 'ok',
+            'last_synced_at' => null,
+            'last_sync_status' => null,
             'registrar_meta' => $status === DomainStatus::PendingTransfer ? ['submitted_at' => now()->subDays(2)->toIso8601String()] : null,
         ]);
 
