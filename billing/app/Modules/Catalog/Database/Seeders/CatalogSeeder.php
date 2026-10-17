@@ -16,16 +16,19 @@ use App\Modules\Catalog\Models\ConfigOptionGroup;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductGroup;
+use App\Modules\Core\Models\Currency;
 use Illuminate\Database\Seeder;
 
 /**
- * Demo catalog: shared hosting, VPS with configurable resources, SSL certificates and addons,
- * priced in USD, EUR and GBP. Safe to re-run.
+ * Demo catalog: shared hosting, VPS with configurable resources, SSL certificates and addons, priced in
+ * every configured currency (USD/INR/NPR on a fresh install) from USD base prices × exchange rate.
+ * Products provision with the Services "log" driver (or "none"); gateway restrictions use Billing's keys.
+ * Safe to re-run.
  */
 class CatalogSeeder extends Seeder
 {
-    /** Currency => factor applied to USD prices. */
-    private const CURRENCIES = ['USD' => 1.0, 'EUR' => 0.92, 'GBP' => 0.79];
+    /** @var list<Currency> */
+    private array $currencies = [];
 
     /** Cycle => [months, discount factor]. */
     private const CYCLES = [
@@ -43,14 +46,17 @@ class CatalogSeeder extends Seeder
             return;
         }
 
-        $hosting = $this->group('Shared Hosting', 'shared-hosting', 1, 'Fast, secure hosting for every website', ['stripe', 'paypal', 'bank_transfer']);
-        $vps = $this->group('VPS', 'vps', 2, 'Root access on dedicated resources', ['stripe', 'bank_transfer']);
+        $default = Currency::default();
+        $this->currencies = [$default, ...Currency::query()->where('code', '!=', $default->code)->orderBy('code')->get()->all()];
+
+        $hosting = $this->group('Shared Hosting', 'shared-hosting', 1, 'Fast, secure hosting for every website', null);
+        $vps = $this->group('VPS', 'vps', 2, 'Root access on dedicated resources', ['bank_transfer', 'sandbox_card']);
         $ssl = $this->group('SSL Certificates', 'ssl-certificates', 3, 'Encrypt traffic and earn the padlock', null);
         $this->group('Legacy Plans', 'legacy-plans', 4, null, null, hidden: true);
 
         $starter = $this->product($hosting, 'Starter', 'starter', 399, ['monthly', 'annually', 'biennially'], [
             'tagline' => '1 website, 10 GB SSD',
-            'provisioning_driver' => 'cpanel',
+            'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'starter', 'disk_quota' => '10240'],
             'welcome_email_key' => 'hosting.welcome',
             'requires_domain' => true,
@@ -58,7 +64,7 @@ class CatalogSeeder extends Seeder
         $pro = $this->product($hosting, 'Pro', 'pro', 799, ['monthly', 'annually', 'biennially'], [
             'tagline' => '10 websites, 50 GB SSD, free domain',
             'is_featured' => true,
-            'provisioning_driver' => 'cpanel',
+            'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'pro', 'disk_quota' => '51200'],
             'welcome_email_key' => 'hosting.welcome',
             'requires_domain' => true,
@@ -68,7 +74,7 @@ class CatalogSeeder extends Seeder
         ], setupFee: 0);
         $business = $this->product($hosting, 'Business', 'business', 1499, ['monthly', 'quarterly', 'annually', 'biennially', 'triennially'], [
             'tagline' => 'Unlimited websites, 200 GB NVMe, daily backups',
-            'provisioning_driver' => 'cpanel',
+            'provisioning_driver' => 'log',
             'driver_config' => ['package' => 'business', 'disk_quota' => '204800'],
             'welcome_email_key' => 'hosting.welcome',
             'requires_domain' => true,
@@ -80,7 +86,7 @@ class CatalogSeeder extends Seeder
         $vpsSmall = $this->product($vps, 'VPS S', 'vps-s', 1200, ['monthly', 'quarterly', 'annually'], [
             'type' => ProductType::Server,
             'tagline' => '1 vCPU · 2 GB RAM · 40 GB NVMe',
-            'provisioning_driver' => 'proxmox',
+            'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
             'welcome_email_key' => 'vps.welcome',
             'auto_setup' => AutoSetup::OnOrder,
@@ -88,7 +94,7 @@ class CatalogSeeder extends Seeder
         $vpsMedium = $this->product($vps, 'VPS M', 'vps-m', 2400, ['monthly', 'quarterly', 'annually'], [
             'type' => ProductType::Server,
             'tagline' => '2 vCPU · 4 GB RAM · 80 GB NVMe',
-            'provisioning_driver' => 'proxmox',
+            'provisioning_driver' => 'log',
             'driver_config' => ['template' => 'debian-12', 'storage' => 'nvme'],
             'welcome_email_key' => 'vps.welcome',
             'stock_enabled' => true,
@@ -108,7 +114,7 @@ class CatalogSeeder extends Seeder
             'is_hidden' => true,
             'fixed_term_days' => 14,
             'auto_setup' => AutoSetup::OnAccept,
-            'provisioning_driver' => 'cpanel',
+            'provisioning_driver' => 'none',
         ]);
         $this->product($hosting, 'Classic 2019', 'classic-2019', 599, ['monthly', 'annually'], ['is_retired' => true]);
 
@@ -194,30 +200,41 @@ class CatalogSeeder extends Seeder
     }
 
     /**
-     * Price rows for every currency: monthly base × months × cycle discount, rounded to a .99 price point.
+     * Price rows in every configured currency: USD monthly base × months × cycle discount, converted with the
+     * currency's exchange rate and (for products/addons) rounded to a familiar price point.
      *
      * @param  list<string>  $cycles
      */
     private function prices(Product|Addon|ConfigOptionValue $priceable, int $usdMonthly, array $cycles, int $setupFee = 0, bool $charm = true): void
     {
-        foreach (self::CURRENCIES as $currency => $factor) {
+        foreach ($this->currencies as $currency) {
             foreach ($cycles as $cycle) {
                 [$months, $discount] = $cycle === 'onetime' ? [1, 1.0] : self::CYCLES[$cycle];
-                $amount = (int) round($usdMonthly * $factor * $months * $discount);
-
-                if ($charm && $amount >= 100) {
-                    $amount = (int) ceil($amount / 100) * 100 - 1;
-                }
+                $amount = $currency->fromDefault((int) round($usdMonthly * $months * $discount));
 
                 $priceable->prices()->create([
-                    'currency' => $currency,
+                    'currency' => $currency->code,
                     'cycle' => BillingCycle::from($cycle),
                     'enabled' => true,
-                    'amount' => $amount,
-                    'setup_fee' => (int) round($setupFee * $factor),
+                    'amount' => $charm ? $this->pricePoint($amount) : $amount,
+                    'setup_fee' => $currency->fromDefault($setupFee),
                 ]);
             }
         }
+    }
+
+    /**
+     * 3.83 → 3.99; 331.17 → 339.00 (whole units ending in 9 from 100 upwards).
+     */
+    private function pricePoint(int $amount): int
+    {
+        if ($amount < 100) {
+            return $amount;
+        }
+
+        $units = (int) ceil($amount / 100);
+
+        return $units >= 100 ? ((int) ceil(($units + 1) / 10) * 10 - 1) * 100 : $units * 100 - 1;
     }
 
     private function vpsResources(): ConfigOptionGroup

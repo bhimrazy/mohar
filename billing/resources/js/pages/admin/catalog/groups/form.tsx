@@ -186,7 +186,7 @@ export default function ProductGroupForm({ group }: { group: Group | null }) {
                                 <Field
                                     htmlFor="allowed_gateways"
                                     label="Allowed gateway keys"
-                                    hint="Comma-separated, e.g. stripe, bank_transfer"
+                                    hint="Comma-separated, e.g. bank_transfer, sandbox_card"
                                     error={
                                         form.errors.allowed_gateways ??
                                         errors['allowed_gateways.0']
