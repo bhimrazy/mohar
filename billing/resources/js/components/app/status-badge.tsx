@@ -25,6 +25,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     sent: 'success',
     online: 'success',
     resolved: 'success',
+    pass: 'success',
 
     // Waiting on someone
     pending: 'warning',
@@ -34,6 +35,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     grace: 'warning',
     'partially-paid': 'warning',
     scheduled: 'warning',
+    review: 'warning',
 
     // Needs attention / money at risk
     overdue: 'danger',
@@ -45,6 +47,8 @@ const STATUS_TONES: Record<string, StatusTone> = {
     failed: 'danger',
     outage: 'danger',
     reversed: 'danger',
+    fail: 'danger',
+    error: 'danger',
 
     // In motion / informational
     refunded: 'info',
@@ -61,6 +65,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     'on-hold': 'neutral',
     'transferred-away': 'neutral',
     hidden: 'neutral',
+    skipped: 'neutral',
 
     // Not yet issued
     draft: 'outline',
