@@ -14,6 +14,7 @@ use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Actions\CancelStalePendingOrders;
 use App\Modules\Orders\Actions\PruneExpiredCarts;
 use App\Modules\Orders\Enums\OrderStatus;
@@ -237,7 +238,10 @@ class OrdersServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(CancelStalePendingOrders::class)->handle($today));
+        // Resolve the action (and its Billing dependency) only when auto-cancel is switched on.
+        $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => (int) $this->app->make(Settings::class)->get('orders.auto_cancel_unpaid_days', 0) > 0
+            ? $this->app->make(CancelStalePendingOrders::class)->handle($today)
+            : 0);
         $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle());
     }
 }

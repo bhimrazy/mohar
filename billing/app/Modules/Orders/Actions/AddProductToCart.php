@@ -89,7 +89,7 @@ class AddProductToCart
 
     /**
      * @param  array<int|string, mixed>  $input
-     * @param  array<string, string>  $errors  collects field errors
+     * @param  array<string, mixed>  $errors  collects field errors for ValidationException::withMessages()
      * @return array<int, int>
      */
     private function configOptions(int $productId, string $currency, array $input, array &$errors): array
@@ -135,7 +135,7 @@ class AddProductToCart
 
     /**
      * @param  array<int|string, mixed>  $input
-     * @param  array<string, string>  $errors  collects field errors
+     * @param  array<string, mixed>  $errors  collects field errors for ValidationException::withMessages()
      * @return array<int, string>
      */
     private function customFields(int $productId, array $input, array &$errors): array
