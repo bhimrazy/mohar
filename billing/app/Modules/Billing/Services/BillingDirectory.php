@@ -5,8 +5,10 @@ namespace App\Modules\Billing\Services;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Support\ClientPaymentOptions;
 
@@ -32,5 +34,15 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
     {
         return Transaction::query()->where('invoice_id', $invoiceId)->exists()
             || Invoice::query()->whereKey($invoiceId)->where('credit_applied', '>', 0)->exists();
+    }
+
+    public function hasDocumentsInCurrency(string $currency): bool
+    {
+        $currency = strtoupper($currency);
+
+        return Invoice::query()->where('currency', $currency)->exists()
+            || Quote::query()->where('currency', $currency)->exists()
+            || Transaction::query()->where('currency', $currency)->exists()
+            || CreditLedgerEntry::query()->where('currency', $currency)->exists();
     }
 }

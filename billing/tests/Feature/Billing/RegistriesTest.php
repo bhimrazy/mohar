@@ -164,3 +164,15 @@ test('payments are refused when the order payment guard says so', function () {
     $this->artisan('automation:run', ['--only' => 'billing.auto_capture'])->assertSuccessful();
     expect($invoice->fresh()->capture_attempts)->toBe(0);
 });
+
+test('invoice queries report whether any billing document uses a currency', function () {
+    $queries = app(App\Contracts\Billing\InvoiceQueries::class);
+    billingClient();
+
+    expect($queries->hasDocumentsInCurrency('USD'))->toBeFalse();
+
+    App\Modules\Billing\Models\Quote::factory()->create();
+
+    expect($queries->hasDocumentsInCurrency('usd'))->toBeTrue()
+        ->and($queries->hasDocumentsInCurrency('NPR'))->toBeFalse();
+});
