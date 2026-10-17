@@ -120,6 +120,7 @@ function RefundDialog({
             {(form) => (
                 <div className="grid gap-4">
                     <Field
+                        className="content-start"
                         htmlFor="refund-amount"
                         label="Amount"
                         error={form.errors.amount}
@@ -135,6 +136,7 @@ function RefundDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="refund-mode"
                         label="Refund to"
                         error={form.errors.mode}
@@ -759,6 +761,7 @@ export default function InvoiceShow({
                     {(form) => (
                         <div className="grid gap-4 sm:grid-cols-2">
                             <Field
+                                className="content-start"
                                 htmlFor="payment-amount"
                                 label={`Amount (${invoice.currency})`}
                                 error={form.errors.amount}
@@ -777,6 +780,7 @@ export default function InvoiceShow({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="payment-date"
                                 label="Date"
                                 error={form.errors.occurred_at}
@@ -794,6 +798,7 @@ export default function InvoiceShow({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="payment-gateway"
                                 label="Gateway"
                                 error={form.errors.gateway}
@@ -808,6 +813,7 @@ export default function InvoiceShow({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="payment-fee"
                                 label="Fee"
                                 optional
@@ -827,7 +833,7 @@ export default function InvoiceShow({
                                 label="Transaction ID"
                                 optional
                                 error={form.errors.gateway_txn_id}
-                                className="sm:col-span-2"
+                                className="content-start sm:col-span-2"
                             >
                                 <Input
                                     id="payment-reference"
@@ -863,6 +869,7 @@ export default function InvoiceShow({
                     <div className="grid gap-4">
                         <div className="grid gap-4 sm:grid-cols-2">
                             <Field
+                                className="content-start"
                                 htmlFor="details-due"
                                 label="Due date"
                                 error={form.errors.due_date}
@@ -880,6 +887,7 @@ export default function InvoiceShow({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="details-gateway"
                                 label="Gateway"
                                 error={form.errors.payment_gateway}
@@ -895,6 +903,7 @@ export default function InvoiceShow({
                             </Field>
                         </div>
                         <Field
+                            className="content-start"
                             htmlFor="details-notes"
                             label="Notes shown to the client"
                             optional
@@ -910,6 +919,7 @@ export default function InvoiceShow({
                             />
                         </Field>
                         <Field
+                            className="content-start"
                             htmlFor="details-admin-notes"
                             label="Staff notes"
                             optional
@@ -956,6 +966,7 @@ export default function InvoiceShow({
                 >
                     {(form) => (
                         <Field
+                            className="content-start"
                             htmlFor="credit-amount"
                             label="Amount"
                             error={form.errors.amount}
@@ -985,6 +996,7 @@ export default function InvoiceShow({
                 >
                     {(form) => (
                         <Field
+                            className="content-start"
                             htmlFor="remove-credit-amount"
                             label="Amount"
                             error={form.errors.amount}
@@ -1028,6 +1040,7 @@ export default function InvoiceShow({
                 >
                     {(form) => (
                         <Field
+                            className="content-start"
                             htmlFor="capture-method"
                             label="Payment method"
                             error={form.errors.pay_method_id}

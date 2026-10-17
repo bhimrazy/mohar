@@ -182,7 +182,7 @@ export default function TransactionsIndex({
                                             htmlFor="txn-client"
                                             label="Client"
                                             error={form.errors.client_id}
-                                            className="sm:col-span-2"
+                                            className="content-start sm:col-span-2"
                                         >
                                             <SelectField
                                                 id="txn-client"
@@ -205,6 +205,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-type"
                                             label="Type"
                                             error={form.errors.type}
@@ -228,6 +229,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-amount"
                                             label="Amount"
                                             error={form.errors.amount}
@@ -245,6 +247,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-gateway"
                                             label="Gateway"
                                             error={form.errors.gateway}
@@ -262,6 +265,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-date"
                                             label="Date"
                                             error={form.errors.occurred_at}
@@ -279,6 +283,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-reference"
                                             label="Transaction ID"
                                             optional
@@ -296,6 +301,7 @@ export default function TransactionsIndex({
                                             />
                                         </Field>
                                         <Field
+                                            className="content-start"
                                             htmlFor="txn-fee"
                                             label="Fee"
                                             optional
@@ -318,7 +324,7 @@ export default function TransactionsIndex({
                                             label="Apply to invoice IDs"
                                             optional
                                             hint="Comma-separated, e.g. 1042, 1043"
-                                            className="sm:col-span-2"
+                                            className="content-start sm:col-span-2"
                                         >
                                             <Input
                                                 id="txn-invoices"
@@ -338,7 +344,7 @@ export default function TransactionsIndex({
                                             label="Description"
                                             optional
                                             error={form.errors.description}
-                                            className="sm:col-span-2"
+                                            className="content-start sm:col-span-2"
                                         >
                                             <Input
                                                 id="txn-description"

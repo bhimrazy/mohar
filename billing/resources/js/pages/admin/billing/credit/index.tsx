@@ -130,7 +130,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         htmlFor="credit-client"
                                         label="Client"
                                         error={form.errors.client_id}
-                                        className="sm:col-span-2"
+                                        className="content-start sm:col-span-2"
                                     >
                                         <SelectField
                                             id="credit-client"
@@ -146,6 +146,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         />
                                     </Field>
                                     <Field
+                                        className="content-start"
                                         htmlFor="credit-direction"
                                         label="Adjustment"
                                         error={form.errors.direction}
@@ -169,6 +170,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         />
                                     </Field>
                                     <Field
+                                        className="content-start"
                                         htmlFor="credit-amount"
                                         label="Amount"
                                         error={form.errors.amount}
@@ -189,7 +191,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         htmlFor="credit-description"
                                         label="Reason"
                                         error={form.errors.description}
-                                        className="sm:col-span-2"
+                                        className="content-start sm:col-span-2"
                                     >
                                         <Input
                                             id="credit-description"
@@ -211,7 +213,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                     <Field
                         htmlFor="credit-filter"
                         label="Client"
-                        className="w-full sm:w-80"
+                        className="w-full content-start sm:w-80"
                     >
                         <SelectField
                             id="credit-filter"

@@ -49,14 +49,28 @@ const TONES: Record<string, string> = {
 
 export default function PaymentAttempts({ attempts, statuses }: Props) {
     const columns: DataTableColumn<Attempt>[] = [
-        { key: 'reference', header: 'Reference', primary: true, cell: (attempt) => <span className="font-mono text-xs">{attempt.reference}</span> },
-        { key: 'gateway', header: 'Gateway', cell: (attempt) => humanize(attempt.gateway) },
+        {
+            key: 'reference',
+            header: 'Reference',
+            primary: true,
+            cell: (attempt) => (
+                <span className="font-mono text-xs">{attempt.reference}</span>
+            ),
+        },
+        {
+            key: 'gateway',
+            header: 'Gateway',
+            cell: (attempt) => humanize(attempt.gateway),
+        },
         {
             key: 'invoice',
             header: 'Invoice',
             cell: (attempt) =>
                 attempt.invoice_id ? (
-                    <Link href={showInvoice(attempt.invoice_id)} className="hover:underline">
+                    <Link
+                        href={showInvoice(attempt.invoice_id)}
+                        className="hover:underline"
+                    >
                         {attempt.invoice_number ?? `#${attempt.invoice_id}`}
                     </Link>
                 ) : (
@@ -68,13 +82,38 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             header: 'Status',
             cell: (attempt) => (
                 <div className="space-y-1">
-                    <StatusBadge status={TONES[attempt.status] ?? attempt.status} label={humanize(attempt.status)} />
-                    {attempt.review_reason && <div className="text-xs whitespace-normal text-muted-foreground">{attempt.review_reason}</div>}
+                    <StatusBadge
+                        status={TONES[attempt.status] ?? attempt.status}
+                        label={humanize(attempt.status)}
+                    />
+                    {attempt.review_reason && (
+                        <div className="text-xs whitespace-normal text-muted-foreground">
+                            {attempt.review_reason}
+                        </div>
+                    )}
                 </div>
             ),
         },
-        { key: 'checked', header: 'Last lookup', hideOnMobile: true, cell: (attempt) => <DateTime value={attempt.last_lookup_at} relative fallback="Never" /> },
-        { key: 'amount', header: 'Amount', align: 'right', cell: (attempt) => <Money amount={attempt.amount} currency={attempt.currency} /> },
+        {
+            key: 'checked',
+            header: 'Last lookup',
+            hideOnMobile: true,
+            cell: (attempt) => (
+                <DateTime
+                    value={attempt.last_lookup_at}
+                    relative
+                    fallback="Never"
+                />
+            ),
+        },
+        {
+            key: 'amount',
+            header: 'Amount',
+            align: 'right',
+            cell: (attempt) => (
+                <Money amount={attempt.amount} currency={attempt.currency} />
+            ),
+        },
         {
             key: 'actions',
             header: <span className="sr-only">Actions</span>,
@@ -82,7 +121,17 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             hideOnMobile: true,
             cell: (attempt) =>
                 ['pending', 'ambiguous'].includes(attempt.status) ? (
-                    <Button variant="ghost" size="sm" onClick={() => router.post(check.url(attempt.id), {}, { preserveScroll: true })}>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                            router.post(
+                                check.url(attempt.id),
+                                {},
+                                { preserveScroll: true },
+                            )
+                        }
+                    >
                         Check now
                     </Button>
                 ) : null,
@@ -97,14 +146,32 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                     title="Payment attempts"
                     description="Hosted gateway payments. Each one is confirmed by a status lookup at the gateway, never by the customer's return alone."
                 />
-                <FilterBar searchParam={null} filterKeys={['status']} filters={<FilterSelect name="status" label="Statuses" options={statuses} />} />
+                <FilterBar
+                    searchParam={null}
+                    filterKeys={['status']}
+                    filters={
+                        <FilterSelect
+                            name="status"
+                            label="Statuses"
+                            options={statuses}
+                        />
+                    }
+                />
                 <DataTable
                     caption="Payment attempts"
                     columns={columns}
                     rows={attempts.data}
                     getRowKey={(attempt) => attempt.id}
-                    empty={<EmptyState icon={Activity} title="No hosted payments yet" description="Payments started on hosted gateway pages appear here." />}
-                    footer={<Pagination paginator={attempts} itemLabel="attempts" />}
+                    empty={
+                        <EmptyState
+                            icon={Activity}
+                            title="No hosted payments yet"
+                            description="Payments started on hosted gateway pages appear here."
+                        />
+                    }
+                    footer={
+                        <Pagination paginator={attempts} itemLabel="attempts" />
+                    }
                 />
             </Page>
         </>

@@ -95,6 +95,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                     <SectionCard title="Proposal">
                         <div className="grid gap-6 sm:grid-cols-2">
                             <Field
+                                className="content-start"
                                 htmlFor="client_id"
                                 label="Client"
                                 error={errors.client_id}
@@ -114,6 +115,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="valid_until"
                                 label="Valid until"
                                 optional
@@ -135,7 +137,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                                 htmlFor="subject"
                                 label="Subject"
                                 error={errors.subject}
-                                className="sm:col-span-2"
+                                className="content-start sm:col-span-2"
                             >
                                 <Input
                                     id="subject"
@@ -154,7 +156,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                                 label="Proposal text"
                                 optional
                                 error={errors.proposal_text}
-                                className="sm:col-span-2"
+                                className="content-start sm:col-span-2"
                             >
                                 <Textarea
                                     id="proposal_text"
@@ -185,6 +187,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                     <SectionCard title="Notes">
                         <div className="grid gap-6">
                             <Field
+                                className="content-start"
                                 htmlFor="customer_notes"
                                 label="Notes for the client"
                                 optional
@@ -203,6 +206,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="admin_notes"
                                 label="Staff notes"
                                 optional

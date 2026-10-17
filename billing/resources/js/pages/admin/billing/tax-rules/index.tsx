@@ -42,6 +42,8 @@ type Props = {
         calculation: string;
         vat_enabled: boolean;
         vat_home_country: string;
+        home_country: string;
+        home_state: string;
     };
 };
 
@@ -83,6 +85,7 @@ function RuleDialog({
             {(form) => (
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field
+                        className="content-start"
                         htmlFor="rule-name"
                         label="Name"
                         error={form.errors.name}
@@ -97,6 +100,7 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="rule-rate"
                         label="Rate (%)"
                         error={form.errors.rate}
@@ -112,6 +116,7 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="rule-level"
                         label="Level"
                         error={form.errors.level}
@@ -127,6 +132,7 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="rule-priority"
                         label="Priority"
                         optional
@@ -142,6 +148,7 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="rule-country"
                         label="Country"
                         optional
@@ -161,6 +168,7 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        className="content-start"
                         htmlFor="rule-state"
                         label="State"
                         optional
@@ -179,7 +187,7 @@ function RuleDialog({
                         label="Supply"
                         hint="India GST: CGST + SGST within your state, IGST across states"
                         error={form.errors.scope}
-                        className="sm:col-span-2"
+                        className="content-start sm:col-span-2"
                     >
                         <SelectField
                             id="rule-scope"
@@ -204,7 +212,7 @@ function RuleDialog({
                         optional
                         hint="Schedule a rate change"
                         error={form.errors.effective_from}
-                        className="sm:col-span-2"
+                        className="content-start sm:col-span-2"
                     >
                         <Input
                             id="rule-effective"
@@ -356,7 +364,10 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                             },
                             {
                                 label: 'Seller location',
-                                value: [settings.home_country, settings.home_state]
+                                value: [
+                                    settings.home_country,
+                                    settings.home_state,
+                                ]
                                     .filter(Boolean)
                                     .join(' · '),
                             },

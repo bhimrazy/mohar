@@ -106,7 +106,7 @@ export default function InvoiceForm({
                                 htmlFor="client_id"
                                 label="Client"
                                 error={errors.client_id}
-                                className="sm:col-span-2"
+                                className="content-start sm:col-span-2"
                             >
                                 <SelectField
                                     id="client_id"
@@ -123,6 +123,7 @@ export default function InvoiceForm({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="due_date"
                                 label="Due date"
                                 optional
@@ -142,6 +143,7 @@ export default function InvoiceForm({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="payment_gateway"
                                 label="Gateway"
                                 optional
@@ -175,6 +177,7 @@ export default function InvoiceForm({
                     <SectionCard title="Notes">
                         <div className="grid gap-6">
                             <Field
+                                className="content-start"
                                 htmlFor="notes"
                                 label="Notes shown on the invoice"
                                 optional
@@ -193,6 +196,7 @@ export default function InvoiceForm({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="admin_notes"
                                 label="Staff notes"
                                 optional

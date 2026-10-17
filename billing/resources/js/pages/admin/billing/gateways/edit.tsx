@@ -179,7 +179,7 @@ export default function GatewayEdit({
                                 htmlFor="display_name"
                                 label="Name shown to clients"
                                 error={errors.display_name}
-                                className="sm:col-span-2"
+                                className="content-start sm:col-span-2"
                             >
                                 <Input
                                     id="display_name"
@@ -211,6 +211,7 @@ export default function GatewayEdit({
                                 }
                             />
                             <Field
+                                className="content-start"
                                 htmlFor="sort_order"
                                 label="Display order"
                                 error={errors.sort_order}
@@ -228,6 +229,7 @@ export default function GatewayEdit({
                                 />
                             </Field>
                             <Field
+                                className="content-start"
                                 htmlFor="convert_to_currency"
                                 label="Charge in currency"
                                 hint="Converts the balance at the configured exchange rate."
@@ -260,7 +262,7 @@ export default function GatewayEdit({
                                     label="Move unpaid invoices to"
                                     optional
                                     hint="Unpaid invoices using this gateway are reassigned."
-                                    className="sm:col-span-2"
+                                    className="content-start sm:col-span-2"
                                 >
                                     <SelectField
                                         id="replacement"
@@ -291,6 +293,7 @@ export default function GatewayEdit({
 
                                     return (
                                         <Field
+                                            className="content-start"
                                             key={field.key}
                                             htmlFor={id}
                                             label={field.label}
