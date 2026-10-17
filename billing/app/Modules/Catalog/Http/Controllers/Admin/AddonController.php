@@ -119,7 +119,7 @@ class AddonController extends Controller
     }
 
     /**
-     * @param  list<int>  $assignedProductIds  retired products stay listed only when already assigned
+     * @param  array<int, int|string>  $assignedProductIds  retired products stay listed only when already assigned
      * @return array<string, mixed>
      */
     private function formOptions(array $assignedProductIds): array

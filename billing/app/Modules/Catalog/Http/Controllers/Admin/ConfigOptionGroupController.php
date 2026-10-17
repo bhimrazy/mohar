@@ -113,7 +113,7 @@ class ConfigOptionGroupController extends Controller
     /**
      * Products that can be assigned: everything not retired, plus retired products already assigned.
      *
-     * @param  list<int>  $assignedIds
+     * @param  array<int, int|string>  $assignedIds
      * @return list<array{id: int, name: string, group: string, status: string}>
      */
     private function productChoices(array $assignedIds = []): array
