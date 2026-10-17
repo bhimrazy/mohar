@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Contracts\Branding\BrandProvider;
 use App\Modules\Core\Support\ClientContext;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
@@ -39,7 +40,7 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
-            'name' => config('app.name'),
+            'name' => fn (): string => app(BrandProvider::class)->brand()->name,
             'auth' => [
                 'user' => $request->user(),
             ],
