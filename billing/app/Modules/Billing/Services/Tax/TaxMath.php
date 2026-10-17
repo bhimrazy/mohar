@@ -35,7 +35,7 @@ final class TaxMath
                 $lineTaxes[$index] = $lineTax1 + $lineTax2;
             }
 
-            return new TaxResult($lineTaxes, $subtotal, $tax1, $tax2, $subtotal + $tax1 + $tax2);
+            return new TaxResult(array_values($lineTaxes), $subtotal, $tax1, $tax2, $subtotal + $tax1 + $tax2);
         }
 
         $taxable = $untaxed = 0;
@@ -157,6 +157,6 @@ final class TaxMath
             $remainder -= $step;
         }
 
-        return $shares;
+        return array_values($shares);
     }
 }

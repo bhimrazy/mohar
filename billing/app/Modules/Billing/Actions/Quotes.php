@@ -59,7 +59,7 @@ class Quotes
             $quote->save();
             $quote->items()->delete();
 
-            foreach (array_values($data['items']) as $index => $item) {
+            foreach ($data['items'] as $index => $item) {
                 $discount = (float) ($item['discount_percent'] ?? 0);
                 $quote->items()->create([
                     'description' => $item['description'],

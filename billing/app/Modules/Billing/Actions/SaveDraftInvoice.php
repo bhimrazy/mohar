@@ -47,7 +47,7 @@ class SaveDraftInvoice
 
             $invoice->items()->delete();
 
-            foreach (array_values($data['items']) as $index => $item) {
+            foreach ($data['items'] as $index => $item) {
                 $invoice->items()->create([
                     'type' => BillableType::Manual,
                     'description' => $item['description'],

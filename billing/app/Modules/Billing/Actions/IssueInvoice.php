@@ -60,7 +60,7 @@ class IssueInvoice
                     'client_snapshot' => self::snapshot($client),
                 ]);
 
-                foreach (array_values($draft->lines) as $index => $line) {
+                foreach ($draft->lines as $index => $line) {
                     $type = $line->billableType ?? BillableType::Manual;
                     $invoice->items()->create([
                         'type' => $type,

@@ -1,0 +1,66 @@
+<?php
+
+namespace App\Modules\Billing\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Modules\Billing\Enums\CreditReason;
+use App\Modules\Billing\Http\Requests\Admin\CreditAdjustmentRequest;
+use App\Modules\Billing\Http\Resources\CreditEntryResource;
+use App\Modules\Billing\Models\CreditLedgerEntry;
+use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Core\Models\Client;
+use App\Support\Money;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
+use Inertia\Response;
+
+/**
+ * Credit management per client: balance, ledger and manual adjustments.
+ */
+class CreditController extends Controller
+{
+    public function index(Request $request, CreditLedgerService $ledger): Response
+    {
+        $this->authorize('billing.credit.manage');
+
+        $client = $request->filled('client') ? Client::query()->find($request->integer('client')) : null;
+
+        $entries = CreditLedgerEntry::query()
+            ->with(['client:id,first_name,last_name,company_name', 'staff:id,name'])
+            ->when($client, fn ($query) => $query->where('client_id', $client?->id))
+            ->orderByDesc('id')
+            ->paginate(25)
+            ->withQueryString();
+
+        return Inertia::render('admin/billing/credit/index', [
+            'client' => $client === null ? null : [
+                'id' => $client->id,
+                'display_name' => $client->display_name,
+                'currency' => $client->currency,
+                'balance' => $ledger->balance($client->id, $client->currency)->amount,
+            ],
+            'entries' => CreditEntryResource::collection($entries),
+            'clients' => Client::query()->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)->get(['id', 'first_name', 'last_name', 'company_name'])
+                ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name]),
+        ]);
+    }
+
+    public function store(CreditAdjustmentRequest $request, CreditLedgerService $ledger): RedirectResponse
+    {
+        $client = Client::query()->findOrFail($request->integer('client_id'));
+        $amount = Money::of($request->minor('amount', $client->currency), $client->currency);
+
+        $ledger->post(
+            $client->id,
+            $request->string('direction')->toString() === 'remove' ? $amount->negate() : $amount,
+            CreditReason::Manual,
+            description: $request->string('description')->toString(),
+            staffId: $request->user()?->id,
+        );
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Credit balance updated.')]);
+
+        return back();
+    }
+}

@@ -130,7 +130,7 @@ class BillingAutomation
             ->whereDate('due_date', '<', $today->toDateString())
             ->chunkById(200, function (Collection $invoices) use ($today): void {
                 foreach ($invoices as $invoice) {
-                    $invoice->update(['overdue_notified_at' => now()]);
+                    $invoice->forceFill(['overdue_notified_at' => now()])->save();
                     InvoiceOverdue::dispatch($invoice->id, $invoice->client_id, $invoice->daysOverdue($today));
                 }
             });
