@@ -121,7 +121,11 @@ Route::clientArea(fn () => Route::prefix('invoices')->name('invoices.')->group(.
 app(Navigation::class)->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*'));
 app(Navigation::class)->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10));
 app(Navigation::class)->add('admin-client', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', order: 10, permission: 'billing.invoices.view')); // link on client profile (?client=ID)
+app(Navigation::class)->add('admin-create', new NavItem('New invoice', 'admin.billing.invoices.create', 'FileText', permission: 'billing.invoices.manage')); // quick-create menu
+// Sidebar count badge (cheap indexed count): new NavItem(..., badge: fn ($user) => Ticket::awaitingStaff()->count())
 app(Dashboard::class)->card('admin', 'billing.overdue', fn ($user) => ['label' => ..., 'value' => ..., 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
+app(Dashboard::class)->widget('admin', 'billing.income', 'chart', fn ($user) => [...], 'billing.invoices.view', size: 'md', deferred: true); // list|chart widgets
+app(Dashboard::class)->todo('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue invoices', 'count' => 3, 'href' => ..., 'tone' => 'danger'], 'billing.invoices.view'); // "Needs attention"
 ```
 
 Icon names must exist in `resources/js/lib/nav-icons.ts` (add one line if needed).
