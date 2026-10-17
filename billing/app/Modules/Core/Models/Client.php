@@ -4,6 +4,7 @@ namespace App\Modules\Core\Models;
 
 use App\Models\User;
 use App\Modules\Core\Database\Factories\ClientFactory;
+use App\Modules\Core\Support\Like;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -36,6 +37,8 @@ use Illuminate\Support\Str;
  * @property string $language
  * @property string $status
  * @property string|null $notes
+ * @property int|null $merged_into_client_id
+ * @property CarbonImmutable|null $closed_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read string $display_name
@@ -53,9 +56,12 @@ class Client extends Model
 
     public const STATUSES = ['active', 'inactive', 'closed'];
 
+    /** Statuses the profile form may set; closing and reopening go through their own audited actions. */
+    public const EDITABLE_STATUSES = ['active', 'inactive'];
+
     protected function casts(): array
     {
-        return ['tax_exempt' => 'boolean'];
+        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime'];
     }
 
     /**
@@ -117,11 +123,11 @@ class Client extends Model
         }
 
         $query->where(function (Builder $query) use ($term): void {
-            $like = '%'.$term.'%';
-            $query->whereLike('first_name', $like)
-                ->orWhereLike('last_name', $like)
-                ->orWhereLike('company_name', $like)
-                ->orWhereLike('email', $like);
+            $like = Like::contains($term);
+
+            foreach (['first_name', 'last_name', 'company_name', 'email'] as $index => $column) {
+                Like::where($query, $column, $like, $index === 0 ? 'and' : 'or');
+            }
 
             if (ctype_digit($term)) {
                 $query->orWhere('id', (int) $term);

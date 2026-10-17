@@ -2,9 +2,11 @@
 
 namespace App\Modules\Core\Http\Requests;
 
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class AccountDetailsRequest extends FormRequest
 {
@@ -16,13 +18,16 @@ class AccountDetailsRequest extends FormRequest
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
-    public function rules(): array
+    public function rules(ClientContext $context): array
     {
         return [
             'first_name' => ['required', 'string', 'max:100'],
             'last_name' => ['required', 'string', 'max:100'],
             'company_name' => ['nullable', 'string', 'max:150'],
-            'email' => ['required', 'email', 'max:255'],
+            // Staff signed in as the client cannot change the account email (spec §10).
+            'email' => $this->session()->has(ActivityLogger::IMPERSONATOR_SESSION_KEY)
+                ? ['required', 'email', 'max:255', Rule::in([$context->client()->email])]
+                : ['required', 'email', 'max:255'],
             'phone' => ['nullable', 'string', 'max:50'],
             'address_1' => ['required', 'string', 'max:255'],
             'address_2' => ['nullable', 'string', 'max:255'],

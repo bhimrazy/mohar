@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\Settings;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -40,6 +41,8 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'name' => config('app.name'),
+            // Brand shown in the sidebar: the company name setting, falling back to the app name.
+            'brand' => fn (): string => (string) (app(Settings::class)->get('core.company_name') ?: config('app.name')),
             'auth' => [
                 'user' => $request->user(),
             ],

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\User;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
@@ -33,6 +34,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(SettingsRegistry::class);
         $this->app->singleton(GlobalSearch::class);
         $this->app->singleton(Automation::class);
+        $this->app->singleton(ClientMergeRegistry::class);
     }
 
     /**

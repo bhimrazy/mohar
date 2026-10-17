@@ -31,4 +31,27 @@ class SettingsRegistry
     {
         return $this->sections;
     }
+
+    /**
+     * The registered definition for a setting key, if any.
+     */
+    public function definition(string $key): ?SettingDefinition
+    {
+        foreach ($this->sections as $section) {
+            foreach ($section['settings'] as $definition) {
+                if ($definition->key === $key) {
+                    return $definition;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public function isSecret(string $key): bool
+    {
+        $definition = $this->definition($key);
+
+        return $definition !== null && $definition->secret;
+    }
 }
