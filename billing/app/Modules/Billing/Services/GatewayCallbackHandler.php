@@ -43,7 +43,12 @@ class GatewayCallbackHandler
      */
     public function handle(string $gatewayKey, Request $request): array
     {
-        $payload = $request->json()->all();
+        // Nothing from an unverified body is stored: rejections log metadata only.
+        $payload = [
+            'ip' => $request->ip(),
+            'length' => strlen($request->getContent()),
+            'sha256' => hash('sha256', $request->getContent()),
+        ];
 
         if (! $this->gateways->has($gatewayKey) || ! $this->gateways->isActive($gatewayKey)) {
             return $this->outcome($gatewayKey, 404, 'gateway not active', $payload);

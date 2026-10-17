@@ -6,6 +6,9 @@ use App\Modules\Core\Models\Currency;
 
 require_once __DIR__.'/helpers.php';
 
+/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
+
 beforeEach(function () {
     billingSettings(['tax.enabled' => true, 'tax.home_country' => 'IN', 'tax.home_state' => 'MH']);
     Currency::factory()->inr()->create();

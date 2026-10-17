@@ -9,6 +9,9 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
+/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
+
 test('gateways can be configured without exposing stored secrets', function () {
     actingAsStaff(['billing.gateways.manage']);
 

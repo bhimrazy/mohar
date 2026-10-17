@@ -33,7 +33,10 @@ class GatewayReturnController extends Controller
             return to_route('client.invoices.index');
         }
 
-        $status = $settle->handle($attempt);
+        // At most one provider lookup per attempt per minute from this anonymous route; otherwise reuse the last result.
+        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt(now()->subMinute())
+            ? $attempt->status
+            : $settle->handle($attempt);
 
         Inertia::flash('toast', match ($status) {
             AttemptStatus::Succeeded => ['type' => 'success', 'message' => __('Payment received. Thank you.')],

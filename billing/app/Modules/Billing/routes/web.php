@@ -19,11 +19,12 @@ use App\Modules\Billing\Http\Controllers\Public\GatewayReturnController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxHostedController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxVaultController;
 use App\Modules\Billing\Http\Controllers\Public\WebhookController;
+use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Support\Facades\Route;
 
 Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(function (): void {
-    Route::post('invoices/bulk', [InvoiceActionController::class, 'bulk'])->name('invoices.bulk');
+    Route::post('invoices/bulk', [InvoiceActionController::class, 'bulk'])->middleware(ConfirmPasswordForAction::class)->name('invoices.bulk');
     Route::resource('invoices', AdminInvoiceController::class);
     Route::controller(InvoiceActionController::class)->prefix('invoices/{invoice}')->name('invoices.')->group(function (): void {
         Route::patch('details', [AdminInvoiceController::class, 'updateDetails'])->name('details');
@@ -31,18 +32,18 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::post('cancel', 'cancel')->name('cancel');
         Route::post('reopen', 'reopen')->name('reopen');
         Route::post('remind', 'remind')->name('remind');
-        Route::post('payments', 'recordPayment')->name('payments.store');
-        Route::post('mark-paid', 'markPaid')->name('mark-paid');
+        Route::post('payments', 'recordPayment')->middleware(ConfirmPasswordForAction::class)->name('payments.store');
+        Route::post('mark-paid', 'markPaid')->middleware(ConfirmPasswordForAction::class)->name('mark-paid');
         Route::post('capture', 'capture')->name('capture');
         Route::post('cancel-lines', 'cancelLines')->name('cancel-lines');
-        Route::post('credit', 'applyCredit')->name('credit.apply');
-        Route::delete('credit', 'removeCredit')->name('credit.remove');
+        Route::post('credit', 'applyCredit')->middleware(ConfirmPasswordForAction::class)->name('credit.apply');
+        Route::delete('credit', 'removeCredit')->middleware(ConfirmPasswordForAction::class)->name('credit.remove');
         Route::get('pdf', 'pdf')->name('pdf');
     });
 
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
-    Route::post('transactions', [TransactionController::class, 'store'])->name('transactions.store');
-    Route::post('transactions/{transaction}/refund', [TransactionController::class, 'refund'])->name('transactions.refund');
+    Route::post('transactions', [TransactionController::class, 'store'])->middleware(ConfirmPasswordForAction::class)->name('transactions.store');
+    Route::post('transactions/{transaction}/refund', [TransactionController::class, 'refund'])->middleware(ConfirmPasswordForAction::class)->name('transactions.refund');
 
     Route::resource('quotes', AdminQuoteController::class);
     Route::post('quotes/{quote}/deliver', [AdminQuoteController::class, 'deliver'])->name('quotes.deliver');
@@ -50,13 +51,14 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('quotes/{quote}/pdf', [AdminQuoteController::class, 'pdf'])->name('quotes.pdf');
 
     Route::get('credit', [AdminCreditController::class, 'index'])->name('credit.index');
-    Route::post('credit', [AdminCreditController::class, 'store'])->name('credit.store');
+    Route::post('credit', [AdminCreditController::class, 'store'])->middleware(ConfirmPasswordForAction::class)->name('credit.store');
 
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
     Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', '[a-z_]+');
-    Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->name('gateways.update')->where('gateway', '[a-z_]+');
+    Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->middleware(ConfirmPasswordForAction::class)->name('gateways.update')->where('gateway', '[a-z_]+');
 
-    Route::resource('tax-rules', TaxRuleController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule']);
+    Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
+    Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware(ConfirmPasswordForAction::class);
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
     Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
     Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');
