@@ -196,11 +196,21 @@ never shift timezone.
 
 - Use tokens only: `bg-background`, `bg-card`, `bg-muted`, `text-foreground`,
   `text-muted-foreground`, `border` (default colour), `ring-ring`, `text-destructive`.
-- **No hard-coded neutrals** (`gray-*`, `neutral-*`, `white`, `black`). Hue colours
-  (emerald/amber/red/sky) are allowed only in `status-badge`, `money` (ledger), `stat-card`
-  (trend) — if you need one elsewhere, extend those components.
-- Cards: `rounded-xl border bg-card shadow-xs`. Radius and spacing come from the kit; spacing
-  between siblings with `gap-*`, not margins.
+- **Status colours are tokens too:** `success`, `warning`, `danger`, `info`. Each has a
+  solid (`bg-success`, used for dots and fills), a `-subtle` surface (`bg-success-subtle`)
+  and an AA `-text` colour (`text-success-text`). Never use raw `emerald-*`, `red-*` or similar.
+  `StatusBadge`, `StatCard`, `NeedsAttention` and `Money` already use them.
+- **No hard-coded neutrals** (`gray-*`, `neutral-*`, `white`, `black`).
+- **Design directions** live in `resources/css/themes/<id>.css` and are switched with
+  `<html data-theme>` (`lib/themes.ts`, `hooks/use-theme.ts`). Each one defines colours,
+  `chart-1…6` and `chart-grid`, radius (`--radius`, `--badge-radius`), elevation
+  (`elevation-card`/`elevation-hover` utilities), shell (`--shell-*`), density (`--cell-py`,
+  `--table-head-h`, `--card-p`, `--stat-p`, `--page-gap`, `--nav-item-h`, `--root-font-size`) and
+  type (`font-display`, `font-numeric`, `eyebrow` utilities). See `docs/design/DIRECTIONS.md`.
+- Cards: `rounded-xl border bg-card elevation-card`. Use padding/gap tokens (`p-(--stat-p)`,
+  `gap-(--page-gap)`) for dashboard surfaces so density follows the theme.
+- Charts: `TimeSeriesChart` / `Sparkline` (shadcn Chart on Recharts). Series take `--chart-N` in
+  order, so never pick chart colours by hand.
 
 ## 9. Copywriting
 
@@ -226,7 +236,10 @@ never shift timezone.
 | `StatusBadge`, `statusTone()`                  | Every status                                         |
 | `Money`, `formatMoney()`, `toMinor()`          | Every amount                                         |
 | `DateTime`, `formatDate()`, `formatRelative()` | Every date                                           |
-| `StatCard`                                     | Dashboard/detail metrics                             |
+| `StatCard`                                     | Dashboard/detail metrics (optional `sparkline`)      |
+| `NeedsAttention`, `ListWidget`                 | Dashboard `todo` and `list` widgets                  |
+| `TimeSeriesChart`, `Sparkline`                 | Dashboard `chart` widgets, KPI trends                |
+| `Kbd`                                          | Keyboard shortcut hints                              |
 | `SectionCard`, `DescriptionList`               | Detail and form sections                             |
 | `Field`, `FormActions`                         | Form fields, form button rows                        |
 | `EmptyState`                                   | Empty lists/sections                                 |
