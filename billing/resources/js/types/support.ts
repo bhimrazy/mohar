@@ -44,6 +44,7 @@ export type TicketListItem = {
     client?: string | null;
     assignee?: string | null;
     is_pinned?: boolean;
+    is_unverified_requester?: boolean;
     tags?: string[];
     source?: string;
 };

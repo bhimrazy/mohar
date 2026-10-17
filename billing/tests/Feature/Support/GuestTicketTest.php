@@ -44,15 +44,38 @@ test('a guest with a new email opens an open ticket that is reachable only with 
     $this->get(route('support.tickets.show', ['number' => $ticket->number]))->assertNotFound();
 });
 
-test('a guest email matching exactly one contact attaches the ticket to that client', function () {
+test('a guest email matching exactly one contact attaches the ticket to that client, flagged and without the key', function () {
     $client = Client::factory()->create();
     Contact::factory()->for($client)->create(['email' => 'gina@example.com']);
 
-    $this->post(route('support.tickets.store'), guestPayload(Department::factory()->create()))->assertRedirect();
+    $response = $this->post(route('support.tickets.store'), guestPayload(Department::factory()->create()));
 
     $ticket = Ticket::query()->sole();
+    $response->assertRedirect(route('support.tickets.submitted'));
     expect($ticket->client_id)->toBe($client->id)
-        ->and($ticket->contact_id)->not->toBeNull();
+        ->and($ticket->contact_id)->not->toBeNull()
+        ->and($ticket->is_unverified_requester)->toBeTrue()
+        ->and((string) $response->headers->get('Location'))->not->toContain($ticket->access_key);
+
+    $this->get(route('support.tickets.submitted'))
+        ->assertInertia(fn (Assert $page) => $page->component('public/support/tickets/submitted')
+            ->where('number', $ticket->number)
+            ->where('email', 'g•••@example.com')
+            ->missing('key'));
+    $this->get(route('support.tickets.submitted'))->assertRedirect(route('support.tickets.create'));
+});
+
+test('staff see unverified requesters and can mark them verified', function () {
+    Contact::factory()->for(Client::factory())->create(['email' => 'gina@example.com']);
+    $department = Department::factory()->create();
+    $this->post(route('support.tickets.store'), guestPayload($department));
+    $ticket = Ticket::query()->sole();
+    supportStaff([$department]);
+
+    $this->get(route('admin.support.tickets.show', $ticket))->assertInertia(fn (Assert $page) => $page->where('ticket.is_unverified_requester', true));
+    $this->patch(route('admin.support.tickets.update', $ticket), ['is_unverified_requester' => false])->assertRedirect();
+
+    expect($ticket->fresh()->is_unverified_requester)->toBeFalse();
 });
 
 test('an ambiguous guest email stays a guest ticket', function () {

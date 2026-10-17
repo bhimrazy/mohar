@@ -49,6 +49,7 @@ class TicketPresenter
             'client' => $ticket->relationLoaded('client') ? $ticket->client?->display_name : null,
             'assignee' => $ticket->relationLoaded('assignee') ? $ticket->assignee?->name : null,
             'is_pinned' => $ticket->is_pinned,
+            'is_unverified_requester' => $ticket->is_unverified_requester,
             'tags' => $ticket->tags ?? [],
             'source' => $ticket->source->value,
         ];
@@ -82,6 +83,7 @@ class TicketPresenter
             'first_staff_reply_at' => $ticket->first_staff_reply_at?->toIso8601String(),
             'closed_by' => $ticket->closed_by?->value,
             'is_guest' => $ticket->isGuest(),
+            'is_unverified_requester' => $ticket->is_unverified_requester,
             'guest_url' => route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key]),
         ];
     }

@@ -52,6 +52,7 @@ class UpdateTicketRequest extends FormRequest
             'tags.*' => ['string', 'max:40'],
             'is_pinned' => ['sometimes', 'boolean'],
             'prevent_client_close' => ['sometimes', 'boolean'],
+            'is_unverified_requester' => ['sometimes', 'boolean'],
             'service_id' => ['sometimes', 'nullable', 'integer', 'min:1', new ServiceOfClient($this->clientIdAfterUpdate())],
             'client_id' => ['sometimes', 'nullable', 'integer', Rule::exists('clients', 'id')],
             'version' => ['nullable', 'integer'],
@@ -74,7 +75,7 @@ class UpdateTicketRequest extends FormRequest
     }
 
     /**
-     * @return array{status?: string, priority?: string, department_id?: int, assigned_to?: int|null, subject?: string, cc?: list<string>, tags?: list<string>, is_pinned?: bool, prevent_client_close?: bool, service_id?: int|null, client_id?: int|null}
+     * @return array{status?: string, priority?: string, department_id?: int, assigned_to?: int|null, subject?: string, cc?: list<string>, tags?: list<string>, is_pinned?: bool, prevent_client_close?: bool, is_unverified_requester?: bool, service_id?: int|null, client_id?: int|null}
      */
     public function changes(): array
     {
@@ -103,7 +104,7 @@ class UpdateTicketRequest extends FormRequest
             }
         }
 
-        foreach (['is_pinned', 'prevent_client_close'] as $key) {
+        foreach (['is_pinned', 'prevent_client_close', 'is_unverified_requester'] as $key) {
             if (array_key_exists($key, $data)) {
                 $changes[$key] = (bool) $data[$key];
             }

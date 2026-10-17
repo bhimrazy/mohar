@@ -156,6 +156,11 @@ export default function TicketsIndex({
                     <div className="truncate">
                         {ticket.client ?? ticket.requester_name}
                     </div>
+                    {ticket.is_unverified_requester && (
+                        <div className="text-xs text-destructive">
+                            Unverified requester
+                        </div>
+                    )}
                     {!ticket.client_id && (
                         <div className="text-xs text-muted-foreground">
                             Guest · {ticket.requester_email}

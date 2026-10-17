@@ -39,7 +39,7 @@ class UpdateTicket
     ) {}
 
     /**
-     * @param  array{status?: string, priority?: string, department_id?: int, assigned_to?: int|null, subject?: string, cc?: list<string>, tags?: list<string>, is_pinned?: bool, prevent_client_close?: bool, service_id?: int|null, client_id?: int|null}  $changes
+     * @param  array{status?: string, priority?: string, department_id?: int, assigned_to?: int|null, subject?: string, cc?: list<string>, tags?: list<string>, is_pinned?: bool, prevent_client_close?: bool, is_unverified_requester?: bool, service_id?: int|null, client_id?: int|null}  $changes
      *
      * @throws TicketVersionConflict|ValidationException
      */
@@ -109,6 +109,12 @@ class UpdateTicket
                 $locked->save();
             }
 
+            if (array_key_exists('is_unverified_requester', $changes) && $changes['is_unverified_requester'] !== $locked->is_unverified_requester) {
+                $locked->is_unverified_requester = $changes['is_unverified_requester'];
+                $locked->save();
+                $this->recorder->record($locked, $actor, 'requester_verified', null, $locked->is_unverified_requester ? '0' : '1');
+            }
+
             if (array_key_exists('service_id', $changes)) {
                 $locked->service_id = $changes['service_id'];
                 $locked->save();
@@ -118,6 +124,7 @@ class UpdateTicket
                 $client = $changes['client_id'] !== null ? Client::query()->findOrFail($changes['client_id']) : null;
                 $locked->client_id = $client?->id;
                 $locked->contact_id = null;
+                $locked->is_unverified_requester = false;
                 $locked->save();
                 $this->recorder->record($locked, $actor, 'client_linked', null, $client?->display_name);
             }

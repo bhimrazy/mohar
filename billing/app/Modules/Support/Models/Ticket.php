@@ -41,6 +41,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property list<string>|null $tags
  * @property bool $is_pinned
  * @property bool $prevent_client_close
+ * @property bool $is_unverified_requester guest whose email matched a client account; not yet verified
  * @property int|null $merged_into_id
  * @property int $version
  * @property CarbonImmutable|null $first_staff_reply_at
@@ -60,7 +61,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'number', 'access_key', 'department_id', 'client_id', 'user_id', 'contact_id', 'requester_name', 'requester_email',
     'subject', 'status', 'priority', 'source', 'service_id', 'domain_id', 'assigned_to', 'cc', 'tags', 'is_pinned',
-    'prevent_client_close', 'merged_into_id', 'first_staff_reply_at', 'last_reply_at', 'last_client_reply_at',
+    'prevent_client_close', 'is_unverified_requester', 'merged_into_id', 'first_staff_reply_at', 'last_reply_at', 'last_client_reply_at',
     'last_staff_reply_at', 'closed_at', 'closed_by',
 ])]
 class Ticket extends Model
@@ -80,6 +81,7 @@ class Ticket extends Model
         'version' => 1,
         'is_pinned' => false,
         'prevent_client_close' => false,
+        'is_unverified_requester' => false,
         'source' => 'web',
         'priority' => 'medium',
     ];
@@ -95,6 +97,7 @@ class Ticket extends Model
             'tags' => 'array',
             'is_pinned' => 'boolean',
             'prevent_client_close' => 'boolean',
+            'is_unverified_requester' => 'boolean',
             'version' => 'integer',
             'first_staff_reply_at' => 'datetime',
             'last_reply_at' => 'datetime',

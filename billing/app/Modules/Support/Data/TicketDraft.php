@@ -36,5 +36,6 @@ final readonly class TicketDraft
         public array $files = [],
         public ?string $emailMessageId = null,
         public array $notes = [],
+        public bool $unverifiedRequester = false,
     ) {}
 }

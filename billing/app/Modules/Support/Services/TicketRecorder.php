@@ -68,6 +68,7 @@ class TicketRecorder
             'merged_into' => "{$who} merged this ticket into {$event->to}.",
             'message_edited' => "{$who} edited a message.",
             'message_deleted' => "{$who} deleted a message.",
+            'requester_verified' => "{$who} marked the requester as ".($event->to === '1' ? 'verified' : 'unverified').'.',
             'client_linked' => "{$who} linked the ticket to client {$event->to}.",
             'email_imported' => "{$who} imported a blocked email reply.",
             'pinned' => "{$who} ".($event->to === '1' ? 'pinned' : 'unpinned').' the ticket.',

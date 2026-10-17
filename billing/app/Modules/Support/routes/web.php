@@ -83,6 +83,7 @@ Route::middleware('throttle:support-public')->group(function (): void {
     Route::prefix('support/tickets')->name('support.tickets.')->group(function (): void {
         Route::get('create', [GuestTicketController::class, 'create'])->name('create');
         Route::post('/', [GuestTicketController::class, 'store'])->middleware('throttle:support-guest')->name('store');
+        Route::get('submitted', [GuestTicketController::class, 'submitted'])->name('submitted');
         Route::get('{number}', [GuestTicketController::class, 'show'])->name('show');
         Route::post('{number}/replies', [GuestTicketController::class, 'reply'])->middleware('throttle:support-guest')->name('reply');
         Route::post('{number}/close', [GuestTicketController::class, 'close'])->name('close');

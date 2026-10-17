@@ -72,11 +72,37 @@ class GuestTicketController extends Controller
             contactId: $match['contact_id'] ?? null,
             priority: $request->filled('priority') ? TicketPriority::from($request->string('priority')->toString()) : TicketPriority::Medium,
             files: $request->incomingFiles(),
+            unverifiedRequester: $match !== null,
         ));
+
+        if ($match !== null) {
+            // The address belongs to a registered account: whoever submitted the form has not proven they
+            // own it, so the access link is only sent to that mailbox (TicketOpened → Notifications).
+            $request->session()->flash('support.submitted', ['number' => $ticket->number, 'email' => $this->maskEmail($email)]);
+
+            return to_route('support.tickets.submitted');
+        }
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Ticket #:number opened. Keep this page\'s link to follow up.', ['number' => $ticket->number])]);
 
         return to_route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key]);
+    }
+
+    /**
+     * Confirmation after a guest submission whose link was emailed instead of shown.
+     */
+    public function submitted(Request $request): Response|RedirectResponse
+    {
+        $submitted = $request->session()->get('support.submitted');
+
+        if (! is_array($submitted)) {
+            return to_route('support.tickets.create');
+        }
+
+        return Inertia::render('public/support/tickets/submitted', [
+            'number' => (string) ($submitted['number'] ?? ''),
+            'email' => (string) ($submitted['email'] ?? ''),
+        ]);
     }
 
     public function show(Request $request, string $number): Response
@@ -135,6 +161,13 @@ class GuestTicketController extends Controller
         abort_unless($attachment->ticket_id === $ticket->id && $attachment->isCustomerVisible(), 404);
 
         return $responder->respond($attachment, $request->boolean('inline'));
+    }
+
+    private function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+
+        return mb_substr($local, 0, 1).str_repeat('•', max(1, min(6, mb_strlen($local) - 1))).'@'.$domain;
     }
 
     /**

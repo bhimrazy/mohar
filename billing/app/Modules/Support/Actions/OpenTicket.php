@@ -54,6 +54,7 @@ class OpenTicket
                 'cc' => array_values(array_unique(array_map('mb_strtolower', $draft->cc))),
                 'tags' => [],
                 'prevent_client_close' => $department->prevent_client_close,
+                'is_unverified_requester' => $draft->unverifiedRequester,
             ]);
             $this->messages->touchReplyTimestamps($ticket, $draft->author);
             $ticket->save();

@@ -120,6 +120,13 @@ export default function TicketShow(props: Props) {
                     badges={
                         <>
                             <PriorityBadge priority={ticket.priority} />
+                            {ticket.is_unverified_requester && (
+                                <StatusBadge
+                                    status="unverified-requester"
+                                    label="Unverified requester"
+                                    tone="danger"
+                                />
+                            )}
                             {ticket.is_guest && (
                                 <StatusBadge
                                     status="guest"
@@ -478,6 +485,9 @@ function OptionsCard({
     const [preventClose, setPreventClose] = useState(
         Boolean(ticket.prevent_client_close),
     );
+    const [unverified, setUnverified] = useState(
+        Boolean(ticket.is_unverified_requester),
+    );
 
     return (
         <Form
@@ -504,6 +514,11 @@ function OptionsCard({
                         type="hidden"
                         name="is_pinned"
                         value={pinned ? '1' : '0'}
+                    />
+                    <input
+                        type="hidden"
+                        name="is_unverified_requester"
+                        value={unverified ? '1' : '0'}
                     />
                     <input
                         type="hidden"
@@ -587,6 +602,15 @@ function OptionsCard({
                             defaultValue={ticket.service_id}
                             error={errors.service_id}
                         />
+                        {ticket.is_unverified_requester && (
+                            <ToggleRow
+                                id="unverified"
+                                label="Requester not verified"
+                                description="A guest used an email that belongs to this client. Turn off once you confirmed it is them."
+                                checked={unverified}
+                                onChange={setUnverified}
+                            />
+                        )}
                         <ToggleRow
                             id="pinned"
                             label="Pin to top"
