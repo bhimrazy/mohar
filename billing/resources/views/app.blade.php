@@ -5,17 +5,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
         {{-- Inline script to detect system dark mode preference and apply it immediately --}}
-        <script>
+        <script @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>
             (function() {
                 const appearance = '{{ $appearance ?? "system" }}';
-
-                try {
-                    const theme = localStorage.getItem('theme');
-
-                    if (theme && theme !== 'default') {
-                        document.documentElement.dataset.theme = theme;
-                    }
-                } catch (e) {}
 
                 if (appearance === 'system') {
                     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -28,18 +20,27 @@
         </script>
 
         {{-- Inline style to set the HTML background color based on our theme in app.css --}}
-        <style>
+        <style @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>
             html {
-                background-color: oklch(1 0 0);
+                background-color: var(--background, #ffffff);
             }
 
             html.dark {
-                background-color: oklch(0.145 0 0);
+                background-color: var(--background, #12151d);
             }
         </style>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        {{-- Active theme tokens (Themes module, validated + cached); see ThemeStylesheet. --}}
+        @isset($themeStyle)
+            <style id="theme-tokens" @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>{!! $themeStyle !!}</style>
+        @endisset
+
+        @if (! empty($brandFavicon))
+            <link rel="icon" href="{{ $brandFavicon }}">
+        @else
+            <link rel="icon" href="/favicon.ico" sizes="any">
+            <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        @endif
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
         @fonts
