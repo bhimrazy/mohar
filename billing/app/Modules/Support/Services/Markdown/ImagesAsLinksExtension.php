@@ -25,7 +25,9 @@ final class ImagesAsLinksExtension implements ExtensionInterface, NodeRendererIn
 
     public function render(Node $node, ChildNodeRendererInterface $childRenderer): Stringable
     {
-        Image::assertInstanceOf($node);
+        if (! $node instanceof Image) {
+            return new HtmlElement('span', [], $childRenderer->renderNodes($node->children()));
+        }
 
         $label = trim($childRenderer->renderNodes($node->children()));
         $label = $label !== '' ? $label : e($node->getUrl());
