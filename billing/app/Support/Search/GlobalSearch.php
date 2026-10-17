@@ -8,7 +8,7 @@ use Closure;
 /**
  * Admin global search. Modules register providers in bootModule():
  *
- *   app(GlobalSearch::class)->provider('Invoices', fn (string $term) => Invoice::query()->where('number', 'like', "%{$term}%")
+ *   app(GlobalSearch::class)->provider('Invoices', fn (string $term) => Invoice::query()->whereLike('number', "%{$term}%")
  *       ->limit(5)->get()->map(fn ($invoice) => ['title' => $invoice->number, 'subtitle' => ..., 'href' => route(...)])->all(),
  *       'billing.invoices.view');
  */
