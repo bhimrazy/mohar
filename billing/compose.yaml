@@ -27,7 +27,7 @@ services:
         # Production-parity database. The app defaults to SQLite; switch with the DB_* block in .env.example.
         # Credentials come from .env (DB_DATABASE / DB_USERNAME / DB_PASSWORD / DB_PORT), defaulting to billing.
         # Pinned by digest (multi-arch index of postgres:18.6-alpine, pushed 2026-09-21). Keep identical to the
-        # tests-pgsql service image in .github/workflows/ci.yml (the CI lint job fails on drift).
+        # `ci` job's services.postgres image in .github/workflows/ci.yml (CI fails on drift).
         image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         ports:
             - '127.0.0.1:${DB_PORT:-5432}:5432'

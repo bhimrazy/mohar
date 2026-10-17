@@ -67,7 +67,7 @@
         "deps:check": [
             "@composer validate --no-check-publish",
             "@composer audit --locked",
-            "npm audit --audit-level=high",
+            "npm audit --audit-level=high --package-lock-only",
             "node scripts/check-dependency-age.mjs"
         ],
         "ci": [
@@ -80,6 +80,7 @@
             "@php artisan wayfinder:generate --with-form --ansi",
             "npm run check",
             "npm run types:check",
+            "npm test",
             "@types:check",
             "@php vendor/bin/pest --parallel",
             "@test:pgsql",

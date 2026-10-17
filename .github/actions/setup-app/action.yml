@@ -1,23 +1,18 @@
 name: Set up billing app
-description: PHP + Composer dependencies (cached), optional Node + npm dependencies (cached), .env and app key.
+description: >-
+    Install Composer dependencies (cached), optionally npm dependencies and Wayfinder routes, and prepare .env.
+    The caller sets up PHP and Node first and runs the dependency policy checks before this action, so no
+    package code executes before the lockfiles are approved.
 
 inputs:
     node:
-        description: Also install Node and npm dependencies and generate Wayfinder routes.
+        description: Also install npm dependencies and generate Wayfinder routes.
         required: false
         default: 'false'
 
 runs:
     using: composite
     steps:
-        - name: Set up PHP
-          uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
-          with:
-              php-version: '8.4'
-              tools: composer:2.10.3
-              extensions: pdo_sqlite, pdo_pgsql, pgsql
-              coverage: none
-
         - name: Locate Composer cache
           id: composer-cache
           shell: bash
@@ -42,14 +37,6 @@ runs:
           run: |
               cp .env.example .env
               php artisan key:generate --ansi
-
-        - name: Set up Node
-          if: inputs.node == 'true'
-          uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-          with:
-              node-version-file: billing/.nvmrc
-              cache: npm
-              cache-dependency-path: billing/package-lock.json
 
         - name: Install npm dependencies
           if: inputs.node == 'true'
