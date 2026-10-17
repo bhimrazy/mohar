@@ -15,7 +15,6 @@ use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Services\CatalogPriceBook;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Support\Settings;
 use App\Support\Automation\Automation;
 use App\Support\Modules\ModuleServiceProvider;
@@ -39,7 +38,6 @@ class CatalogServiceProvider extends ModuleServiceProvider
     protected function registerModule(): void
     {
         $this->app->singleton(PriceBook::class, CatalogPriceBook::class);
-        $this->app->scoped(ServiceUsage::class);
     }
 
     protected function bootModule(): void

@@ -2,15 +2,15 @@
 
 namespace App\Modules\Catalog\Actions;
 
+use App\Contracts\Services\CatalogUsage;
 use App\Modules\Catalog\Models\Addon;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class DeleteAddon
 {
-    public function __construct(private ServiceUsage $usage, private ActivityLogger $activity) {}
+    public function __construct(private CatalogUsage $usage, private ActivityLogger $activity) {}
 
     /**
      * @throws ValidationException when services use the addon (retire it instead)

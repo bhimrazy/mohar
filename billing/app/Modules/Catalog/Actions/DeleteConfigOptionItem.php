@@ -2,11 +2,11 @@
 
 namespace App\Modules\Catalog\Actions;
 
+use App\Contracts\Services\CatalogUsage;
 use App\Modules\Catalog\Models\ConfigOption;
 use App\Modules\Catalog\Models\ConfigOptionGroup;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Price;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +18,7 @@ use Illuminate\Validation\ValidationException;
  */
 class DeleteConfigOptionItem
 {
-    public function __construct(private ServiceUsage $usage, private ActivityLogger $activity) {}
+    public function __construct(private CatalogUsage $usage, private ActivityLogger $activity) {}
 
     /**
      * @throws ValidationException
@@ -36,7 +36,7 @@ class DeleteConfigOptionItem
         }
 
         foreach ($values as $value) {
-            if ($this->usage->configValueInUse($value->config_option_id, $value->id)) {
+            if ($this->usage->configOptionValueInUse($value->config_option_id, $value->id)) {
                 throw ValidationException::withMessages([
                     'value' => __(':value is selected by existing services, so it can\'t be deleted. Hide it instead.', ['value' => $value->option->name.' › '.$value->label]),
                 ]);

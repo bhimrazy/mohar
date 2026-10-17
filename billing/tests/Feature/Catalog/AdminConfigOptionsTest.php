@@ -7,20 +7,13 @@ use App\Modules\Catalog\Models\ConfigOptionGroup;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Models\Currency;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Catalog\FakeCatalogUsage;
 
 beforeEach(function () {
     Currency::factory()->create();
 });
-
-function valueInUse(bool $inUse): void
-{
-    $usage = Mockery::mock(ServiceUsage::class);
-    $usage->allows('configValueInUse')->andReturn($inUse);
-    app()->instance(ServiceUsage::class, $usage);
-}
 
 it('forbids staff without option permissions', function () {
     actingAsStaff(['catalog.products.*']);
@@ -158,7 +151,7 @@ it('refuses to delete a value selected by services and asks to hide it', functio
     actingAsStaff(['catalog.options.manage']);
     $option = ConfigOption::factory()->create(['name' => 'RAM']);
     $value = ConfigOptionValue::factory()->for($option, 'option')->create(['label' => '4 GB']);
-    valueInUse(true);
+    FakeCatalogUsage::bind(new FakeCatalogUsage(valuesInUse: [[$option->id, $value->id]]));
 
     $this->delete(route('admin.catalog.values.destroy', $value))
         ->assertSessionHasErrors(['value' => 'RAM › 4 GB is selected by existing services, so it can\'t be deleted. Hide it instead.']);
@@ -171,7 +164,7 @@ it('refuses to delete a value selected by services and asks to hide it', functio
 it('deletes unused values with their prices', function () {
     actingAsStaff(['catalog.options.manage']);
     $value = ConfigOptionValue::factory()->withPrice('USD', BillingCycle::Monthly, 500)->create();
-    valueInUse(false);
+    FakeCatalogUsage::bind();
 
     $this->delete(route('admin.catalog.values.destroy', $value))->assertRedirect();
 
@@ -183,7 +176,7 @@ it('deletes a whole option group when nothing is in use', function () {
     actingAsStaff(['catalog.options.manage']);
     $option = ConfigOption::factory()->create();
     ConfigOptionValue::factory()->for($option, 'option')->withPrice('USD', BillingCycle::Monthly, 500)->create();
-    valueInUse(false);
+    FakeCatalogUsage::bind();
 
     $this->delete(route('admin.catalog.option-groups.destroy', $option->config_option_group_id))->assertRedirect(route('admin.catalog.option-groups.index'));
 

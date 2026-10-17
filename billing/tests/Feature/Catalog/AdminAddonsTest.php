@@ -3,9 +3,9 @@
 use App\Enums\BillingCycle;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\Product;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Models\Currency;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Catalog\FakeCatalogUsage;
 
 beforeEach(function () {
     Currency::factory()->create();
@@ -92,9 +92,7 @@ it('renders the addon editor', function () {
 it('refuses to delete an addon used by services', function () {
     actingAsStaff(['catalog.addons.manage']);
     $addon = Addon::factory()->create(['name' => 'Backups']);
-    $usage = Mockery::mock(ServiceUsage::class);
-    $usage->allows('addonInUse')->andReturn(true);
-    app()->instance(ServiceUsage::class, $usage);
+    FakeCatalogUsage::bind(new FakeCatalogUsage(addonsInUse: [$addon->id]));
 
     $this->delete(route('admin.catalog.addons.destroy', $addon))
         ->assertSessionHasErrors(['addon' => 'Backups is used by existing services, so it can\'t be deleted. Retire it instead.']);

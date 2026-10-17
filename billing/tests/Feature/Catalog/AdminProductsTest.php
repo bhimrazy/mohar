@@ -6,10 +6,10 @@ use App\Modules\Catalog\Models\ConfigOptionGroup;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Catalog\Models\ProductGroup;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Catalog\FakeCatalogUsage;
 
 beforeEach(function () {
     Currency::factory()->create();
@@ -38,14 +38,6 @@ function productPayload(ProductGroup $group, array $overrides = []): array
     ];
 }
 
-function fakeServiceUsage(array $activeCounts = [], bool $hasServices = false): void
-{
-    $usage = Mockery::mock(ServiceUsage::class);
-    $usage->allows('activeCountsByProduct')->andReturn($activeCounts);
-    $usage->allows('productHasServices')->andReturn($hasServices);
-    app()->instance(ServiceUsage::class, $usage);
-}
-
 it('forbids listing products without permission', function () {
     actingAsStaff(['catalog.addons.view']);
 
@@ -58,7 +50,7 @@ it('lists products with price, stock, auto-setup and active service counts', fun
         ->withPrice('USD', BillingCycle::Annually, 9900)
         ->withPrice('USD', BillingCycle::Monthly, 999)
         ->create(['is_taxable' => false]);
-    fakeServiceUsage([$product->id => 7]);
+    FakeCatalogUsage::bind(new FakeCatalogUsage(activeCounts: [$product->id => 7]));
 
     $this->get(route('admin.catalog.products.index'))
         ->assertOk()
@@ -170,7 +162,7 @@ it('retires a product and logs it', function () {
 it('renders the edit page with every tab dataset', function () {
     actingAsStaff(['catalog.products.view']);
     $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000, 500)->create();
-    fakeServiceUsage([$product->id => 2]);
+    FakeCatalogUsage::bind(new FakeCatalogUsage(activeCounts: [$product->id => 2]));
 
     $this->get(route('admin.catalog.products.edit', ['product' => $product, 'tab' => 'pricing']))
         ->assertInertia(fn (Assert $page) => $page
@@ -192,7 +184,7 @@ it('renders the edit page with every tab dataset', function () {
 it('refuses to delete a product with services and asks to retire it', function () {
     actingAsStaff(['catalog.products.manage']);
     $product = Product::factory()->create(['name' => 'Pro']);
-    fakeServiceUsage(hasServices: true);
+    FakeCatalogUsage::bind(new FakeCatalogUsage(productsInUse: [$product->id]));
 
     $this->delete(route('admin.catalog.products.destroy', $product))
         ->assertSessionHasErrors(['product' => 'Pro has services, so it can\'t be deleted. Retire it instead.']);

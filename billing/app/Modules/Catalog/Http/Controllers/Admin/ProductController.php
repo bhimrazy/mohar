@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
+use App\Contracts\Services\CatalogUsage;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Catalog\Actions\DeleteProduct;
@@ -21,7 +22,6 @@ use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Catalog\Models\ProductGroup;
-use App\Modules\Catalog\Services\ServiceUsage;
 use App\Modules\Catalog\Support\CyclePicker;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
@@ -35,7 +35,7 @@ class ProductController extends Controller
 {
     public const TABS = ['details', 'pricing', 'options', 'fields', 'addons', 'upgrades', 'provisioning'];
 
-    public function index(Request $request, ServiceUsage $usage): Response
+    public function index(Request $request, CatalogUsage $usage): Response
     {
         $this->authorize('catalog.products.view');
 
@@ -55,7 +55,7 @@ class ProductController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        $counts = $usage->activeCountsByProduct(array_values(array_map('intval', $products->pluck('id')->all())));
+        $counts = $usage->activeServiceCountsByProduct(array_values(array_map('intval', $products->pluck('id')->all())));
 
         return Inertia::render('admin/catalog/products/index', [
             'products' => $products->through(fn (Product $product): array => $this->listRow($product, $currency, $counts[$product->id] ?? 0)),
@@ -90,7 +90,7 @@ class ProductController extends Controller
         return to_route('admin.catalog.products.edit', ['product' => $product, 'tab' => $product->payment_type === PaymentType::Free ? 'details' : 'pricing']);
     }
 
-    public function edit(Request $request, Product $product, ServiceUsage $usage): Response
+    public function edit(Request $request, Product $product, CatalogUsage $usage): Response
     {
         $this->authorize('catalog.products.view');
 
@@ -100,7 +100,7 @@ class ProductController extends Controller
         return Inertia::render('admin/catalog/products/edit', [
             'product' => new ProductResource($product),
             'tab' => $tab,
-            'activeServices' => $usage->activeCountsByProduct([$product->id])[$product->id] ?? 0,
+            'activeServices' => $usage->activeServiceCountsByProduct([$product->id])[$product->id] ?? 0,
             'canManage' => $request->user()?->hasPermission('catalog.products.manage') ?? false,
             'groups' => ProductGroup::query()->ordered()->get(['id', 'name']),
             'enums' => $this->enums(),
