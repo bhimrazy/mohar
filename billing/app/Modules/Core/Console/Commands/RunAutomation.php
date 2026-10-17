@@ -2,19 +2,41 @@
 
 namespace App\Modules\Core\Console\Commands;
 
+use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
 use App\Support\Automation\Automation;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 #[Signature('automation:run {--date= : Run date (Y-m-d), defaults to today} {--only= : Run a single task key} {--force : Re-run tasks that already succeeded for the date}')]
 #[Description('Run the daily billing automation pipeline in stage order (idempotent per task and date)')]
 class RunAutomation extends Command
 {
+    /** Cache lock shared by the scheduled run and manual "run now" requests. */
+    public const LOCK = 'automation:run';
+
     public function handle(Automation $automation): int
+    {
+        $lock = Cache::lock(self::LOCK, 3600);
+
+        if (! $lock->get()) {
+            $this->components->warn('Another automation run is in progress.');
+
+            return self::FAILURE;
+        }
+
+        try {
+            return $this->runPipeline($automation);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function runPipeline(Automation $automation): int
     {
         $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : CarbonImmutable::today();
         $failed = false;
@@ -49,6 +71,8 @@ class RunAutomation extends Command
             $run->duration_ms = (int) ((hrtime(true) - $started) / 1_000_000);
             $run->save();
         }
+
+        AutomationRunCompleted::dispatch($date->toDateString(), $failed);
 
         return $failed ? self::FAILURE : self::SUCCESS;
     }

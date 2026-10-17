@@ -4,10 +4,11 @@ namespace App\Modules\Core;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Services\CatalogUsage;
-use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\Settings;
@@ -47,6 +48,12 @@ class CoreServiceProvider extends ModuleServiceProvider
             ->dailyAt(preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1 ? $time : '03:00')
             ->withoutOverlapping()
             ->onOneServer();
+
+        // Scheduler heartbeat for the dashboard (spec §13).
+        $schedule->call(fn () => $this->app->make(AutomationStatus::class)->beat())
+            ->everyMinute()
+            ->name('core.heartbeat')
+            ->onOneServer();
     }
 
     protected function bootModule(): void
@@ -57,12 +64,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Dashboard', 'client.dashboard', 'LayoutGrid', 'General', 0));
         $navigation->add('client', new NavItem('Account details', 'client.account.edit', 'UserRound', 'Setup', 90));
 
-        $this->app->make(Dashboard::class)->card('admin', 'core.clients', fn (?User $user): array => [
-            'label' => 'Active clients',
-            'value' => Client::query()->where('status', 'active')->count(),
-            'href' => route('admin.clients.index'),
-            'icon' => 'Users',
-        ], 'core.clients.view', 50);
+        $this->app->make(CoreDashboard::class)->register($this->app->make(Dashboard::class));
 
         $this->app->make(PermissionRegistry::class)->register('Clients', [
             'core.clients.view' => 'View clients',

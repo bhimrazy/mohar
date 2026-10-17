@@ -1,4 +1,4 @@
-import { Head, router } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { Play, Timer } from 'lucide-react';
 import { useState } from 'react';
 import AutomationController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/AutomationController';
@@ -14,6 +14,8 @@ import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import type { LaravelPaginated } from '@/types';
 
 type Run = {
@@ -98,13 +100,13 @@ export default function AutomationIndex({
     scheduledAt,
     can,
 }: Props) {
-    const [confirmAll, setConfirmAll] = useState(false);
-    const runTask = (task: string) =>
-        router.visit(AutomationController.run.url(), {
-            method: 'post',
-            data: { task, force: true },
-            preserveScroll: true,
-        });
+    // null = closed; '' = whole pipeline; otherwise one task key.
+    const [running, setRunning] = useState<string | null>(null);
+    const [force, setForce] = useState(false);
+    const runTask = (task: string) => {
+        setForce(false);
+        setRunning(task);
+    };
 
     const taskColumns: DataTableColumn<Task>[] = [
         {
@@ -167,7 +169,7 @@ export default function AutomationIndex({
                     description={`The daily pipeline runs at ${scheduledAt} server time, in stage order. Each task runs once per day.`}
                     actions={
                         can.run && (
-                            <Button onClick={() => setConfirmAll(true)}>
+                            <Button onClick={() => runTask('')}>
                                 <Play />
                                 Run today's pipeline
                             </Button>
@@ -255,14 +257,44 @@ export default function AutomationIndex({
             </Page>
 
             <ConfirmDialog
-                open={confirmAll}
-                onOpenChange={setConfirmAll}
-                title="Run today's automation pipeline?"
-                description="Tasks that already succeeded today are skipped. Failed or pending tasks run now."
-                confirmLabel="Run pipeline"
-                destructive={false}
+                open={running !== null}
+                onOpenChange={(open) => !open && setRunning(null)}
+                title={
+                    running
+                        ? `Run ${running} now?`
+                        : "Run today's automation pipeline?"
+                }
+                description={
+                    <span className="flex flex-col gap-3">
+                        <span>
+                            The run is queued and uses the same lock as the
+                            scheduled run. Tasks that already succeeded today
+                            are skipped unless you re-run them.
+                        </span>
+                        <span className="flex items-start gap-2 text-foreground">
+                            <Checkbox
+                                id="automation-force"
+                                checked={force}
+                                onCheckedChange={(checked) =>
+                                    setForce(checked === true)
+                                }
+                                className="mt-0.5"
+                            />
+                            <Label
+                                htmlFor="automation-force"
+                                className="font-normal"
+                            >
+                                Re-run even if it already succeeded today (may
+                                repeat charges, emails or renewals)
+                            </Label>
+                        </span>
+                    </span>
+                }
+                confirmLabel={running ? 'Run task' : 'Run pipeline'}
+                destructive={force}
                 method="post"
                 action={AutomationController.run()}
+                data={{ ...(running ? { task: running } : {}), force }}
             />
         </>
     );

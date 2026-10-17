@@ -5,17 +5,18 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Support\Automation\Automation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class AutomationController extends Controller
 {
-    public function index(Request $request, Automation $automation): Response
+    public function index(Request $request, Automation $automation, Settings $settings): Response
     {
         $this->authorize('core.automation.view');
 
@@ -34,7 +35,10 @@ class AutomationController extends Controller
             ->paginate(25)
             ->withQueryString();
 
-        $lastRuns = AutomationRun::query()->orderByDesc('run_date')->orderByDesc('id')->get()->unique('task')->keyBy('task');
+        $lastRuns = AutomationRun::query()
+            ->whereIn('id', AutomationRun::query()->selectRaw('max(id)')->groupBy('task'))
+            ->get()
+            ->keyBy('task');
 
         return Inertia::render('admin/platform/automation/index', [
             'runs' => $runs->through(fn (AutomationRun $run): array => [
@@ -52,7 +56,7 @@ class AutomationController extends Controller
                 'last_run_date' => $lastRuns->get($key)?->run_date->toDateString(),
             ], array_keys($automation->ordered()), array_values($automation->ordered())),
             'filters' => $filters,
-            'scheduledAt' => (string) config('core.automation_time'),
+            'scheduledAt' => (string) $settings->get('core.automation_time', config('core.automation_time')),
             'can' => ['run' => $request->user()?->hasPermission('core.automation.run') ?? false],
         ]);
     }
@@ -66,20 +70,15 @@ class AutomationController extends Controller
             'force' => ['boolean'],
         ]);
 
-        $exitCode = Artisan::call('automation:run', array_filter([
-            '--only' => $data['task'] ?? null,
-            '--force' => (bool) ($data['force'] ?? false),
-        ]));
+        $force = (bool) ($data['force'] ?? false);
+        RunAutomationJob::dispatch($data['task'] ?? null, $force);
 
-        $activity->log('Automation run started manually'.(isset($data['task']) ? " ({$data['task']})" : ''), properties: [
+        $activity->log('Automation run requested', properties: [
             'task' => $data['task'] ?? null,
-            'force' => (bool) ($data['force'] ?? false),
-            'exit_code' => $exitCode,
+            'force' => $force,
         ], event: 'automation.run');
 
-        Inertia::flash('toast', $exitCode === 0
-            ? ['type' => 'success', 'message' => __('Automation run finished.')]
-            : ['type' => 'error', 'message' => __('Automation run finished with failures. Check the run log.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Automation run queued. Results appear in the run log.')]);
 
         return to_route('admin.platform.automation.index');
     }

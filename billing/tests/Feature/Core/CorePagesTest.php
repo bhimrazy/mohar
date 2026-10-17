@@ -6,26 +6,52 @@ use App\Modules\Core\Models\Currency;
 use App\Support\Dashboard\Dashboard;
 use Inertia\Testing\AssertableInertia as Assert;
 
-test('the admin dashboard shows permitted cards and recent activity', function () {
+test('the admin dashboard renders permitted widgets, deferred widgets and to-dos', function () {
     Currency::factory()->create();
     Client::factory()->count(2)->create();
-    ActivityLog::query()->create(['description' => 'Something happened']);
-    actingAsStaff(['core.clients.view', 'core.activity_log.view']);
+    $dashboard = app(Dashboard::class);
+    $dashboard->widget('admin', 'test.list', 'list', fn () => ['title' => 'Test list', 'items' => [['title' => 'Row']]], 'core.clients.view', 1, 'md');
+    $dashboard->widget('admin', 'test.hidden', 'list', fn () => ['title' => 'Hidden', 'items' => []], 'billing.invoices.view');
+    $dashboard->widget('admin', 'test.chart', 'chart', fn () => ['title' => 'Chart', 'kind' => 'line', 'series' => []], 'core.clients.view', deferred: true);
+    $dashboard->todo('admin', 'test.todo', fn () => ['label' => 'Things to check', 'count' => 3, 'tone' => 'warning'], 'core.clients.view');
+    $dashboard->todo('admin', 'test.zero', fn () => ['label' => 'Nothing', 'count' => 0]);
+    actingAsStaff(['core.clients.view']);
 
     $this->get(route('admin.dashboard'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/dashboard')
-            ->where('cards.0.key', 'core.clients')
-            ->where('cards.0.value', 2)
-            ->where('activity.0.description', 'Something happened'));
+            ->where('widgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.list')
+                && collect($widgets)->firstWhere('key', 'core.clients')['value'] === 2
+                && ! collect($widgets)->pluck('key')->contains('test.hidden')
+                && ! collect($widgets)->pluck('key')->contains('test.chart'))
+            ->where('todos', [['key' => 'test.todo', 'label' => 'Things to check', 'count' => 3, 'tone' => 'warning']])
+            ->where('automation', null)
+            ->missing('deferredWidgets')
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('deferredWidgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.chart')
+                    && collect($widgets)->pluck('key')->contains('core.clients.signups'))));
 });
 
-test('dashboard cards and activity are hidden without permission', function () {
+test('dashboard widgets and to-dos are hidden without permission', function () {
     actingAsStaff(['support.*']);
 
     $this->get(route('admin.dashboard'))
-        ->assertInertia(fn (Assert $page) => $page->where('cards', [])->where('activity', null));
+        ->assertInertia(fn (Assert $page) => $page->where('widgets', [])->where('todos', []));
+});
+
+test('the client profile shows activity only to staff with the activity-log permission, without IPs', function () {
+    Currency::factory()->create();
+    $client = Client::factory()->create();
+    ActivityLog::query()->create(['description' => 'Something happened', 'client_id' => $client->id, 'ip_address' => '203.0.113.5']);
+
+    actingAsStaff(['core.clients.view']);
+    $this->get(route('admin.clients.show', $client))->assertInertia(fn (Assert $page) => $page->where('activity', null));
+
+    actingAsStaff(['core.clients.view', 'core.activity_log.view']);
+    $this->get(route('admin.clients.show', $client))->assertInertia(fn (Assert $page) => $page
+        ->where('activity.0.description', 'Something happened')
+        ->missing('activity.0.ip_address'));
 });
 
 test('creating and editing clients need separate permissions', function () {
