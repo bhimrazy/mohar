@@ -82,13 +82,17 @@ class CheckoutController extends Controller
         $client = $this->customers->clientFor($request->user(), $request->session());
 
         if ($request->user() !== null && $client === null) {
-            return back()->withErrors(['cart' => $request->user()?->is_staff
+            return back()->withErrors(['cart' => $request->user()->is_staff
                 ? __('Staff accounts cannot check out. Place orders for clients from the admin area.')
                 : __('Your login cannot place orders for this account. Ask the account owner for billing access.')]);
         }
 
         if ($cart === null || $cart->isEmpty()) {
-            $existing = Order::query()->where('idempotency_key', $request->string('idempotency_key')->toString())->first();
+            // A replayed submit after the first one emptied the cart: only show the order to its own account.
+            $existing = $client === null ? null : Order::query()
+                ->where('client_id', $client->id)
+                ->where('idempotency_key', $request->string('idempotency_key')->toString())
+                ->first();
 
             return $existing ? $this->redirectAfterCheckout($request, $existing) : to_route('store.cart');
         }

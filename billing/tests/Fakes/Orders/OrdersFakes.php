@@ -34,11 +34,18 @@ final class OrdersFakes
         public FakeClientServices $clientServices = new FakeClientServices,
     ) {}
 
-    public static function bind(): self
+    /**
+     * @param  bool  $realCatalog  keep the real Catalog PriceBook (integration tests)
+     */
+    public static function bind(bool $realCatalog = false): self
     {
         $fakes = new self;
         $app = app();
-        $app->instance(PriceBook::class, $fakes->catalog);
+
+        if (! $realCatalog) {
+            $app->instance(PriceBook::class, $fakes->catalog);
+        }
+
         $app->instance(DomainPricing::class, $fakes->domains);
         $app->instance(DomainRegistry::class, $fakes->domains);
         $app->instance(ServiceRegistry::class, $fakes->services);

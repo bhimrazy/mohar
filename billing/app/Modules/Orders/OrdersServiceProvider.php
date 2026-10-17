@@ -6,6 +6,7 @@ use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRegistered;
@@ -24,6 +25,7 @@ use App\Modules\Orders\Listeners\TrackItemActivation;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Services\CompanyClock;
+use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Support\Automation\Automation;
@@ -51,6 +53,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     protected function registerModule(): void
     {
         $this->app->singleton(FraudScreening::class);
+        $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
     }
 
     protected function bootModule(): void

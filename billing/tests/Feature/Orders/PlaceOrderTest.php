@@ -1,14 +1,20 @@
 <?php
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Enums\BillableType;
+use App\Enums\BillingCycle;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
+use App\Events\Orders\OrderSetPending;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Actions\SetOrderPending;
+use App\Modules\Orders\Data\CartItem;
+use App\Modules\Orders\Data\CheckoutData;
+use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
@@ -20,7 +26,6 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CheckoutGateways;
-use App\Modules\Orders\Services\OrderPaymentGuard;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
@@ -174,25 +179,132 @@ it('treats a fraud provider error as review when failing open', function () {
 });
 
 it('flags the order and items as fraud on a failed check and refuses payment until set back to pending', function () {
-    Event::fake([OrderMarkedFraud::class]);
+    Event::fake([OrderMarkedFraud::class, OrderPlaced::class, OrderSetPending::class]);
     ordersFraudDecision(FraudDecision::Fail);
     $this->fakes->catalog->addProduct(1);
+    $promotion = Promotion::factory()->percent('10')->create(['max_uses' => 1]);
 
-    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]))->order;
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)], $promotion->code))->order;
     $item = $order->items()->sole();
+    $guard = app(PaymentGuard::class);
 
     expect($order->status)->toBe(OrderStatus::Fraud)
         ->and($item->status)->toBe(OrderItemStatus::Fraud)
-        ->and($this->fakes->services->cancelled[$item->item_id])->toBe('fraud')
+        ->and($this->fakes->services->cancelled)->toBe([])
         ->and($this->fakes->billing->status($order->invoice_id))->toBe('unpaid')
-        ->and(app(OrderPaymentGuard::class)->allowsPayment($order->invoice_id))->toBeFalse();
-    Event::assertDispatched(OrderMarkedFraud::class);
+        ->and($this->fakes->billing->lastDraft()->notify)->toBeFalse()
+        ->and($guard->refusalReason($order->invoice_id))->toBe('This order is under review. Payment will be possible once the review is complete.')
+        ->and($promotion->fresh()->uses)->toBe(1);
+    Event::assertDispatched(OrderMarkedFraud::class, fn (OrderMarkedFraud $event) => $event->orderId === $order->id);
+    Event::assertDispatched(OrderPlaced::class);
 
     app(SetOrderPending::class)->handle($order);
 
-    expect($order->fresh()->status)->toBe(OrderStatus::Pending)
+    expect($order->fresh())->status->toBe(OrderStatus::Pending)->invoice_id->toBe($order->invoice_id)
         ->and($item->fresh()->status)->toBe(OrderItemStatus::Pending)
-        ->and(app(OrderPaymentGuard::class)->allowsPayment($order->invoice_id))->toBeTrue();
+        ->and($guard->refusalReason($order->invoice_id))->toBeNull()
+        ->and($promotion->fresh()->uses)->toBe(1);
+    Event::assertDispatched(OrderSetPending::class, fn (OrderSetPending $event) => $event->orderId === $order->id);
+});
+
+it('refuses payment while the order waits for a manual fraud review', function () {
+    ordersFraudDecision(FraudDecision::Review);
+    $this->fakes->catalog->addProduct(1);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]))->order;
+
+    expect(app(PaymentGuard::class)->refusalReason($order->invoice_id))->toBe('This order is waiting for a security review. You can pay once it has been approved.');
+});
+
+it('allows payment of an ordinary order and of invoices that belong to no order', function () {
+    $this->fakes->catalog->addProduct(1);
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]))->order;
+
+    expect(app(PaymentGuard::class)->refusalReason($order->invoice_id))->toBeNull()
+        ->and(app(PaymentGuard::class)->refusalReason(424242))->toBeNull();
+});
+
+it('holds account credit back until the fraud check allows it', function (FraudDecision $decision, bool $credit) {
+    ordersFraudDecision($decision);
+    $this->fakes->catalog->addProduct(1);
+    $data = OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]);
+
+    app(PlaceOrder::class)->handle(new CheckoutData(...[...get_object_vars($data), 'applyCredit' => true]));
+
+    expect($this->fakes->billing->lastDraft()->applyCredit)->toBe($credit);
+})->with([
+    'pass' => [FraudDecision::Pass, true],
+    'review' => [FraudDecision::Review, false],
+    'fail' => [FraudDecision::Fail, false],
+]);
+
+it('accepts a zero-total order automatically when auto-accept is on', function () {
+    config(['orders.auto_accept_on_payment' => true]);
+    ordersFraudDecision(FraudDecision::Pass);
+    $this->fakes->catalog->addProduct(1, 'Free Plan', ['free' => [0, 0]]);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'free')]))->order;
+
+    expect($order->status)->toBe(OrderStatus::Active);
+});
+
+it('auto-accepts paid orders whose fraud check was skipped', function () {
+    config(['orders.auto_accept_on_payment' => true]);
+    $this->fakes->catalog->addProduct(1, 'Free Plan', ['free' => [0, 0]]);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'free')], skipFraud: true))->order;
+
+    expect($order->fraud_decision)->toBe(FraudDecision::Skipped)->and($order->status)->toBe(OrderStatus::Active);
+});
+
+it('does not auto-accept a paid order that needs a fraud review', function () {
+    config(['orders.auto_accept_on_payment' => true]);
+    ordersFraudDecision(FraudDecision::Review);
+    $this->fakes->catalog->addProduct(1, 'Free Plan', ['free' => [0, 0]]);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'free')]))->order;
+
+    expect($order->status)->toBe(OrderStatus::Pending);
+});
+
+it('refuses a reused idempotency key with a different cart and keeps the first order', function () {
+    $this->fakes->catalog->addProduct(1)->addProduct(2, 'VPS');
+    $first = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)], key: 'key-1'))->order;
+
+    expect(fn () => app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(2)], key: 'key-1')))
+        ->toThrow(ValidationException::class, 'This checkout was already submitted with different details. Reload the page and try again.');
+
+    expect(Order::query()->sole()->id)->toBe($first->id);
+});
+
+it('refuses another account replaying an idempotency key', function () {
+    $this->fakes->catalog->addProduct(1);
+    $item = OrdersFakes::productItem(1);
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [$item], key: 'key-1'));
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout(Client::factory()->create(), [$item], key: 'key-1'));
+})->throws(ValidationException::class, 'This checkout was already submitted with different details.');
+
+it('passes recurring promotion terms to the service for renewals', function () {
+    $this->fakes->catalog->addProduct(1);
+    $promotion = Promotion::factory()->percent('20')->create(['recurring' => true, 'recur_count' => 2]);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)], $promotion->code))->order;
+    $draft = $this->fakes->services->services[$order->items()->sole()->item_id];
+
+    expect($draft->promotionId)->toBe($promotion->id)
+        ->and($draft->promotionCyclesRemaining)->toBe(2)
+        ->and($draft->renewalDiscount)->toBe(200)
+        ->and($draft->recurringAmount)->toBe(1000);
+});
+
+it('passes custom field values to the service keyed by field id', function () {
+    $this->fakes->catalog->addProduct(1);
+    $item = new CartItem(CartItem::newKey(), CartItemKind::Product, productId: 1, cycle: BillingCycle::Monthly, customFields: [7 => 'web01.example.com']);
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [$item]))->order;
+
+    expect($this->fakes->services->services[$order->items()->sole()->item_id]->customFields)->toBe([7 => 'web01.example.com']);
 });
 
 it('stores the remaining promotion cycles of a recurring promotion on the service item', function () {

@@ -9,43 +9,47 @@ use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 use DomainException;
-use Illuminate\Support\Facades\DB;
 
 /**
- * Order and items → fraud. A failed checkout screen keeps the invoice unpaid (payments are refused by
- * OrderPaymentGuard while flagged); staff "Mark fraud" also cancels the invoice.
+ * Order and items → fraud. Flagging is reversible (SetOrderPending), so nothing is released here: the
+ * promotion use stays counted, pending services/domains stay pending (provisioning skips fraud orders) and
+ * payments are refused by the PaymentGuard. Stock is returned by Catalog reacting to OrderMarkedFraud.
+ * A staff "Mark fraud" also cancels the invoice (orders.md §7); a failed checkout screen keeps it.
  */
 class MarkOrderFraud
 {
     public function __construct(
-        private ReleasePendingItems $items,
-        private ReleasePromotionRedemptions $promotions,
         private Invoicer $invoicer,
         private ActivityLogger $activity,
     ) {}
 
+    /**
+     * Staff action: flag, cancel the invoice and notify other modules.
+     */
     public function handle(Order $order, bool $cancelInvoice = true): void
     {
-        if ($order->status === OrderStatus::Fraud || $order->status === OrderStatus::Cancelled) {
-            throw new DomainException(__('Only pending or active orders can be marked as fraud.'));
+        $this->flag($order);
+
+        if ($cancelInvoice && $order->invoice_id !== null) {
+            $this->invoicer->cancel($order->invoice_id);
         }
-
-        DB::transaction(function () use ($order, $cancelInvoice): void {
-            $paid = $order->invoice_id !== null && $this->invoicer->status($order->invoice_id) === 'paid';
-
-            $order->update(['status' => OrderStatus::Fraud]);
-            $this->items->handle($order, OrderItemStatus::Fraud);
-
-            if (! $paid) {
-                $this->promotions->handle($order);
-            }
-
-            if ($cancelInvoice && $order->invoice_id !== null) {
-                $this->invoicer->cancel($order->invoice_id);
-            }
-        });
 
         $this->activity->log("Order {$order->number} marked as fraud", $order, $order->client_id);
         OrderMarkedFraud::dispatch($order->id, $order->client_id);
+    }
+
+    /**
+     * Flag the order and its live items without side effects (the checkout uses this inside its
+     * transaction and dispatches OrderMarkedFraud after commit).
+     */
+    public function flag(Order $order): void
+    {
+        if (! $order->transition([OrderStatus::Pending, OrderStatus::Active], OrderStatus::Fraud)) {
+            throw new DomainException(__('Only pending or active orders can be marked as fraud.'));
+        }
+
+        $order->items()
+            ->whereIn('status', [OrderItemStatus::Pending, OrderItemStatus::Active])
+            ->update(['status' => OrderItemStatus::Fraud]);
     }
 }

@@ -12,6 +12,7 @@ use App\Data\Services\AddonDraft;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillingCycle;
 use App\Events\Core\ClientRegistered;
+use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -44,6 +45,7 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Checkout (orders.md §4): re-quote and validate the cart, then in ONE transaction create the order and
@@ -93,39 +95,29 @@ class PlaceOrder
      */
     private function place(CheckoutData $data): PlacedOrder
     {
-        if ($existing = $this->existing($data->idempotencyKey)) {
+        $fingerprint = $this->fingerprint($data);
+
+        if ($existing = $this->existing($data->idempotencyKey, $fingerprint)) {
             return new PlacedOrder($existing, duplicate: true);
         }
 
         $this->validateGateway($data);
 
-        /** @var array{0: Order, 1: ?User, 2: bool} $result */
-        $result = DB::transaction(fn (): array => $this->persist($data));
+        /** @var array{0: Order, 1: ?User, 2: bool, 3: FraudDecision} $result */
+        $result = DB::transaction(fn (): array => $this->persist($data, $fingerprint));
 
-        [$order, $user, $hadActiveService] = $result;
+        [$order, $user, $hadActiveService, $decision] = $result;
 
         if ($user !== null) {
             ClientRegistered::dispatch($order->client_id, $user->id);
             event(new Registered($user));
         }
 
-        $decision = $this->fraud->screen($order, $data->skipFraud);
-
         if ($decision === FraudDecision::Fail) {
-            $this->markFraud->handle($order, cancelInvoice: false);
+            OrderMarkedFraud::dispatch($order->id, $order->client_id);
         }
 
-        OrderPlaced::dispatch(
-            $order->id,
-            $order->client_id,
-            $order->invoice_id,
-            array_values($order->items()->orderBy('id')->get()->map(fn (OrderItem $item): array => [
-                'type' => $item->item_type->eventType(),
-                'id' => (int) $item->item_id,
-                'product_id' => $item->product_id,
-            ])->all()),
-            $order->referral_code,
-        );
+        $this->announce($order);
 
         if ($decision->allowsAutoProvisioning()) {
             $this->dispatchOnOrderProvisioning($order, $hadActiveService);
@@ -134,9 +126,62 @@ class PlaceOrder
         return new PlacedOrder($order->refresh(), registeredUser: $user);
     }
 
-    private function existing(?string $key): ?Order
+    /**
+     * A replayed key returns its order only for the same checkout (same client and cart); a key reused
+     * with a different cart is refused, so the new cart is never silently dropped.
+     */
+    private function existing(?string $key, string $fingerprint): ?Order
     {
-        return $key === null ? null : Order::query()->where('idempotency_key', $key)->first();
+        $order = $key === null ? null : Order::query()->where('idempotency_key', $key)->first();
+
+        if ($order !== null && $order->idempotency_fingerprint !== $fingerprint) {
+            throw ValidationException::withMessages([
+                'idempotency_key' => __('This checkout was already submitted with different details. Reload the page and try again.'),
+            ]);
+        }
+
+        return $order;
+    }
+
+    /**
+     * Identity of a checkout submission: who orders what, how they pay.
+     */
+    private function fingerprint(CheckoutData $data): string
+    {
+        return hash('sha256', (string) json_encode([
+            $data->client->id ?? mb_strtolower($data->registration['email'] ?? ''),
+            $data->currency,
+            $data->paymentGateway,
+            $data->promotionCode,
+            $data->priceOverrides,
+            array_map(fn ($item): array => [
+                $item->key, $item->kind->value, $item->productId, $item->cycle?->value, $item->configOptions,
+                $item->customFields, $item->domainMode, $item->domain(), $item->addonIds, $item->years,
+            ], $data->items),
+        ]));
+    }
+
+    /**
+     * OrderPlaced for Notifications/Affiliates/Catalog; a failing synchronous listener must not stop
+     * on-order provisioning (the customer would retry and get the duplicate order back).
+     */
+    private function announce(Order $order): void
+    {
+        try {
+            OrderPlaced::dispatch(
+                $order->id,
+                $order->client_id,
+                $order->invoice_id,
+                array_values($order->items()->orderBy('id')->get()->map(fn (OrderItem $item): array => [
+                    'type' => $item->item_type->eventType(),
+                    'id' => (int) $item->item_id,
+                    'product_id' => $item->product_id,
+                ])->all()),
+                $order->referral_code,
+            );
+        } catch (Throwable $exception) {
+            report($exception);
+        }
     }
 
     private function validateGateway(CheckoutData $data): void
@@ -160,9 +205,9 @@ class PlaceOrder
     }
 
     /**
-     * @return array{0: Order, 1: ?User, 2: bool}
+     * @return array{0: Order, 1: ?User, 2: bool, 3: FraudDecision}
      */
-    private function persist(CheckoutData $data): array
+    private function persist(CheckoutData $data, string $fingerprint): array
     {
         $user = null;
         $client = $data->client;
@@ -203,6 +248,7 @@ class PlaceOrder
             'placed_by_staff_id' => $data->staffId,
             'notes' => $data->notes,
             'idempotency_key' => $data->idempotencyKey,
+            'idempotency_fingerprint' => $fingerprint,
         ]);
 
         $billableIds = [];
@@ -215,6 +261,14 @@ class PlaceOrder
             $this->redeem($promotion, $order, $client, $cart, $billableIds);
         }
 
+        // Screen before the invoice exists: a failed check must not mail a "pay now" invoice or spend credit,
+        // and a zero-total invoice (paid on issue) must find the decision when InvoicePaid is handled.
+        $decision = $this->fraud->screen($order, $data->skipFraud);
+
+        if ($decision === FraudDecision::Fail) {
+            $this->markFraud->flag($order);
+        }
+
         $invoice = $this->invoicer->issue(new InvoiceDraft(
             clientId: $client->id,
             currency: $cart->currency,
@@ -223,8 +277,8 @@ class PlaceOrder
             issueDate: $today,
             paymentGateway: $data->paymentGateway,
             notes: __('Order :number', ['number' => $order->number]),
-            notify: $data->notifyInvoice && ! $this->settings->get('orders.suppress_invoice_email_on_order', false),
-            applyCredit: $data->applyCredit,
+            notify: $data->notifyInvoice && $decision !== FraudDecision::Fail && ! $this->settings->get('orders.suppress_invoice_email_on_order', false),
+            applyCredit: $data->applyCredit && $decision->allowsAutoProvisioning(),
         ));
 
         $order->forceFill([
@@ -233,7 +287,7 @@ class PlaceOrder
             'total' => $invoice->total,
         ])->save();
 
-        return [$order, $user, $hadActiveService];
+        return [$order, $user, $hadActiveService, $decision];
     }
 
     private function assertCheckoutable(PricedCart $cart, CheckoutData $data): void
@@ -289,6 +343,8 @@ class PlaceOrder
                     configOptions: $item->item->configOptions,
                     customFields: $item->item->customFields,
                     promotionId: $recurringPromo ? $promotion->id : null,
+                    promotionCyclesRemaining: $recurringPromo && $promotion->recur_count > 0 ? $promotion->recur_count : null,
+                    renewalDiscount: $recurringPromo ? $line->discount : 0,
                 ));
 
                 $serviceItem = $this->orderItem($order, OrderItemType::Service, $serviceId, $line, [
@@ -296,6 +352,7 @@ class PlaceOrder
                     'auto_setup' => $product->autoSetup,
                     'stock_reserved' => $product->stock !== null,
                     'promotion_cycles_remaining' => $recurringPromo && $promotion->recur_count > 0 ? $promotion->recur_count : null,
+                    'renewal_discount' => $recurringPromo ? $line->discount : 0,
                 ]);
                 $ids[$line->key] = $serviceId;
             } elseif ($line->kind === 'addon' && $serviceId !== null && $line->addonId !== null) {
@@ -346,6 +403,8 @@ class PlaceOrder
             'description' => $line->description,
             'domain' => $line->domain,
             'cycle' => $line->kind === 'domain' ? null : $line->cycle,
+            'years' => $line->years,
+            'taxable' => $line->taxable,
             'quantity' => 1,
             'first_amount' => $line->recurring,
             'recurring_amount' => $line->renewal,
@@ -370,6 +429,24 @@ class PlaceOrder
 
         if ($updated === 0) {
             throw ValidationException::withMessages(['promotion_code' => __('Usage limit reached: this promotion code can no longer be used.')]);
+        }
+
+        // The increment holds the promotion row lock until commit, so a concurrent checkout by the same
+        // client waits here and then sees this one's redemption (READ COMMITTED) - re-check the client rules.
+        if ($promotion->once_per_client && PromotionRedemption::query()
+            ->where('promotion_id', $promotion->id)
+            ->where('client_id', $client->id)
+            ->whereNull('released_at')
+            ->exists()) {
+            throw ValidationException::withMessages(['promotion_code' => __('You have already used this promotion code.')]);
+        }
+
+        if ($promotion->new_clients_only && Order::query()
+            ->where('client_id', $client->id)
+            ->whereKeyNot($order->id)
+            ->where('status', '!=', OrderStatus::Cancelled)
+            ->exists()) {
+            throw ValidationException::withMessages(['promotion_code' => __('This promotion code is only for new customers.')]);
         }
 
         foreach ($cart->validLines() as $line) {

@@ -6,6 +6,7 @@ use App\Events\Orders\OrderCancelled;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderItemType;
@@ -130,6 +131,17 @@ describe('accept', function () {
         expect($order->fresh()->status)->toBe(OrderStatus::Pending);
     });
 
+    it('provisions once when two accepts race on the same order', function () {
+        $order = placeAdminTestOrder($this->client);
+        $stale = Order::query()->findOrFail($order->id);
+        $accept = app(AcceptOrder::class);
+
+        $accept->handle($order);
+
+        expect(fn () => $accept->handle($stale))->toThrow(DomainException::class, 'Only pending orders can be accepted.')
+            ->and($this->fakes->services->provisioned)->toHaveCount(1);
+    });
+
     it('refuses to accept a cancelled order', function () {
         actingAsStaff(['orders.orders.accept']);
         $order = Order::factory()->status(OrderStatus::Cancelled)->create();
@@ -171,7 +183,7 @@ describe('cancel', function () {
         actingAsStaff(['orders.orders.cancel']);
         $promotion = Promotion::factory()->percent('10')->create();
         $order = placeAdminTestOrder($this->client, [1], $promotion->code);
-        $this->fakes->billing->statuses[$order->invoice_id] = 'paid';
+        $this->fakes->invoices->withPayments[] = $order->invoice_id;
 
         $this->post(route('admin.orders.cancel', $order));
 
@@ -190,9 +202,40 @@ describe('fraud', function () {
 
         expect($order->fresh()->status)->toBe(OrderStatus::Fraud)
             ->and($item->fresh()->status)->toBe(OrderItemStatus::Fraud)
-            ->and($this->fakes->services->cancelled[$item->item_id])->toBe('fraud')
+            ->and($this->fakes->services->cancelled)->toBe([])
             ->and($this->fakes->billing->status($order->invoice_id))->toBe('cancelled');
         Event::assertDispatched(OrderMarkedFraud::class);
+    });
+
+    it('re-issues the cancelled invoice when a fraud order is set back to pending', function () {
+        actingAsStaff(['orders.orders.mark_fraud']);
+        $promotion = Promotion::factory()->percent('10')->create();
+        $order = placeAdminTestOrder($this->client, [1], $promotion->code);
+        $firstInvoice = $order->invoice_id;
+        $firstLines = $this->fakes->billing->lastDraft()->lines;
+        $this->post(route('admin.orders.fraud', $order));
+
+        $this->post(route('admin.orders.pending', $order))->assertSessionHasNoErrors();
+
+        $order->refresh();
+        expect($order->status)->toBe(OrderStatus::Pending)
+            ->and($order->invoice_id)->not->toBe($firstInvoice)
+            ->and($this->fakes->billing->status($order->invoice_id))->toBe('unpaid')
+            ->and(array_map(fn ($line) => [$line->billableType, $line->billableId, $line->unitAmount], $this->fakes->billing->lastDraft()->lines))
+            ->toBe(array_map(fn ($line) => [$line->billableType, $line->billableId, $line->unitAmount], $firstLines))
+            ->and($promotion->fresh()->uses)->toBe(1);
+    });
+
+    it('cancels the services of a fraud order when it is cancelled', function () {
+        actingAsStaff(['orders.orders.mark_fraud', 'orders.orders.cancel']);
+        $order = placeAdminTestOrder($this->client);
+        $item = $order->items()->sole();
+        $this->post(route('admin.orders.fraud', $order));
+
+        $this->post(route('admin.orders.cancel', $order))->assertSessionHasNoErrors();
+
+        expect($this->fakes->services->cancelled)->toBe([$item->item_id => 'cancelled'])
+            ->and($item->fresh()->status)->toBe(OrderItemStatus::Cancelled);
     });
 
     it('sets a fraud order back to pending', function () {
@@ -215,10 +258,21 @@ describe('fraud', function () {
 });
 
 describe('delete', function () {
+    it('refuses to delete an order whose unpaid invoice already has a partial payment', function () {
+        actingAsStaff(['orders.orders.delete']);
+        $order = placeAdminTestOrder($this->client);
+        $this->fakes->invoices->withPayments[] = $order->invoice_id;
+
+        $this->delete(route('admin.orders.destroy', $order))->assertSessionHasErrors('order');
+
+        expect($this->fakes->billing->status($order->invoice_id))->toBe('unpaid')
+            ->and(Order::query()->whereKey($order->id)->exists())->toBeTrue();
+    });
+
     it('refuses to delete an order whose invoice has payments', function () {
         actingAsStaff(['orders.orders.delete']);
         $order = placeAdminTestOrder($this->client);
-        $this->fakes->billing->statuses[$order->invoice_id] = 'paid';
+        $this->fakes->invoices->withPayments[] = $order->invoice_id;
 
         $this->delete(route('admin.orders.destroy', $order))
             ->assertSessionHasErrors(['order' => 'This order has payments on its invoice and cannot be deleted. Cancel it instead.']);

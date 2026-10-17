@@ -49,6 +49,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $accepted_at
  * @property CarbonImmutable|null $cancelled_at
  * @property string|null $idempotency_key
+ * @property string|null $idempotency_fingerprint
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -57,7 +58,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'number', 'client_id', 'kind', 'status', 'currency', 'subtotal', 'discount_total', 'setup_total', 'tax_total', 'total',
     'promotion_id', 'promotion_code', 'payment_gateway', 'invoice_id', 'ip_address', 'user_agent', 'referral_code',
     'placed_by_user_id', 'placed_by_staff_id', 'notes', 'admin_notes', 'fraud_provider', 'fraud_score', 'fraud_decision',
-    'fraud_payload', 'accepted_at', 'cancelled_at', 'idempotency_key',
+    'fraud_payload', 'accepted_at', 'cancelled_at', 'idempotency_key', 'idempotency_fingerprint',
 ])]
 class Order extends Model
 {
@@ -136,6 +137,27 @@ class Order extends Model
     public function placedByStaff(): BelongsTo
     {
         return $this->belongsTo(User::class, 'placed_by_staff_id');
+    }
+
+    /**
+     * Atomically move the order from one of $from to $to (conditional UPDATE), so concurrent staff actions,
+     * bulk jobs and listeners cannot both act on the same transition. Refreshes the model on success.
+     *
+     * @param  list<OrderStatus>  $from
+     * @param  array<string, mixed>  $attributes  extra columns to set with the transition
+     */
+    public function transition(array $from, OrderStatus $to, array $attributes = []): bool
+    {
+        $claimed = self::query()
+            ->whereKey($this->id)
+            ->whereIn('status', array_map(fn (OrderStatus $status): string => $status->value, $from))
+            ->update(['status' => $to->value, ...$attributes, 'updated_at' => now()]) === 1;
+
+        if ($claimed) {
+            $this->refresh();
+        }
+
+        return $claimed;
     }
 
     public function isPending(): bool

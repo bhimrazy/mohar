@@ -4,6 +4,10 @@ namespace App\Events\Orders;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
+/**
+ * Dispatched after the checkout transaction commits. On a failed fraud check OrderMarkedFraud is dispatched
+ * first (ADR 0008: listeners must not assume an order between the two).
+ */
 final class OrderPlaced
 {
     use Dispatchable;

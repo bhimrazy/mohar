@@ -2,23 +2,34 @@
 
 namespace App\Modules\Orders\Services;
 
+use App\Contracts\Orders\PaymentGuard;
+use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 
 /**
- * Payments are refused while an invoice's order is flagged as fraud (orders.md §7). Billing must ask
- * this before accepting a payment; it becomes a shared contract once the CTO publishes one.
+ * Billing consults this before accepting a payment (ADR 0008). Payments are refused while the invoice's
+ * order is flagged as fraud (orders.md §7) or waits for a manual fraud review. Provider errors that fail
+ * open stay payable.
  */
-class OrderPaymentGuard
+class OrderPaymentGuard implements PaymentGuard
 {
-    /** Customer-facing message shown instead of the pay button. */
-    public const BLOCKED_MESSAGE = 'This order is under review. Payment will be possible once the review is complete.';
-
-    public function allowsPayment(int $invoiceId): bool
+    public function refusalReason(int $invoiceId): ?string
     {
-        return ! Order::query()
-            ->where('invoice_id', $invoiceId)
-            ->where('status', OrderStatus::Fraud)
-            ->exists();
+        $order = Order::query()->where('invoice_id', $invoiceId)->first(['id', 'status', 'fraud_decision']);
+
+        if ($order === null) {
+            return null;
+        }
+
+        if ($order->status === OrderStatus::Fraud) {
+            return __('This order is under review. Payment will be possible once the review is complete.');
+        }
+
+        if ($order->status === OrderStatus::Pending && $order->fraud_decision === FraudDecision::Review) {
+            return __('This order is waiting for a security review. You can pay once it has been approved.');
+        }
+
+        return null;
     }
 }

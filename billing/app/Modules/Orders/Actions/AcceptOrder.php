@@ -15,7 +15,8 @@ use DomainException;
 use Throwable;
 
 /**
- * Staff accept (orders.md §8): order → active, then run "create" for each selected pending item
+ * Staff accept (orders.md §8): order → active (atomic claim, so concurrent accepts provision once), then
+ * run "create" for each selected pending item
  * (default: services whose product auto-sets up on accept, domains once their invoice is paid).
  * Provisioning failures never roll back the acceptance; they are returned for the staff notice.
  */
@@ -50,11 +51,10 @@ class AcceptOrder
      */
     public function handle(Order $order, ?array $runCreate = null, ?string $invoiceStatus = null): array
     {
-        if ($order->status !== OrderStatus::Pending) {
+        if (! $order->transition([OrderStatus::Pending], OrderStatus::Active, ['accepted_at' => now()])) {
             throw new DomainException(__('Only pending orders can be accepted.'));
         }
 
-        $order->update(['status' => OrderStatus::Active, 'accepted_at' => now()]);
         $runCreate ??= $this->defaultSelection($order->load('items'), $invoiceStatus);
 
         $failures = [];

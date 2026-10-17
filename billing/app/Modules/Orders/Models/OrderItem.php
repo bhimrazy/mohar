@@ -25,12 +25,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $description
  * @property string|null $domain
  * @property BillingCycle|null $cycle
+ * @property int $years
  * @property int $quantity
  * @property int $first_amount
  * @property int $recurring_amount
  * @property int $setup_fee
  * @property int $discount_amount
+ * @property bool $taxable
  * @property int|null $promotion_cycles_remaining
+ * @property int $renewal_discount
  * @property string|null $auto_setup
  * @property bool $stock_reserved
  * @property CarbonImmutable|null $created_at
@@ -40,8 +43,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[UseFactory(OrderItemFactory::class)]
 #[Fillable([
     'order_id', 'item_type', 'item_id', 'product_id', 'addon_id', 'parent_id', 'status', 'description', 'domain', 'cycle',
-    'quantity', 'first_amount', 'recurring_amount', 'setup_fee', 'discount_amount', 'promotion_cycles_remaining',
-    'auto_setup', 'stock_reserved',
+    'years', 'quantity', 'first_amount', 'recurring_amount', 'setup_fee', 'discount_amount', 'taxable',
+    'promotion_cycles_remaining', 'renewal_discount', 'auto_setup', 'stock_reserved',
 ])]
 class OrderItem extends Model
 {
@@ -58,6 +61,9 @@ class OrderItem extends Model
             'recurring_amount' => 'integer',
             'setup_fee' => 'integer',
             'discount_amount' => 'integer',
+            'years' => 'integer',
+            'taxable' => 'boolean',
+            'renewal_discount' => 'integer',
             'stock_reserved' => 'boolean',
         ];
     }
