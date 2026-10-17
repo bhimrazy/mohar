@@ -31,6 +31,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     pending: 'warning',
     unpaid: 'warning',
     'pending-transfer': 'warning',
+    'pending-registration': 'warning',
     'customer-reply': 'warning',
     grace: 'warning',
     'partially-paid': 'warning',

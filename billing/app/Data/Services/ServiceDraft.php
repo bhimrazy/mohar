@@ -9,7 +9,9 @@ final readonly class ServiceDraft
 {
     /**
      * @param  array<int, int>  $configOptions
-     * @param  array<string, mixed>  $customFields
+     * @param  array<int, mixed>  $customFields  custom field id => value
+     * @param  int|null  $promotionCyclesRemaining  renewals that still get $renewalDiscount (null = forever when > 0)
+     * @param  int  $renewalDiscount  recurring discount per renewal in minor units (from a recurring promotion)
      */
     public function __construct(
         public int $clientId,
@@ -24,5 +26,7 @@ final readonly class ServiceDraft
         public array $configOptions = [],
         public array $customFields = [],
         public ?int $promotionId = null,
+        public ?int $promotionCyclesRemaining = null,
+        public int $renewalDiscount = 0,
     ) {}
 }

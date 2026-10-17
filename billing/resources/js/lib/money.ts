@@ -54,14 +54,41 @@ export function fromMinor(amountMinor: number): number {
     return amountMinor / MINOR_UNIT_SCALE;
 }
 
-/** "19.99" | "$1,299.10" | 19.99 → minor units. NaN if unparsable. */
-export function toMinor(value: string | number): number {
-    const numeric =
-        typeof value === 'number'
-            ? value
-            : Number(value.replace(/[^0-9.-]/g, ''));
+/**
+ * Strictly parse what a person typed into a money field → minor units, or null when the input is not a
+ * well-formed amount. Accepts an optional leading minus, thousands separators in US (1,299.10) or Indian
+ * (1,00,000.50) grouping, and at most two decimals. Rejects letters, symbols, "12,50", "1.2.3", "1.999".
+ * Never "repair" input: a rejected value must surface as a validation error, not a different price.
+ */
+export function parseMoneyInput(input: string): number | null {
+    const value = input.trim();
 
-    return Math.round(numeric * MINOR_UNIT_SCALE);
+    if (
+        !/^-?(\d+|\d{1,3}(,\d{3})+|\d{1,2}(,\d{2})*,\d{3})(\.\d{1,2})?$/.test(
+            value,
+        )
+    ) {
+        return null;
+    }
+
+    const [whole, fraction = ''] = value.replace(/,/g, '').split('.');
+    const negative = whole.startsWith('-');
+    const minor =
+        Number(whole.replace('-', '')) * MINOR_UNIT_SCALE +
+        Number(fraction.padEnd(2, '0'));
+
+    return Number.isSafeInteger(minor) ? (negative ? -minor : minor) : null;
+}
+
+/** 19.99 → 1999. Strings go through parseMoneyInput(); invalid input yields NaN (callers must check). */
+export function toMinor(value: string | number): number {
+    if (typeof value === 'number') {
+        return Number.isFinite(value)
+            ? Math.round(value * MINOR_UNIT_SCALE)
+            : Number.NaN;
+    }
+
+    return parseMoneyInput(value) ?? Number.NaN;
 }
 
 export type FormatMoneyOptions = {
