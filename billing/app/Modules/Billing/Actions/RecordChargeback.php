@@ -27,17 +27,20 @@ class RecordChargeback
         private BillingSettings $settings,
     ) {}
 
+    public function existing(string $gateway, string $gatewayTxnId): ?Transaction
+    {
+        return Transaction::query()->where('gateway', $gateway)->where('gateway_txn_id', $gatewayTxnId)->where('type', TransactionType::Chargeback)->first();
+    }
+
     /**
      * @param  array<string, mixed>  $raw
      */
-    public function handle(Transaction $payment, int $amount, string $gatewayTxnId, array $raw = []): Transaction
+    public function handle(Transaction $payment, int $amount, ?string $gatewayTxnId, array $raw = []): Transaction
     {
         return DB::transaction(function () use ($payment, $amount, $gatewayTxnId, $raw): Transaction {
             $payment = Transaction::query()->lockForUpdate()->findOrFail($payment->id);
 
-            $existing = Transaction::query()->where('gateway', $payment->gateway)->where('gateway_txn_id', $gatewayTxnId)->where('type', TransactionType::Chargeback)->first();
-
-            if ($existing !== null) {
+            if ($gatewayTxnId !== null && ($existing = $this->existing($payment->gateway, $gatewayTxnId)) !== null) {
                 return $existing;
             }
 
@@ -46,6 +49,7 @@ class RecordChargeback
             $chargeback = Transaction::query()->create([
                 'client_id' => $payment->client_id,
                 'invoice_id' => $payment->invoice_id,
+                'payment_batch_id' => $payment->payment_batch_id,
                 'gateway' => $payment->gateway,
                 'gateway_txn_id' => $gatewayTxnId,
                 'type' => TransactionType::Chargeback,

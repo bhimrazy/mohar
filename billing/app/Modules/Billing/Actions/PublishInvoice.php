@@ -42,6 +42,10 @@ class PublishInvoice
 
             $this->calculator->recalculate($invoice);
 
+            if ($invoice->total < 0) {
+                throw new BillingException(__('An invoice total can\'t be negative. Issue account credit or a credit note instead.'));
+            }
+
             $today = CarbonImmutable::today();
             $invoice->issue_date = $issueDate ?? $today;
             $invoice->due_date ??= $today->addDays($this->settings->int('invoice_days_before_due', 14));

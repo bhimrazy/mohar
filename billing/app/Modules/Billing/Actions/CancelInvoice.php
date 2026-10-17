@@ -5,11 +5,14 @@ namespace App\Modules\Billing\Actions;
 use App\Events\Billing\InvoiceCancelled;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -18,7 +21,10 @@ use Illuminate\Support\Facades\DB;
  */
 class CancelInvoice
 {
-    public function __construct(private InvoiceSettlement $settlement) {}
+    public function __construct(
+        private InvoiceSettlement $settlement,
+        private CreditLedgerService $credit,
+    ) {}
 
     /**
      * @param  bool  $strict  throw instead of silently ignoring invoices that can't be cancelled
@@ -34,6 +40,15 @@ class CancelInvoice
                 }
 
                 return $invoice;
+            }
+
+            // Account credit applied to the invoice goes back to the client's balance first; payments stay on the
+            // invoice (staff refund them per transaction).
+            if ($invoice->credit_applied > 0) {
+                $returned = $invoice->credit_applied;
+                $invoice->credit_applied = 0;
+                $this->settlement->adjust($invoice, AdjustmentKind::Debit, AdjustmentReason::CreditRemoved, $returned, __('Account credit returned on cancellation'), userId: $userId);
+                $this->credit->post($invoice->client_id, Money::of($returned, $invoice->currency), CreditReason::CreditRemoved, $invoice->id, description: __('Returned from cancelled invoice :number', ['number' => $invoice->displayNumber()]), staffId: $userId);
             }
 
             if ($invoice->status !== InvoiceStatus::Draft && $invoice->balance > 0) {

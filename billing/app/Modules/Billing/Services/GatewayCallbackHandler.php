@@ -16,6 +16,7 @@ use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use Illuminate\Http\Request;
 
@@ -34,6 +35,7 @@ class GatewayCallbackHandler
         private ApplyPayment $applyPayment,
         private RefundTransaction $refund,
         private RecordChargeback $chargeback,
+        private GatewayAmounts $amounts,
     ) {}
 
     /**
@@ -76,7 +78,9 @@ class GatewayCallbackHandler
                 CallbackEvent::PAYMENT_SUCCEEDED => $this->payment($gatewayKey, $event),
                 CallbackEvent::PAYMENT_FAILED => $this->failure($gatewayKey, $event),
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
-                default => $this->reversed($gatewayKey, $event),
+                CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
+                // Unknown event types are acknowledged and ignored, never booked as money movements.
+                default => $this->outcome($gatewayKey, 200, 'ignored event type', ['type' => $event->type, 'txn_id' => $event->txnId], $event->invoiceId),
             };
         } catch (BillingException $exception) {
             return $this->outcome($gatewayKey, 422, $exception->getMessage(), $event->raw, $event->invoiceId);
@@ -154,16 +158,38 @@ class GatewayCallbackHandler
      */
     private function refunded(string $gatewayKey, CallbackEvent $event): array
     {
-        $parent = $this->parent($gatewayKey, $event);
+        if ($this->refund->existing($gatewayKey, $event->txnId) !== null) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
+        }
 
-        if ($parent === null) {
+        $parents = $this->parents($gatewayKey, $event);
+
+        if ($parents === []) {
             // Out of order (refund before payment): reject so the provider retries later.
             return $this->outcome($gatewayKey, 409, 'parent transaction not found', $event->raw, $event->invoiceId);
         }
 
-        $this->refund->handle($parent, min($event->amount, $parent->refundable_remaining), RefundMode::RecordOnly, gatewayTxnId: $event->txnId, reason: __('Refunded at the gateway'));
+        $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
+        $txnId = $event->txnId;
 
-        return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parent->invoice_id);
+        foreach ($parents as $parent) {
+            $portion = min($remaining, $parent->refundable_remaining);
+
+            if ($portion <= 0) {
+                continue;
+            }
+
+            $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
+            $remaining -= $portion;
+            $txnId = null;
+        }
+
+        if ($remaining > 0) {
+            // E.g. a refund of money that went to account credit: acknowledge (no retries) and leave it to staff.
+            return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $parents[0]->invoice_id);
+        }
+
+        return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
     }
 
     /**
@@ -171,24 +197,54 @@ class GatewayCallbackHandler
      */
     private function reversed(string $gatewayKey, CallbackEvent $event): array
     {
-        $parent = $this->parent($gatewayKey, $event);
+        if ($this->chargeback->existing($gatewayKey, $event->txnId) !== null) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
+        }
 
-        if ($parent === null) {
+        $parents = $this->parents($gatewayKey, $event);
+
+        if ($parents === []) {
             return $this->outcome($gatewayKey, 409, 'parent transaction not found', $event->raw, $event->invoiceId);
         }
 
-        $this->chargeback->handle($parent, $event->amount, $event->txnId, GatewayLogger::redact($event->raw));
+        $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
 
-        return $this->outcome($gatewayKey, 200, 'chargeback recorded', $event->raw, $parent->invoice_id);
+        foreach ($parents as $index => $parent) {
+            $portion = min($remaining, $parent->refundable_remaining);
+
+            if ($portion <= 0 && $index > 0) {
+                continue;
+            }
+
+            // Only the first row carries the provider's dispute id (unique); further allocations reference the batch.
+            $this->chargeback->handle($parent, $portion, $index === 0 ? $event->txnId : null, GatewayLogger::redact($event->raw));
+            $remaining -= $portion;
+        }
+
+        return $this->outcome($gatewayKey, 200, 'chargeback recorded', $event->raw, $parents[0]->invoice_id);
     }
 
-    private function parent(string $gatewayKey, CallbackEvent $event): ?Transaction
+    /**
+     * The payment(s) a provider charge id refers to: one transaction, or the allocations of a combined charge.
+     *
+     * @return list<Transaction>
+     */
+    private function parents(string $gatewayKey, CallbackEvent $event): array
     {
-        return $event->parentTxnId === null ? null : Transaction::query()
-            ->where('gateway', $gatewayKey)
-            ->where('gateway_txn_id', $event->parentTxnId)
-            ->where('type', TransactionType::Payment)
-            ->first();
+        if ($event->parentTxnId === null) {
+            return [];
+        }
+
+        $single = Transaction::query()->where('gateway', $gatewayKey)->where('gateway_txn_id', $event->parentTxnId)->where('type', TransactionType::Payment)->first();
+
+        if ($single !== null) {
+            return [$single];
+        }
+
+        $batch = PaymentBatch::query()->where('gateway', $gatewayKey)->where('gateway_txn_id', $event->parentTxnId)->first();
+
+        return $batch === null ? [] : array_values(Transaction::query()->where('payment_batch_id', $batch->id)
+            ->where('type', TransactionType::Payment)->where('amount_in', '>', 0)->orderBy('id')->get()->all());
     }
 
     /**
