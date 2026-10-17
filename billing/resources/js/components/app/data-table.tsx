@@ -101,7 +101,7 @@ export function DataTable<T>({
             data-slot="data-table"
             aria-busy={processing || undefined}
             className={cn(
-                'overflow-hidden rounded-xl border bg-card text-card-foreground shadow-xs transition-opacity',
+                'overflow-hidden rounded-xl border bg-card text-card-foreground elevation-card transition-opacity',
                 processing && 'opacity-60',
                 className,
             )}
@@ -122,7 +122,7 @@ export function DataTable<T>({
                                         key={column.key}
                                         scope="col"
                                         className={cn(
-                                            'h-9 px-3 text-xs font-medium text-muted-foreground first:pl-4 last:pr-4',
+                                            'h-(--table-head-h) px-3 eyebrow text-muted-foreground first:pl-4 last:pr-4',
                                             alignClasses[
                                                 column.align ?? 'left'
                                             ],
@@ -160,7 +160,7 @@ export function DataTable<T>({
                                             <TableCell
                                                 key={column.key}
                                                 className={cn(
-                                                    'px-3 py-2.5 first:pl-4 last:pr-4',
+                                                    'px-3 py-(--cell-py) first:pl-4 last:pr-4',
                                                     alignClasses[
                                                         column.align ?? 'left'
                                                     ],
@@ -259,7 +259,7 @@ export function DataTableSkeleton({
             aria-busy="true"
             aria-label="Loading"
             className={cn(
-                'overflow-hidden rounded-xl border bg-card shadow-xs',
+                'overflow-hidden rounded-xl border bg-card elevation-card',
                 className,
             )}
         >

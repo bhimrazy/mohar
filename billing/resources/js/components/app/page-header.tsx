@@ -17,6 +17,8 @@ type PageHeaderProps = {
     /** Buttons. Put the primary action last (right-most). */
     actions?: ReactNode;
     back?: { href: Href; label: string };
+    /** Small line above the title, e.g. the date on a dashboard. */
+    eyebrow?: ReactNode;
     className?: string;
 };
 
@@ -28,6 +30,7 @@ export function PageHeader({
     meta,
     actions,
     back,
+    eyebrow,
     className,
 }: PageHeaderProps) {
     return (
@@ -47,8 +50,13 @@ export function PageHeader({
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 space-y-1">
+                    {eyebrow && (
+                        <div className="text-sm text-muted-foreground">
+                            {eyebrow}
+                        </div>
+                    )}
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <h1 className="min-w-0 truncate text-2xl font-semibold tracking-tight">
+                        <h1 className="min-w-0 truncate font-display text-2xl">
                             {title}
                         </h1>
                         {status && <StatusBadge status={status} />}
