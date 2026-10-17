@@ -59,6 +59,7 @@ type ThemeRow = ThemeOption & {
 type AppearanceProps = {
     settings: {
         company_name: string;
+        tagline: string;
         default_admin: string;
         default_client: string;
         default_public: string;
@@ -68,6 +69,7 @@ type AppearanceProps = {
     themes: ThemeRow[];
     densities: string[];
     brand: Brand;
+    uploads: Record<'logo-light' | 'logo-dark' | 'mark' | 'favicon', boolean>;
 };
 
 const AREAS = [
@@ -242,12 +244,14 @@ function BrandRow({
     title,
     hint,
     url,
+    uploaded,
     dark = false,
 }: {
-    kind: 'logo-light' | 'logo-dark' | 'favicon';
+    kind: 'logo-light' | 'logo-dark' | 'mark' | 'favicon';
     title: string;
     hint: string;
     url: string | null;
+    uploaded: boolean;
     dark?: boolean;
 }) {
     const input = useRef<HTMLInputElement>(null);
@@ -304,7 +308,14 @@ function BrandRow({
                 )}
             </div>
             <div className="min-w-0 flex-1">
-                <div className="font-medium">{title}</div>
+                <div className="flex items-center gap-2 font-medium">
+                    {title}
+                    {!uploaded && (
+                        <span className="rounded-badge border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">
+                            Default
+                        </span>
+                    )}
+                </div>
                 <div className="text-sm text-muted-foreground">{hint}</div>
                 <InputError message={error} className="mt-1" />
             </div>
@@ -328,9 +339,9 @@ function BrandRow({
                     onClick={() => input.current?.click()}
                 >
                     {uploading ? <Spinner /> : <Upload />}
-                    {url ? 'Replace' : 'Upload'}
+                    {uploaded ? 'Replace' : 'Upload'}
                 </Button>
-                {url && (
+                {uploaded && (
                     <ConfirmDialog
                         trigger={
                             <Button variant="ghost" size="sm">
@@ -338,7 +349,7 @@ function BrandRow({
                             </Button>
                         }
                         title={`Remove the ${title.toLowerCase()}?`}
-                        description="The default mark is shown instead."
+                        description="The default image is used instead."
                         confirmLabel="Remove image"
                         action={BrandAssetController.destroy(kind)}
                     />
@@ -348,11 +359,65 @@ function BrandRow({
     );
 }
 
+function BrandPreview({ brand }: { brand: Brand }) {
+    const logo = (dark: boolean) => {
+        const src = dark
+            ? (brand.logoDark ?? brand.logoLight)
+            : brand.logoLight;
+
+        return src ? (
+            <img
+                src={src}
+                alt={brand.name}
+                className="h-7 w-auto max-w-44 object-contain"
+            />
+        ) : (
+            <span className="flex items-center gap-2">
+                <img src={brand.mark} alt="" className="size-7 rounded-md" />
+                <span className="font-display text-base">{brand.name}</span>
+            </span>
+        );
+    };
+
+    return (
+        <div className="space-y-3" aria-label="Brand preview">
+            <div className="eyebrow text-muted-foreground">Preview</div>
+            {[false, true].map((dark) => (
+                <div
+                    key={String(dark)}
+                    className={cn(
+                        'flex flex-col items-center gap-1.5 rounded-xl border px-4 py-6 text-center',
+                        dark
+                            ? 'bg-[#12151d] text-[#e3e6ee]'
+                            : 'bg-white text-[#1a2133]',
+                    )}
+                >
+                    {logo(dark)}
+                    {brand.tagline && (
+                        <span
+                            className={cn(
+                                'text-xs',
+                                dark ? 'text-[#9aa3b5]' : 'text-[#5b6478]',
+                            )}
+                        >
+                            {brand.tagline}
+                        </span>
+                    )}
+                    <span className={cn('mt-2 text-sm font-medium')}>
+                        Log in to your account
+                    </span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 export default function AppearanceSettings({
     settings,
     themes,
     densities,
     brand,
+    uploads,
 }: AppearanceProps) {
     const [values, setValues] = useState(settings);
     const [renaming, setRenaming] = useState<ThemeRow | null>(null);
@@ -566,28 +631,50 @@ export default function AppearanceSettings({
                             </SectionCard>
 
                             <SectionCard
-                                title="Company"
-                                description="Shown in the sidebar, emails and browser titles."
+                                title="Brand"
+                                description="Shown in the sidebar, sign-in pages, browser titles, emails and invoices."
                             >
-                                <Field
-                                    htmlFor="company_name"
-                                    label="Display name"
-                                    error={errors.company_name}
-                                >
-                                    <Input
-                                        id="company_name"
-                                        name="company_name"
-                                        value={values.company_name}
-                                        maxLength={100}
-                                        onChange={(event) =>
-                                            setValues({
-                                                ...values,
-                                                company_name:
-                                                    event.target.value,
-                                            })
-                                        }
-                                    />
-                                </Field>
+                                <div className="grid gap-5">
+                                    <Field
+                                        htmlFor="company_name"
+                                        label="Product or company name"
+                                        error={errors.company_name}
+                                    >
+                                        <Input
+                                            id="company_name"
+                                            name="company_name"
+                                            value={values.company_name}
+                                            maxLength={100}
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    company_name:
+                                                        event.target.value,
+                                                })
+                                            }
+                                        />
+                                    </Field>
+                                    <Field
+                                        htmlFor="tagline"
+                                        label="Tagline"
+                                        optional
+                                        hint="Under the logo on sign-in pages and in email footers."
+                                        error={errors.tagline}
+                                    >
+                                        <Input
+                                            id="tagline"
+                                            name="tagline"
+                                            value={values.tagline}
+                                            maxLength={120}
+                                            onChange={(event) =>
+                                                setValues({
+                                                    ...values,
+                                                    tagline: event.target.value,
+                                                })
+                                            }
+                                        />
+                                    </Field>
+                                </div>
                             </SectionCard>
                         </>
                     )}
@@ -613,28 +700,56 @@ export default function AppearanceSettings({
 
                 <SectionCard
                     title="Brand assets"
-                    description="PNG, JPG or WebP up to 512 KB (favicon: PNG or ICO up to 128 KB). SVG is not accepted."
+                    description="PNG, JPG or WebP (logos up to 512 KB, mark up to 256 KB; favicon PNG or ICO up to 128 KB). SVG uploads are not accepted."
+                    actions={
+                        brand.customised ? (
+                            <ConfirmDialog
+                                trigger={
+                                    <Button variant="outline" size="sm">
+                                        Reset to default
+                                    </Button>
+                                }
+                                title="Reset the brand to the default?"
+                                description="Removes uploaded logos, mark and favicon and restores the default name and tagline."
+                                confirmLabel="Reset brand"
+                                action={BrandAssetController.reset()}
+                            />
+                        ) : undefined
+                    }
                 >
-                    <div className="divide-y">
-                        <BrandRow
-                            kind="logo-light"
-                            title="Logo for light backgrounds"
-                            hint="Up to 2000×1000 px; shown at 28 px high."
-                            url={brand.logoLight}
-                        />
-                        <BrandRow
-                            kind="logo-dark"
-                            title="Logo for dark backgrounds"
-                            hint="Optional; falls back to the light logo."
-                            url={brand.logoDark}
-                            dark
-                        />
-                        <BrandRow
-                            kind="favicon"
-                            title="Favicon"
-                            hint="Square, up to 512×512 px."
-                            url={brand.favicon}
-                        />
+                    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+                        <div className="divide-y">
+                            <BrandRow
+                                kind="logo-light"
+                                title="Logo for light backgrounds"
+                                hint="Up to 2000×1000 px; shown about 28 px high."
+                                url={brand.logoLight}
+                                uploaded={uploads['logo-light']}
+                            />
+                            <BrandRow
+                                kind="logo-dark"
+                                title="Logo for dark backgrounds"
+                                hint="Optional; falls back to the light logo."
+                                url={brand.logoDark}
+                                uploaded={uploads['logo-dark']}
+                                dark
+                            />
+                            <BrandRow
+                                kind="mark"
+                                title="Mark"
+                                hint="Square icon for the collapsed sidebar and app tiles, 32–1024 px."
+                                url={brand.mark}
+                                uploaded={uploads.mark}
+                            />
+                            <BrandRow
+                                kind="favicon"
+                                title="Favicon"
+                                hint="Square, up to 512×512 px."
+                                url={brand.favicon}
+                                uploaded={uploads.favicon}
+                            />
+                        </div>
+                        <BrandPreview brand={brand} />
                     </div>
                 </SectionCard>
 

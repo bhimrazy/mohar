@@ -23,9 +23,13 @@ export type AuthLayoutProps = {
 /** Company branding (Themes module → BrandAssets::brand()). */
 export type Brand = {
     name: string;
+    tagline: string;
+    /** Wordmark; null when a renamed brand has no uploaded logo (show mark + name). */
     logoLight: string | null;
     logoDark: string | null;
-    favicon: string | null;
+    mark: string;
+    favicon: string;
+    customised: boolean;
 };
 
 export type ThemeOption = {
