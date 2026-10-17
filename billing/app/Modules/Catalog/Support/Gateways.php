@@ -6,7 +6,7 @@ namespace App\Modules\Catalog\Support;
  * Payment-gateway restrictions of product groups. `null` means "every gateway".
  *
  * conflicts() drives the admin warning; intersection() is staged for the shared kernel — Orders currently
- * intersects ProductSummary::\$allowedGateways itself.
+ * intersects ProductSummary::$allowedGateways itself.
  */
 final class Gateways
 {
