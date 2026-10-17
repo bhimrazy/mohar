@@ -15,7 +15,8 @@ interface PriceBook
     public function product(int $productId): ?ProductSummary;
 
     /**
-     * Price of a product with config options; null if not offered in that cycle/currency.
+     * Price of a product with config options; null if not offered in that cycle/currency, the product is
+     * retired/unknown, or a selected option/value is invalid. MUST NOT throw for invalid selections.
      */
     public function quote(ProductSelection $selection): ?PriceQuote;
 
@@ -55,6 +56,8 @@ interface PriceBook
     /**
      * Custom fields a client fills in when ordering the product.
      *
+     * Extra keys MAY be present: 'regex' (?string, PCRE incl. delimiters), 'admin_only' (bool), 'description' (?string).
+     *
      * @return list<array{id: int, name: string, type: string, required: bool, options: list<string>}>
      */
     public function customFieldsFor(int $productId): array;
@@ -63,4 +66,12 @@ interface PriceBook
      * Decrement stock by one if stock control is enabled. Returns false when out of stock.
      */
     public function reserveStock(int $productId): bool;
+
+    /**
+     * Return previously reserved stock (order cancelled / fraud). Idempotency is the caller's job:
+     * call it once per reservation. No-op when stock control is disabled.
+     */
+    public function releaseStock(int $productId, int $quantity = 1): void;
+
+    public function productBySlug(string $slug): ?ProductSummary;
 }

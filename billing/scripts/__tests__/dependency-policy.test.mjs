@@ -1,0 +1,160 @@
+import { describe, expect, it } from 'vitest';
+import {
+    composerDistProblems,
+    digestBelongsToTag,
+    isExcepted,
+    npmEntryProblems,
+    npmIntegrityProblem,
+    npmTarballUrl,
+    parseSecurityExceptions,
+} from '../dependency-policy.mjs';
+
+const POSTGRES_INDEX =
+    'sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873';
+const POSTGRES_AMD64 =
+    'sha256:d8703cd7fba306b9fec9268ecedfa8a966846c053036a60e3635791957eb2f66';
+const RUSTFS_INDEX =
+    'sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff';
+
+describe('digestBelongsToTag', () => {
+    const tag = {
+        indexDigest: POSTGRES_INDEX,
+        platformDigests: [POSTGRES_AMD64],
+    };
+
+    it('accepts the multi-arch index digest and per-platform digests', () => {
+        expect(digestBelongsToTag(POSTGRES_INDEX, tag)).toBe(true);
+        expect(digestBelongsToTag(POSTGRES_AMD64, tag)).toBe(true);
+    });
+
+    it('rejects a digest of another image pinned under the tag', () => {
+        expect(digestBelongsToTag(RUSTFS_INDEX, tag)).toBe(false);
+    });
+
+    it('rejects malformed digests and unknown tags', () => {
+        expect(digestBelongsToTag('sha256:abc', tag)).toBe(false);
+        expect(digestBelongsToTag(POSTGRES_INDEX, { indexDigest: null })).toBe(
+            false,
+        );
+    });
+});
+
+describe('npmEntryProblems', () => {
+    const clsx = {
+        name: 'clsx',
+        version: '2.1.1',
+        resolved: 'https://registry.npmjs.org/clsx/-/clsx-2.1.1.tgz',
+        integrity: 'sha512-abc',
+    };
+
+    it('accepts the canonical registry tarball, including scoped and aliased packages', () => {
+        expect(npmEntryProblems(clsx)).toEqual([]);
+        expect(npmTarballUrl('@voidzero-dev/vite-plus-core', '0.3.3')).toBe(
+            'https://registry.npmjs.org/@voidzero-dev/vite-plus-core/-/vite-plus-core-0.3.3.tgz',
+        );
+    });
+
+    it('rejects a tarball of another package or version', () => {
+        expect(
+            npmEntryProblems({
+                ...clsx,
+                resolved: 'https://registry.npmjs.org/zod/-/zod-4.6.7.tgz',
+            }),
+        ).toHaveLength(1);
+        expect(
+            npmEntryProblems({
+                ...clsx,
+                resolved: 'https://registry.npmjs.org/clsx/-/clsx-2.1.2.tgz',
+            }),
+        ).toHaveLength(1);
+    });
+
+    it('rejects other hosts and entries without resolved or integrity', () => {
+        expect(
+            npmEntryProblems({
+                ...clsx,
+                resolved: 'https://evil.example/clsx/-/clsx-2.1.1.tgz',
+            }),
+        ).toHaveLength(1);
+        expect(
+            npmEntryProblems({ name: 'clsx', version: '2.1.1' }),
+        ).toHaveLength(2);
+    });
+});
+
+describe('npmIntegrityProblem', () => {
+    it('requires the lock integrity to equal the registry integrity', () => {
+        expect(
+            npmIntegrityProblem('sha512-a', { integrity: 'sha512-a' }),
+        ).toBeNull();
+        expect(
+            npmIntegrityProblem('sha512-b', { integrity: 'sha512-a' }),
+        ).toContain('does not match');
+        expect(npmIntegrityProblem('sha512-a', undefined)).toContain(
+            'not found',
+        );
+    });
+});
+
+describe('composerDistProblems', () => {
+    const published = {
+        dist: {
+            url: 'https://api.github.com/repos/laravel/framework/zipball/c829b49',
+            reference: 'c829b49',
+        },
+        source: {
+            url: 'https://github.com/laravel/framework.git',
+            reference: 'c829b49',
+        },
+    };
+
+    it('accepts the archive and commit packagist publishes', () => {
+        expect(
+            composerDistProblems(structuredClone(published), published),
+        ).toEqual([]);
+    });
+
+    it('rejects a swapped archive URL or commit reference', () => {
+        const swapped = structuredClone(published);
+        swapped.dist.url =
+            'https://api.github.com/repos/evil/framework/zipball/deadbee';
+        swapped.source.reference = 'deadbee';
+        expect(composerDistProblems(swapped, published)).toHaveLength(2);
+    });
+});
+
+describe('security exceptions', () => {
+    const body = [
+        'Fixes GHSA-xxxx.',
+        'Security-Exception: laravel/framework@v13.36.1',
+        'security-exception: @scope/pkg@1.2.3, lodash@4.17.22',
+    ].join('\n');
+
+    it('parses name@version lines, scoped names and lists', () => {
+        expect([...parseSecurityExceptions(body)]).toEqual([
+            'laravel/framework@13.36.1',
+            '@scope/pkg@1.2.3',
+            'lodash@4.17.22',
+        ]);
+    });
+
+    it('waives only the listed name and version', () => {
+        const exceptions = parseSecurityExceptions(body);
+        expect(
+            isExcepted(exceptions, {
+                name: 'laravel/framework',
+                version: '13.36.1',
+            }),
+        ).toBe(true);
+        expect(
+            isExcepted(exceptions, {
+                name: 'laravel/framework',
+                version: '13.37.0',
+            }),
+        ).toBe(false);
+        expect(isExcepted(exceptions, { name: 'zod', version: '4.6.7' })).toBe(
+            false,
+        );
+        expect(parseSecurityExceptions('').size).toBe(0);
+    });
+});
