@@ -107,7 +107,10 @@ class EloquentServiceRegistry implements ServiceRegistry
         DB::transaction(function () use ($serviceId, $target): void {
             /** @var Service $service */
             $service = Service::query()->lockForUpdate()->findOrFail($serviceId);
-            $service->status->assertCanTransitionTo($target);
+            if ($service->status !== ServiceStatus::Pending) {
+                throw new InvalidStatusTransition($service->status, $target);
+            }
+
             $service->update(['status' => $target, 'do_not_renew' => true]);
 
             $service->addons()->where('status', ServiceStatus::Pending->value)->update(['status' => $target->value]);

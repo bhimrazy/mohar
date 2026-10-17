@@ -27,9 +27,22 @@ class UsernameGenerator
         return $candidate;
     }
 
+    /**
+     * 16 characters with at least one lowercase, uppercase, digit and symbol.
+     */
     public function password(): string
     {
-        return Str::password(16, symbols: false);
+        $sets = ['abcdefghjkmnpqrstuvwxyz', 'ABCDEFGHJKLMNPQRSTUVWXYZ', '23456789', '!#%+-=?@_'];
+        $all = implode('', $sets);
+        $characters = array_map(fn (string $set): string => $set[random_int(0, strlen($set) - 1)], $sets);
+
+        while (count($characters) < 16) {
+            $characters[] = $all[random_int(0, strlen($all) - 1)];
+        }
+
+        shuffle($characters);
+
+        return implode('', $characters);
     }
 
     private function baseFrom(?string $domain): string
