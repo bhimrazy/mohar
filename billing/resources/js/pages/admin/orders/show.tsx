@@ -495,7 +495,7 @@ export default function OrderShow({
                     />
                     <StatCard
                         label="Payment method"
-                        value={order.payment_gateway ?? '—'}
+                        value={order.payment_gateway_label ?? '—'}
                         hint={
                             order.promotion_code
                                 ? `Promotion ${order.promotion_code}`
@@ -504,21 +504,18 @@ export default function OrderShow({
                     />
                 </div>
 
+                <SectionCard title="Items" flush>
+                    <DataTable
+                        caption="Order items"
+                        columns={columns}
+                        rows={items}
+                        getRowKey={(item) => item.id}
+                        className="rounded-none border-0 shadow-none"
+                        empty={<EmptyState title="This order has no items" />}
+                    />
+                </SectionCard>
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-                        <SectionCard title="Items" flush>
-                            <DataTable
-                                caption="Order items"
-                                columns={columns}
-                                rows={items}
-                                getRowKey={(item) => item.id}
-                                className="rounded-none border-0 shadow-none"
-                                empty={
-                                    <EmptyState title="This order has no items" />
-                                }
-                            />
-                        </SectionCard>
-
                         <SectionCard
                             title="Fraud checks"
                             description="Newest first. Re-run from the actions menu."

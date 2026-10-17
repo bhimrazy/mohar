@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Models;
 
+use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Database\Factories\PromotionFactory;
 use App\Modules\Orders\Enums\PromotionType;
 use App\Support\Money;
@@ -127,10 +128,11 @@ class Promotion extends Model
     }
 
     /**
-     * Short human description, e.g. "25% off", "10.00 off", "Free setup".
+     * Short human description, e.g. "25% off", "$10.00 off", "Free setup". Amounts are in the default currency.
      */
-    public function summary(string $currencyPrefix = ''): string
+    public function summary(?string $currencyPrefix = null): string
     {
+        $currencyPrefix ??= Currency::default()->prefix;
         $value = rtrim(rtrim(number_format((float) $this->value, 2, '.', ''), '0'), '.');
 
         $text = match ($this->type) {

@@ -15,12 +15,12 @@ class DemoServices implements ServiceRegistry
 {
     public function createPending(ServiceDraft $draft): int
     {
-        return (int) Cache::increment('orders.demo.service_id');
+        return self::nextId('orders.demo.service_id');
     }
 
     public function createPendingAddon(AddonDraft $draft): int
     {
-        return (int) Cache::increment('orders.demo.addon_id');
+        return self::nextId('orders.demo.addon_id');
     }
 
     public function provision(int $serviceId): ProvisionResult
@@ -29,4 +29,14 @@ class DemoServices implements ServiceRegistry
     }
 
     public function cancelPending(int $serviceId, string $status = 'cancelled'): void {}
+
+    /**
+     * Sequential demo id (Cache::increment returns false for a missing key on some stores).
+     */
+    private static function nextId(string $key): int
+    {
+        Cache::add($key, 0);
+
+        return (int) Cache::increment($key);
+    }
 }

@@ -29,7 +29,7 @@ class DemoBilling implements Invoicer, TaxCalculator
     public function issue(InvoiceDraft $draft): InvoiceResult
     {
         $tax = $this->calculateForClient($draft->lines, $draft->clientId, $draft->currency);
-        $id = (int) Cache::increment('orders.demo.invoice_id');
+        $id = self::nextId('orders.demo.invoice_id');
         $status = $tax->total === 0 ? 'paid' : $draft->status;
 
         Cache::forever("orders.demo.invoice.{$id}", $status);
@@ -80,5 +80,15 @@ class DemoBilling implements Invoicer, TaxCalculator
         $client = Client::query()->find($clientId);
 
         return $this->calculate($lines, $currency, $client?->country, $client?->state, (bool) $client?->tax_exempt);
+    }
+
+    /**
+     * Sequential demo id (Cache::increment returns false for a missing key on some stores).
+     */
+    private static function nextId(string $key): int
+    {
+        Cache::add($key, 0);
+
+        return (int) Cache::increment($key);
     }
 }

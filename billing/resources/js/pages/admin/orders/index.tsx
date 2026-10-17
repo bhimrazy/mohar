@@ -171,7 +171,7 @@ export default function OrdersIndex({
             hideOnMobile: true,
             cell: (order) => (
                 <span className="text-muted-foreground">
-                    {order.payment_gateway ?? '—'}
+                    {order.payment_gateway_label ?? '—'}
                 </span>
             ),
         },

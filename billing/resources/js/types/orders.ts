@@ -102,6 +102,7 @@ export type Order = {
     total: number;
     promotion_code: string | null;
     payment_gateway: string | null;
+    payment_gateway_label: string | null;
     invoice_id: number | null;
     notes: string | null;
     created_at: string | null;

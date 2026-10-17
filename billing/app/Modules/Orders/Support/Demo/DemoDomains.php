@@ -54,7 +54,7 @@ class DemoDomains implements DomainPricing, DomainRegistry
 
     public function createPending(DomainDraft $draft): int
     {
-        return (int) Cache::increment('orders.demo.domain_id');
+        return self::nextId('orders.demo.domain_id');
     }
 
     public function process(int $domainId): ProvisionResult
@@ -63,4 +63,14 @@ class DemoDomains implements DomainPricing, DomainRegistry
     }
 
     public function cancelPending(int $domainId, string $status = 'cancelled'): void {}
+
+    /**
+     * Sequential demo id (Cache::increment returns false for a missing key on some stores).
+     */
+    private static function nextId(string $key): int
+    {
+        Cache::add($key, 0);
+
+        return (int) Cache::increment($key);
+    }
 }

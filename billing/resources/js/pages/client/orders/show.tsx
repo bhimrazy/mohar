@@ -148,7 +148,7 @@ export default function ClientOrderShow({
                                 },
                                 {
                                     label: 'Payment method',
-                                    value: order.payment_gateway,
+                                    value: order.payment_gateway_label,
                                 },
                                 { label: 'Your notes', value: order.notes },
                             ]}
