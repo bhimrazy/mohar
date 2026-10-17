@@ -34,6 +34,18 @@ if (! function_exists('supportStaff')) {
     }
 
     /**
+     * Sign in as the owner of another client account (actingAsClient() creates a currency each call).
+     */
+    function actingAsOwnerOf(Client $client): User
+    {
+        $user = User::factory()->create(['email' => $client->email]);
+        $client->users()->attach($user, ['is_owner' => true]);
+        test()->actingAs($user);
+
+        return $user;
+    }
+
+    /**
      * Open a ticket the way a signed-in client does.
      */
     function clientTicket(Client $client, ?Department $department = null, string $body = 'My site is down.'): Ticket
