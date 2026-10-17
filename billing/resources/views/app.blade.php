@@ -9,6 +9,14 @@
             (function() {
                 const appearance = '{{ $appearance ?? "system" }}';
 
+                try {
+                    const theme = localStorage.getItem('theme');
+
+                    if (theme && theme !== 'default') {
+                        document.documentElement.dataset.theme = theme;
+                    }
+                } catch (e) {}
+
                 if (appearance === 'system') {
                     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
