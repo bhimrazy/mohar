@@ -177,9 +177,12 @@ npm run build                                    # pages compile
 
 ## Git workflow
 
-- Integration branch: `develop`. One branch per workstream: `feature/<module>`; Conventional Commits
-  (`feat(billing): apply partial payments`, `fix(...)`, `test(...)`, `docs(...)`), small focused commits.
-- Before requesting review: rebase/merge latest `develop`, all gates green, update `CHANGELOG.md` under
-  `## [Unreleased]` (one bullet group per module) and `docs/PROGRESS.md` (your module's row).
-- Review gates: Staff Engineer review → QA → AI-slop review → CTO merge (`--no-ff`) into `develop`.
+- Integration branch: `develop` (`main` receives tagged releases). One branch per workstream: `feature/<module>`
+  in its own worktree (`scripts/new-worktree.sh <module>`); Conventional Commits, small focused commits.
+- Before review: merge latest `develop`, all gates green; report CHANGELOG bullets and screenshots to the CTO
+  (the CTO maintains `CHANGELOG.md` and `docs/PROGRESS.md` to avoid merge conflicts).
+- Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
+  `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
+  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit
+  (`gh pr merge --merge`). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
 - Never commit `.env`, `vendor/`, `node_modules/`, generated Wayfinder files, or `database/*.sqlite`.
