@@ -17,10 +17,19 @@ class CoreSeeder extends Seeder
         Currency::query()->firstOrCreate(['code' => 'INR'], ['name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84]);
         Currency::query()->firstOrCreate(['code' => 'NPR'], ['name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => 134.4]);
 
-        $admin = Role::query()->firstOrCreate(['name' => 'Full Administrator'], ['description' => 'Unrestricted access to everything.', 'permissions' => ['*'], 'is_system' => true]);
-        Role::query()->firstOrCreate(['name' => 'Billing'], ['description' => 'Clients, orders, invoices and billing reports.', 'permissions' => ['core.clients.*', 'core.contacts.manage', 'billing.*', 'orders.*', 'reports.*'], 'is_system' => true]);
-        Role::query()->firstOrCreate(['name' => 'Support'], ['description' => 'Tickets plus read access to clients, services and domains.', 'permissions' => ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view'], 'is_system' => true]);
-        Role::query()->firstOrCreate(['name' => 'Sales'], ['description' => 'Read clients and orders, accept orders, manage quotes.', 'permissions' => ['core.clients.view', 'orders.orders.view', 'orders.orders.accept', 'billing.quotes.view', 'billing.quotes.manage'], 'is_system' => true]);
+        // System roles are kept in sync on every seed (explicit lists; sensitive permissions are never wildcard-granted).
+        $roles = [
+            'Full Administrator' => ['Unrestricted access to everything.', ['*']],
+            'Billing' => ['Clients, orders, invoices and billing reports.', ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'orders.*', 'reports.*']],
+            'Support' => ['Tickets plus read access to clients, services and domains.', ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view']],
+            'Sales' => ['Read clients and orders, accept orders, manage quotes.', ['core.clients.view', 'orders.orders.view', 'orders.orders.accept', 'billing.quotes.view', 'billing.quotes.manage']],
+        ];
+
+        foreach ($roles as $name => [$description, $permissions]) {
+            Role::query()->updateOrCreate(['name' => $name], ['description' => $description, 'permissions' => $permissions, 'is_system' => true]);
+        }
+
+        $admin = Role::query()->where('name', 'Full Administrator')->sole();
 
         User::query()->firstOrCreate(['email' => 'admin@example.com'], [
             'name' => 'Admin',

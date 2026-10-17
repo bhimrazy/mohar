@@ -5,6 +5,7 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Actions\Staff\CreateStaff;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
 use App\Modules\Platform\Actions\Staff\ResetStaffTwoFactor;
@@ -19,7 +20,7 @@ use Inertia\Response;
 
 class StaffController extends Controller
 {
-    public function index(Request $request): Response
+    public function index(Request $request, Settings $settings): Response
     {
         $this->authorize('core.staff.view');
 
@@ -31,6 +32,8 @@ class StaffController extends Controller
                 $query->where(fn ($query) => $query->whereLike('name', $like)->orWhereLike('email', $like));
             })
             ->when($request->filled('status'), fn ($query) => $query->where('is_active', $request->string('status')->toString() === 'active'))
+            ->when($request->string('two_factor')->toString() === 'off', fn ($query) => $query->whereNull('two_factor_confirmed_at'))
+            ->when($request->string('two_factor')->toString() === 'on', fn ($query) => $query->whereNotNull('two_factor_confirmed_at'))
             ->orderBy('name')
             ->orderBy('id')
             ->paginate(25)
@@ -56,7 +59,8 @@ class StaffController extends Controller
                     'expires_at' => $invitation->expires_at->toIso8601String(),
                     'expired' => $invitation->isExpired(),
                 ]),
-            'filters' => $request->only(['search', 'status']),
+            'filters' => $request->only(['search', 'status', 'two_factor']),
+            'twoFactorRequired' => (bool) $settings->get('security.staff_2fa_required', true),
             'can' => ['manage' => $request->user()?->hasPermission('core.staff.manage') ?? false],
         ]);
     }

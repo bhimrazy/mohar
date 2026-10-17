@@ -18,12 +18,15 @@ class PermissionGuard
 
     /**
      * Whether the actor's own role covers the permission (or wildcard) being granted.
+     * Sensitive permissions can only be granted by staff who hold them explicitly (or "*").
      */
     public function canGrant(User $actor, string $permission): bool
     {
         if (! $actor->is_staff || ! $actor->is_active || $actor->role === null) {
             return false;
         }
+
+        $sensitive = $this->registry->isSensitive($permission);
 
         foreach ($actor->role->permissions as $held) {
             if ($held === '*') {
@@ -34,7 +37,7 @@ class PermissionGuard
                 continue;
             }
 
-            if ($held === $permission || (str_ends_with($held, '.*') && str_starts_with($permission, substr($held, 0, -1)))) {
+            if ($held === $permission || (! $sensitive && str_ends_with($held, '.*') && str_starts_with($permission, substr($held, 0, -1)))) {
                 return true;
             }
         }

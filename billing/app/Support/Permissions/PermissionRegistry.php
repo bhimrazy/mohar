@@ -7,20 +7,31 @@ namespace App\Support\Permissions;
  *
  *   app(PermissionRegistry::class)->register('Billing', [
  *       'billing.invoices.view' => 'View invoices',
- *       'billing.invoices.manage' => 'Create, edit and cancel invoices',
- *   ]);
+ *       'billing.refunds.create' => 'Issue refunds',
+ *   ], sensitive: ['billing.refunds.create']);
+ *
+ * Sensitive permissions (impersonation, merges, staff/role management, security settings, refunds,
+ * gateway credentials, ...) are never granted through a "module.*" or "module.area.*" wildcard: a role
+ * must list them explicitly. The only exception is "*", the full-administrator grant. Routes guarded by a
+ * sensitive permission also require a recent password confirmation (see docs/security/STANDARDS.md).
+ * Entries in $sensitive are exact keys or "prefix.*" patterns.
  */
 class PermissionRegistry
 {
     /** @var array<string, array<string, string>> group => [permission => label] */
     private array $groups = [];
 
+    /** @var list<string> exact keys or "prefix.*" patterns */
+    private array $sensitive = [];
+
     /**
      * @param  array<string, string>  $permissions
+     * @param  list<string>  $sensitive  keys (or "prefix.*" patterns) that wildcards must never grant
      */
-    public function register(string $group, array $permissions): void
+    public function register(string $group, array $permissions, array $sensitive = []): void
     {
         $this->groups[$group] = [...($this->groups[$group] ?? []), ...$permissions];
+        $this->sensitive = array_values(array_unique([...$this->sensitive, ...$sensitive]));
     }
 
     /**
@@ -42,5 +53,39 @@ class PermissionRegistry
         }
 
         return false;
+    }
+
+    /**
+     * Whether the permission may only be granted explicitly (or by "*").
+     */
+    public function isSensitive(string $permission): bool
+    {
+        foreach ($this->sensitive as $pattern) {
+            if ($pattern === $permission || (str_ends_with($pattern, '.*') && str_starts_with($permission, substr($pattern, 0, -1)))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every registered permission key that is sensitive.
+     *
+     * @return list<string>
+     */
+    public function sensitive(): array
+    {
+        $keys = [];
+
+        foreach ($this->groups as $permissions) {
+            foreach (array_keys($permissions) as $key) {
+                if ($this->isSensitive($key)) {
+                    $keys[] = $key;
+                }
+            }
+        }
+
+        return $keys;
     }
 }

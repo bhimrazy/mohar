@@ -4,13 +4,21 @@ namespace App\Modules\Platform;
 
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
+use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
+use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\PlatformDashboard;
+use App\Support\Automation\Automation;
+use App\Support\Clients\ClientMergeRegistry;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -18,10 +26,13 @@ use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
+use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 class PlatformServiceProvider extends ModuleServiceProvider
@@ -40,8 +51,11 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(Router::class)->aliasMiddleware('password.recent', RequireRecentPasswordConfirmation::class);
+
         $kernel = $this->app->make(Kernel::class);
         $kernel->appendMiddlewareToGroup('web', EnsureActiveUser::class);
+        $kernel->appendMiddlewareToGroup('web', EnforceLoginLockout::class);
         $kernel->appendMiddlewareToGroup('web', HandleImpersonation::class);
         $kernel->appendMiddlewareToGroup('web', EnforceStaffSecurity::class);
 
@@ -60,6 +74,55 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->registerPermissions();
         $this->registerSettings();
         $this->registerSearch();
+        $this->registerMergeParticipants();
+        $this->registerAutomation();
+        $this->app->make(PlatformDashboard::class)->register($this->app->make(Dashboard::class));
+
+        $navigation = $this->app->make(Navigation::class);
+        $navigation->add('admin-create', new NavItem('New client', 'admin.clients.create', 'UserPlus', order: 10, permission: 'core.clients.create'));
+        $navigation->add('admin-create', new NavItem('Invite staff', 'admin.platform.staff.create', 'UserCog', order: 90, permission: 'core.staff.manage'));
+    }
+
+    /**
+     * Daily housekeeping tasks (spec §13).
+     */
+    private function registerAutomation(): void
+    {
+        $automation = $this->app->make(Automation::class);
+
+        $automation->task('platform.prune_invitations', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): string => trans_choice(
+            '{0} no invitations pruned|{1} 1 invitation pruned|[2,*] :count invitations pruned',
+            StaffInvitation::query()
+                ->where(fn ($query) => $query
+                    ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $today->subDays(30)))
+                    ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $today->subDays(90))))
+                ->delete(),
+        ));
+
+        $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today): string {
+            $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
+
+            // Entries tied to a client are kept until the client is deleted (spec §8).
+            $count = DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days))->delete();
+
+            return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
+        });
+    }
+
+    /**
+     * Core-owned rows the merge moves itself; other modules register their own participants.
+     */
+    private function registerMergeParticipants(): void
+    {
+        $merge = $this->app->make(ClientMergeRegistry::class);
+        $merge->participant('core.contacts', fn (int $sourceId): array => [
+            'label' => 'Contacts',
+            'count' => Contact::query()->where('client_id', $sourceId)->count(),
+        ]);
+        $merge->participant('core.logins', fn (int $sourceId): array => [
+            'label' => 'Logins (become non-owner users)',
+            'count' => DB::table('client_user')->where('client_id', $sourceId)->count(),
+        ]);
     }
 
     private function registerNavigation(): void
@@ -69,7 +132,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Staff', 'admin.platform.staff.index', 'UserCog', 'Setup', 10, 'core.staff.view', 'admin.platform.staff.*'));
         $navigation->add('admin', new NavItem('Roles', 'admin.platform.roles.index', 'Shield', 'Setup', 20, 'core.roles.manage', 'admin.platform.roles.*'));
         $navigation->add('admin', new NavItem('Currencies', 'admin.platform.currencies.index', 'Coins', 'Setup', 30, 'core.currencies.manage', 'admin.platform.currencies.*'));
-        $navigation->add('admin', new NavItem('Client groups', 'admin.platform.client-groups.index', 'Tag', 'Setup', 40, 'core.client_groups.manage', 'admin.platform.client-groups.*'));
+        $navigation->add('admin', new NavItem('Client groups', 'admin.platform.client-groups.index', 'Tag', 'Clients', 20, 'core.client_groups.manage', 'admin.platform.client-groups.*'));
         $navigation->add('admin', new NavItem('Settings', 'admin.platform.settings.edit', 'Settings', 'Setup', 80, 'core.settings.view', 'admin.platform.settings.*'));
         $navigation->add('admin', new NavItem('Automation', 'admin.platform.automation.index', 'Timer', 'Setup', 90, 'core.automation.view', 'admin.platform.automation.*'));
     }
@@ -84,7 +147,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'core.clients.impersonate' => 'Sign in as a client',
             'core.contacts.manage' => 'Manage client contacts',
             'core.users.manage' => 'Manage client logins',
-        ]);
+            'core.users.reset_2fa' => 'Reset a client login\'s two-factor authentication',
+        ], sensitive: ['core.clients.impersonate', 'core.clients.merge', 'core.clients.close']);
 
         $permissions->register('General', [
             'core.activity_log.view' => 'View the activity log',
@@ -98,17 +162,25 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'core.client_groups.manage' => 'Manage client groups',
             'core.settings.view' => 'View settings',
             'core.settings.update' => 'Change general settings',
+            'core.settings.security' => 'Change security settings',
             'core.automation.view' => 'View the automation log',
             'core.automation.run' => 'Run automation manually',
-        ]);
+        ], sensitive: ['core.staff.*', 'core.roles.*', 'core.settings.security']);
     }
 
     private function registerSettings(): void
     {
         $this->app->make(SettingsRegistry::class)->section('security', 'Security', [
             new SettingDefinition('security.staff_2fa_required', 'Require two-factor authentication for staff', 'boolean', 'Staff without 2FA must set it up before they can use the admin area.'),
+            new SettingDefinition('security.login_max_attempts', 'Failed sign-ins before lockout', 'integer', 'Per email address and IP.', rules: ['min:3', 'max:20']),
+            new SettingDefinition('security.login_lockout_minutes', 'Lockout duration (minutes)', 'integer', rules: ['min:1', 'max:1440']),
+            new SettingDefinition('security.login_ip_allowlist', 'IP addresses exempt from lockout', 'text', 'One IP or CIDR range per line.', rules: ['max:2000']),
             new SettingDefinition('platform.impersonation_minutes', 'Sign-in-as-client time limit (minutes)', 'integer', 'Staff are returned to the admin area after this long.', rules: ['min:5', 'max:240']),
             new SettingDefinition('platform.invitation_expiry_days', 'Staff invitation validity (days)', 'integer', rules: ['min:1', 'max:30']),
+        ], 'core.settings.security');
+
+        $this->app->make(SettingsRegistry::class)->section('system', 'System', [
+            new SettingDefinition('platform.activity_log_retention_days', 'Activity log retention (days)', 'integer', 'Entries not tied to a client are pruned after this many days.', rules: ['min:30', 'max:3650']),
         ], 'core.settings.update');
     }
 

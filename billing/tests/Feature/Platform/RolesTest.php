@@ -5,6 +5,8 @@ use App\Modules\Core\Models\Role;
 use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
 
+beforeEach(fn () => confirmPassword());
+
 test('a support.* role is denied billing routes and allowed support routes', function () {
     Route::middleware(['web', 'auth', 'staff'])->group(function () {
         Route::get('/admin/test-invoices', fn () => 'ok')->middleware('can:billing.invoices.view');

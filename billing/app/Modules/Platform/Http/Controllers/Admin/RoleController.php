@@ -16,10 +16,17 @@ use Inertia\Response;
 
 class RoleController extends Controller
 {
-    public function index(Request $request, PermissionGuard $guard): Response
+    public function index(Request $request, PermissionGuard $guard, PermissionRegistry $registry): Response
     {
         $this->authorize('core.roles.manage');
         $actor = $request->user();
+        $groupOf = [];
+
+        foreach ($registry->all() as $group => $permissions) {
+            foreach (array_keys($permissions) as $key) {
+                $groupOf[$key] = $group;
+            }
+        }
 
         return Inertia::render('admin/platform/roles/index', [
             'roles' => Role::query()->withCount('users')->orderBy('name')->orderBy('id')->get()->map(fn (Role $role): array => [
@@ -27,6 +34,7 @@ class RoleController extends Controller
                 'name' => $role->name,
                 'description' => $role->description,
                 'permissions' => $role->permissions,
+                'summary' => $this->summary($role->permissions, $groupOf),
                 'users_count' => $role->users_count,
                 'is_system' => $role->is_system,
                 'editable' => $actor instanceof User && $guard->canManageRole($actor, $role),
@@ -86,6 +94,40 @@ class RoleController extends Controller
     }
 
     /**
+     * Human summary of a role's grants, e.g. ["Clients (all)", "Billing (3)"].
+     *
+     * @param  list<string>  $permissions
+     * @param  array<string, string>  $groupOf  permission => registry group
+     * @return list<string>
+     */
+    private function summary(array $permissions, array $groupOf): array
+    {
+        if (in_array('*', $permissions, true)) {
+            return ['Full access'];
+        }
+
+        $groups = [];
+
+        foreach ($permissions as $permission) {
+            if (str_ends_with($permission, '.*')) {
+                $prefix = substr($permission, 0, -1);
+                $matched = array_values(array_unique(array_filter($groupOf, fn (string $group, string $key): bool => str_starts_with($key, $prefix), ARRAY_FILTER_USE_BOTH)));
+                $groups[$matched === [] ? ucfirst(explode('.', $permission)[0]) : implode(', ', $matched)] = 'all';
+
+                continue;
+            }
+
+            $group = $groupOf[$permission] ?? ucfirst(explode('.', $permission)[0]);
+
+            if (($groups[$group] ?? null) !== 'all') {
+                $groups[$group] = (int) ($groups[$group] ?? 0) + 1;
+            }
+        }
+
+        return array_map(fn (string $group, int|string $count): string => "{$group} ({$count})", array_keys($groups), array_values($groups));
+    }
+
+    /**
      * @return array{name: string, description: ?string, permissions: list<string>}
      */
     private function payload(RoleRequest $request): array
@@ -132,6 +174,7 @@ class RoleController extends Controller
                 'permissions' => array_map(fn (string $key, string $label): array => [
                     'key' => $key,
                     'label' => $label,
+                    'sensitive' => $registry->isSensitive($key),
                     'grantable' => $actor !== null && $guard->canGrant($actor, $key),
                 ], $keys, array_values($permissions)),
                 'wildcards' => array_map(fn (string $wildcard): array => [

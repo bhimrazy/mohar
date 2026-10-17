@@ -8,6 +8,8 @@ use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
 
+beforeEach(fn () => confirmPassword());
+
 test('staff list requires core.staff.view', function () {
     actingAsStaff(['core.clients.view']);
     $this->get(route('admin.platform.staff.index'))->assertForbidden();
@@ -98,8 +100,16 @@ test('staff created with a password must change it before using the admin area',
     $this->actingAs($pat->fresh())->get(route('admin.clients.index'))->assertOk();
 });
 
+test('a core.* or core.staff.* wildcard does not grant sensitive staff management', function () {
+    actingAsStaff(['core.*']);
+    $this->get(route('admin.platform.staff.index'))->assertForbidden();
+
+    actingAsStaff(['core.staff.*']);
+    $this->post(route('admin.platform.staff.store'), ['mode' => 'invite', 'email' => 'x@example.com', 'role_id' => Role::factory()->withPermissions(['support.*'])->create()->id])->assertForbidden();
+});
+
 test('staff cannot assign a role with permissions they do not hold', function () {
-    actingAsStaff(['core.staff.*', 'support.*']);
+    actingAsStaff(['core.staff.view', 'core.staff.manage', 'support.*']);
     $fullAdmin = Role::factory()->withPermissions(['*'])->create();
     $billing = Role::factory()->withPermissions(['billing.*'])->create();
     $support = Role::factory()->withPermissions(['support.tickets.view'])->create();
@@ -114,7 +124,7 @@ test('staff cannot assign a role with permissions they do not hold', function ()
 });
 
 test('staff cannot edit a colleague whose role exceeds their own permissions', function () {
-    actingAsStaff(['core.staff.*']);
+    actingAsStaff(['core.staff.view', 'core.staff.manage']);
     $admin = User::factory()->staff(['*'])->create();
 
     $this->put(route('admin.platform.staff.update', $admin), ['name' => 'Hijacked', 'email' => 'me@example.com', 'role_id' => $admin->role_id, 'is_active' => true])
