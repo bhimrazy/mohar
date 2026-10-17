@@ -44,6 +44,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Client area: my domains, domain management (nameservers, auto-renew, lock, EPP code, contacts, transfer retry).
 - Public domain search with availability, suggestions and prices; JSON lookup endpoint (rate limited, cached).
 - Navigation, dashboard cards, permissions, settings, global search and `domain` merge fields; demo seeder.
+- Review fixes: exactly-once registrar submissions/renewals (row-lock claims, unique non-overlapping jobs, unknown
+  outcomes flagged `needs_review` and verified, never re-sent), disabled registrars refused, zero-total renewal
+  invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
+  clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
+  USD/INR/NPR demo prices.
 
 ### DevOps
 
