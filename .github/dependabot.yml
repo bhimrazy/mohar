@@ -1,0 +1,38 @@
+# Supply-chain rule: only adopt versions published at least 14 days ago (cooldown below).
+version: 2
+updates:
+    - package-ecosystem: github-actions
+      directories:
+          - /
+          - /.github/actions/*
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 14
+      groups:
+          github-actions:
+              patterns:
+                  - '*'
+
+    - package-ecosystem: docker-compose
+      directory: /billing
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 14
+
+    - package-ecosystem: composer
+      directory: /billing
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 14
+      open-pull-requests-limit: 5
+
+    - package-ecosystem: npm
+      directory: /billing
+      schedule:
+          interval: weekly
+      cooldown:
+          default-days: 14
+      open-pull-requests-limit: 5

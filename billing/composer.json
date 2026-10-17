@@ -64,20 +64,39 @@
         "lint:check": [
             "pint --parallel --test"
         ],
-        "ci:check": [
+        "ci": [
             "Composer\\Config::disableProcessTimeout",
+            "@putenv XDEBUG_MODE=off",
+            "@php artisan config:clear --ansi",
+            "@lint:check",
+            "@php artisan wayfinder:generate --with-form --ansi",
             "npm run check",
             "npm run types:check",
-            "@test"
+            "@types:check",
+            "@php vendor/bin/pest --parallel",
+            "@test:pgsql",
+            "npm run build"
         ],
         "types:check": [
-            "phpstan analyse"
+            "phpstan analyse --memory-limit=1G"
         ],
         "test": [
             "@php artisan config:clear --ansi",
             "@lint:check",
             "@types:check",
             "@php artisan test"
+        ],
+        "test:pgsql": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv XDEBUG_MODE=off",
+            "@putenv DB_CONNECTION=pgsql",
+            "@putenv DB_HOST=127.0.0.1",
+            "@putenv DB_PORT=5432",
+            "@putenv DB_DATABASE=billing_test",
+            "@putenv DB_USERNAME=billing",
+            "@putenv DB_PASSWORD=billing",
+            "@php artisan config:clear --ansi",
+            "@php vendor/bin/pest --parallel"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -117,5 +136,9 @@
         }
     },
     "minimum-stability": "stable",
-    "prefer-stable": true
+    "prefer-stable": true,
+    "scripts-descriptions": {
+        "ci": "Run every CI gate locally (needs `docker compose up -d` for the PostgreSQL suite).",
+        "test:pgsql": "Run the test suite against the compose PostgreSQL (billing_test database)."
+    }
 }

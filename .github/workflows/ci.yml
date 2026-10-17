@@ -1,0 +1,147 @@
+# Single CI source of truth for the billing app (the Laravel project lives in billing/).
+# Every third-party action and image is pinned to a commit SHA / digest published at least two weeks
+# before adoption; Dependabot (.github/dependabot.yml) proposes updates with a matching cooldown.
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+defaults:
+    run:
+        working-directory: billing
+
+env:
+    XDEBUG_MODE: 'off'
+
+jobs:
+    lint:
+        name: Lint (Pint, vp check, tsc)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              # v7.0.1, published 2026-07-20
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+              with:
+                  node: 'true'
+
+            - name: Pint
+              run: vendor/bin/pint --parallel --test
+
+            - name: vp check (format + lint)
+              run: npx vp check
+
+            - name: TypeScript
+              run: npx tsc --noEmit
+
+    static:
+        name: Static analysis (Larastan)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              # v7.0.1, published 2026-07-20
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: PHPStan
+              run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
+
+    tests-sqlite:
+        name: Tests (SQLite)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - name: Checkout
+              # v7.0.1, published 2026-07-20
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: Pest
+              run: vendor/bin/pest --parallel
+
+    tests-pgsql:
+        name: Tests (PostgreSQL)
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        services:
+            postgres:
+                # postgres:18.6-alpine multi-arch index, pushed 2026-09-21 (same digest as compose.yaml)
+                image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+                env:
+                    POSTGRES_DB: billing_test
+                    POSTGRES_USER: billing
+                    POSTGRES_PASSWORD: billing
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U billing -d billing_test"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        env:
+            DB_CONNECTION: pgsql
+            DB_HOST: 127.0.0.1
+            DB_PORT: '5432'
+            DB_DATABASE: billing_test
+            DB_USERNAME: billing
+            DB_PASSWORD: billing
+        steps:
+            - name: Checkout
+              # v7.0.1, published 2026-07-20
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+
+            - name: Migrate and seed (portability smoke test)
+              run: php artisan migrate:fresh --seed --force --no-interaction
+
+            - name: Pest
+              run: vendor/bin/pest --parallel
+
+    build:
+        name: Build frontend
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Checkout
+              # v7.0.1, published 2026-07-20
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  persist-credentials: false
+
+            - name: Set up app
+              uses: ./.github/actions/setup-app
+              with:
+                  node: 'true'
+
+            - name: Build
+              run: npm run build
