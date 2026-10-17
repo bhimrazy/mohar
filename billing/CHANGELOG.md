@@ -18,6 +18,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
 
+### Services
+
+- Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
+  credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
+- Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
+  optional SSO) with a driver registry and `none` (manual) and `log` (demo, failure injection) drivers.
+- Module commands as queued jobs on `provisioning`: per-service lock, unique per attempt, retryable failures with
+  backoff (60/300/900 s, 3 attempts), redacted module log, failed-actions queue (retry / resolve / dismiss),
+  `ProvisioningFailed` event; staff actions run synchronously first.
+- `ServiceRegistry` implementation (createPending, createPendingAddon, provision, cancelPending).
+- Automation tasks: renewal invoices N days before the period (idempotent via `hasInvoiceForPeriod` + pointer),
+  cancellations, unpaid-upgrade expiry, overdue suspension/termination (per-service overrides, exemptions,
+  addon → parent), cycle-limit completion, usage sync, module log pruning.
+- `InvoicePaid` handling: due-date recomputation (replay-safe), auto-setup on payment, unsuspend on payment,
+  upgrades applied on payment; `InvoiceCancelled` / `OrderPlaced` keep the invoice mirror in sync.
+- Prorated upgrades/downgrades (upgrade invoice or downgrade credit), billing-cycle changes, cancellation
+  requests (immediate / end of period, void, staff approval).
+- Admin: services list and detail (module actions, credentials reveal, set status, upgrades, addons, billing
+  periods, module log), edit, servers & groups CRUD with test connection, cancellation requests, module log.
+  Client area: my services, service detail with usage, plan change preview, cancellation, password change.
+- Navigation, dashboard cards, `services.*` permissions, settings, global search, `service` merge fields, demo seeder.
+
 ### Core
 
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,

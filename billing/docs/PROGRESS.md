@@ -12,7 +12,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Catalog                                             | Senior Engineer         | `feature/catalog`       | ⏳ queued                 |                                                                      |
 | Orders                                              | Senior Engineer         | `feature/orders`        | ⏳ queued                 |                                                                      |
 | Billing                                             | Senior Engineer         | `feature/billing`       | ⏳ queued                 |                                                                      |
-| Services & Provisioning                             | Senior Engineer         | `feature/services`      | ⏳ queued                 |                                                                      |
+| Services & Provisioning                             | Senior Engineer         | `feature/services`      | 🟢 ready for review       | 150+ tests; screenshots `docs/screenshots/services`                  |
 | Domains                                             | Senior Engineer         | `feature/domains`       | ⏳ queued                 |                                                                      |
 | Support                                             | Senior Engineer         | `feature/support`       | ⏳ queued                 |                                                                      |
 | Notifications                                       | Senior Engineer         | `feature/notifications` | ⏳ queued                 |                                                                      |
