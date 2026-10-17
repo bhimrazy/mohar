@@ -248,6 +248,7 @@ return new class extends Migration
         Schema::create('billing_client_flags', function (Blueprint $table) {
             $table->foreignId('client_id')->primary()->constrained()->cascadeOnDelete();
             $table->timestamp('first_order_accepted_at')->nullable();
+            $table->boolean('separate_invoices')->nullable();
             $table->timestamps();
         });
 

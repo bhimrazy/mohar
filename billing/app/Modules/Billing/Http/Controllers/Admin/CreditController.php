@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Http\Requests\Admin\CreditAdjustmentRequest;
 use App\Modules\Billing\Http\Resources\CreditEntryResource;
+use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
@@ -40,11 +41,27 @@ class CreditController extends Controller
                 'display_name' => $client->display_name,
                 'currency' => $client->currency,
                 'balance' => $ledger->balance($client->id, $client->currency)->amount,
+                'separate_invoices' => ClientFlag::query()->whereKey($client->id)->value('separate_invoices'),
             ],
             'entries' => CreditEntryResource::collection($entries),
             'clients' => Client::query()->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)->get(['id', 'first_name', 'last_name', 'company_name'])
                 ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name]),
         ]);
+    }
+
+    /**
+     * Per-client invoicing preference (separate invoice per renewal item, or the default).
+     */
+    public function preferences(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
+    {
+        $this->authorize('billing.credit.manage');
+        $data = $request->validate(['separate_invoices' => ['nullable', 'boolean']]);
+
+        ClientFlag::query()->updateOrCreate(['client_id' => $client->id], ['separate_invoices' => $data['separate_invoices'] ?? null]);
+        $activity->log('Invoicing preference changed', $client, $client->id, ['separate_invoices' => $data['separate_invoices'] ?? null]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Invoicing preference saved.')]);
+
+        return back();
     }
 
     public function store(CreditAdjustmentRequest $request, CreditLedgerService $ledger, ActivityLogger $activity): RedirectResponse

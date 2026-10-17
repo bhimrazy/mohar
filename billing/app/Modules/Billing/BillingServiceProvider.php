@@ -334,6 +334,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('credit.max_balance', 'Maximum credit balance (minor units)'),
             $bool('credit.require_accepted_order', 'Require an accepted order before adding funds'),
             $bool('mass_pay_enabled', 'Allow paying several invoices at once'),
+            $bool('separate_invoices', 'Separate invoice per renewal item', 'Off: renewal lines raised together are grouped on one invoice per client and due date. Clients can override this.'),
             $bool('clients_choose_gateway', 'Clients may choose the payment gateway'),
             $bool('allow_pay_method_removal', 'Clients may remove stored payment methods'),
             $bool('reversal.set_collections', 'Move reversed invoices to collections'),

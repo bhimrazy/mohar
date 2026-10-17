@@ -85,7 +85,7 @@ class IssueInvoice
                     return $invoice;
                 }
 
-                $this->publish->handle($invoice, $draft->issueDate);
+                $this->publish->handle($invoice, $draft->issueDate, $draft->notify);
                 $invoice->refresh();
 
                 if ($invoice->kind === InvoiceKind::Standard && $invoice->balance > 0 && ($draft->applyCredit || $this->settings->bool('credit.auto_apply_on_generate'))

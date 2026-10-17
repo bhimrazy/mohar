@@ -30,9 +30,9 @@ class PublishInvoice
         private SellerDetails $seller,
     ) {}
 
-    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null): Invoice
+    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null, bool $notify = true): Invoice
     {
-        return DB::transaction(function () use ($invoice, $issueDate): Invoice {
+        return DB::transaction(function () use ($invoice, $issueDate, $notify): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
             if ($invoice->status !== InvoiceStatus::Draft) {
@@ -70,7 +70,7 @@ class PublishInvoice
             $invoice->recalculateBalance();
             $invoice->save();
 
-            AfterCommit::dispatch(new InvoiceCreated($invoice->id, $invoice->client_id));
+            AfterCommit::dispatch(new InvoiceCreated($invoice->id, $invoice->client_id, $notify, $invoice->source));
             $this->settlement->settle($invoice);
 
             return $invoice;

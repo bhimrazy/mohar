@@ -38,6 +38,9 @@ return [
         'require_accepted_order' => true,
     ],
     'mass_pay_enabled' => true,
+    // Renewal lines raised together go on one invoice per client and due date; true = one invoice per item.
+    // Clients can override this (billing_client_flags.separate_invoices).
+    'separate_invoices' => false,
     'clients_choose_gateway' => true,
     'allow_pay_method_removal' => true,
 

@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { Wallet } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -17,7 +17,7 @@ import type { ClientOption, CreditEntry } from '@/components/billing/types';
 import { humanize } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { store } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/CreditController';
+import { preferences, store } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/CreditController';
 import type { ResourcePaginated } from '@/types/app';
 
 type Props = {
@@ -26,6 +26,7 @@ type Props = {
         display_name: string;
         currency: string;
         balance: number;
+        separate_invoices: boolean | null;
     } | null;
     entries: ResourcePaginated<CreditEntry>;
     clients: ClientOption[];
@@ -232,18 +233,53 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                         />
                     </Field>
                     {client && (
-                        <StatCard
-                            className="sm:w-64"
-                            label="Credit balance"
-                            value={
-                                <Money
-                                    amount={client.balance}
-                                    currency={client.currency}
-                                    tone="ledger"
+                        <>
+                            <StatCard
+                                className="sm:w-64"
+                                label="Credit balance"
+                                value={
+                                    <Money
+                                        amount={client.balance}
+                                        currency={client.currency}
+                                        tone="ledger"
+                                    />
+                                }
+                                icon={Wallet}
+                            />
+                            <Field
+                                htmlFor="separate-invoices"
+                                label="Renewal invoices"
+                                className="w-full content-start sm:w-64"
+                            >
+                                <SelectField
+                                    id="separate-invoices"
+                                    value={
+                                        client.separate_invoices === null
+                                            ? 'default'
+                                            : client.separate_invoices
+                                              ? 'separate'
+                                              : 'grouped'
+                                    }
+                                    onChange={(value) =>
+                                        router.put(
+                                            preferences.url(client.id),
+                                            {
+                                                separate_invoices:
+                                                    value === 'default'
+                                                        ? null
+                                                        : value === 'separate',
+                                            },
+                                            { preserveScroll: true },
+                                        )
+                                    }
+                                    options={[
+                                        { value: 'default', label: 'Use the default' },
+                                        { value: 'grouped', label: 'One invoice per due date' },
+                                        { value: 'separate', label: 'One invoice per item' },
+                                    ]}
                                 />
-                            }
-                            icon={Wallet}
-                        />
+                            </Field>
+                        </>
                     )}
                 </div>
                 <DataTable

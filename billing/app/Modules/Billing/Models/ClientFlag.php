@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Model;
  *
  * @property int $client_id
  * @property CarbonImmutable|null $first_order_accepted_at
+ * @property bool|null $separate_invoices null = use the billing.separate_invoices default
  */
-#[Fillable(['client_id', 'first_order_accepted_at'])]
+#[Fillable(['client_id', 'first_order_accepted_at', 'separate_invoices'])]
 class ClientFlag extends Model
 {
     protected $table = 'billing_client_flags';
@@ -23,6 +24,6 @@ class ClientFlag extends Model
 
     protected function casts(): array
     {
-        return ['first_order_accepted_at' => 'datetime'];
+        return ['first_order_accepted_at' => 'datetime', 'separate_invoices' => 'boolean'];
     }
 }

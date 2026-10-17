@@ -51,6 +51,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('quotes/{quote}/pdf', [AdminQuoteController::class, 'pdf'])->name('quotes.pdf');
 
     Route::get('credit', [AdminCreditController::class, 'index'])->name('credit.index');
+    Route::put('clients/{client}/billing-preferences', [AdminCreditController::class, 'preferences'])->name('clients.preferences');
     Route::post('credit', [AdminCreditController::class, 'store'])->middleware(ConfirmPasswordForAction::class)->name('credit.store');
 
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
