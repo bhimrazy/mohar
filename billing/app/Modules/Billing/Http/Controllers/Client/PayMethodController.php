@@ -2,9 +2,9 @@
 
 namespace App\Modules\Billing\Http\Controllers\Client;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ManagePayMethods;
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\StorePayMethodRequest;

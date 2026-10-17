@@ -5,6 +5,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Core\Models\Client;
 use App\Support\Automation\Automation;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
@@ -44,7 +45,7 @@ test('every billing config default has a setting definition', function () {
 test('billing automation tasks are registered in pipeline order', function () {
     $tasks = array_keys(array_filter(app(Automation::class)->ordered(), fn ($task, $key) => str_starts_with($key, 'billing.'), ARRAY_FILTER_USE_BOTH));
 
-    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.housekeeping']);
+    expect($tasks)->toBe(['billing.late_fees', 'billing.auto_capture', 'billing.reminders', 'billing.auto_cancel', 'billing.payment_reconciliation', 'billing.housekeeping']);
 });
 
 test('navigation shows billing items according to permissions', function () {
@@ -98,4 +99,26 @@ test('merge fields resolve invoices, quotes and transactions with the client id'
     expect($registry->resolve('invoice', $invoice->id))->toMatchArray(['client_id' => $invoice->client_id, 'number' => $invoice->number, 'total' => '12.34 USD'])
         ->and($registry->resolve('quote', $quote->id))->toHaveKey('client_id', $quote->client_id)
         ->and($registry->resolve('transaction', $transaction->id))->toMatchArray(['client_id' => $invoice->client_id, 'invoice_id' => $invoice->id]);
+});
+
+test('the admin dashboard gets billing widgets and to-dos, the nav gets badges and quick-create', function () {
+    $staff = actingAsStaff(['billing.*']);
+    $client = billingClient();
+    Invoice::factory()->overdue()->create(['client_id' => $client->id]);
+    payInvoice(issueInvoice($client, [2_500]), 2_500);
+
+    $dashboard = app(Dashboard::class);
+    $widgets = collect($dashboard->resolveWidgets('admin', $staff));
+    $chart = $widgets->firstWhere('key', 'billing.income_chart');
+
+    expect($chart)->type->toBe('chart')
+        ->and(collect($dashboard->resolveWidgets('admin', $staff, deferred: true))->pluck('key'))->toContain('billing.income_chart')
+        ->and($chart['series'][0]['points'])->toHaveCount(30)
+        ->and(collect($chart['series'][0]['points'])->last()['y'])->toBe(2_500)
+        ->and($widgets->firstWhere('key', 'billing.recent_payments')['items'])->toHaveCount(1)
+        ->and(collect($dashboard->resolveTodos('admin', $staff))->firstWhere('key', 'billing.overdue')['count'])->toBe(1);
+
+    $billingNav = collect(collect(app(Navigation::class)->forUser('admin', $staff))->firstWhere('title', 'Billing')['items']);
+    expect($billingNav->firstWhere('title', 'Invoices')['badge'])->toBe(1)
+        ->and(collect(app(Navigation::class)->quickActions($staff))->pluck('title')->all())->toContain('New invoice', 'New quote');
 });

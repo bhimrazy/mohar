@@ -5,6 +5,7 @@ use App\Modules\Billing\Http\Controllers\Admin\GatewayController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayLogController;
 use App\Modules\Billing\Http\Controllers\Admin\InvoiceActionController;
 use App\Modules\Billing\Http\Controllers\Admin\InvoiceController as AdminInvoiceController;
+use App\Modules\Billing\Http\Controllers\Admin\PaymentAttemptController;
 use App\Modules\Billing\Http\Controllers\Admin\QuoteController as AdminQuoteController;
 use App\Modules\Billing\Http\Controllers\Admin\TaxRuleController;
 use App\Modules\Billing\Http\Controllers\Admin\TransactionController;
@@ -13,6 +14,8 @@ use App\Modules\Billing\Http\Controllers\Client\InvoiceController;
 use App\Modules\Billing\Http\Controllers\Client\PaymentBatchController;
 use App\Modules\Billing\Http\Controllers\Client\PayMethodController;
 use App\Modules\Billing\Http\Controllers\Client\QuoteController;
+use App\Modules\Billing\Http\Controllers\Public\GatewayReturnController;
+use App\Modules\Billing\Http\Controllers\Public\SandboxHostedController;
 use App\Modules\Billing\Http\Controllers\Public\SandboxVaultController;
 use App\Modules\Billing\Http\Controllers\Public\WebhookController;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -54,6 +57,8 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
 
     Route::resource('tax-rules', TaxRuleController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule']);
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
+    Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
+    Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');
 }));
 
 Route::clientArea(function (): void {
@@ -93,6 +98,17 @@ Route::post('billing/webhooks/{gateway}', WebhookController::class)
     ->withoutMiddleware(PreventRequestForgery::class)
     ->middleware('throttle:120,1')
     ->name('billing.webhooks');
+
+// Hosted gateway returns (GET or POST from the provider). Hints only: always settled by an authoritative lookup.
+Route::match(['get', 'post'], 'billing/gateways/{gateway}/return', GatewayReturnController::class)
+    ->where('gateway', '[a-z_]{1,50}')
+    ->withoutMiddleware(PreventRequestForgery::class)
+    ->middleware('throttle:60,1')
+    ->name('billing.gateways.return');
+
+// The sandbox gateway's simulated hosted payment page.
+Route::get('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'show'])->where('reference', '[a-z0-9-]{3,20}')->name('billing.sandbox.checkout');
+Route::post('billing/sandbox/checkout/{reference}', [SandboxHostedController::class, 'pay'])->where('reference', '[a-z0-9-]{3,20}')->middleware('throttle:30,1')->name('billing.sandbox.checkout.pay');
 
 // Sandbox gateway "hosted fields": the browser posts card data here (JSON) and receives a token.
 Route::post('billing/sandbox/tokens', SandboxVaultController::class)

@@ -24,6 +24,7 @@ class TaxRuleController extends Controller
                     'level' => $rule->level,
                     'country' => $rule->country,
                     'state' => $rule->state,
+                    'scope' => $rule->scope,
                     'rate' => (float) $rule->rate,
                     'priority' => $rule->priority,
                     'effective_from' => $rule->effective_from?->toDateString(),
@@ -35,6 +36,8 @@ class TaxRuleController extends Controller
                 'calculation' => $settings->string('tax.calculation', 'per_line'),
                 'vat_enabled' => $settings->bool('vat.enabled'),
                 'vat_home_country' => $settings->string('vat.home_country'),
+                'home_country' => $settings->string('tax.home_country'),
+                'home_state' => $settings->string('tax.home_state'),
             ],
         ]);
     }

@@ -2,14 +2,15 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Billing\GatewayDriver;
+use App\Data\Billing\CallbackEvent;
+use App\Data\Billing\CallbackRejection;
 use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\RecordChargeback;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Data\PaymentData;
-use App\Modules\Billing\Drivers\Gateways\Data\CallbackEvent;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
-use App\Modules\Billing\Drivers\Gateways\InvalidCallbackException;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionType;
@@ -48,12 +49,28 @@ class GatewayCallbackHandler
 
         $gateway = $this->gateways->gateway($gatewayKey);
 
-        try {
-            $event = $this->gateways->driver($gatewayKey)->parseCallback($gateway, $request);
-        } catch (InvalidCallbackException $exception) {
-            return $this->outcome($gatewayKey, $exception->getMessage() === 'invalid signature' ? 403 : 422, $exception->getMessage(), $payload);
+        $driver = $this->gateways->driver($gatewayKey);
+
+        if (! $driver->supports(GatewayDriver::WEBHOOK)) {
+            return $this->outcome($gatewayKey, 404, 'callbacks not supported', $payload);
         }
 
+        $event = $driver->parseCallback($this->gateways->config($gateway), $request);
+
+        if ($event instanceof CallbackRejection) {
+            return $this->outcome($gatewayKey, $event->isSignatureFailure() ? 403 : 422, $event->reason, $payload);
+        }
+
+        return $this->process($gatewayKey, $event);
+    }
+
+    /**
+     * Apply an already verified event (webhook, or a driver's server-side return confirmation).
+     *
+     * @return Outcome
+     */
+    public function process(string $gatewayKey, CallbackEvent $event): array
+    {
         try {
             return match ($event->type) {
                 CallbackEvent::PAYMENT_SUCCEEDED => $this->payment($gatewayKey, $event),

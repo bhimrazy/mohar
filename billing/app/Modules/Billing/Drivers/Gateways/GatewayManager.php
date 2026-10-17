@@ -2,14 +2,18 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
+use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\HostedPaymentDriver;
+use App\Data\Billing\GatewayConfig;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
- * Registry of gateway drivers and their staff configuration.
+ * Registry of gateway drivers (Billing's own and those registered by extension modules) and their configuration.
  */
-class GatewayManager
+class GatewayManager implements GatewayRegistry
 {
     /** @var array<string, GatewayDriver> */
     private array $drivers = [];
@@ -19,9 +23,6 @@ class GatewayManager
         $this->drivers[$driver->key()] = $driver;
     }
 
-    /**
-     * @return array<string, GatewayDriver>
-     */
     public function drivers(): array
     {
         return $this->drivers;
@@ -35,6 +36,13 @@ class GatewayManager
     public function driver(string $key): GatewayDriver
     {
         return $this->drivers[$key] ?? throw new BillingException(__('Unknown payment gateway [:key].', ['key' => $key]));
+    }
+
+    public function hosted(string $key): ?HostedPaymentDriver
+    {
+        $driver = $this->drivers[$key] ?? null;
+
+        return $driver instanceof HostedPaymentDriver ? $driver : null;
     }
 
     /**
@@ -53,6 +61,23 @@ class GatewayManager
     }
 
     /**
+     * The DTO drivers receive.
+     */
+    public function config(string|Gateway $gateway): GatewayConfig
+    {
+        $gateway = is_string($gateway) ? $this->gateway($gateway) : $gateway;
+        $settings = $gateway->config ?? [];
+
+        return new GatewayConfig(
+            key: $gateway->key,
+            displayName: $gateway->display_name,
+            settings: $settings,
+            sandbox: filter_var($settings['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            convertToCurrency: $gateway->convert_to_currency,
+        );
+    }
+
+    /**
      * Active gateways clients may pay with, in display order.
      *
      * @return Collection<int, Gateway>
@@ -64,6 +89,7 @@ class GatewayManager
             ->where('show_on_order_form', true)
             ->whereIn('key', array_keys($this->drivers))
             ->orderBy('sort_order')
+            ->orderBy('id')
             ->get();
     }
 

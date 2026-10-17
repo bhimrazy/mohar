@@ -89,11 +89,22 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
 
-        if (!selected || selected.kind !== 'card') {
+        if (!selected || selected.kind === 'offline') {
             return;
         }
 
         setProcessing(true);
+
+        if (selected.kind === 'redirect') {
+            router.visit(action.url, {
+                method: action.method,
+                data: { gateway },
+                onFinish: () => setProcessing(false),
+            });
+
+            return;
+        }
+
         let data: Record<string, string | number | boolean> = {
             gateway,
             pay_method_id: Number(effectiveMethod),
@@ -170,6 +181,24 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                     {selected.instructions ??
                         'Follow the payment instructions you received. We record the payment when it arrives.'}
                 </div>
+            )}
+
+            {selected?.kind === 'redirect' && (
+                <>
+                    <p className="text-sm text-muted-foreground">
+                        You’ll be taken to {selected.name} to complete the
+                        payment, then brought back here.
+                    </p>
+                    <InputError message={errors.payment ?? errors.billing} />
+                    <Button
+                        type="submit"
+                        disabled={processing}
+                        className="w-full sm:w-auto sm:justify-self-end"
+                    >
+                        {processing && <Spinner />}
+                        Continue to {selected.name}
+                    </Button>
+                </>
             )}
 
             {selected?.kind === 'card' && (

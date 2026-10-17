@@ -2,6 +2,8 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
+use App\Support\Billing\AbstractGatewayDriver;
+
 /**
  * Staff-recorded payments (cash, cheque, anything handled outside the system).
  */

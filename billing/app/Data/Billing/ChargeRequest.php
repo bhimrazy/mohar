@@ -1,9 +1,12 @@
 <?php
 
-namespace App\Modules\Billing\Drivers\Gateways\Data;
+namespace App\Data\Billing;
 
 use App\Support\Money;
 
+/**
+ * Charge a stored/one-off token (merchant gateways). Amount is in the currency the gateway charges.
+ */
 final readonly class ChargeRequest
 {
     public function __construct(

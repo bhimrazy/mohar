@@ -27,6 +27,7 @@ type TaxRule = {
     level: number;
     country: string | null;
     state: string | null;
+    scope: 'home_state' | 'other_state' | null;
     rate: number;
     priority: number;
     effective_from: string | null;
@@ -67,6 +68,7 @@ function RuleDialog({
                 level: String(rule?.level ?? 1),
                 country: rule?.country ?? '',
                 state: rule?.state ?? '',
+                scope: rule?.scope ?? 'any',
                 rate: rule ? String(rule.rate) : '',
                 priority: String(rule?.priority ?? 0),
                 effective_from: rule?.effective_from ?? '',
@@ -173,6 +175,30 @@ function RuleDialog({
                         />
                     </Field>
                     <Field
+                        htmlFor="rule-scope"
+                        label="Supply"
+                        hint="India GST: CGST + SGST within your state, IGST across states"
+                        error={form.errors.scope}
+                        className="sm:col-span-2"
+                    >
+                        <SelectField
+                            id="rule-scope"
+                            value={form.data.scope}
+                            onChange={(value) => form.setData('scope', value)}
+                            options={[
+                                { value: 'any', label: 'Any location' },
+                                {
+                                    value: 'home_state',
+                                    label: 'Within the seller’s state (intra-state)',
+                                },
+                                {
+                                    value: 'other_state',
+                                    label: 'Other states (inter-state)',
+                                },
+                            ]}
+                        />
+                    </Field>
+                    <Field
                         htmlFor="rule-effective"
                         label="Effective from"
                         optional
@@ -220,7 +246,17 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
             header: 'Applies to',
             cell: (rule) =>
                 rule.country
-                    ? [rule.country, rule.state].filter(Boolean).join(' · ')
+                    ? [
+                          rule.country,
+                          rule.state,
+                          rule.scope === 'home_state'
+                              ? 'Intra-state'
+                              : rule.scope === 'other_state'
+                                ? 'Inter-state'
+                                : null,
+                      ]
+                          .filter(Boolean)
+                          .join(' · ')
                     : 'All locations',
         },
         {
@@ -317,6 +353,12 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                                     settings.calculation === 'per_invoice'
                                         ? 'Per invoice'
                                         : 'Per line',
+                            },
+                            {
+                                label: 'Seller location',
+                                value: [settings.home_country, settings.home_state]
+                                    .filter(Boolean)
+                                    .join(' · '),
                             },
                             {
                                 label: 'EU VAT rules',

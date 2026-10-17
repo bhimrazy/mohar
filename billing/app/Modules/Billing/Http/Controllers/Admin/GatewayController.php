@@ -2,15 +2,13 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Http\Controllers\Controller;
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
+use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
-use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Requests\Admin\GatewayRequest;
-use App\Modules\Billing\Models\Invoice;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -38,9 +36,9 @@ class GatewayController extends Controller
                 ...$this->present($driver),
                 // Secrets are never sent back to the browser; an empty field keeps the stored value.
                 'settings' => collect($driver->settingsFields())->mapWithKeys(fn (array $field): array => [
-                    $field['key'] => $field['type'] === 'secret' ? '' : (string) $model->setting($field['key'], ''),
+                    $field['key'] => in_array($field['type'], ['secret', 'secret_text'], true) ? '' : (string) $model->setting($field['key'], $field['default'] ?? ''),
                 ]),
-                'secrets_set' => collect($driver->settingsFields())->where('type', 'secret')
+                'secrets_set' => collect($driver->settingsFields())->whereIn('type', ['secret', 'secret_text'])
                     ->mapWithKeys(fn (array $field): array => [$field['key'] => (string) $model->setting($field['key'], '') !== '']),
             ],
             'fields' => $driver->settingsFields(),
@@ -50,37 +48,18 @@ class GatewayController extends Controller
         ]);
     }
 
-    public function update(GatewayRequest $request, string $gateway): RedirectResponse
+    public function update(GatewayRequest $request, string $gateway, ConfigureGateway $configure): RedirectResponse
     {
-        $driver = $this->gateways->driver($gateway);
-        $model = $this->gateways->gateway($gateway);
-        $wasActive = $model->exists && $model->is_active;
+        /** @var array<string, string|null> $settings */
+        $settings = $request->validated('settings', []);
 
-        $config = $model->config ?? [];
-
-        foreach ($driver->settingsFields() as $field) {
-            $value = (string) ($request->validated('settings.'.$field['key']) ?? '');
-
-            if ($field['type'] !== 'secret' || $value !== '') {
-                $config[$field['key']] = $value;
-            }
-        }
-
-        DB::transaction(function () use ($request, $model, $config, $wasActive, $gateway): void {
-            $model->fill([
-                'display_name' => $request->string('display_name')->toString(),
-                'is_active' => $request->boolean('is_active'),
-                'show_on_order_form' => $request->boolean('show_on_order_form'),
-                'sort_order' => $request->integer('sort_order'),
-                'convert_to_currency' => $request->validated('convert_to_currency'),
-                'config' => $config,
-            ])->save();
-
-            if ($wasActive && ! $model->is_active && $request->filled('replacement')) {
-                Invoice::query()->where('payment_gateway', $gateway)->whereIn('status', InvoiceStatus::payable())
-                    ->update(['payment_gateway' => $request->string('replacement')->toString()]);
-            }
-        });
+        $model = $configure->handle($gateway, [
+            'display_name' => $request->string('display_name')->toString(),
+            'is_active' => $request->boolean('is_active'),
+            'show_on_order_form' => $request->boolean('show_on_order_form'),
+            'sort_order' => $request->integer('sort_order'),
+            'convert_to_currency' => $request->validated('convert_to_currency'),
+        ], $settings, $request->filled('replacement') ? $request->string('replacement')->toString() : null);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':gateway saved.', ['gateway' => $model->display_name])]);
 

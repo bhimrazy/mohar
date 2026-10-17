@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Billing\Drivers\Gateways\Data;
+namespace App\Data\Billing;
 
 /**
  * Display details of a gateway token. The card number itself never reaches our database.

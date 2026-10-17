@@ -54,11 +54,14 @@ class TaxEngine implements TaxCalculator
             return TaxRates::none(TaxExemptReason::ReverseCharge);
         }
 
+        $scope = $this->supplyScope($country, $state, $vatId);
         $rules = TaxRule::query()
             ->where(fn ($query) => $query->whereNull('country')->orWhere('country', $country))
             ->where(fn ($query) => $query->whereNull('effective_from')->orWhereDate('effective_from', '<=', ($date ?? CarbonImmutable::today())->toDateString()))
+            ->orderBy('id')
             ->get()
-            ->filter(fn (TaxRule $rule): bool => $rule->state === null || ($state !== null && strcasecmp($rule->state, $state) === 0));
+            ->filter(fn (TaxRule $rule): bool => ($rule->state === null || ($state !== null && strcasecmp($rule->state, $state) === 0))
+                && ($rule->scope === null || $rule->scope === $scope));
 
         $level1 = $this->mostSpecific($rules, 1);
         $level2 = $this->mostSpecific($rules, 2);
@@ -73,6 +76,24 @@ class TaxEngine implements TaxCalculator
             perInvoice: $this->settings->string('tax.calculation', 'per_line') === 'per_invoice',
             rounding: $this->settings->string('tax.rounding', 'half_up'),
         );
+    }
+
+    /**
+     * Intra-state (home_state) or inter-state (other_state) supply for customers in the seller's home country,
+     * using the GSTIN state for registered businesses (place of supply). Null outside the home country.
+     */
+    public function supplyScope(?string $country, ?string $state, ?string $taxId = null): ?string
+    {
+        $home = strtoupper($this->settings->string('tax.home_country'));
+
+        if ($country === null || $home === '' || strtoupper($country) !== $home) {
+            return null;
+        }
+
+        $homeState = $home === 'IN' ? IndianStates::normalize($this->settings->string('tax.home_state')) : strtoupper($this->settings->string('tax.home_state'));
+        $customerState = $home === 'IN' ? IndianStates::placeOfSupply($state, $taxId) : ($state !== null ? strtoupper($state) : null);
+
+        return $customerState !== null && $customerState === $homeState ? TaxRule::HOME_STATE : TaxRule::OTHER_STATE;
     }
 
     /**

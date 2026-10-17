@@ -20,9 +20,69 @@ import type { SelectOption } from '@/types/app';
 type SettingField = {
     key: string;
     label: string;
-    type: 'string' | 'text' | 'secret';
+    type: 'string' | 'text' | 'secret' | 'secret_text' | 'boolean' | 'select';
     help?: string;
+    options?: Record<string, string>;
 };
+
+const isSecret = (field: SettingField) =>
+    field.type === 'secret' || field.type === 'secret_text';
+
+function SettingControl({
+    id,
+    field,
+    value,
+    onChange,
+}: {
+    id: string;
+    field: SettingField;
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    switch (field.type) {
+        case 'boolean':
+            return (
+                <Switch
+                    id={id}
+                    checked={value === '1' || value === 'true'}
+                    onCheckedChange={(checked) => onChange(checked ? '1' : '0')}
+                />
+            );
+        case 'select':
+            return (
+                <SelectField
+                    id={id}
+                    value={value}
+                    onChange={onChange}
+                    options={Object.entries(field.options ?? {}).map(
+                        ([option, label]) => ({ value: option, label }),
+                    )}
+                />
+            );
+        case 'text':
+        case 'secret_text':
+            return (
+                <Textarea
+                    id={id}
+                    rows={4}
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                />
+            );
+        default:
+            return (
+                <Input
+                    id={id}
+                    type={field.type === 'secret' ? 'password' : 'text'}
+                    autoComplete="off"
+                    value={value}
+                    onChange={(event) => onChange(event.target.value)}
+                />
+            );
+    }
+}
 
 type Props = {
     gateway: {
@@ -235,7 +295,7 @@ export default function GatewayEdit({
                                             htmlFor={id}
                                             label={field.label}
                                             hint={
-                                                field.type === 'secret' &&
+                                                isSecret(field) &&
                                                 gateway.secrets_set[field.key]
                                                     ? 'A value is stored. Leave empty to keep it.'
                                                     : field.help
@@ -244,30 +304,12 @@ export default function GatewayEdit({
                                                 errors[`settings.${field.key}`]
                                             }
                                         >
-                                            {field.type === 'text' ? (
-                                                <Textarea
-                                                    id={id}
-                                                    rows={4}
-                                                    value={value}
-                                                    onChange={(event) =>
-                                                        set(event.target.value)
-                                                    }
-                                                />
-                                            ) : (
-                                                <Input
-                                                    id={id}
-                                                    type={
-                                                        field.type === 'secret'
-                                                            ? 'password'
-                                                            : 'text'
-                                                    }
-                                                    autoComplete="off"
-                                                    value={value}
-                                                    onChange={(event) =>
-                                                        set(event.target.value)
-                                                    }
-                                                />
-                                            )}
+                                            <SettingControl
+                                                id={id}
+                                                field={field}
+                                                value={value}
+                                                onChange={set}
+                                            />
                                         </Field>
                                     );
                                 })}

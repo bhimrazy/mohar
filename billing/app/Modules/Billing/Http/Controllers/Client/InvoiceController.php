@@ -2,10 +2,14 @@
 
 namespace App\Modules\Billing\Http\Controllers\Client;
 
+use App\Data\Billing\FormPost;
+use App\Data\Billing\QrPayload;
+use App\Data\Billing\RedirectInstruction;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
+use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
@@ -25,6 +29,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -87,10 +92,15 @@ class InvoiceController extends Controller
         return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
     }
 
-    public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options): RedirectResponse
+    public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options, StartHostedPayment $start): RedirectResponse|SymfonyResponse
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
+
+        if ($options->kind($request->string('gateway')->toString()) === 'redirect') {
+            return $this->startHosted($invoice, $request->string('gateway')->toString(), $start);
+        }
+
         [$gateway, $token, $method] = $options->resolve($invoice, $request);
 
         $result = $capture->handle($invoice, $gateway, $token, $method, $request->user()?->id);
@@ -118,6 +128,26 @@ class InvoiceController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Credit applied to invoice :number.', ['number' => $invoice->displayNumber()])]);
 
         return back();
+    }
+
+    /**
+     * Hosted gateways: store the attempt and hand the customer to the provider (redirect, auto-posted form or QR).
+     */
+    private function startHosted(Invoice $invoice, string $gateway, StartHostedPayment $start): SymfonyResponse
+    {
+        [$attempt, $instruction] = $start->handle($invoice, $gateway);
+
+        if ($instruction instanceof RedirectInstruction) {
+            return Inertia::location($instruction->url);
+        }
+
+        return Inertia::render('client/billing/invoices/checkout', [
+            'invoice' => ['id' => $invoice->id, 'number' => $invoice->displayNumber()],
+            'reference' => $attempt->reference,
+            'form' => $instruction instanceof FormPost ? ['action' => $instruction->action, 'fields' => (object) $instruction->fields] : null,
+            'qr' => $instruction instanceof QrPayload ? ['payload' => $instruction->payload, 'expires_at' => $instruction->expiresAt->toIso8601String()] : null,
+            'status_url' => route('billing.gateways.return', [$gateway, 'ref' => $attempt->reference]),
+        ])->toResponse(request());
     }
 
     /**

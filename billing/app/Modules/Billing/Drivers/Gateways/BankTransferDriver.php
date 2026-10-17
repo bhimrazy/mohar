@@ -2,8 +2,8 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
-use App\Modules\Billing\Models\Gateway;
-use App\Modules\Billing\Models\Invoice;
+use App\Data\Billing\GatewayConfig;
+use App\Support\Billing\AbstractGatewayDriver;
 
 /**
  * Offline bank transfer: the client sees instructions, staff record the payment when it arrives.
@@ -27,10 +27,10 @@ class BankTransferDriver extends AbstractGatewayDriver
         ];
     }
 
-    public function instructions(Gateway $gateway, Invoice $invoice): ?string
+    public function instructions(GatewayConfig $gateway, string $reference): ?string
     {
         $text = (string) $gateway->setting('instructions', '');
 
-        return $text === '' ? null : str_replace('{invoice}', $invoice->displayNumber(), $text);
+        return $text === '' ? null : str_replace('{invoice}', $reference, $text);
     }
 }

@@ -1,9 +1,9 @@
 <?php
 
-namespace App\Modules\Billing\Drivers\Gateways\Data;
+namespace App\Data\Billing;
 
 /**
- * A verified, parsed gateway webhook.
+ * A verified, parsed gateway webhook (push gateways: Stripe, Razorpay, sandbox).
  */
 final readonly class CallbackEvent
 {
@@ -16,7 +16,7 @@ final readonly class CallbackEvent
     public const CHARGEBACK = 'chargeback';
 
     /**
-     * @param  array<string, mixed>  $raw  redacted payload
+     * @param  array<string, mixed>  $raw  payload (redacted before storage)
      */
     public function __construct(
         public string $type,

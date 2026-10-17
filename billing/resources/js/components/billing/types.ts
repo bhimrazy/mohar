@@ -148,7 +148,7 @@ export type CreditEntry = {
 export type ClientGatewayOption = {
     key: string;
     name: string;
-    kind: 'card' | 'offline';
+    kind: 'card' | 'redirect' | 'offline';
     instructions: string | null;
     vault_url: string | null;
 };

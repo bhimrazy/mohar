@@ -2,8 +2,9 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\GatewayDriver;
+use App\Data\Billing\RefundRequest;
 use App\Events\Billing\InvoiceRefunded;
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
@@ -108,7 +109,16 @@ class RefundTransaction
             throw new BillingException(__(':gateway can\'t refund automatically. Record the refund instead.', ['gateway' => $driver->name()]));
         }
 
-        $result = $driver->refund($this->gateways->gateway($payment->gateway), $payment, Money::of($amount, $payment->currency));
+        if ($amount < $payment->amount_in && ! $driver->supports(GatewayDriver::PARTIAL_REFUND)) {
+            throw new BillingException(__(':gateway only refunds the full amount automatically. Record partial refunds instead.', ['gateway' => $driver->name()]));
+        }
+
+        $result = $driver->refund($this->gateways->config($payment->gateway), new RefundRequest(
+            providerTxnId: (string) $payment->gateway_txn_id,
+            amount: Money::of($amount, $payment->currency),
+            originalAmount: Money::of($payment->amount_in, $payment->currency),
+            paymentRaw: $payment->raw ?? [],
+        ));
         $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);
 
         if (! $result->succeeded()) {

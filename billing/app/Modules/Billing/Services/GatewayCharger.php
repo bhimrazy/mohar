@@ -2,9 +2,9 @@
 
 namespace App\Modules\Billing\Services;
 
-use App\Modules\Billing\Drivers\Gateways\Data\ChargeRequest;
-use App\Modules\Billing\Drivers\Gateways\Data\ChargeResult;
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
+use App\Contracts\Billing\GatewayDriver;
+use App\Data\Billing\ChargeRequest;
+use App\Data\Billing\ChargeResult;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\UnsupportedCapabilityException;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -60,7 +60,7 @@ class GatewayCharger
         }
 
         $this->log->log($gateway->key, 'request', 'capture', ['amount' => $amount->amount, 'currency' => $amount->currency, 'reference' => $reference], $invoiceId);
-        $result = $driver->capture($gateway, new ChargeRequest($amount, $token, __('Payment :reference', ['reference' => $reference]), $reference, $clientId, $invoiceId));
+        $result = $driver->capture($this->gateways->config($gateway), new ChargeRequest($amount, $token, __('Payment :reference', ['reference' => $reference]), $reference, $clientId, $invoiceId));
         $this->log->log($gateway->key, 'response', 'capture '.$result->status, $result->raw, $invoiceId);
 
         return $result;

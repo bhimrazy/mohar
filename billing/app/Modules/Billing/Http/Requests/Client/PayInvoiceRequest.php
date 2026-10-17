@@ -18,17 +18,9 @@ class PayInvoiceRequest extends FormRequest
     {
         return [
             'gateway' => ['required', 'string', 'max:50'],
-            'pay_method_id' => ['nullable', 'integer', 'required_without:token'],
-            'token' => ['nullable', 'string', 'max:2000', 'required_without:pay_method_id'],
+            'pay_method_id' => ['nullable', 'integer'],
+            'token' => ['nullable', 'string', 'max:2000'],
             'save_card' => ['boolean'],
-        ];
-    }
-
-    public function messages(): array
-    {
-        return [
-            'pay_method_id.required_without' => __('Choose a saved card or enter a new one.'),
-            'token.required_without' => __('Choose a saved card or enter a new one.'),
         ];
     }
 }

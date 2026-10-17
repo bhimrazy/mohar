@@ -30,6 +30,14 @@ return [
     'clients_choose_gateway' => true,
     'allow_pay_method_removal' => true,
 
+    // Hosted gateways (payments-nepal.md §3): lookup-driven reconciliation
+    'gateways' => [
+        'lookup_interval_minutes' => 5,
+        'lookup_grace_minutes' => 120,
+        'http_timeout_seconds' => 15,
+        'ambiguous_alert_minutes' => 30,
+    ],
+
     // Refunds & reversals (§4.7, §4.8)
     'reversal' => [
         'set_collections' => true,
@@ -44,6 +52,9 @@ return [
         'calculation' => 'per_line', // per_line|per_invoice
         'rounding' => 'half_up', // half_up|half_even|down|up
         'apply_to' => ['service', 'addon', 'domain', 'setup', 'late_fee', 'manual'],
+        // Seller location for intra/inter-state rules (India GST: CGST+SGST in the home state, IGST elsewhere).
+        'home_country' => 'IN',
+        'home_state' => 'MH',
     ],
     'vat' => [
         'enabled' => false,

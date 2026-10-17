@@ -2,10 +2,10 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Actions\UpdateInvoiceDetails;
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\ImmutableInvoiceException;

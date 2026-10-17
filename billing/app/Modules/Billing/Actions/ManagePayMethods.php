@@ -2,7 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
+use App\Contracts\Billing\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\PayMethod;
@@ -28,7 +28,7 @@ class ManagePayMethods
             throw new BillingException(__('This payment method can\'t be saved.'));
         }
 
-        $details = $driver->tokenDetails($gateway, $token) ?? throw new BillingException(__('The card details could not be verified. Enter them again.'));
+        $details = $driver->tokenDetails($this->gateways->config($gateway), $token) ?? throw new BillingException(__('The card details could not be verified. Enter them again.'));
 
         return DB::transaction(function () use ($clientId, $gatewayKey, $details, $makeDefault): PayMethod {
             $isFirst = ! PayMethod::query()->where('client_id', $clientId)->usable()->exists();

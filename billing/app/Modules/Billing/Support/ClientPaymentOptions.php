@@ -2,7 +2,7 @@
 
 namespace App\Modules\Billing\Support;
 
-use App\Modules\Billing\Drivers\Gateways\GatewayDriver;
+use App\Contracts\Billing\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
@@ -31,6 +31,7 @@ class ClientPaymentOptions
     {
         $choose = $this->settings->bool('clients_choose_gateway');
         $gateways = $this->gateways->clientGateways()
+            ->filter(fn (Gateway $gateway): bool => $this->acceptsCurrency($gateway, $invoice->currency))
             ->filter(fn (Gateway $gateway): bool => $choose || $invoice->payment_gateway === null || $gateway->key === $invoice->payment_gateway);
 
         return [
@@ -45,7 +46,7 @@ class ClientPaymentOptions
      */
     public function forClient(Client $client, string $currency): array
     {
-        $gateways = $this->gateways->clientGateways();
+        $gateways = $this->gateways->clientGateways()->filter(fn (Gateway $gateway): bool => $this->acceptsCurrency($gateway, $currency));
 
         return [
             ...$this->options($client, $gateways->all(), null),
@@ -75,8 +76,12 @@ class ClientPaymentOptions
     {
         $gateway = $request->string('gateway')->toString();
 
-        if (! $this->gateways->clientGateways()->contains('key', $gateway) || ! $this->gateways->supports($gateway, GatewayDriver::CAPTURE)) {
+        if (! $this->gateways->clientGateways()->contains('key', $gateway) || $this->kind($gateway) !== 'card') {
             throw new BillingException(__('Choose an online payment method.'));
+        }
+
+        if (! $request->filled('pay_method_id') && ! $request->filled('token')) {
+            throw new BillingException(__('Choose a saved card or enter a new one.'));
         }
 
         if ($request->filled('pay_method_id')) {
@@ -90,6 +95,38 @@ class ClientPaymentOptions
         }
 
         return [$gateway, $request->string('token')->toString(), null];
+    }
+
+    /**
+     * Whether a gateway can take a payment in this currency (natively or by converting).
+     */
+    public function acceptsCurrency(Gateway $gateway, string $currency): bool
+    {
+        $supported = $this->gateways->driver($gateway->key)->currencies();
+
+        return $supported === null || in_array(strtoupper($currency), $supported, true)
+            || ($gateway->convert_to_currency !== null && in_array(strtoupper($gateway->convert_to_currency), $supported, true));
+    }
+
+    /**
+     * How clients pay with a gateway: inline card form (capture), hosted redirect (HostedPaymentDriver; also when
+     * a dual-mode driver is set to checkout_mode=hosted), or offline instructions.
+     */
+    public function kind(string $gateway): string
+    {
+        if (! $this->gateways->has($gateway)) {
+            return 'offline';
+        }
+
+        $hosted = $this->gateways->hosted($gateway) !== null;
+        $capture = $this->gateways->supports($gateway, GatewayDriver::CAPTURE);
+        $mode = $this->gateways->config($gateway)->setting('checkout_mode', 'inline');
+
+        return match (true) {
+            $hosted && (! $capture || $mode === 'hosted') => 'redirect',
+            $capture => 'card',
+            default => 'offline',
+        };
     }
 
     public static function declineMessage(?string $reason): string
@@ -118,8 +155,8 @@ class ClientPaymentOptions
                 return [
                     'key' => $gateway->key,
                     'name' => $gateway->display_name,
-                    'kind' => $driver->supports(GatewayDriver::CAPTURE) ? 'card' : 'offline',
-                    'instructions' => $invoice !== null ? $driver->instructions($gateway, $invoice) : null,
+                    'kind' => $this->kind($gateway->key),
+                    'instructions' => $invoice !== null ? $driver->instructions($this->gateways->config($gateway), $invoice->displayNumber()) : null,
                     'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) ? route('billing.sandbox.tokens') : null,
                 ];
             }, $gateways)),

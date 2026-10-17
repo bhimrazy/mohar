@@ -23,6 +23,8 @@ return new class extends Migration
             $table->unsignedTinyInteger('level')->default(1);
             $table->char('country', 2)->nullable();
             $table->string('state', 100)->nullable();
+            // null = any location; home_state / other_state = intra- vs inter-state supply in the home country (India GST).
+            $table->string('scope', 20)->nullable();
             $table->decimal('rate', 6, 3);
             $table->integer('priority')->default(0);
             $table->date('effective_from')->nullable();
@@ -182,6 +184,32 @@ return new class extends Migration
             $table->index(['type', 'occurred_at']);
         });
 
+        Schema::create('payment_attempts', function (Blueprint $table) {
+            $table->id();
+            $table->string('reference', 20)->unique();
+            $table->string('gateway', 50);
+            $table->foreignId('client_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('invoice_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('payment_batch_id')->nullable()->constrained()->nullOnDelete();
+            $table->bigInteger('amount');
+            $table->char('currency', 3);
+            $table->bigInteger('document_amount');
+            $table->char('document_currency', 3);
+            $table->decimal('fx_rate', 16, 6)->nullable();
+            $table->string('provider_ref', 191)->nullable();
+            $table->string('provider_txn_id', 191)->nullable();
+            $table->string('status', 20)->default('pending');
+            $table->string('review_reason', 191)->nullable();
+            $table->timestamp('expires_at')->nullable();
+            $table->timestamp('last_lookup_at')->nullable();
+            $table->unsignedInteger('lookup_count')->default(0);
+            $table->foreignId('transaction_id')->nullable()->constrained()->nullOnDelete();
+            $table->json('raw')->nullable();
+            $table->timestamps();
+            $table->unique(['gateway', 'provider_txn_id']);
+            $table->index(['status', 'last_lookup_at']);
+        });
+
         Schema::create('credit_ledger', function (Blueprint $table) {
             $table->id();
             $table->foreignId('client_id')->constrained()->cascadeOnDelete();
@@ -262,6 +290,7 @@ return new class extends Migration
         Schema::dropIfExists('billing_client_flags');
         Schema::dropIfExists('gateway_log');
         Schema::dropIfExists('credit_ledger');
+        Schema::dropIfExists('payment_attempts');
         Schema::dropIfExists('transactions');
         Schema::dropIfExists('payment_batches');
         Schema::dropIfExists('invoice_adjustments');

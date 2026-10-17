@@ -15,14 +15,19 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $level 1|2
  * @property string|null $country
  * @property string|null $state
+ * @property string|null $scope null|home_state|other_state
  * @property string $rate percent with 3 decimals, e.g. "20.000"
  * @property int $priority
  * @property CarbonImmutable|null $effective_from
  */
 #[UseFactory(TaxRuleFactory::class)]
-#[Fillable(['name', 'level', 'country', 'state', 'rate', 'priority', 'effective_from'])]
+#[Fillable(['name', 'level', 'country', 'state', 'scope', 'rate', 'priority', 'effective_from'])]
 class TaxRule extends Model
 {
+    public const HOME_STATE = 'home_state';
+
+    public const OTHER_STATE = 'other_state';
+
     /** @use HasFactory<TaxRuleFactory> */
     use HasFactory;
 
@@ -41,6 +46,6 @@ class TaxRule extends Model
      */
     public function specificity(): int
     {
-        return ($this->country !== null ? 2 : 0) + ($this->state !== null ? 1 : 0);
+        return ($this->country !== null ? 4 : 0) + ($this->state !== null || $this->scope !== null ? 2 : 0);
     }
 }

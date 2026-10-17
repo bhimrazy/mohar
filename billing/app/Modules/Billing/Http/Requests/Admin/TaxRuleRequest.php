@@ -2,7 +2,9 @@
 
 namespace App\Modules\Billing\Http\Requests\Admin;
 
+use App\Modules\Billing\Models\TaxRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class TaxRuleRequest extends FormRequest
 {
@@ -16,6 +18,7 @@ class TaxRuleRequest extends FormRequest
         $this->merge([
             'country' => $this->filled('country') ? strtoupper((string) $this->input('country')) : null,
             'state' => $this->filled('state') ? $this->input('state') : null,
+            'scope' => $this->filled('scope') && $this->input('scope') !== 'any' ? $this->input('scope') : null,
         ]);
     }
 
@@ -29,6 +32,7 @@ class TaxRuleRequest extends FormRequest
             'level' => ['required', 'integer', 'in:1,2'],
             'country' => ['nullable', 'string', 'size:2', 'alpha'],
             'state' => ['nullable', 'string', 'max:100'],
+            'scope' => ['nullable', Rule::in([TaxRule::HOME_STATE, TaxRule::OTHER_STATE])],
             'rate' => ['required', 'numeric', 'min:0', 'max:100', 'regex:/^\d{1,3}(\.\d{1,3})?$/'],
             'priority' => ['nullable', 'integer', 'min:-1000', 'max:1000'],
             'effective_from' => ['nullable', 'date'],

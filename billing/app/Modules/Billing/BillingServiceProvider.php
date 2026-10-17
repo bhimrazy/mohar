@@ -3,6 +3,7 @@
 namespace App\Modules\Billing;
 
 use App\Contracts\Billing\CreditLedger;
+use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
@@ -12,15 +13,18 @@ use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
+use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\BillingAutomation;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceService;
+use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
@@ -36,6 +40,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Event;
 
 class BillingServiceProvider extends ModuleServiceProvider
@@ -54,6 +59,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(TaxCalculator::class, TaxEngine::class);
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
 
+        $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class, function (): GatewayManager {
             $manager = new GatewayManager;
             $manager->register(new BankTransferDriver);
@@ -77,6 +83,12 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->registerMergeFields();
     }
 
+    protected function schedule(Schedule $schedule): void
+    {
+        // Hosted gateways without webhooks: poll pending attempts between daily pipeline runs.
+        $schedule->command('billing:reconcile-payments')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+    }
+
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
@@ -85,6 +97,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation->task('billing.late_fees', Automation::LATE_FEES, fn (CarbonImmutable $today): int => $tasks()->lateFees($today));
         $automation->task('billing.auto_capture', Automation::AUTO_CHARGE, fn (CarbonImmutable $today): int => $tasks()->autoCapture($today));
         $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today));
+        $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run());
         $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today));
         $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today));
     }
@@ -93,18 +106,23 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $navigation = $this->app->make(Navigation::class);
 
-        $navigation->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*'));
+        $navigation->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*',
+            badge: fn (?User $user): ?int => Invoice::query()->overdue()->count() ?: null));
         $navigation->add('admin', new NavItem('Transactions', 'admin.billing.transactions.index', 'ArrowLeftRight', 'Billing', 20, 'billing.transactions.view', 'admin.billing.transactions.*'));
         $navigation->add('admin', new NavItem('Quotes', 'admin.billing.quotes.index', 'ClipboardList', 'Billing', 30, 'billing.quotes.view', 'admin.billing.quotes.*'));
         $navigation->add('admin', new NavItem('Account credit', 'admin.billing.credit.index', 'Wallet', 'Billing', 40, 'billing.credit.manage', 'admin.billing.credit.*'));
         $navigation->add('admin', new NavItem('Gateways', 'admin.billing.gateways.index', 'CreditCard', 'Setup', 40, 'billing.gateways.manage', 'admin.billing.gateways.*'));
         $navigation->add('admin', new NavItem('Tax rules', 'admin.billing.tax-rules.index', 'Percent', 'Setup', 41, 'billing.tax.manage', 'admin.billing.tax-rules.*'));
+        $navigation->add('admin', new NavItem('Payment attempts', 'admin.billing.payment-attempts.index', 'Activity', 'Billing', 50, 'billing.payments.manage', 'admin.billing.payment-attempts.*'));
         $navigation->add('admin', new NavItem('Gateway log', 'admin.billing.gateway-log.index', 'Webhook', 'Setup', 42, 'billing.gateway_log.view', 'admin.billing.gateway-log.*'));
 
         $navigation->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10, activePattern: 'client.invoices.*'));
         $navigation->add('client', new NavItem('Quotes', 'client.quotes.index', 'ClipboardList', 'Billing', 20, activePattern: 'client.quotes.*'));
         $navigation->add('client', new NavItem('Credit & funds', 'client.credit.index', 'Wallet', 'Billing', 30, activePattern: 'client.credit.*'));
         $navigation->add('client', new NavItem('Payment methods', 'client.pay-methods.index', 'CreditCard', 'Billing', 40, activePattern: 'client.pay-methods.*'));
+
+        $navigation->add('admin-create', new NavItem('New invoice', 'admin.billing.invoices.create', 'FileText', order: 20, permission: 'billing.invoices.manage'));
+        $navigation->add('admin-create', new NavItem('New quote', 'admin.billing.quotes.create', 'ClipboardList', order: 21, permission: 'billing.quotes.manage'));
 
         $navigation->add('admin-client', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', order: 10, permission: 'billing.invoices.view'));
         $navigation->add('admin-client', new NavItem('Transactions', 'admin.billing.transactions.index', 'ArrowLeftRight', order: 11, permission: 'billing.transactions.view'));
@@ -142,6 +160,79 @@ class BillingServiceProvider extends ModuleServiceProvider
             'href' => route('admin.billing.invoices.index', ['status' => 'overdue']),
             'icon' => 'AlertTriangle',
         ], 'billing.invoices.view', 30);
+
+        $dashboard->widget('admin', 'billing.income_chart', 'chart', function (?User $user) use ($currency): array {
+            $code = $currency();
+            $start = CarbonImmutable::today()->subDays(29);
+            $daily = Transaction::query()
+                ->where('currency', $code)
+                ->where('occurred_at', '>=', $start)
+                ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback])
+                ->get(['occurred_at', 'amount_in', 'amount_out'])
+                ->groupBy(fn (Transaction $transaction): string => $transaction->occurred_at->toDateString())
+                ->map(fn ($day): int => (int) $day->sum(fn (Transaction $transaction): int => $transaction->amount_in - $transaction->amount_out));
+
+            return [
+                'title' => 'Income, last 30 days',
+                'kind' => 'bar',
+                'currency' => $code,
+                'series' => [['name' => 'Net income', 'points' => array_map(
+                    fn (int $offset): array => ['x' => $date = $start->addDays($offset)->toDateString(), 'y' => $daily[$date] ?? 0],
+                    range(0, 29),
+                )]],
+                'href' => route('admin.billing.transactions.index'),
+            ];
+        }, 'billing.transactions.view', 40, 'lg', deferred: true);
+
+        $dashboard->widget('admin', 'billing.recent_payments', 'list', fn (?User $user): array => [
+            'title' => 'Recent payments',
+            'items' => array_values(Transaction::query()
+                ->with(['client:id,first_name,last_name,company_name', 'invoice:id,number,proforma_number'])
+                ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome])
+                ->where('amount_in', '>', 0)
+                ->orderByDesc('occurred_at')->orderByDesc('id')
+                ->limit(5)
+                ->get()
+                ->map(fn (Transaction $transaction): array => [
+                    'title' => $transaction->client->display_name,
+                    'subtitle' => $transaction->invoice?->displayNumber() ?? 'Account credit',
+                    'href' => $transaction->invoice_id !== null ? route('admin.billing.invoices.show', $transaction->invoice_id) : route('admin.billing.transactions.index'),
+                    'meta' => Money::of($transaction->amount_in, $transaction->currency)->format(),
+                    'money' => ['amount' => $transaction->amount_in, 'currency' => $transaction->currency],
+                    'date' => $transaction->occurred_at->toIso8601String(),
+                ])->all()),
+            'href' => route('admin.billing.transactions.index'),
+            'empty' => 'No payments yet.',
+        ], 'billing.transactions.view', 50, 'md');
+
+        $dashboard->todo('admin', 'billing.overdue', fn (?User $user): array => [
+            'label' => 'Overdue invoices',
+            'count' => Invoice::query()->overdue()->count(),
+            'href' => route('admin.billing.invoices.index', ['status' => 'overdue']),
+            'tone' => 'danger',
+        ], 'billing.invoices.view', 10);
+
+        $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
+            'label' => 'Unpaid invoices due today',
+            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', CarbonImmutable::today()->toDateString())->count(),
+            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
+            'tone' => 'warning',
+        ], 'billing.invoices.view', 11);
+
+        $dashboard->todo('admin', 'billing.failed_captures', fn (?User $user): array => [
+            'label' => 'Failed automatic card charges',
+            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereNotNull('first_capture_failure_on')->count(),
+            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
+            'tone' => 'danger',
+        ], 'billing.invoices.view', 12);
+
+        $dashboard->todo('admin', 'billing.payment_review', fn (?User $user): array => [
+            'label' => 'Gateway payments to review',
+            'count' => PaymentAttempt::query()->where('status', AttemptStatus::Ambiguous)
+                ->where('updated_at', '<=', now()->subMinutes($this->app->make(BillingSettings::class)->int('gateways.ambiguous_alert_minutes', 30)))->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['status' => 'ambiguous']),
+            'tone' => 'danger',
+        ], 'billing.payments.manage', 13);
 
         $dashboard->card('client', 'billing.unpaid', function (?User $user, Client $client): array {
             $unpaid = Invoice::query()->where('client_id', $client->id)->whereIn('status', InvoiceStatus::payable());
@@ -230,6 +321,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
             new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
+            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
+            new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
             new SettingDefinition('billing.vat.home_country', 'VAT home country', help: 'ISO code, e.g. DE', rules: ['size:2']),
             $bool('vat.auto_exempt_on_valid_id', 'Reverse charge for valid EU VAT IDs'),
@@ -244,6 +337,10 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('reminders.before_due_days', 'Reminder days before due (0 = off)'),
             $list('reminders.overdue_days', 'Overdue reminder days', 'Comma-separated, e.g. 1, 4, 7'),
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
+            $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
+            $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
+            $int('gateways.http_timeout_seconds', 'Gateway HTTP timeout (seconds)'),
+            $int('gateways.ambiguous_alert_minutes', 'Alert staff about unresolved payments after (minutes)'),
             $bool('quotes.require_tos', 'Quotes require accepting terms'),
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),

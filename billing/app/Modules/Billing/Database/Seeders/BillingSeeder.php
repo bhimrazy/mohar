@@ -32,7 +32,7 @@ use Illuminate\Support\Str;
  */
 class BillingSeeder extends Seeder
 {
-    public function run(Invoicer $invoicer, ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
+    public function run(ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
     {
         $this->gateways();
         $this->taxRules();
@@ -48,7 +48,13 @@ class BillingSeeder extends Seeder
             return;
         }
 
-        app(Settings::class)->setMany(['billing.number_format' => 'INV-{NUMBER}', 'billing.quote_number_format' => 'Q-{NUMBER}']);
+        app(Settings::class)->setMany([
+            'billing.number_format' => 'INV-{NUMBER}',
+            'billing.quote_number_format' => 'Q-{NUMBER}',
+            'billing.tax.enabled' => true,
+            'billing.tax.home_country' => 'IN',
+            'billing.tax.home_state' => 'MH',
+        ]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'invoice', 'period' => ''], ['next_number' => 1041]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'quote', 'period' => ''], ['next_number' => 204]);
 
@@ -59,9 +65,7 @@ class BillingSeeder extends Seeder
             'brand' => $card->brand, 'last4' => $card->last4, 'expiry_month' => 12, 'expiry_year' => $card->expiryYear, 'is_default' => true,
         ]);
 
-        $issue = fn (Client $client, array $lines, CarbonImmutable $due, ?string $gateway = 'sandbox_card'): Invoice => Invoice::query()->findOrFail(
-            $invoicer->issue(new InvoiceDraft($client->id, $client->currency, $lines, $due, paymentGateway: $gateway, notify: false))->invoiceId,
-        );
+        $issue = $this->issue(...);
         $service = fn (string $description, int $amount, int $id, CarbonImmutable $start): InvoiceLineData => new InvoiceLineData(
             $description, $amount, billableType: BillableType::Service, billableId: $id, periodStart: $start, periodEnd: $start->addMonth(),
         );
@@ -95,7 +99,9 @@ class BillingSeeder extends Seeder
         ]);
         $quotes->deliver($quote);
 
-        $others = Client::query()->whereKeyNot($demo->id)->orderBy('id')->limit(6)->get();
+        $this->marketInvoices($issue, $pay, $today);
+
+        $others = Client::query()->whereKeyNot($demo->id)->where('currency', 'USD')->orderBy('id')->limit(6)->get();
 
         foreach ($others as $index => $client) {
             $invoice = $issue($client, [$service('Starter Hosting', 999 + $index * 500, 100 + $index, $today->subDays(10 - $index * 4))], $today->subDays(10 - $index * 4), $index % 2 === 0 ? 'bank_transfer' : 'sandbox_card');
@@ -127,15 +133,51 @@ class BillingSeeder extends Seeder
         ]);
     }
 
+    /**
+     * @param  list<InvoiceLineData>  $lines
+     */
+    private function issue(Client $client, array $lines, CarbonImmutable $due, ?string $gateway = 'sandbox_card'): Invoice
+    {
+        $result = app(Invoicer::class)->issue(new InvoiceDraft($client->id, $client->currency, $lines, $due, paymentGateway: $gateway, notify: false));
+
+        return Invoice::query()->findOrFail($result->invoiceId);
+    }
+
+    /**
+     * India (GST intra-/inter-state, B2B GSTIN) and Nepal (VAT 13%) customers in their own currencies.
+     *
+     * @param  \Closure(Client, list<InvoiceLineData>, CarbonImmutable, ?string): Invoice  $issue
+     */
+    private function marketInvoices(\Closure $issue, ApplyPayment $pay, CarbonImmutable $today): void
+    {
+        $markets = [
+            ['first_name' => 'Priya', 'last_name' => 'Sharma', 'company_name' => 'Sharma Digital LLP', 'email' => 'priya@sharmadigital.in', 'city' => 'Pune', 'state' => 'Maharashtra', 'postcode' => '411001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '27AAPFU0939F1ZV', 'amount' => 149_900],
+            ['first_name' => 'Arjun', 'last_name' => 'Rao', 'company_name' => 'Bengaluru Cloudworks Pvt Ltd', 'email' => 'arjun@cloudworks.in', 'city' => 'Bengaluru', 'state' => 'Karnataka', 'postcode' => '560001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '29AAGCB7383J1Z4', 'amount' => 299_900],
+            ['first_name' => 'Sita', 'last_name' => 'Gurung', 'company_name' => 'Himalayan Treks', 'email' => 'sita@himalayantreks.com.np', 'city' => 'Kathmandu', 'state' => 'Bagmati', 'postcode' => '44600', 'country' => 'NP', 'currency' => 'NPR', 'tax_id' => null, 'amount' => 250_000],
+        ];
+
+        foreach ($markets as $index => $market) {
+            $amount = $market['amount'];
+            unset($market['amount']);
+            $client = Client::query()->firstOrCreate(['email' => $market['email']], [...$market, 'phone' => null, 'address_1' => 'Main Road '.($index + 1), 'language' => 'en', 'status' => 'active', 'tax_exempt' => false]);
+            $invoice = $issue($client, [new InvoiceLineData('Business Hosting (annual)', $amount, billableType: BillableType::Service, billableId: 500 + $index, periodStart: $today, periodEnd: $today->addYear())], $today->addDays(7), 'bank_transfer');
+
+            if ($index === 0) {
+                $pay->handle($invoice, new PaymentData($invoice->balance, 'bank_transfer', 'NEFT-'.random_int(100000, 999999)));
+            }
+        }
+    }
+
     private function taxRules(): void
     {
         foreach ([
-            ['name' => 'NY sales tax', 'country' => 'US', 'state' => 'NY', 'rate' => '8.875'],
-            ['name' => 'MwSt', 'country' => 'DE', 'state' => null, 'rate' => '19.000'],
-            ['name' => 'TVA', 'country' => 'FR', 'state' => null, 'rate' => '20.000'],
-            ['name' => 'VAT', 'country' => 'GB', 'state' => null, 'rate' => '20.000'],
+            ['name' => 'CGST', 'level' => 1, 'country' => 'IN', 'scope' => TaxRule::HOME_STATE, 'rate' => '9.000'],
+            ['name' => 'SGST', 'level' => 2, 'country' => 'IN', 'scope' => TaxRule::HOME_STATE, 'rate' => '9.000'],
+            ['name' => 'IGST', 'level' => 1, 'country' => 'IN', 'scope' => TaxRule::OTHER_STATE, 'rate' => '18.000'],
+            ['name' => 'VAT', 'level' => 1, 'country' => 'NP', 'scope' => null, 'rate' => '13.000'],
+            ['name' => 'NY sales tax', 'level' => 1, 'country' => 'US', 'state' => 'NY', 'scope' => null, 'rate' => '8.875'],
         ] as $rule) {
-            TaxRule::query()->firstOrCreate(['name' => $rule['name'], 'country' => $rule['country'], 'level' => 1], $rule);
+            TaxRule::query()->firstOrCreate(['name' => $rule['name'], 'country' => $rule['country'], 'level' => $rule['level']], $rule);
         }
     }
 }

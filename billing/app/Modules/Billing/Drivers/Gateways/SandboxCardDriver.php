@@ -2,28 +2,41 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
-use App\Modules\Billing\Drivers\Gateways\Data\CallbackEvent;
-use App\Modules\Billing\Drivers\Gateways\Data\CardToken;
-use App\Modules\Billing\Drivers\Gateways\Data\ChargeRequest;
-use App\Modules\Billing\Drivers\Gateways\Data\ChargeResult;
-use App\Modules\Billing\Models\Gateway;
-use App\Modules\Billing\Models\Transaction;
+use App\Contracts\Billing\HostedPaymentDriver;
+use App\Data\Billing\AmountLimits;
+use App\Data\Billing\CallbackEvent;
+use App\Data\Billing\CallbackRejection;
+use App\Data\Billing\CardToken;
+use App\Data\Billing\ChargeRequest;
+use App\Data\Billing\ChargeResult;
+use App\Data\Billing\FormPost;
+use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\LookupResult;
+use App\Data\Billing\PaymentAttemptRef;
+use App\Data\Billing\PaymentIntent;
+use App\Data\Billing\QrPayload;
+use App\Data\Billing\RedirectInstruction;
+use App\Data\Billing\RefundRequest;
+use App\Data\Billing\ReturnHint;
 use App\Modules\Billing\Services\Tax\TaxMath;
-use App\Support\Money;
+use App\Support\Billing\AbstractGatewayDriver;
+use Carbon\CarbonInterval;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
- * Simulated card gateway for development and tests. Its "vault" (remote input endpoint) turns card details into
- * a signed, self-describing token; the card number is discarded immediately. Outcomes are deterministic:
+ * Simulated card gateway for development and tests — no network. Two flows:
  *
- *   4242 4242 4242 4242  success            4000 0000 0000 0002  declined
- *   4000 0000 0000 0077  pending (settles via webhook)   4000 0000 0000 0119  processing error
+ *  - Merchant/token: the "vault" (remote input) turns card details into a signed, self-describing token; capture
+ *    and refund are simulated. Webhooks are HMAC-SHA256 signed (header X-Sandbox-Signature).
+ *  - Hosted (HostedPaymentDriver): initiate → simulated provider page → browser return (hint only) → lookup()
+ *    against the simulated provider's state, exactly like Khalti/eSewa.
  *
- * Webhooks are signed with HMAC-SHA256 of the raw body using the configured webhook secret
- * (header X-Sandbox-Signature).
+ * Outcomes are deterministic by card number:
+ *   4242 4242 4242 4242 success · 4000 0000 0000 0002 declined · 4000 0000 0000 0077 pending · 4000 0000 0000 0119 error
  */
-class SandboxCardDriver extends AbstractGatewayDriver
+class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDriver
 {
     public const SIGNATURE_HEADER = 'X-Sandbox-Signature';
 
@@ -32,6 +45,9 @@ class SandboxCardDriver extends AbstractGatewayDriver
         '4000000000000077' => ChargeResult::PENDING,
         '4000000000000119' => ChargeResult::ERROR,
     ];
+
+    /** Cache prefix standing in for the provider's own database (hosted flow). */
+    private const PROVIDER_STATE = 'billing.sandbox.provider.';
 
     public function key(): string
     {
@@ -45,15 +61,32 @@ class SandboxCardDriver extends AbstractGatewayDriver
 
     public function capabilities(): array
     {
-        return [self::CAPTURE, self::TOKENIZE, self::REMOTE_INPUT, self::REFUND, self::WEBHOOK, self::PENDING_SETTLEMENT];
+        return [self::CAPTURE, self::TOKENIZE, self::REMOTE_INPUT, self::REFUND, self::PARTIAL_REFUND, self::WEBHOOK,
+            self::PENDING_SETTLEMENT, self::REDIRECT, self::LOOKUP, self::STORED_METHODS];
+    }
+
+    public function currencies(): array
+    {
+        return ['USD', 'INR', 'NPR'];
     }
 
     public function settingsFields(): array
     {
         return [
+            ['key' => 'checkout_mode', 'label' => 'Client checkout', 'type' => 'select', 'options' => ['inline' => 'Card form on the invoice (tokenised)', 'hosted' => 'Hosted payment page (redirect + lookup)'], 'default' => 'inline'],
             ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'help' => 'Used to verify X-Sandbox-Signature on callbacks.'],
             ['key' => 'fee_percent', 'label' => 'Simulated fee (%)', 'type' => 'string', 'help' => 'Fee recorded on successful charges, e.g. 2.9'],
         ];
+    }
+
+    public function limits(GatewayConfig $gateway): AmountLimits
+    {
+        return new AmountLimits(min: 100);
+    }
+
+    public function attemptTtl(GatewayConfig $gateway): CarbonInterval
+    {
+        return CarbonInterval::minutes(30);
     }
 
     /**
@@ -75,14 +108,14 @@ class SandboxCardDriver extends AbstractGatewayDriver
         return new CardToken('sbx_'.$body.'.'.$this->sign($body), $payload['b'], $payload['l'], $expiryMonth, $expiryYear);
     }
 
-    public function tokenDetails(Gateway $gateway, string $token): ?CardToken
+    public function tokenDetails(GatewayConfig $gateway, string $token): ?CardToken
     {
         $payload = $this->decode($token);
 
         return $payload === null ? null : new CardToken($token, (string) $payload['b'], (string) $payload['l'], (int) $payload['m'], (int) $payload['y']);
     }
 
-    public function capture(Gateway $gateway, ChargeRequest $request): ChargeResult
+    public function capture(GatewayConfig $gateway, ChargeRequest $request): ChargeResult
     {
         $payload = $this->decode($request->token);
 
@@ -102,20 +135,20 @@ class SandboxCardDriver extends AbstractGatewayDriver
         };
     }
 
-    public function refund(Gateway $gateway, Transaction $payment, Money $amount): ChargeResult
+    public function refund(GatewayConfig $gateway, RefundRequest $request): ChargeResult
     {
         $txnId = 'sbx_re_'.Str::lower(Str::random(20));
 
-        return new ChargeResult(ChargeResult::SUCCESS, $txnId, raw: ['id' => $txnId, 'charge' => $payment->gateway_txn_id, 'amount' => $amount->amount]);
+        return new ChargeResult(ChargeResult::SUCCESS, $txnId, raw: ['id' => $txnId, 'charge' => $request->providerTxnId, 'amount' => $request->amount->amount]);
     }
 
-    public function parseCallback(Gateway $gateway, Request $request): CallbackEvent
+    public function parseCallback(GatewayConfig $gateway, Request $request): CallbackEvent|CallbackRejection
     {
         $secret = (string) $gateway->setting('webhook_secret', '');
         $signature = (string) $request->header(self::SIGNATURE_HEADER, '');
 
         if ($secret === '' || ! hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature)) {
-            throw new InvalidCallbackException('invalid signature');
+            return new CallbackRejection(CallbackRejection::INVALID_SIGNATURE);
         }
 
         $data = $request->json()->all();
@@ -124,11 +157,15 @@ class SandboxCardDriver extends AbstractGatewayDriver
             'payment.failed' => CallbackEvent::PAYMENT_FAILED,
             'charge.refunded' => CallbackEvent::REFUND,
             'charge.dispute' => CallbackEvent::CHARGEBACK,
-            default => throw new InvalidCallbackException('unknown event type'),
+            default => null,
         };
 
+        if ($type === null) {
+            return new CallbackRejection('unknown event type');
+        }
+
         if (! is_string($data['txn_id'] ?? null) || ! is_numeric($data['amount'] ?? null) || ! is_string($data['currency'] ?? null)) {
-            throw new InvalidCallbackException('malformed payload');
+            return new CallbackRejection('malformed payload');
         }
 
         return new CallbackEvent(
@@ -141,6 +178,129 @@ class SandboxCardDriver extends AbstractGatewayDriver
             reason: is_string($data['reason'] ?? null) ? $data['reason'] : null,
             raw: $data,
         );
+    }
+
+    public function initiate(GatewayConfig $gateway, PaymentIntent $intent): RedirectInstruction|FormPost|QrPayload
+    {
+        $providerRef = 'sbx_pidx_'.Str::lower(Str::random(16));
+
+        Cache::put(self::PROVIDER_STATE.$intent->reference, [
+            'pidx' => $providerRef,
+            'amount' => $intent->amount->amount,
+            'currency' => $intent->amount->currency,
+            'return_url' => $intent->returnUrl,
+            'cancel_url' => $intent->cancelUrl,
+            'description' => $intent->description,
+            'status' => 'initiated',
+            'txn_id' => null,
+        ], now()->addDay());
+
+        return new RedirectInstruction(route('billing.sandbox.checkout', ['reference' => $intent->reference]), $providerRef);
+    }
+
+    public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint
+    {
+        $reference = $request->input('ref');
+
+        return new ReturnHint(
+            reference: is_string($reference) && preg_match('/^[a-z0-9-]{3,20}$/', $reference) === 1 ? $reference : null,
+            providerRef: is_string($request->input('pidx')) ? $request->input('pidx') : null,
+            claimedStatus: is_string($request->input('status')) ? $request->input('status') : null,
+            raw: $request->only(['ref', 'pidx', 'status']),
+        );
+    }
+
+    public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult
+    {
+        $state = self::providerState($attempt->reference);
+
+        if ($state === null) {
+            return new LookupResult(LookupResult::NOT_FOUND);
+        }
+
+        $status = match ($state['status']) {
+            'completed' => LookupResult::SUCCEEDED,
+            'pending' => LookupResult::PENDING,
+            'ambiguous' => LookupResult::AMBIGUOUS,
+            'declined' => LookupResult::FAILED,
+            'cancelled' => LookupResult::CANCELLED,
+            'refunded' => LookupResult::REFUNDED,
+            default => LookupResult::PENDING,
+        };
+
+        return new LookupResult(
+            status: $status,
+            providerTxnId: is_string($state['txn_id']) ? $state['txn_id'] : null,
+            amount: (int) $state['amount'],
+            currency: (string) $state['currency'],
+            fee: $status === LookupResult::SUCCEEDED ? $this->fee($gateway, (int) $state['amount']) : 0,
+            raw: ['pidx' => $state['pidx'], 'status' => $state['status'], 'txn_id' => $state['txn_id'], 'amount' => $state['amount']],
+        );
+    }
+
+    /**
+     * The simulated provider takes the customer's payment on its hosted page. Returns where to send the browser.
+     */
+    public function completeHostedPayment(string $reference, ?string $cardNumber, bool $cancelled = false): ?string
+    {
+        $state = self::providerState($reference);
+
+        if ($state === null) {
+            return null;
+        }
+
+        $outcome = $cancelled ? 'cancelled' : match (self::OUTCOMES[(string) preg_replace('/\D/', '', (string) $cardNumber)] ?? ChargeResult::SUCCESS) {
+            ChargeResult::DECLINED, ChargeResult::ERROR => 'declined',
+            ChargeResult::PENDING => 'pending',
+            default => 'completed',
+        };
+
+        self::simulate($reference, $outcome);
+        $target = $cancelled ? (string) $state['cancel_url'] : (string) $state['return_url'];
+
+        return $target.(str_contains($target, '?') ? '&' : '?').http_build_query(['ref' => $reference, 'pidx' => $state['pidx'], 'status' => $outcome]);
+    }
+
+    /**
+     * Change the simulated provider's status for an attempt (tests: customer paid but never came back, settlement).
+     */
+    public static function simulate(string $reference, string $status, ?int $amount = null): void
+    {
+        $state = self::providerState($reference);
+
+        if ($state === null) {
+            return;
+        }
+
+        $state['status'] = $status;
+        $state['txn_id'] = $status === 'completed' || $status === 'refunded' ? ($state['txn_id'] ?? 'sbx_tx_'.Str::lower(Str::random(16))) : $state['txn_id'];
+        $state['amount'] = $amount ?? $state['amount'];
+        Cache::put(self::PROVIDER_STATE.$reference, $state, now()->addDay());
+    }
+
+    /**
+     * @return array{pidx: string, amount: int, currency: string, return_url: string, cancel_url: string, description: string, status: string, txn_id: string|null}|null
+     */
+    public static function providerState(string $reference): ?array
+    {
+        $state = Cache::get(self::PROVIDER_STATE.$reference);
+
+        if (! is_array($state)) {
+            return null;
+        }
+
+        $string = fn (string $key): string => is_scalar($state[$key] ?? null) ? (string) $state[$key] : '';
+
+        return [
+            'pidx' => $string('pidx'),
+            'amount' => (int) $string('amount'),
+            'currency' => $string('currency'),
+            'return_url' => $string('return_url'),
+            'cancel_url' => $string('cancel_url'),
+            'description' => $string('description'),
+            'status' => $string('status'),
+            'txn_id' => is_string($state['txn_id'] ?? null) ? $state['txn_id'] : null,
+        ];
     }
 
     /**
@@ -204,7 +364,7 @@ class SandboxCardDriver extends AbstractGatewayDriver
         return hash_hmac('sha256', $body, 'sandbox-vault|'.config('app.key'));
     }
 
-    private function fee(Gateway $gateway, int $amount): int
+    private function fee(GatewayConfig $gateway, int $amount): int
     {
         $percent = (string) $gateway->setting('fee_percent', '0');
 

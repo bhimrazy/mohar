@@ -2,9 +2,9 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Data\Billing\ChargeResult;
 use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Data\PaymentData;
-use App\Modules\Billing\Drivers\Gateways\Data\ChargeResult;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\TransactionStatus;

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Billing\Drivers\Gateways\Data;
+namespace App\Data\Billing;
 
 /**
  * Outcome of a capture or refund call: success|pending|declined|error.
@@ -16,7 +16,7 @@ final readonly class ChargeResult
     public const ERROR = 'error';
 
     /**
-     * @param  array<string, mixed>  $raw  gateway response (already redacted)
+     * @param  array<string, mixed>  $raw  provider response (redacted before storage)
      */
     public function __construct(
         public string $status,
