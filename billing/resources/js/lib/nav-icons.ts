@@ -1,0 +1,76 @@
+import type { LucideIcon } from 'lucide-react';
+import {
+    Activity,
+    BarChart3,
+    BookOpen,
+    Box,
+    Boxes,
+    Circle,
+    CreditCard,
+    FileText,
+    Gift,
+    Globe,
+    Handshake,
+    Inbox,
+    LayoutGrid,
+    LifeBuoy,
+    Mail,
+    Megaphone,
+    Package,
+    Percent,
+    Receipt,
+    Server,
+    Settings,
+    Shield,
+    ShoppingCart,
+    Tag,
+    Ticket,
+    TrendingUp,
+    UserRound,
+    Users,
+    Wallet,
+    Webhook,
+    Wrench,
+} from 'lucide-react';
+
+/**
+ * Icons available to server-driven navigation (NavItem::$icon) and dashboard cards.
+ * Add an entry here when a module registers a nav item with a new icon name.
+ */
+export const navIcons: Record<string, LucideIcon> = {
+    Activity,
+    BarChart3,
+    BookOpen,
+    Box,
+    Boxes,
+    Circle,
+    CreditCard,
+    FileText,
+    Gift,
+    Globe,
+    Handshake,
+    Inbox,
+    LayoutGrid,
+    LifeBuoy,
+    Mail,
+    Megaphone,
+    Package,
+    Percent,
+    Receipt,
+    Server,
+    Settings,
+    Shield,
+    ShoppingCart,
+    Tag,
+    Ticket,
+    TrendingUp,
+    UserRound,
+    Users,
+    Wallet,
+    Webhook,
+    Wrench,
+};
+
+export function navIcon(name: string | null | undefined): LucideIcon {
+    return (name && navIcons[name]) || Circle;
+}

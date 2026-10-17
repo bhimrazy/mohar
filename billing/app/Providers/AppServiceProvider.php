@@ -1,0 +1,80 @@
+<?php
+
+namespace App\Providers;
+
+use App\Models\User;
+use App\Support\Dashboard\Dashboard;
+use App\Support\Navigation\Navigation;
+use Carbon\CarbonImmutable;
+use Closure;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Date;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Validation\Rules\Password;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        $this->app->singleton(Navigation::class);
+        $this->app->singleton(Dashboard::class);
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        $this->configureDefaults();
+        $this->configureModules();
+    }
+
+    /**
+     * Conventions shared by every module in app/Modules.
+     */
+    protected function configureModules(): void
+    {
+        Model::shouldBeStrict(! app()->isProduction());
+        JsonResource::withoutWrapping();
+
+        // Staff permissions ("module.area.action") are checked with Gate/@can/authorize().
+        Gate::before(fn (User $user, string $ability): ?bool => $user->is_staff && str_contains($ability, '.') && $user->hasPermission($ability) ? true : null);
+
+        Route::macro('adminArea', function (Closure $routes): void {
+            Route::middleware(['auth', 'verified', 'staff'])->prefix('admin')->name('admin.')->group($routes);
+        });
+
+        Route::macro('clientArea', function (Closure $routes): void {
+            Route::middleware(['auth', 'verified', 'client.area'])->prefix('client')->name('client.')->group($routes);
+        });
+    }
+
+    /**
+     * Configure default behaviors for production-ready applications.
+     */
+    protected function configureDefaults(): void
+    {
+        Date::use(CarbonImmutable::class);
+
+        DB::prohibitDestructiveCommands(
+            app()->isProduction(),
+        );
+
+        Password::defaults(fn (): ?Password => app()->isProduction()
+            ? Password::min(12)
+                ->mixedCase()
+                ->letters()
+                ->numbers()
+                ->symbols()
+                ->uncompromised()
+            : null,
+        );
+    }
+}
