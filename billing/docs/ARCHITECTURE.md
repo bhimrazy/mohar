@@ -156,6 +156,7 @@ Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
 PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):
+
 1. User search: `whereLike($column, "%{$term}%")` (case-insensitive), never raw `like`.
 2. `sum()`/`avg()` return strings on PostgreSQL — cast `(int)` before `Money`.
 3. Never hardcode ids in tests or links; sequences are not reset between tests.
