@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Services;
 
 use App\Events\Services\ServiceActivated;
+use App\Events\Services\ServiceCancelled;
 use App\Events\Services\ServiceSuspended;
 use App\Events\Services\ServiceTerminated;
 use App\Events\Services\ServiceUnsuspended;
@@ -51,6 +52,7 @@ class CommandEffects
         switch ($command) {
             case ModuleCommandName::Create:
                 $firstActivation = $service->activated_at === null;
+                $recreated = $service->status === ServiceStatus::Terminated;
                 $service->fill(array_filter([
                     'username' => $result->data['username'] ?? null,
                     'password' => $result->data['password'] ?? null,
@@ -59,12 +61,18 @@ class CommandEffects
                 if (isset($result->data['driver_data']) && is_array($result->data['driver_data'])) {
                     $service->driver_data = [...($service->driver_data ?? []), ...$result->data['driver_data']];
                 }
+                if ($recreated && $service->cycle->isRecurring()) {
+                    // A re-created account starts a fresh billing period today; the next renewal run invoices it.
+                    $service->fill(['next_due_date' => $today, 'next_invoice_date' => $today, 'billing_anchor_day' => $today->day]);
+                }
                 $service->status = ServiceStatus::Active;
                 $service->activated_at ??= CarbonImmutable::now();
                 $service->termination_date = null;
+                $service->do_not_renew = false;
+                $service->terminate_at_period_end = false;
                 $service->save();
                 if ($firstActivation) {
-                    $events[] = new ServiceActivated($service->id, $service->client_id);
+                    $events[] = new ServiceActivated($service->id, $service->client_id, $service->next_due_date?->toDateString());
                 }
                 break;
 
@@ -85,11 +93,12 @@ class CommandEffects
                 $final = self::targetStatus($command, $args) ?? ServiceStatus::Terminated;
                 $service->update(['status' => $final, 'termination_date' => $today, 'do_not_renew' => true]);
                 $this->addons->cancelAll($service, $today);
-                if (isset($args['cancellation_request_id'])) {
-                    CancellationRequest::query()->whereKey((int) $args['cancellation_request_id'])
-                        ->update(['status' => CancellationStatus::Processed->value, 'processed_at' => CarbonImmutable::now()]);
-                }
-                $events[] = new ServiceTerminated($service->id, $service->client_id);
+                // The service is gone: its own request and any other open request are done.
+                $service->cancellationRequests()->where('status', CancellationStatus::Open->value)
+                    ->update(['status' => CancellationStatus::Processed->value, 'processed_at' => CarbonImmutable::now()]);
+                $events[] = $final === ServiceStatus::Cancelled
+                    ? new ServiceCancelled($service->id, $service->client_id)
+                    : new ServiceTerminated($service->id, $service->client_id);
                 break;
 
             case ModuleCommandName::ChangePassword:

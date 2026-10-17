@@ -49,9 +49,16 @@ return [
         'max_attempts' => 3,
         /** Seconds to wait before attempt 2, 3, 4, ... */
         'backoff' => [60, 300, 900],
-        'sync_timeout_seconds' => 60,
         /** Seconds a command waits for another command on the same service to finish. */
         'lock_wait_seconds' => 10,
+        /**
+         * A command job may run this long (driver HTTP timeouts must be shorter). Invariant:
+         * job_timeout_seconds < lock_ttl_seconds < queue retry_after (90 s by default).
+         */
+        'job_timeout_seconds' => 60,
+        'lock_ttl_seconds' => 80,
+        /** Times a job waiting for the per-service lock is re-queued before it is reported as failed. */
+        'lock_retries' => 20,
     ],
 
     'module_log' => [

@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $initiator
  * @property int $attempt
  * @property bool $success
+ * @property string $status running|succeeded|failed|unknown
  * @property string|null $error
  * @property array<string, mixed>|null $request
  * @property array<string, mixed>|null $response
@@ -28,12 +29,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read Server|null $server
  */
 #[Fillable([
-    'service_id', 'service_addon_id', 'server_id', 'driver', 'command', 'initiator', 'attempt', 'success', 'error',
+    'service_id', 'service_addon_id', 'server_id', 'driver', 'command', 'initiator', 'attempt', 'success', 'status', 'error',
     'request', 'response', 'duration_ms', 'created_at',
 ])]
 class ModuleCommand extends Model
 {
     public const UPDATED_AT = null;
+
+    /** The driver call started and has not reported back (yet). */
+    public const RUNNING = 'running';
+
+    public const SUCCEEDED = 'succeeded';
+
+    public const FAILED = 'failed';
+
+    /** The worker died or timed out mid-call: the remote outcome must be verified by staff. */
+    public const UNKNOWN = 'unknown';
 
     protected function casts(): array
     {

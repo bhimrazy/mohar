@@ -15,7 +15,8 @@ final readonly class ServiceContext
      * @param  array{id: int, name: string, email: string}  $client
      * @param  array<string, mixed>  $productConfig  product driver_config
      * @param  array<int|string, mixed>  $configOptions
-     * @param  array<int|string, mixed>  $customFields
+     * @param  array<string, mixed>  $customFields  by module key (Catalog field module_key, else its name)
+     * @param  list<string>  $secretValues  values of password-type custom fields (redacted from logs)
      */
     public function __construct(
         public Service $service,
@@ -24,6 +25,7 @@ final readonly class ServiceContext
         public array $productConfig = [],
         public array $configOptions = [],
         public array $customFields = [],
+        public array $secretValues = [],
     ) {}
 
     /**
@@ -35,6 +37,7 @@ final readonly class ServiceContext
     {
         return array_values(array_filter([
             ...($this->server?->secrets() ?? []),
+            ...$this->secretValues,
             $this->service->password,
         ], fn (?string $value): bool => $value !== null && $value !== ''));
     }

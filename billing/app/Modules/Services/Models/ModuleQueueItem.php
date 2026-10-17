@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $subject_type
  * @property int $subject_id
  * @property string $command
+ * @property string $kind failure|verify|reconcile
  * @property array<string, mixed>|null $args
  * @property string|null $last_error
  * @property int $attempts
@@ -26,10 +27,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read Service|null $service
  */
 #[Table('module_queue')]
-#[Fillable(['subject_type', 'subject_id', 'command', 'args', 'last_error', 'attempts', 'status', 'resolved_by'])]
+#[Fillable(['subject_type', 'subject_id', 'command', 'kind', 'args', 'last_error', 'attempts', 'status', 'resolved_by'])]
 class ModuleQueueItem extends Model
 {
     public const SUBJECT_SERVICE = 'service';
+
+    /** The command failed after all retries. */
+    public const KIND_FAILURE = 'failure';
+
+    /** The outcome is unknown (worker died mid-call); check the panel before retrying. */
+    public const KIND_VERIFY = 'verify';
+
+    /** The driver call succeeded but the service changed meanwhile; local state was not updated. */
+    public const KIND_RECONCILE = 'reconcile';
 
     protected function casts(): array
     {

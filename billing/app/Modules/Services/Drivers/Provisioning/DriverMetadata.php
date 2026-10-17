@@ -13,14 +13,10 @@ final readonly class DriverMetadata
 
     public const USAGE = 'usage';
 
-    public const SSO_SERVICE = 'sso_service';
-
-    public const SSO_SERVER = 'sso_server';
-
     /**
      * @param  list<string>  $capabilities  constants of this class
-     * @param  list<array{key: string, label: string, type: string}>  $productConfigFields
-     * @param  list<array{key: string, label: string, type: string}>  $serverFields
+     * @param  list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>}>  $productConfigFields
+     * @param  list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>}>  $serverFields
      */
     public function __construct(
         public string $key,

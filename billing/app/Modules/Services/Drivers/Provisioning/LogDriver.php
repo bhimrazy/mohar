@@ -13,13 +13,21 @@ use App\Modules\Services\Models\Service;
  * Failure injection (demo): a product driver_config `fail` key naming the command, e.g. `['fail' => 'create']`.
  * Registered as a singleton so recorded calls are visible to the test that triggered them.
  */
-class LogDriver implements ProvisioningDriver, SupportsSso
+class LogDriver implements ProvisioningDriver
 {
     /** @var list<array{command: string, service_id: ?int, server_id: ?int, args: array<string, mixed>}> */
     public array $calls = [];
 
     /** @var array<string, array{times: int, retryable: bool, message: string}> */
     private array $failures = [];
+
+    /**
+     * Runs during every recorded call, after the request is "sent" (tests simulate what happens
+     * elsewhere while a driver call is in flight).
+     *
+     * @var (\Closure(string, ?ServiceContext): void)|null
+     */
+    public ?\Closure $whileRunning = null;
 
     public function failNext(string $command, int $times = 1, bool $retryable = false, string $message = 'Simulated failure'): void
     {
@@ -42,9 +50,15 @@ class LogDriver implements ProvisioningDriver, SupportsSso
             requiresServer: true,
             defaultPort: 2086,
             defaultSecurePort: 2087,
-            capabilities: [DriverMetadata::CHANGE_PACKAGE, DriverMetadata::CHANGE_PASSWORD, DriverMetadata::USAGE, DriverMetadata::SSO_SERVICE],
-            productConfigFields: [['key' => 'package', 'label' => 'Package name', 'type' => 'text'], ['key' => 'fail', 'label' => 'Fail command (demo)', 'type' => 'text']],
-            serverFields: [['key' => 'username', 'label' => 'Username', 'type' => 'text'], ['key' => 'password', 'label' => 'Password', 'type' => 'password']],
+            capabilities: [DriverMetadata::CHANGE_PACKAGE, DriverMetadata::CHANGE_PASSWORD, DriverMetadata::USAGE],
+            productConfigFields: [
+                ['key' => 'package', 'label' => 'Package name', 'type' => 'text', 'required' => false, 'secret' => false],
+                ['key' => 'fail', 'label' => 'Fail command (demo)', 'type' => 'select', 'required' => false, 'secret' => false, 'options' => ['', 'create', 'suspend', 'unsuspend', 'terminate', 'change_package', 'change_password']],
+            ],
+            serverFields: [
+                ['key' => 'username', 'label' => 'Username', 'type' => 'text', 'required' => true, 'secret' => false],
+                ['key' => 'password', 'label' => 'Password', 'type' => 'password', 'required' => true, 'secret' => true],
+            ],
         );
     }
 
@@ -114,16 +128,6 @@ class LogDriver implements ProvisioningDriver, SupportsSso
             )])->all();
     }
 
-    public function serviceSsoUrl(ServiceContext $context): ?string
-    {
-        return $context->server ? "https://{$context->server->hostname}/login?user={$context->service->username}&token=demo" : null;
-    }
-
-    public function serverSsoUrl(Server $server): ?string
-    {
-        return null;
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -145,6 +149,10 @@ class LogDriver implements ProvisioningDriver, SupportsSso
     private function record(string $command, ?ServiceContext $context, ?Server $server, array $request): ?DriverResult
     {
         $this->calls[] = ['command' => $command, 'service_id' => $context?->service->id, 'server_id' => $server?->id, 'args' => $request];
+
+        if ($this->whileRunning !== null) {
+            ($this->whileRunning)($command, $context);
+        }
 
         if (($context?->productConfig['fail'] ?? null) === $command) {
             return DriverResult::fail("Simulated {$command} failure (product setting).", request: $request);
@@ -171,6 +179,7 @@ class LogDriver implements ProvisioningDriver, SupportsSso
     {
         $this->calls = [];
         $this->failures = [];
+        $this->whileRunning = null;
     }
 
     /**

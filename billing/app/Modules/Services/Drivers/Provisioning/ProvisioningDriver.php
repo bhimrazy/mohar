@@ -11,6 +11,11 @@ use App\Modules\Services\Models\Server;
  * Drivers return a DriverResult for expected outcomes and throw RetryableProvisioningException for
  * transient faults. They must be idempotent where the remote system allows it (creating an account
  * that already exists with the same owner is a success).
+ *
+ * A RetryableProvisioningException (or a retryable failure result) from create() MUST mean the account
+ * was definitely not created — the command is re-run. When the outcome is unknown (e.g. a read timeout
+ * after the request was sent), return a non-retryable failure so staff verify before retrying.
+ * Keep HTTP timeouts below services.module.job_timeout_seconds.
  */
 interface ProvisioningDriver
 {

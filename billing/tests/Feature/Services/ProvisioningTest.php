@@ -184,24 +184,45 @@ test('module logs never contain server or service passwords', function () {
         ->and($service->refresh()->password)->toBe('NewPw-456789');
 });
 
-test('commands for one service are serialized by a per-service lock', function () {
+test('a command waiting for the per-service lock is re-queued without calling the driver', function () {
+    Queue::fake();
     $service = Service::factory()->onServer()->create();
     $lock = Cache::lock(ExecuteModuleCommand::lockKey($service->id), 60);
     $lock->get();
     config(['services.module.lock_wait_seconds' => 1]);
 
-    $job = (new RunModuleCommand($service->id, 'terminate'))->withFakeQueueInteractions();
-    $job->handle(app(ExecuteModuleCommand::class));
+    (new RunModuleCommand($service->id, 'terminate'))->handle(app(ExecuteModuleCommand::class));
 
-    $job->assertReleased(15);
+    Queue::assertPushed(RunModuleCommand::class, fn (RunModuleCommand $job) => $job->lockRetries === 1 && $job->command === 'terminate' && $job->delay === 15);
     expect($this->kit->driver->callsFor('terminate'))->toBeEmpty();
 
     $lock->release();
-    $job = (new RunModuleCommand($service->id, 'terminate'))->withFakeQueueInteractions();
-    $job->handle(app(ExecuteModuleCommand::class));
+    (new RunModuleCommand($service->id, 'terminate', lockRetries: 1))->handle(app(ExecuteModuleCommand::class));
 
-    $job->assertNotReleased();
     expect($this->kit->driver->callsFor('terminate'))->toHaveCount(1);
+});
+
+test('suspend and terminate queued for one service run one after the other', function () {
+    $service = Service::factory()->onServer()->create();
+
+    RunModuleCommand::dispatch($service->id, 'suspend', ['reason' => 'overdue']);
+    RunModuleCommand::dispatch($service->id, 'terminate');
+
+    expect(array_column($this->kit->driver->calls, 'command'))->toBe(['suspend', 'terminate'])
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Terminated)
+        ->and(Cache::lock(ExecuteModuleCommand::lockKey($service->id), 1)->get())->toBeTrue();
+});
+
+test('a waiting command gives up after the configured lock retries and is reported', function () {
+    Event::fake([ProvisioningFailed::class]);
+    $service = Service::factory()->onServer()->create();
+    Cache::lock(ExecuteModuleCommand::lockKey($service->id), 60)->get();
+    config(['services.module.lock_wait_seconds' => 1, 'services.module.lock_retries' => 2]);
+
+    (new RunModuleCommand($service->id, 'suspend', ['reason' => 'overdue'], lockRetries: 2))->handle(app(ExecuteModuleCommand::class));
+
+    expect(ModuleQueueItem::query()->where('subject_id', $service->id)->value('kind'))->toBe('failure');
+    Event::assertDispatched(ProvisioningFailed::class);
 });
 
 test('illegal transitions are rejected before any driver call', function () {

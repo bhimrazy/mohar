@@ -95,6 +95,22 @@ class ServiceSettings
         return (int) ($backoff[$nextAttempt - 2] ?? end($backoff) ?: 60);
     }
 
+    /**
+     * Maximum run time of one module command job; must stay below lockTtlSeconds() and the queue's retry_after.
+     */
+    public function jobTimeoutSeconds(): int
+    {
+        return max(5, (int) config('services.module.job_timeout_seconds', 60));
+    }
+
+    /**
+     * Per-service lock lifetime: longer than a job may run, shorter than the queue's retry_after.
+     */
+    public function lockTtlSeconds(): int
+    {
+        return max($this->jobTimeoutSeconds() + 5, (int) config('services.module.lock_ttl_seconds', 80));
+    }
+
     public function lockWaitSeconds(): int
     {
         return $this->int('services.module.lock_wait_seconds', 10);

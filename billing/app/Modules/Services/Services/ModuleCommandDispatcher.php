@@ -24,7 +24,7 @@ class ModuleCommandDispatcher
     {
         $this->assertAllowed($service, $command, $args);
 
-        RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator);
+        RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator)->afterCommit();
     }
 
     /**
@@ -45,7 +45,7 @@ class ModuleCommandDispatcher
         }
 
         if ($outcome->status === CommandOutcome::RETRY) {
-            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, 2)->delay($outcome->retryDelay);
+            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, 2)->delay($outcome->retryDelay)->afterCommit();
         }
 
         return $outcome;
