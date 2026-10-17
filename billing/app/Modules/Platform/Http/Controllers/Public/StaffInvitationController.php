@@ -7,17 +7,19 @@ use App\Modules\Platform\Actions\Staff\AcceptStaffInvitation;
 use App\Modules\Platform\Http\Requests\AcceptInvitationRequest;
 use App\Modules\Platform\Models\StaffInvitation;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
-use Inertia\Response;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
 
 class StaffInvitationController extends Controller
 {
-    public function show(string $token): Response
+    public function show(Request $request, string $token): SymfonyResponse
     {
         $invitation = $this->find($token);
 
-        return Inertia::render('auth/accept-invitation', [
+        // The token is in the URL: never leak it through the Referer header.
+        $response = Inertia::render('auth/accept-invitation', [
             'token' => $token,
             'email' => $invitation?->email,
             'name' => $invitation?->name,
@@ -28,7 +30,10 @@ class StaffInvitationController extends Controller
                 $invitation->isExpired() => 'expired',
                 default => 'valid',
             },
-        ]);
+        ])->toResponse($request);
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
     }
 
     public function accept(AcceptInvitationRequest $request, string $token, AcceptStaffInvitation $accept): RedirectResponse
