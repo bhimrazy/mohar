@@ -40,8 +40,11 @@ loads only Core + Billing.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
-4. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
-5. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
+4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
+   kernel → module imports, non-interface contracts, non-final DTOs/events, debug calls, and `DB` facade use in
+   controllers all fail the build. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
+6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
 
 ### Contracts (implementer → consumers)
@@ -152,7 +155,7 @@ backoff; automation registered in the provider's `schedule()` with `->withoutOve
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 9xxxxx).
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx).
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
 ## Testing (Pest)
@@ -177,9 +180,12 @@ npm run build                                    # pages compile
 
 ## Git workflow
 
-- Integration branch: `develop`. One branch per workstream: `feature/<module>`; Conventional Commits
-  (`feat(billing): apply partial payments`, `fix(...)`, `test(...)`, `docs(...)`), small focused commits.
-- Before requesting review: rebase/merge latest `develop`, all gates green, update `CHANGELOG.md` under
-  `## [Unreleased]` (one bullet group per module) and `docs/PROGRESS.md` (your module's row).
-- Review gates: Staff Engineer review → QA → AI-slop review → CTO merge (`--no-ff`) into `develop`.
+- Integration branch: `develop` (`main` receives tagged releases). One branch per workstream: `feature/<module>`
+  in its own worktree (`scripts/new-worktree.sh <module>`); Conventional Commits, small focused commits.
+- Before review: merge latest `develop`, all gates green; report CHANGELOG bullets and screenshots to the CTO
+  (the CTO maintains `CHANGELOG.md` and `docs/PROGRESS.md` to avoid merge conflicts).
+- Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
+  `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
+  QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit
+  (`gh pr merge --merge`). Findings are labelled **blocking** or **non-blocking**; blocking ones must be fixed first.
 - Never commit `.env`, `vendor/`, `node_modules/`, generated Wayfinder files, or `database/*.sqlite`.
