@@ -4,6 +4,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
 
 /*
@@ -70,4 +71,26 @@ function actingAsClient(?Client $client = null): array
     test()->actingAs($user);
 
     return [$user, $client];
+}
+
+/**
+ * A real PNG upload without the GD extension (UploadedFile::fake()->image() needs GD).
+ * $noise fills pixels with random bytes so the file is incompressible (size tests).
+ */
+function fakePng(string $name, int $width, int $height, bool $noise = false): UploadedFile
+{
+    $chunk = fn (string $type, string $data): string => pack('N', strlen($data)).$type.$data.pack('N', crc32($type.$data));
+    $row = $noise ? null : "\0".str_repeat("\x4F\x4B\xC4", $width);
+    $raw = '';
+
+    for ($y = 0; $y < $height; $y++) {
+        $raw .= $row ?? "\0".random_bytes($width * 3);
+    }
+
+    $png = "\x89PNG\r\n\x1a\n"
+        .$chunk('IHDR', pack('NNCCCCC', $width, $height, 8, 2, 0, 0, 0))
+        .$chunk('IDAT', (string) gzcompress($raw, $noise ? 0 : 9))
+        .$chunk('IEND', '');
+
+    return UploadedFile::fake()->createWithContent($name, $png);
 }
