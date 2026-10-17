@@ -44,6 +44,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Client area: my domains, domain management (nameservers, auto-renew, lock, EPP code, contacts, transfer retry).
 - Public domain search with availability, suggestions and prices; JSON lookup endpoint (rate limited, cached).
 - Navigation, dashboard cards, permissions, settings, global search and `domain` merge fields; demo seeder.
+
 ### DevOps
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
