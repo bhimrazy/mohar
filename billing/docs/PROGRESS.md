@@ -1,7 +1,7 @@
 # Build Progress
 
 Living status board. Each workstream updates its row when it opens a PR for review. Screenshots live in
-`docs/screenshots/` (captured with headless Playwright: `node scripts/screenshots.mjs`).
+`docs/screenshots/` (captured with headless Playwright against a running instance).
 
 | Workstream                 | Owner (agent)           | Branch                  | Status      | Notes                                                                               |
 | -------------------------- | ----------------------- | ----------------------- | ----------- | ----------------------------------------------------------------------------------- |

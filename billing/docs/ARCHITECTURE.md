@@ -155,6 +155,17 @@ indexes on foreign keys and status/date columns used by automation. Migration fi
 Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 9xxxxx).
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
+PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):
+1. User search: `whereLike($column, "%{$term}%")` (case-insensitive), never raw `like`.
+2. `sum()`/`avg()` return strings on PostgreSQL — cast `(int)` before `Money`.
+3. Never hardcode ids in tests or links; sequences are not reset between tests.
+4. `orderBy(...)->orderBy('id')` wherever order matters.
+5. Strict `GROUP BY`; no SQLite-only functions (`strftime`, `ifnull`, `julianday`); no backticks.
+6. Validate string lengths against column sizes (PostgreSQL rejects overlong values).
+7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
+8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
+9. Booleans as `where('flag', true)`; no explicit ids in seeders.
+
 ## Testing (Pest)
 
 - Feature tests per behaviour in `tests/Feature/<Module>/`; unit tests for pure calculation (proration, tax).
@@ -171,6 +182,7 @@ Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PH
 vendor/bin/pint --parallel                       # format
 vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7, zero errors, no ignores/baselines
 php artisan test --compact                       # all tests green (whole suite, not just yours)
+composer test:pgsql                              # same suite on PostgreSQL (docker compose up -d postgres)
 php artisan wayfinder:generate --with-form && npx tsc --noEmit && npm run check
 npm run build                                    # pages compile
 ```
