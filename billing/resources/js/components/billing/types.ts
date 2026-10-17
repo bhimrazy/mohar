@@ -175,6 +175,7 @@ export type ClientOption = {
     id: number;
     display_name: string;
     currency?: string;
+    email?: string;
 };
 
 /** "item_cancellation" → "Item cancellation" */

@@ -44,8 +44,6 @@ class CreditController extends Controller
                 'separate_invoices' => ClientFlag::query()->whereKey($client->id)->value('separate_invoices'),
             ],
             'entries' => CreditEntryResource::collection($entries),
-            'clients' => Client::query()->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)->get(['id', 'first_name', 'last_name', 'company_name'])
-                ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name]),
         ]);
     }
 

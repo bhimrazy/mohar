@@ -1,4 +1,5 @@
 import { Head, Link, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
@@ -9,7 +10,7 @@ import {
     blankLine,
 } from '@/components/billing/line-items-editor';
 import type { EditableLine } from '@/components/billing/line-items-editor';
-import { SelectField } from '@/components/billing/select-field';
+import { ClientPicker } from '@/components/billing/client-picker';
 import type { ClientOption, Quote } from '@/components/billing/types';
 import { normalizeMoney, toDecimalInput } from '@/components/billing/types';
 import InputError from '@/components/input-error';
@@ -27,7 +28,7 @@ import {
 type Props = {
     quote: Quote | null;
     defaults: { client_id: number | null };
-    clients: ClientOption[];
+    client: ClientOption | null;
 };
 
 type FormData = {
@@ -40,7 +41,11 @@ type FormData = {
     items: EditableLine[];
 };
 
-export default function QuoteForm({ quote, defaults, clients }: Props) {
+export default function QuoteForm({
+    quote,
+    defaults,
+    client: initialClient,
+}: Props) {
     const form = useForm<FormData>({
         client_id: defaults.client_id ? String(defaults.client_id) : '',
         subject: quote?.subject ?? '',
@@ -59,9 +64,7 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
             : [blankLine(true)],
     });
     const errors = form.errors as Record<string, string | undefined>;
-    const client = clients.find(
-        (option) => String(option.id) === form.data.client_id,
-    );
+    const [client, setClient] = useState<ClientOption | null>(initialClient);
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
@@ -101,17 +104,16 @@ export default function QuoteForm({ quote, defaults, clients }: Props) {
                                 label="Client"
                                 error={errors.client_id}
                             >
-                                <SelectField
+                                <ClientPicker
                                     id="client_id"
-                                    value={form.data.client_id}
-                                    onChange={(value) =>
-                                        form.setData('client_id', value)
-                                    }
-                                    options={clients.map((option) => ({
-                                        value: String(option.id),
-                                        label: option.display_name,
-                                    }))}
-                                    placeholder="Choose a client"
+                                    value={client}
+                                    onChange={(option) => {
+                                        setClient(option);
+                                        form.setData(
+                                            'client_id',
+                                            option ? String(option.id) : '',
+                                        );
+                                    }}
                                     invalid={!!errors.client_id}
                                 />
                             </Field>

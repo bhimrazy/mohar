@@ -139,7 +139,6 @@ export function CardFields({
                     aria-invalid={!!errors.exp_year}
                 />
             </Field>
-
         </div>
     );
 }

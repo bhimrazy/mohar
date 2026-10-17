@@ -72,6 +72,7 @@ class InvoiceController extends Controller
 
         return Inertia::render('admin/billing/invoices/form', [
             'invoice' => null,
+            'client' => $this->clientOption($request->integer('client') ?: null),
             'defaults' => [
                 'client_id' => $request->integer('client') ?: null,
                 'due_date' => CarbonImmutable::today()->addDays($settings->int('invoice_days_before_due', 14))->toDateString(),
@@ -124,6 +125,7 @@ class InvoiceController extends Controller
 
         return Inertia::render('admin/billing/invoices/form', [
             'invoice' => new InvoiceResource($invoice),
+            'client' => $this->clientOption($invoice->client_id),
             'defaults' => ['client_id' => $invoice->client_id, 'due_date' => $invoice->due_date?->toDateString()],
             ...$this->formOptions(),
         ]);
@@ -201,10 +203,17 @@ class InvoiceController extends Controller
     private function formOptions(): array
     {
         return [
-            'clients' => Client::query()->where('status', '!=', 'closed')->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)
-                ->get(['id', 'first_name', 'last_name', 'company_name', 'currency'])
-                ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'currency' => $client->currency]),
             'gateways' => $this->gatewayOptions(),
         ];
+    }
+
+    /**
+     * @return array{id: int, display_name: string, currency: string}|null
+     */
+    private function clientOption(?int $id): ?array
+    {
+        $client = $id !== null ? Client::query()->find($id) : null;
+
+        return $client === null ? null : ['id' => $client->id, 'display_name' => $client->display_name, 'currency' => $client->currency];
     }
 }

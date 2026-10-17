@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatMoney } from '@/lib/money';
 import { normalizeMoney, withMoney } from '../types';
 
 describe('normalizeMoney', () => {
@@ -22,5 +23,12 @@ describe('withMoney', () => {
                 'fee',
             ]),
         ).toEqual({ amount: '1000.00', fee: '', note: '1,000' });
+    });
+});
+
+describe('formatMoney default locale per currency', () => {
+    it('groups INR and NPR in lakhs and others in thousands', () => {
+        expect(formatMoney(123456789, 'INR')).toBe('₹12,34,567.89');
+        expect(formatMoney(123456789, 'USD')).toBe('$1,234,567.89');
     });
 });

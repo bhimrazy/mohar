@@ -1,4 +1,5 @@
 import { Head, Link, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
@@ -9,6 +10,7 @@ import {
     blankLine,
 } from '@/components/billing/line-items-editor';
 import type { EditableLine } from '@/components/billing/line-items-editor';
+import { ClientPicker } from '@/components/billing/client-picker';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     ClientOption,
@@ -31,7 +33,7 @@ import {
 type Props = {
     invoice: Invoice | null;
     defaults: { client_id: number | null; due_date: string | null };
-    clients: ClientOption[];
+    client: ClientOption | null;
     gateways: GatewayOption[];
 };
 
@@ -47,7 +49,7 @@ type FormData = {
 export default function InvoiceForm({
     invoice,
     defaults,
-    clients,
+    client: initialClient,
     gateways,
 }: Props) {
     const form = useForm<FormData>({
@@ -66,9 +68,7 @@ export default function InvoiceForm({
             : [blankLine()],
     });
     const errors = form.errors as Record<string, string | undefined>;
-    const client = clients.find(
-        (option) => String(option.id) === form.data.client_id,
-    );
+    const [client, setClient] = useState<ClientOption | null>(initialClient);
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
@@ -109,17 +109,16 @@ export default function InvoiceForm({
                                 error={errors.client_id}
                                 className="content-start sm:col-span-2"
                             >
-                                <SelectField
+                                <ClientPicker
                                     id="client_id"
-                                    value={form.data.client_id}
-                                    onChange={(value) =>
-                                        form.setData('client_id', value)
-                                    }
-                                    options={clients.map((option) => ({
-                                        value: String(option.id),
-                                        label: `${option.display_name} · ${option.currency}`,
-                                    }))}
-                                    placeholder="Choose a client"
+                                    value={client}
+                                    onChange={(option) => {
+                                        setClient(option);
+                                        form.setData(
+                                            'client_id',
+                                            option ? String(option.id) : '',
+                                        );
+                                    }}
                                     invalid={!!errors.client_id}
                                 />
                             </Field>

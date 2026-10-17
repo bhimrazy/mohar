@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
 import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
+import { ClientPickerField } from '@/components/billing/client-picker';
 import { FormDialog } from '@/components/billing/form-dialog';
 import { SelectField } from '@/components/billing/select-field';
 import type {
@@ -35,7 +36,6 @@ type Props = {
     types: SelectOption[];
     gateways: GatewayOption[];
     client: (ClientOption & { currency: string }) | null;
-    clients: ClientOption[];
     can: { manage: boolean; refunds: boolean };
 };
 
@@ -45,7 +45,6 @@ export default function TransactionsIndex({
     types,
     gateways,
     client,
-    clients,
     can,
 }: Props) {
     const { apply } = useQueryParams();
@@ -185,24 +184,20 @@ export default function TransactionsIndex({
                                             error={form.errors.client_id}
                                             className="content-start sm:col-span-2"
                                         >
-                                            <SelectField
+                                            <ClientPickerField
                                                 id="txn-client"
-                                                value={form.data.client_id}
-                                                onChange={(value) =>
+                                                initial={client}
+                                                invalid={
+                                                    !!form.errors.client_id
+                                                }
+                                                onSelect={(option) =>
                                                     form.setData(
                                                         'client_id',
-                                                        value,
+                                                        option
+                                                            ? String(option.id)
+                                                            : '',
                                                     )
                                                 }
-                                                options={clients.map(
-                                                    (option) => ({
-                                                        value: String(
-                                                            option.id,
-                                                        ),
-                                                        label: option.display_name,
-                                                    }),
-                                                )}
-                                                placeholder="Choose a client"
                                             />
                                         </Field>
                                         <Field

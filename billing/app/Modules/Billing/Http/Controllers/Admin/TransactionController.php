@@ -59,8 +59,6 @@ class TransactionController extends Controller
             'types' => array_map(fn (TransactionType $type): array => ['value' => $type->value, 'label' => ucfirst(str_replace('_', ' ', $type->value))], TransactionType::cases()),
             'gateways' => array_values(array_map(fn ($driver): array => ['value' => $driver->key(), 'label' => $gateways->gateway($driver->key())->display_name], $gateways->drivers())),
             'client' => $client?->only(['id', 'display_name', 'currency']),
-            'clients' => Client::query()->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)->get(['id', 'first_name', 'last_name', 'company_name', 'currency'])
-                ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'currency' => $client->currency]),
             'refund_modes' => array_map(fn (RefundMode $mode): string => $mode->value, RefundMode::cases()),
             'can' => [
                 'manage' => $request->user()?->hasPermission('billing.transactions.manage') ?? false,

@@ -331,7 +331,7 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                 />
                 <SectionCard
                     title="Tax settings"
-                    description="Change these in Settings → Billing."
+                    description="Managed in the platform settings (Billing section)."
                 >
                     <DescriptionList
                         columns={3}

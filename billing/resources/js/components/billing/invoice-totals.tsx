@@ -38,7 +38,7 @@ export function InvoiceTotals({ invoice }: { invoice: Invoice }) {
                 <Money amount={invoice.subtotal} currency={currency} />
             </Row>
             {invoice.taxes.map((tax) => (
-                <Row key={tax.name} label={`${tax.name} (${tax.rate}%)`} muted>
+                <Row key={tax.name} label={`${tax.name} (${tax.rate}%)`}>
                     <Money amount={tax.amount} currency={currency} />
                 </Row>
             ))}

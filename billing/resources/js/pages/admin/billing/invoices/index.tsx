@@ -71,6 +71,8 @@ export default function InvoicesIndex({
     const { apply } = useQueryParams();
     const hasFilters = Object.keys(filters).length > 0;
     const pageIds = invoices.data.map((invoice) => invoice.id);
+    const multiCurrency =
+        new Set(invoices.data.map((invoice) => invoice.currency)).size > 1;
     const allSelected =
         pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
 
@@ -149,7 +151,11 @@ export default function InvoicesIndex({
             header: 'Total',
             align: 'right',
             cell: (invoice) => (
-                <Money amount={invoice.total} currency={invoice.currency} />
+                <Money
+                    amount={invoice.total}
+                    currency={invoice.currency}
+                    showCode={multiCurrency}
+                />
             ),
         },
         {

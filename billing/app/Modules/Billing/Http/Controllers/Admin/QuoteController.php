@@ -14,7 +14,6 @@ use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response as HttpResponse;
-use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -57,7 +56,7 @@ class QuoteController extends Controller
         return Inertia::render('admin/billing/quotes/form', [
             'quote' => null,
             'defaults' => ['client_id' => $request->integer('client') ?: null],
-            'clients' => $this->clients(),
+            'client' => $this->clientOption($request->integer('client') ?: null),
         ]);
     }
 
@@ -86,7 +85,7 @@ class QuoteController extends Controller
         return Inertia::render('admin/billing/quotes/form', [
             'quote' => new QuoteResource($quote->load('items')),
             'defaults' => ['client_id' => $quote->client_id],
-            'clients' => $this->clients(),
+            'client' => $this->clientOption($quote->client_id),
         ]);
     }
 
@@ -142,12 +141,12 @@ class QuoteController extends Controller
     }
 
     /**
-     * @return Collection<int, array{id: int, display_name: string, currency: string}>
+     * @return array{id: int, display_name: string, currency: string}|null
      */
-    private function clients(): Collection
+    private function clientOption(?int $id): ?array
     {
-        return Client::query()->where('status', '!=', 'closed')->orderBy('first_name')->orderBy('last_name')->orderBy('id')->limit(500)
-            ->get(['id', 'first_name', 'last_name', 'company_name', 'currency'])
-            ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'currency' => $client->currency]);
+        $client = $id !== null ? Client::query()->find($id) : null;
+
+        return $client === null ? null : ['id' => $client->id, 'display_name' => $client->display_name, 'currency' => $client->currency];
     }
 }

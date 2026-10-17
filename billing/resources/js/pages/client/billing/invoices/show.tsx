@@ -224,7 +224,7 @@ export default function ClientInvoiceShow({
                             </SectionCard>
                         )}
                     </div>
-                    <div className="grid content-start gap-4">
+                    <div className="order-first grid content-start gap-4 lg:order-none">
                         <SectionCard title="Summary">
                             <InvoiceTotals
                                 invoice={{ ...invoice, adjustments }}

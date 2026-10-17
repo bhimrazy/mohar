@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Models\Client;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -225,4 +226,18 @@ test('staff record manual income applied to invoices', function () {
     $this->get(route('admin.billing.transactions.index', ['client' => $client->id]))
         ->assertInertia(fn (Assert $page) => $page->component('admin/billing/transactions/index')->has('transactions.data', 1)->where('client.id', $client->id));
     expect(Transaction::query()->count())->toBe(1);
+});
+
+test('billing forms search clients without a size cap', function () {
+    actingAsStaff(['billing.invoices.manage']);
+    billingClient(['first_name' => 'Zara', 'last_name' => 'Quinn']);
+    Client::factory()->count(3)->create();
+
+    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quinn']))
+        ->assertOk()
+        ->assertJsonCount(1)
+        ->assertJsonPath('0.display_name', 'Zara Quinn');
+
+    actingAsStaff(['billing.invoices.view']);
+    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quinn']))->assertForbidden();
 });

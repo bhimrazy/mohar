@@ -11,13 +11,20 @@ import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
 import { StatCard } from '@/components/app/stat-card';
 import { useQueryParams } from '@/components/app/use-query-params';
+import {
+    ClientPicker,
+    ClientPickerField,
+} from '@/components/billing/client-picker';
 import { FormDialog } from '@/components/billing/form-dialog';
 import { SelectField } from '@/components/billing/select-field';
-import type { ClientOption, CreditEntry } from '@/components/billing/types';
+import type { CreditEntry } from '@/components/billing/types';
 import { humanize } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { preferences, store } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/CreditController';
+import {
+    preferences,
+    store,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/CreditController';
 import type { ResourcePaginated } from '@/types/app';
 
 type Props = {
@@ -29,12 +36,9 @@ type Props = {
         separate_invoices: boolean | null;
     } | null;
     entries: ResourcePaginated<CreditEntry>;
-    clients: ClientOption[];
 };
 
-const ALL = 'all';
-
-export default function CreditIndex({ client, entries, clients }: Props) {
+export default function CreditIndex({ client, entries }: Props) {
     const { apply } = useQueryParams();
 
     const columns: DataTableColumn<CreditEntry>[] = [
@@ -134,17 +138,18 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         error={form.errors.client_id}
                                         className="content-start sm:col-span-2"
                                     >
-                                        <SelectField
+                                        <ClientPickerField
                                             id="credit-client"
-                                            value={form.data.client_id}
-                                            onChange={(value) =>
-                                                form.setData('client_id', value)
+                                            initial={client}
+                                            invalid={!!form.errors.client_id}
+                                            onSelect={(option) =>
+                                                form.setData(
+                                                    'client_id',
+                                                    option
+                                                        ? String(option.id)
+                                                        : '',
+                                                )
                                             }
-                                            options={clients.map((option) => ({
-                                                value: String(option.id),
-                                                label: option.display_name,
-                                            }))}
-                                            placeholder="Choose a client"
                                         />
                                     </Field>
                                     <Field
@@ -217,19 +222,13 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                         label="Client"
                         className="w-full content-start sm:w-80"
                     >
-                        <SelectField
+                        <ClientPicker
                             id="credit-filter"
-                            value={client ? String(client.id) : ALL}
-                            onChange={(value) =>
-                                apply({ client: value === ALL ? null : value })
+                            value={client}
+                            onChange={(option) =>
+                                apply({ client: option ? option.id : null })
                             }
-                            options={[
-                                { value: ALL, label: 'All clients' },
-                                ...clients.map((option) => ({
-                                    value: String(option.id),
-                                    label: option.display_name,
-                                })),
-                            ]}
+                            placeholder="All clients — search to filter"
                         />
                     </Field>
                     {client && (
@@ -273,9 +272,18 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                                         )
                                     }
                                     options={[
-                                        { value: 'default', label: 'Use the default' },
-                                        { value: 'grouped', label: 'One invoice per due date' },
-                                        { value: 'separate', label: 'One invoice per item' },
+                                        {
+                                            value: 'default',
+                                            label: 'Use the default',
+                                        },
+                                        {
+                                            value: 'grouped',
+                                            label: 'One invoice per due date',
+                                        },
+                                        {
+                                            value: 'separate',
+                                            label: 'One invoice per item',
+                                        },
                                     ]}
                                 />
                             </Field>

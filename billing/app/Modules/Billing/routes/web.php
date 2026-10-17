@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
+use App\Modules\Billing\Http\Controllers\Admin\ClientSearchController;
 use App\Modules\Billing\Http\Controllers\Admin\CreditController as AdminCreditController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayController;
 use App\Modules\Billing\Http\Controllers\Admin\GatewayLogController;
@@ -24,6 +25,7 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Support\Facades\Route;
 
 Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(function (): void {
+    Route::get('clients/search', ClientSearchController::class)->middleware('throttle:120,1')->name('clients.search');
     Route::post('invoices/bulk', [InvoiceActionController::class, 'bulk'])->middleware(ConfirmPasswordForAction::class)->name('invoices.bulk');
     Route::resource('invoices', AdminInvoiceController::class);
     Route::controller(InvoiceActionController::class)->prefix('invoices/{invoice}')->name('invoices.')->group(function (): void {
