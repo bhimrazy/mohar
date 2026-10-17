@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Actions;
 
+use App\Events\Catalog\ProductStockDepleted;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +36,10 @@ class AdjustStock
 
             $quantity = (int) Product::query()->whereKey($product->id)->value('stock_quantity');
             $this->activity->log('Product stock adjusted', $product, null, ['adjustment' => $adjustment, 'quantity' => $quantity, 'reason' => $reason]);
+
+            if ($quantity === 0) {
+                DB::afterCommit(fn () => ProductStockDepleted::dispatch($product->id));
+            }
 
             return $quantity;
         });

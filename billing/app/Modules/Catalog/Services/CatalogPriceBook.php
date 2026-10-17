@@ -7,6 +7,7 @@ use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
+use App\Events\Catalog\ProductStockDepleted;
 use App\Modules\Catalog\Enums\ConfigOptionType;
 use App\Modules\Catalog\Enums\FreeDomain;
 use App\Modules\Catalog\Enums\PaymentType;
@@ -339,11 +340,17 @@ class CatalogPriceBook implements PriceBook
                 return true;
             }
 
-            return Product::query()
+            $reserved = Product::query()
                 ->whereKey($productId)
                 ->where('stock_enabled', true)
                 ->where('stock_quantity', '>', 0)
                 ->decrement('stock_quantity') === 1;
+
+            if ($reserved && (int) Product::query()->whereKey($productId)->value('stock_quantity') === 0) {
+                DB::afterCommit(fn () => ProductStockDepleted::dispatch($productId));
+            }
+
+            return $reserved;
         });
     }
 

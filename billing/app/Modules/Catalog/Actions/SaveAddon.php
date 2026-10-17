@@ -2,6 +2,8 @@
 
 namespace App\Modules\Catalog\Actions;
 
+use App\Events\Catalog\AddonCreated;
+use App\Events\Catalog\AddonUpdated;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +31,7 @@ class SaveAddon
             $this->prices->handle($addon, $prices);
 
             $this->activity->log($creating ? 'Addon created' : 'Addon updated', $addon);
+            DB::afterCommit(fn () => $creating ? AddonCreated::dispatch($addon->id) : AddonUpdated::dispatch($addon->id));
 
             return $addon;
         });

@@ -3,6 +3,7 @@
 namespace App\Modules\Catalog\Actions;
 
 use App\Enums\BillingCycle;
+use App\Events\Catalog\ProductPriceChanged;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Price;
@@ -67,6 +68,14 @@ class SyncPrices
 
             if ($changes !== []) {
                 $this->activity->log('Prices updated', $priceable, null, ['changes' => $changes]);
+
+                $type = $priceable->getMorphClass();
+                $id = (int) $priceable->getKey();
+                DB::afterCommit(function () use ($changes, $type, $id): void {
+                    foreach ($changes as $change) {
+                        ProductPriceChanged::dispatch($type, $id, $change['currency'], $change['cycle'], $change['old'], $change['new']);
+                    }
+                });
             }
 
             return count($changes);

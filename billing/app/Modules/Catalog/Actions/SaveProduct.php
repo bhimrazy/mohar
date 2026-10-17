@@ -2,6 +2,9 @@
 
 namespace App\Modules\Catalog\Actions;
 
+use App\Events\Catalog\ProductCreated;
+use App\Events\Catalog\ProductRetired;
+use App\Events\Catalog\ProductUpdated;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
@@ -35,6 +38,15 @@ class SaveProduct
                 default => 'Product updated',
             };
             $this->activity->log($description, $product, null, $creating ? [] : ['changed' => array_keys($product->getChanges())]);
+
+            $retired = ! $creating && ! $wasRetired && $product->is_retired;
+            DB::afterCommit(function () use ($product, $creating, $retired): void {
+                $creating ? ProductCreated::dispatch($product->id) : ProductUpdated::dispatch($product->id);
+
+                if ($retired) {
+                    ProductRetired::dispatch($product->id);
+                }
+            });
 
             return $product;
         });
