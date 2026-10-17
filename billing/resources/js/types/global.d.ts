@@ -1,5 +1,9 @@
 import type { Auth } from '@/types/auth';
-import type { ClientAccount, ServerNavGroup } from '@/types/navigation';
+import type {
+    ClientAccount,
+    QuickAction,
+    ServerNavGroup,
+} from '@/types/navigation';
 
 declare module 'react' {
     interface InputHTMLAttributes<T> {
@@ -15,6 +19,7 @@ declare module '@inertiajs/core' {
             sidebarOpen: boolean;
             area: 'admin' | 'client';
             navigation: ServerNavGroup[];
+            quickActions: QuickAction[];
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
             [key: string]: unknown;
