@@ -242,6 +242,26 @@ class Ticket extends Model
     }
 
     /**
+     * Queue order for "awaiting reply": oldest *unanswered* customer message first, so repeated
+     * customer replies don't bump a ticket (spec §13). Tickets without one sort last on every database.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOrderByOldestUnanswered(Builder $query): void
+    {
+        $firstUnanswered = fn () => TicketMessage::query()
+            ->whereColumn('support_ticket_messages.ticket_id', 'support_tickets.id')
+            ->where('type', 'reply')
+            ->whereIn('author_type', ['client', 'guest'])
+            ->where(fn (Builder $messages) => $messages
+                ->whereNull('support_tickets.last_staff_reply_at')
+                ->orWhereColumn('support_ticket_messages.created_at', '>', 'support_tickets.last_staff_reply_at'));
+
+        $query->orderBy($firstUnanswered()->selectRaw('case when min(created_at) is null then 1 else 0 end'))
+            ->orderBy($firstUnanswered()->selectRaw('min(created_at)'));
+    }
+
+    /**
      * @param  Builder<self>  $query
      */
     public function scopeSearch(Builder $query, ?string $term): void

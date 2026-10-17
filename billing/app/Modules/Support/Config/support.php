@@ -14,7 +14,6 @@ return [
     'staff_attachment_extensions' => 'jpg,jpeg,png,gif,webp,pdf,txt,log,zip,doc,docx,xls,xlsx,csv,tar,gz',
     'attachment_max_mb' => 10,
     'attachment_max_files' => 5,
-    'email_attachment_limit_mb' => 10,
     'prune_attachments_after_months' => 0,
 
     /** Hours of inactivity before tickets in an auto-close status are closed (0 = off). */
@@ -26,7 +25,6 @@ return [
     'reply_ratings_enabled' => true,
     'show_clients_only_to_guests' => false,
     'network_status_requires_login' => true,
-    'queue_sort' => 'oldest_unanswered',
 
     /** Inbound email (piping). */
     /** HMAC secret for the inbound webhook; set it in Settings (empty = webhook disabled). */

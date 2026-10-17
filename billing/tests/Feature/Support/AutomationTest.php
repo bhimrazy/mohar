@@ -89,3 +89,14 @@ test('attachments of long-closed tickets are pruned when enabled, keeping metada
         ->and($attachment->fresh()->pruned_at)->not->toBeNull();
     Storage::disk('objects')->assertMissing($attachment->path);
 });
+
+test('automation:run --date auto-closes relative to the run date', function () {
+    $ticket = clientTicket(Client::factory()->create());
+    $ticket->forceFill(['status' => TicketStatus::Answered, 'last_reply_at' => now()])->save();
+
+    $this->artisan('automation:run', ['--only' => 'support.auto_close', '--date' => now()->addDays(2)->toDateString()])->assertSuccessful();
+    expect($ticket->fresh()->status)->toBe(TicketStatus::Answered);
+
+    $this->artisan('automation:run', ['--only' => 'support.auto_close', '--date' => now()->addDays(4)->toDateString()])->assertSuccessful();
+    expect($ticket->fresh())->status->toBe(TicketStatus::Closed)->closed_by->value->toBe('system');
+});

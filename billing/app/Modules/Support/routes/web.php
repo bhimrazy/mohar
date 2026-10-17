@@ -18,6 +18,7 @@ use App\Modules\Support\Http\Controllers\Public\AnnouncementController;
 use App\Modules\Support\Http\Controllers\Public\GuestTicketController;
 use App\Modules\Support\Http\Controllers\Public\KnowledgebaseController;
 use App\Modules\Support\Http\Controllers\Public\NetworkStatusController;
+use App\Modules\Support\Http\Middleware\NoReferrer;
 use Illuminate\Support\Facades\Route;
 
 Route::adminArea(fn () => Route::prefix('support')->name('support.')->group(function (): void {
@@ -65,7 +66,7 @@ Route::adminArea(fn () => Route::prefix('support')->name('support.')->group(func
     Route::delete('spam-rules/{spamRule}', [SpamRuleController::class, 'destroy'])->name('spam-rules.destroy');
 }));
 
-Route::clientArea(fn () => Route::prefix('support/tickets')->name('support.tickets.')->group(function (): void {
+Route::clientArea(fn () => Route::prefix('support/tickets')->name('support.tickets.')->middleware(NoReferrer::class)->group(function (): void {
     Route::get('/', [ClientTicketController::class, 'index'])->name('index');
     Route::get('create', [ClientTicketController::class, 'create'])->name('create');
     Route::post('/', [ClientTicketController::class, 'store'])->name('store');
@@ -79,7 +80,7 @@ Route::clientArea(fn () => Route::prefix('support/tickets')->name('support.ticke
 /*
 | Public pages (no login). Guest ticket access is by the ticket's random access key (?key=).
 */
-Route::middleware('throttle:support-public')->group(function (): void {
+Route::middleware(['throttle:support-public', NoReferrer::class])->group(function (): void {
     Route::prefix('support/tickets')->name('support.tickets.')->group(function (): void {
         Route::get('create', [GuestTicketController::class, 'create'])->name('create');
         Route::post('/', [GuestTicketController::class, 'store'])->middleware('throttle:support-guest')->name('store');

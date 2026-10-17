@@ -163,3 +163,10 @@ test('signed-in clients are sent from the guest form to the client area', functi
     $this->get(route('support.tickets.create'))->assertRedirect(route('client.support.tickets.create'));
     expect(User::query()->count())->toBe(1)->and($client->exists)->toBeTrue();
 });
+
+test('guest ticket pages send no referrer', function () {
+    $ticket = guestTicket();
+
+    $this->get(route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key]))
+        ->assertHeader('Referrer-Policy', 'no-referrer');
+});

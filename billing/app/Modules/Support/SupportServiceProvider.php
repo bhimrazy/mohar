@@ -206,7 +206,6 @@ class SupportServiceProvider extends ModuleServiceProvider
             new SettingDefinition('support.staff_attachment_extensions', 'Staff attachment types', help: 'Comma-separated extensions.'),
             new SettingDefinition('support.attachment_max_mb', 'Max attachment size (MB)', 'integer', rules: ['min:1', 'max:100']),
             new SettingDefinition('support.attachment_max_files', 'Max attachments per message', 'integer', rules: ['min:1', 'max:20']),
-            new SettingDefinition('support.email_attachment_limit_mb', 'Attach files to client emails up to (MB)', 'integer', rules: ['min:0']),
             new SettingDefinition('support.prune_attachments_after_months', 'Delete files of tickets closed more than (months)', 'integer', '0 keeps files forever.', rules: ['min:0']),
             new SettingDefinition('support.reply_ratings_enabled', 'Let clients rate staff replies', 'boolean'),
             new SettingDefinition('support.show_clients_only_to_guests', 'Show clients-only departments to guests', 'boolean'),
@@ -305,7 +304,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle());
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->isToday() ? null : $today->endOfDay()));
         $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle($today));
         $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle($today));
     }

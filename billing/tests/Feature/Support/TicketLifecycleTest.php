@@ -168,3 +168,12 @@ test('staff @mentions in notes are reported only for colleagues with department 
 
     Event::assertDispatched(TicketNoteAdded::class, fn (TicketNoteAdded $event) => $event->mentions === [$colleague->id]);
 });
+
+test('markdown images render as links so user content never loads remote resources', function () {
+    $ticket = clientTicket(Client::factory()->create(), body: '![pixel](https://evil.example/p.gif) ![x](javascript:alert(1))');
+    $html = $ticket->messages()->firstOrFail()->body_html;
+
+    expect($html)->not->toContain('<img')
+        ->toContain('href="https://evil.example/p.gif"')
+        ->not->toContain('javascript:');
+});

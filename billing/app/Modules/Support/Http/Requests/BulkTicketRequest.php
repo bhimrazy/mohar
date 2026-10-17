@@ -8,7 +8,7 @@ use Illuminate\Validation\Rule;
 
 class BulkTicketRequest extends FormRequest
 {
-    public const ACTIONS = ['close', 'assign', 'delete'];
+    public const ACTIONS = ['close', 'assign', 'delete', 'block_sender'];
 
     public function authorize(): bool
     {

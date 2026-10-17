@@ -109,7 +109,7 @@ class KnowledgebaseController extends Controller
             $request->session()->push(self::VOTED, $article->id);
 
             if ($request->user() !== null) {
-                Cache::forever($this->voteKey($article, (int) $request->user()->id), true);
+                Cache::put($this->voteKey($article, (int) $request->user()->id), true, now()->addYear());
             }
         }
 

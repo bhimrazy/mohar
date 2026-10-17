@@ -8,6 +8,7 @@ use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\CannedReply;
 use App\Modules\Support\Models\Department;
+use App\Modules\Support\Models\SpamRule;
 use App\Modules\Support\Models\StaffSignature;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketEvent;
@@ -185,4 +186,29 @@ test('staff may only link services of the ticket client', function () {
     $this->patch(route('admin.support.tickets.update', $guest), ['service_id' => 5])->assertSessionHasErrors('service_id');
 
     expect($ticket->fresh()->service_id)->toBe(5)->and($guest->fresh()->service_id)->toBeNull();
+});
+
+test('merge candidates are limited to the staff member\'s departments', function () {
+    $mine = Department::factory()->create();
+    $client = Client::factory()->create();
+    $ticket = clientTicket($client, $mine);
+    $sibling = clientTicket($client, $mine);
+    clientTicket($client, Department::factory()->create());
+    supportStaff([$mine]);
+
+    $this->get(route('admin.support.tickets.show', $ticket))
+        ->assertInertia(fn (Assert $page) => $page->has('mergeCandidates', 1)->where('mergeCandidates.0.id', $sibling->id));
+});
+
+test('bulk block sender adds sender rules and closes the tickets', function () {
+    $department = Department::factory()->create();
+    $spam = guestTicket($department, 'Spammer@Example.com');
+    $again = guestTicket($department, 'spammer@example.com');
+    supportStaff([$department]);
+
+    $this->post(route('admin.support.tickets.bulk'), ['action' => 'block_sender', 'tickets' => [$spam->id, $again->id]])->assertRedirect();
+
+    expect(SpamRule::query()->where('field', 'sender')->pluck('value')->all())->toBe(['spammer@example.com'])
+        ->and($spam->fresh()->status)->toBe(TicketStatus::Closed)
+        ->and($again->fresh()->status)->toBe(TicketStatus::Closed);
 });

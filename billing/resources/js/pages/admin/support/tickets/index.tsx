@@ -90,7 +90,7 @@ export default function TicketsIndex({
                 : [...current, id],
         );
 
-    const bulk = (action: 'close' | 'assign' | 'delete') =>
+    const bulk = (action: 'close' | 'assign' | 'delete' | 'block_sender') =>
         router.post(
             TicketController.bulk.url(),
             {
@@ -357,6 +357,17 @@ export default function TicketsIndex({
                         >
                             Close tickets
                         </Button>
+                        <ConfirmDialog
+                            trigger={
+                                <Button size="sm" variant="outline">
+                                    Block sender
+                                </Button>
+                            }
+                            title={`Block the senders of ${selected.length} tickets?`}
+                            description="Their future emails are dropped by a spam rule and these tickets are closed. You can remove the rule under Email piping."
+                            confirmLabel="Block senders"
+                            onConfirm={() => bulk('block_sender')}
+                        />
                         {can.delete && (
                             <ConfirmDialog
                                 trigger={

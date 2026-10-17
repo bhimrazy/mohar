@@ -6,6 +6,7 @@ use App\Contracts\Services\ClientServiceDirectory;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Support\Actions\BlockSenders;
 use App\Modules\Support\Actions\CloseTicket;
 use App\Modules\Support\Actions\DeleteTicket;
 use App\Modules\Support\Actions\MergeTickets;
@@ -29,7 +30,6 @@ use App\Modules\Support\Models\InboundEmail;
 use App\Modules\Support\Models\StaffSignature;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketEvent;
-use App\Modules\Support\Models\TicketMessage;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Modules\Support\Services\TicketRecorder;
@@ -77,14 +77,7 @@ class TicketController extends Controller
             ->orderByDesc('is_pinned');
 
         if ($view === 'awaiting') {
-            // Oldest *unanswered* client message first, so repeated client replies don't bump (spec §13).
-            $query->orderBy(TicketMessage::query()->selectRaw('min(created_at)')
-                ->whereColumn('support_ticket_messages.ticket_id', 'support_tickets.id')
-                ->where('type', 'reply')
-                ->whereIn('author_type', ['client', 'guest'])
-                ->where(fn (Builder $messages) => $messages
-                    ->whereNull('support_tickets.last_staff_reply_at')
-                    ->orWhereColumn('support_ticket_messages.created_at', '>', 'support_tickets.last_staff_reply_at')));
+            $query->orderByOldestUnanswered();
         } else {
             $query->orderByDesc('last_reply_at');
         }
@@ -186,7 +179,7 @@ class TicketController extends Controller
                 ]),
             'blocked' => InboundEmail::query()->where('ticket_id', $ticket->id)->where('status', InboundEmailStatus::Blocked->value)
                 ->orderByDesc('received_at')->orderByDesc('id')->get(['id', 'from', 'subject', 'received_at']),
-            'mergeCandidates' => Ticket::query()->notMerged()->whereKeyNot($ticket->id)
+            'mergeCandidates' => $this->access->scope(Ticket::query(), $user)->notMerged()->whereKeyNot($ticket->id)
                 ->when($ticket->client_id !== null, fn (Builder $query) => $query->where('client_id', $ticket->client_id), fn (Builder $query) => $query->where('requester_email', $ticket->requester_email))
                 ->orderByDesc('id')->limit(20)->get(['id', 'number', 'subject', 'status', 'created_at'])
                 ->map(fn (Ticket $candidate): array => ['id' => $candidate->id, 'number' => $candidate->number, 'subject' => $candidate->subject, 'status' => $candidate->status->value]),
@@ -253,12 +246,19 @@ class TicketController extends Controller
         return to_route('admin.support.tickets.show', $target);
     }
 
-    public function bulk(BulkTicketRequest $request, CloseTicket $close, UpdateTicket $update, DeleteTicket $delete): RedirectResponse
+    public function bulk(BulkTicketRequest $request, CloseTicket $close, UpdateTicket $update, DeleteTicket $delete, BlockSenders $block): RedirectResponse
     {
         /** @var User $user */
         $user = $request->user();
         $tickets = $this->access->scope(Ticket::query(), $user)->whereIn('id', $request->ticketIds())->get();
         $action = $request->string('action')->toString();
+
+        if ($action === 'block_sender') {
+            $blocked = $block->handle($tickets, $user);
+            Inertia::flash('toast', ['type' => 'success', 'message' => trans_choice('{1} :count sender blocked; its tickets were closed.|[2,*] :count senders blocked; their tickets were closed.', $blocked, ['count' => $blocked])]);
+
+            return back();
+        }
 
         foreach ($tickets as $ticket) {
             match ($action) {
@@ -308,8 +308,10 @@ class TicketController extends Controller
      */
     private function eligibleStaff(int $departmentId): array
     {
+        $members = Department::query()->findOrFail($departmentId)->staff()->pluck('users.id')->map(fn (mixed $id): int => (int) $id)->all();
+
         return array_values(User::query()->where('is_staff', true)->with('role')->orderBy('name')->orderBy('id')->get()
-            ->filter(fn (User $staff): bool => $this->access->isEligibleAssignee($staff, $departmentId))
+            ->filter(fn (User $staff): bool => in_array($staff->id, $members, true) || $this->access->hasFullAccess($staff))
             ->map(fn (User $staff): array => ['value' => (string) $staff->id, 'label' => $staff->name])->all());
     }
 }
