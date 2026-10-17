@@ -1,0 +1,14 @@
+<?php
+
+namespace App\Contracts\Billing;
+
+/**
+ * Read-only invoice facts for other modules. Implemented by Billing; Core binds a null default.
+ */
+interface InvoiceQueries
+{
+    /**
+     * Whether any payment, credit application or refund has been recorded against the invoice.
+     */
+    public function hasPayments(int $invoiceId): bool;
+}
