@@ -8,13 +8,20 @@ import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { SwitchField } from '@/components/app/switch-field';
 import InputError from '@/components/input-error';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 
-type PermissionOption = { key: string; label: string; grantable: boolean };
+type PermissionOption = {
+    key: string;
+    label: string;
+    grantable: boolean;
+    /** Never granted by wildcards: must be ticked explicitly. */
+    sensitive: boolean;
+};
 type PermissionGroup = {
     group: string;
     permissions: PermissionOption[];
@@ -51,8 +58,19 @@ export default function RoleForm({ role, groups, canGrantAll }: Props) {
     const selected = form.data.permissions;
     const full = selected.includes('*');
     const wildcards = selected.filter((permission) => permission.endsWith('*'));
+    const sensitiveKeys = new Set(
+        groups.flatMap((group) =>
+            group.permissions
+                .filter((permission) => permission.sensitive)
+                .map((permission) => permission.key),
+        ),
+    );
     const coveredBy = (key: string) =>
-        wildcards.find((wildcard) => wildcard !== key && covers(wildcard, key));
+        sensitiveKeys.has(key)
+            ? undefined
+            : wildcards.find(
+                  (wildcard) => wildcard !== key && covers(wildcard, key),
+              );
 
     const toggle = (key: string, on: boolean) => {
         const next = on
@@ -252,8 +270,17 @@ export default function RoleForm({ role, groups, canGrantAll }: Props) {
                                                         htmlFor={id}
                                                         className="flex flex-col items-start gap-0 font-normal"
                                                     >
-                                                        <span>
+                                                        <span className="flex items-center gap-1.5">
                                                             {permission.label}
+                                                            {permission.sensitive && (
+                                                                <Badge
+                                                                    variant="outline"
+                                                                    className="px-1.5 py-0 text-[10px]"
+                                                                    title="Never granted by a wildcard; tick it explicitly."
+                                                                >
+                                                                    Sensitive
+                                                                </Badge>
+                                                            )}
                                                         </span>
                                                         <span className="font-mono text-xs text-muted-foreground">
                                                             {permission.key}

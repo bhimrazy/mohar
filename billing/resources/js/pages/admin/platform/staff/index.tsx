@@ -45,13 +45,16 @@ type Invitation = {
 };
 
 type Props = {
+    twoFactorRequired: boolean;
     staff: LaravelPaginated<StaffRow>;
     invitations: Invitation[];
-    filters: { search?: string; status?: string };
+    filters: { search?: string; status?: string; two_factor?: string };
     can: { manage: boolean };
 };
 
-const columns: DataTableColumn<StaffRow>[] = [
+const staffColumns = (
+    twoFactorRequired: boolean,
+): DataTableColumn<StaffRow>[] => [
     {
         key: 'name',
         header: 'Name',
@@ -90,6 +93,12 @@ const columns: DataTableColumn<StaffRow>[] = [
                     />
                     On
                 </span>
+            ) : twoFactorRequired ? (
+                <StatusBadge
+                    status="required"
+                    tone="warning"
+                    label="Off — required"
+                />
             ) : (
                 <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
                     <ShieldOff className="size-4" aria-hidden="true" />
@@ -113,6 +122,7 @@ const columns: DataTableColumn<StaffRow>[] = [
 ];
 
 export default function StaffIndex({
+    twoFactorRequired,
     staff,
     invitations,
     filters,
@@ -218,25 +228,37 @@ export default function StaffIndex({
 
                 <FilterBar
                     searchPlaceholder="Search name or email…"
-                    filterKeys={['status']}
+                    filterKeys={['status', 'two_factor']}
                     only={['staff', 'filters']}
                     filters={
-                        <FilterSelect
-                            name="status"
-                            label="Status"
-                            allLabel="All statuses"
-                            only={['staff', 'filters']}
-                            options={[
-                                { value: 'active', label: 'Active' },
-                                { value: 'inactive', label: 'Inactive' },
-                            ]}
-                        />
+                        <>
+                            <FilterSelect
+                                name="status"
+                                label="Status"
+                                allLabel="All statuses"
+                                only={['staff', 'filters']}
+                                options={[
+                                    { value: 'active', label: 'Active' },
+                                    { value: 'inactive', label: 'Inactive' },
+                                ]}
+                            />
+                            <FilterSelect
+                                name="two_factor"
+                                label="Two-factor"
+                                allLabel="Any 2FA"
+                                only={['staff', 'filters']}
+                                options={[
+                                    { value: 'on', label: '2FA on' },
+                                    { value: 'off', label: '2FA off' },
+                                ]}
+                            />
+                        </>
                     }
                 />
 
                 <DataTable
                     caption="Staff"
-                    columns={columns}
+                    columns={staffColumns(twoFactorRequired)}
                     rows={staff.data}
                     getRowKey={(row) => row.id}
                     rowHref={
@@ -248,7 +270,9 @@ export default function StaffIndex({
                         <EmptyState
                             icon={Users}
                             title={
-                                filters.search || filters.status
+                                filters.search ||
+                                filters.status ||
+                                filters.two_factor
                                     ? 'No staff match these filters'
                                     : 'No staff yet'
                             }

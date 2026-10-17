@@ -24,6 +24,7 @@ const MIN_LENGTH = 2;
  */
 export function CommandPalette() {
     const [open, setOpen] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [query, setQuery] = useState('');
     const [groups, setGroups] = useState<SearchGroup[]>([]);
     const [loading, setLoading] = useState(false);
@@ -69,14 +70,37 @@ export function CommandPalette() {
                 credentials: 'same-origin',
                 signal: controller.signal,
             })
-                .then((response) =>
-                    response.ok ? response.json() : { groups: [] },
-                )
-                .then((data: { groups: SearchGroup[] }) => {
+                .then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(
+                            response.status === 429
+                                ? 'Too many searches. Wait a moment and try again.'
+                                : 'Search failed. Try again.',
+                        );
+                    }
+
+                    return (await response.json()) as { groups: SearchGroup[] };
+                })
+                .then((data) => {
+                    setError(null);
                     setGroups(data.groups);
                     setActive(0);
                 })
-                .catch(() => undefined)
+                .catch((reason: unknown) => {
+                    if (
+                        reason instanceof DOMException &&
+                        reason.name === 'AbortError'
+                    ) {
+                        return;
+                    }
+
+                    setGroups([]);
+                    setError(
+                        reason instanceof Error
+                            ? reason.message
+                            : 'Search failed. Try again.',
+                    );
+                })
                 .finally(() => {
                     if (abort.current === controller) {
                         setLoading(false);
@@ -87,9 +111,14 @@ export function CommandPalette() {
         return () => clearTimeout(timeout);
     }, [query]);
 
+    const term = query.trim();
+    const shownGroups = useMemo(
+        () => (term.length >= MIN_LENGTH ? groups : []),
+        [groups, term],
+    );
     const flat = useMemo(
-        () => groups.flatMap((group) => group.results),
-        [groups],
+        () => shownGroups.flatMap((group) => group.results),
+        [shownGroups],
     );
 
     const close = useCallback(() => {
@@ -120,8 +149,6 @@ export function CommandPalette() {
         }
     };
 
-    const term = query.trim();
-    const shownGroups = term.length >= MIN_LENGTH ? groups : [];
     let index = -1;
 
     return (
@@ -165,6 +192,11 @@ export function CommandPalette() {
                             role="combobox"
                             aria-expanded={flat.length > 0}
                             aria-controls="command-palette-results"
+                            aria-activedescendant={
+                                flat.length
+                                    ? `command-option-${active}`
+                                    : undefined
+                            }
                             className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                         />
                         {loading && <Spinner />}
@@ -175,11 +207,20 @@ export function CommandPalette() {
                         role="listbox"
                         className="max-h-96 overflow-y-auto p-2"
                     >
-                        {term.length < MIN_LENGTH ? (
+                        {error && (
+                            <p
+                                role="alert"
+                                className="px-2 py-3 text-center text-sm text-destructive"
+                            >
+                                {error}
+                            </p>
+                        )}
+                        {term.length < MIN_LENGTH &&
+                        shownGroups.length === 0 ? (
                             <p className="px-2 py-6 text-center text-sm text-muted-foreground">
                                 Type at least {MIN_LENGTH} characters to search.
                             </p>
-                        ) : shownGroups.length === 0 && !loading ? (
+                        ) : shownGroups.length === 0 && !loading && !error ? (
                             <p className="px-2 py-6 text-center text-sm text-muted-foreground">
                                 No results for “{term}”.
                             </p>
@@ -196,6 +237,7 @@ export function CommandPalette() {
                                         return (
                                             <button
                                                 key={`${group.group}-${result.href}-${position}`}
+                                                id={`command-option-${position}`}
                                                 type="button"
                                                 role="option"
                                                 aria-selected={

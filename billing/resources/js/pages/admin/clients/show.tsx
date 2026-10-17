@@ -8,6 +8,7 @@ import {
     Pencil,
     Plus,
     Trash2,
+    ShieldOff,
     UsersRound,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -49,13 +50,16 @@ type Props = {
     contacts: ClientContact[];
     users: ClientLogin[];
     links: { title: string; href: string; icon: string }[];
-    activity: {
-        id: number;
-        description: string;
-        actor: string | null;
-        impersonator: string | null;
-        created_at: string | null;
-    }[];
+    /** Null unless the staff member may read the activity log. */
+    activity:
+        | {
+              id: number;
+              description: string;
+              actor: string | null;
+              impersonator: string | null;
+              created_at: string | null;
+          }[]
+        | null;
     areas: string[];
     emailTypes: string[];
     can: {
@@ -65,6 +69,7 @@ type Props = {
         impersonate: boolean;
         manageContacts: boolean;
         manageUsers: boolean;
+        resetTwoFactor: boolean;
         viewActivity: boolean;
     };
 };
@@ -130,7 +135,6 @@ export default function ClientShow({
                       key: 'actions',
                       header: <span className="sr-only">Actions</span>,
                       align: 'right' as const,
-                      hideOnMobile: true,
                       cell: (contact: ClientContact) => (
                           <div className="flex justify-end gap-1">
                               <ContactDialog
@@ -219,15 +223,28 @@ export default function ClientShow({
                 />
             ),
         },
-        ...(can.manageUsers
+        ...(can.manageUsers || can.resetTwoFactor
             ? [
                   {
                       key: 'actions',
                       header: <span className="sr-only">Actions</span>,
                       align: 'right' as const,
-                      hideOnMobile: true,
-                      cell: (login: ClientLogin) =>
-                          login.is_owner ? null : (
+                      cell: (login: ClientLogin) => {
+                          const post = (
+                              url: string,
+                              method: 'post' | 'delete' = 'post',
+                          ) =>
+                              router.visit(url, {
+                                  method,
+                                  preserveScroll: true,
+                              });
+                          const manage = can.manageUsers && !login.is_owner;
+
+                          if (!manage && !can.resetTwoFactor) {
+                              return null;
+                          }
+
+                          return (
                               <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                       <Button
@@ -239,51 +256,73 @@ export default function ClientShow({
                                       </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
-                                      <DropdownMenuItem
-                                          onSelect={() =>
-                                              setEditingLogin(login)
-                                          }
-                                      >
-                                          <KeyRound />
-                                          Edit permissions
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                          onSelect={() =>
-                                              router.visit(
-                                                  ClientUserController.transfer.url(
-                                                      [client.id, login.id],
-                                                  ),
-                                                  {
-                                                      method: 'post',
-                                                      preserveScroll: true,
-                                                  },
-                                              )
-                                          }
-                                      >
-                                          <UsersRound />
-                                          Make owner
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem
-                                          variant="destructive"
-                                          onSelect={() =>
-                                              router.visit(
-                                                  ClientUserController.destroy.url(
-                                                      [client.id, login.id],
-                                                  ),
-                                                  {
-                                                      method: 'delete',
-                                                      preserveScroll: true,
-                                                  },
-                                              )
-                                          }
-                                      >
-                                          <Trash2 />
-                                          Remove access
-                                      </DropdownMenuItem>
+                                      {manage && (
+                                          <>
+                                              <DropdownMenuItem
+                                                  onSelect={() =>
+                                                      setEditingLogin(login)
+                                                  }
+                                              >
+                                                  <KeyRound />
+                                                  Edit permissions
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem
+                                                  onSelect={() =>
+                                                      post(
+                                                          ClientUserController.transfer.url(
+                                                              [
+                                                                  client.id,
+                                                                  login.id,
+                                                              ],
+                                                          ),
+                                                      )
+                                                  }
+                                              >
+                                                  <UsersRound />
+                                                  Make owner
+                                              </DropdownMenuItem>
+                                          </>
+                                      )}
+                                      {can.resetTwoFactor && (
+                                          <DropdownMenuItem
+                                              onSelect={() =>
+                                                  post(
+                                                      ClientUserController.resetTwoFactor.url(
+                                                          [client.id, login.id],
+                                                      ),
+                                                  )
+                                              }
+                                          >
+                                              <ShieldOff />
+                                              Reset 2FA
+                                          </DropdownMenuItem>
+                                      )}
+                                      {manage && (
+                                          <>
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem
+                                                  variant="destructive"
+                                                  onSelect={() =>
+                                                      post(
+                                                          ClientUserController.destroy.url(
+                                                              [
+                                                                  client.id,
+                                                                  login.id,
+                                                              ],
+                                                          ),
+                                                          'delete',
+                                                      )
+                                                  }
+                                              >
+                                                  <Trash2 />
+                                                  Remove access
+                                              </DropdownMenuItem>
+                                          </>
+                                      )}
                                   </DropdownMenuContent>
                               </DropdownMenu>
-                          ),
+                          );
+                      },
                   },
               ]
             : []),
@@ -430,6 +469,43 @@ export default function ClientShow({
                                 ]}
                             />
                         </SectionCard>
+                        <SectionCard title="Account" className="lg:hidden">
+                            <DescriptionList
+                                columns={1}
+                                items={[
+                                    {
+                                        label: 'Currency',
+                                        value: (
+                                            <span className="font-mono">
+                                                {client.currency}
+                                            </span>
+                                        ),
+                                    },
+                                    {
+                                        label: 'Client group',
+                                        value: client.group?.name,
+                                    },
+                                    {
+                                        label: 'Language',
+                                        value: client.language,
+                                    },
+                                    ...(client.closed_at
+                                        ? [
+                                              {
+                                                  label: 'Closed',
+                                                  value: (
+                                                      <DateTime
+                                                          value={
+                                                              client.closed_at
+                                                          }
+                                                      />
+                                                  ),
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                            />
+                        </SectionCard>
 
                         <SectionCard
                             title="Contacts"
@@ -501,11 +577,11 @@ export default function ClientShow({
                             />
                         </SectionCard>
 
-                        <SectionCard
-                            title="Activity"
-                            flush
-                            actions={
-                                can.viewActivity && (
+                        {activity && (
+                            <SectionCard
+                                title="Activity"
+                                flush
+                                actions={
                                     <Button variant="ghost" size="sm" asChild>
                                         <Link
                                             href={ActivityLogController.index({
@@ -515,18 +591,21 @@ export default function ClientShow({
                                             View all
                                         </Link>
                                     </Button>
-                                )
-                            }
-                        >
-                            <ActivityFeed
-                                items={activity}
-                                emptyText="Changes to this account appear here."
-                            />
-                        </SectionCard>
+                                }
+                            >
+                                <ActivityFeed
+                                    items={activity}
+                                    emptyText="Changes to this account appear here."
+                                />
+                            </SectionCard>
+                        )}
                     </div>
 
                     <div className="flex min-w-0 flex-col gap-4">
-                        <SectionCard title="Account">
+                        <SectionCard
+                            title="Account"
+                            className="hidden lg:block"
+                        >
                             <DescriptionList
                                 columns={1}
                                 items={[

@@ -22,7 +22,13 @@ type Preview = {
         currency: string;
         status: string;
     } | null;
-    counts: Record<string, number>;
+    problem: string | null;
+    items: {
+        key: string;
+        label: string;
+        count: number;
+        blocking: string | null;
+    }[];
 };
 
 type Props = {
@@ -31,81 +37,139 @@ type Props = {
     onOpenChange: (open: boolean) => void;
 };
 
-const label = (table: string) => table.replace(/_/g, ' ');
+const CONFIRM_WORD = 'MERGE';
 
 export function MergeDialog({ client, open, onOpenChange }: Props) {
     const [targetId, setTargetId] = useState('');
+    const [confirmation, setConfirmation] = useState('');
     const [preview, setPreview] = useState<Preview | null>(null);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [processing, setProcessing] = useState(false);
+    const validId = /^\d+$/.test(targetId);
 
     useEffect(() => {
-        if (!open || !/^\d+$/.test(targetId)) {
+        if (!open || !validId) {
+            setPreview(null);
+
             return;
         }
 
         const controller = new AbortController();
         const timeout = setTimeout(() => {
+            setLoading(true);
             fetch(
                 ClientLifecycleController.mergePreview.url(client.id, {
                     query: { target_id: targetId },
                 }),
                 {
-                    headers: { Accept: 'application/json' },
+                    headers: {
+                        Accept: 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
                     credentials: 'same-origin',
                     signal: controller.signal,
                 },
             )
-                .then((response) => response.json())
-                .then((data: Preview) => setPreview(data))
-                .catch(() => undefined);
-        }, 250);
+                .then(async (response) => {
+                    if (!response.ok) {
+                        throw new Error(
+                            response.status === 403
+                                ? 'You are not allowed to merge clients.'
+                                : 'Could not load the merge preview.',
+                        );
+                    }
+
+                    return (await response.json()) as Preview;
+                })
+                .then((data) => {
+                    setError(null);
+                    setPreview(data);
+                })
+                .catch((reason: unknown) => {
+                    if (
+                        !(
+                            reason instanceof DOMException &&
+                            reason.name === 'AbortError'
+                        )
+                    ) {
+                        setPreview(null);
+                        setError(
+                            reason instanceof Error
+                                ? reason.message
+                                : 'Could not load the merge preview.',
+                        );
+                    }
+                })
+                .finally(() => setLoading(false));
+        }, 300);
 
         return () => {
             clearTimeout(timeout);
             controller.abort();
         };
-    }, [open, targetId, client.id]);
+    }, [open, targetId, validId, client.id]);
 
-    const target = /^\d+$/.test(targetId) ? preview?.target : null;
-    const mismatch = target ? target.currency !== client.currency : false;
+    const close = (next: boolean) => {
+        if (processing) {
+            return;
+        }
+
+        if (!next) {
+            setTargetId('');
+            setConfirmation('');
+            setPreview(null);
+            setError(null);
+        }
+
+        onOpenChange(next);
+    };
+
+    const canMerge =
+        Boolean(preview?.target) &&
+        !preview?.problem &&
+        confirmation.trim() === CONFIRM_WORD &&
+        !processing;
+    const moving = (preview?.items ?? []).filter((item) => item.count > 0);
 
     const merge = () => {
         router.visit(ClientLifecycleController.merge.url(client.id), {
             method: 'post',
-            data: { target_id: targetId },
+            data: { target_id: targetId, confirmation: confirmation.trim() },
             onStart: () => {
                 setProcessing(true);
                 setError(null);
             },
-            onError: (errors) =>
-                setError(Object.values(errors)[0] ?? 'Something went wrong.'),
-            onSuccess: () => onOpenChange(false),
+            onError: (errors) => {
+                if (!errors.password_confirmation) {
+                    setError(
+                        Object.values(errors)[0] ?? 'Something went wrong.',
+                    );
+                }
+            },
+            onSuccess: () => close(false),
             onFinish: () => setProcessing(false),
         });
     };
 
     return (
-        <Dialog
-            open={open}
-            onOpenChange={(next) => !processing && onOpenChange(next)}
-        >
+        <Dialog open={open} onOpenChange={close}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>
                         Merge {client.display_name} into another client?
                     </DialogTitle>
                     <DialogDescription>
-                        Services, domains, invoices, contacts and other records
-                        move to the target client. Logins become non-owner users
-                        of the target. This client is closed. This can't be
-                        undone.
+                        Contacts, logins and every module's records (services,
+                        domains, invoices, tickets…) move to the target client.
+                        This client is closed and its profile redirects to the
+                        target. This can't be undone.
                     </DialogDescription>
                 </DialogHeader>
                 <Field
                     htmlFor="merge-target"
                     label="Target client ID"
-                    hint="Both clients must use the same currency."
+                    hint="Find the ID with ⌘K search. Both clients must use the same currency."
                 >
                     <Input
                         id="merge-target"
@@ -117,48 +181,74 @@ export function MergeDialog({ client, open, onOpenChange }: Props) {
                         placeholder="e.g. 1042"
                     />
                 </Field>
-                {target ? (
-                    <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-                        <p className="font-medium">
-                            #{target.id} {target.name}{' '}
-                            <span className="font-mono text-xs text-muted-foreground">
-                                {target.currency}
-                            </span>
-                        </p>
-                        {mismatch && (
-                            <p className="mt-1 text-destructive">
-                                Currencies differ ({client.currency} vs{' '}
-                                {target.currency}); merging is blocked.
+
+                {validId && preview && (
+                    <div
+                        className="space-y-2 rounded-lg border bg-muted/40 p-3 text-sm"
+                        aria-live="polite"
+                    >
+                        {preview.target && (
+                            <p className="font-medium">
+                                #{preview.target.id} {preview.target.name}{' '}
+                                <span className="font-mono text-xs text-muted-foreground">
+                                    {preview.target.currency}
+                                </span>
                             </p>
                         )}
-                        {preview && Object.keys(preview.counts).length > 0 && (
-                            <ul className="mt-2 grid grid-cols-2 gap-x-4 text-muted-foreground">
-                                {Object.entries(preview.counts).map(
-                                    ([table, count]) => (
-                                        <li key={table} className="capitalize">
-                                            {label(table)}:{' '}
-                                            <span className="text-foreground tabular-nums">
-                                                {count}
-                                            </span>
-                                        </li>
-                                    ),
-                                )}
+                        {preview.problem ? (
+                            <p className="text-destructive">
+                                {preview.problem}
+                            </p>
+                        ) : moving.length > 0 ? (
+                            <ul className="grid grid-cols-2 gap-x-4 text-muted-foreground">
+                                {moving.map((item) => (
+                                    <li key={item.key}>
+                                        {item.label}:{' '}
+                                        <span className="text-foreground tabular-nums">
+                                            {item.count}
+                                        </span>
+                                    </li>
+                                ))}
                             </ul>
+                        ) : (
+                            <p className="text-muted-foreground">
+                                Nothing else is attached to this client; only
+                                the profile is closed.
+                            </p>
                         )}
                     </div>
-                ) : (
-                    targetId !== '' &&
-                    preview && (
-                        <p className="text-sm text-muted-foreground">
-                            No client with that ID.
-                        </p>
-                    )
                 )}
+                {loading && !preview && (
+                    <p className="text-sm text-muted-foreground">Checking…</p>
+                )}
+
+                <Field
+                    htmlFor="merge-confirm"
+                    label={
+                        <>
+                            Type{' '}
+                            <span className="font-mono font-semibold">
+                                {CONFIRM_WORD}
+                            </span>{' '}
+                            to confirm
+                        </>
+                    }
+                >
+                    <Input
+                        id="merge-confirm"
+                        value={confirmation}
+                        onChange={(event) =>
+                            setConfirmation(event.target.value)
+                        }
+                        autoComplete="off"
+                        spellCheck={false}
+                    />
+                </Field>
                 <InputError message={error ?? undefined} />
                 <DialogFooter>
                     <Button
                         variant="outline"
-                        onClick={() => onOpenChange(false)}
+                        onClick={() => close(false)}
                         disabled={processing}
                     >
                         Cancel
@@ -166,7 +256,7 @@ export function MergeDialog({ client, open, onOpenChange }: Props) {
                     <Button
                         variant="destructive"
                         onClick={merge}
-                        disabled={!target || mismatch || processing}
+                        disabled={!canMerge}
                     >
                         {processing && <Spinner />}
                         Merge client

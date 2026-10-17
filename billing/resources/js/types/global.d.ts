@@ -17,6 +17,8 @@ declare module '@inertiajs/core' {
             navigation: ServerNavGroup[];
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
+            /** Company name setting (falls back to the app name). */
+            brand: string;
             impersonation?: {
                 staff: string;
                 user: string;

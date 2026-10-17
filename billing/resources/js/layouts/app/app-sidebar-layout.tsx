@@ -1,5 +1,6 @@
 import { AppContent } from '@/components/app-content';
 import { ImpersonationBanner } from '@/components/app/impersonation-banner';
+import { PasswordConfirmationGate } from '@/components/app/password-confirmation-gate';
 import { AppShell } from '@/components/app-shell';
 import { AppSidebar } from '@/components/app-sidebar';
 import { AppSidebarHeader } from '@/components/app-sidebar-header';
@@ -17,6 +18,7 @@ export default function AppSidebarLayout({
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
                 {children}
             </AppContent>
+            <PasswordConfirmationGate />
         </AppShell>
     );
 }

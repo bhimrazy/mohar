@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import { History } from 'lucide-react';
+import { useState } from 'react';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import ActivityLogController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ActivityLogController';
 import { DataTable } from '@/components/app/data-table';
@@ -36,20 +37,45 @@ type Props = {
 
 const ONLY = ['entries', 'filters'];
 
-function DateFilter({ name, label }: { name: string; label: string }) {
+function InputFilter({
+    name,
+    label,
+    type = 'text',
+    placeholder,
+    className = 'w-full sm:w-36',
+}: {
+    name: string;
+    label: string;
+    type?: 'text' | 'date';
+    placeholder?: string;
+    className?: string;
+}) {
     const { params, apply } = useQueryParams();
+    const current = params.get(name) ?? '';
+    const [value, setValue] = useState(current);
+    const commit = (next: string) => {
+        if (next !== current) {
+            apply({ [name]: next.trim() || null }, { only: ONLY });
+        }
+    };
 
     return (
-        <Input
-            type="date"
-            aria-label={label}
-            title={label}
-            value={params.get(name) ?? ''}
-            onChange={(event) =>
-                apply({ [name]: event.target.value || null }, { only: ONLY })
-            }
-            className="w-full sm:w-40"
-        />
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="shrink-0">{label}</span>
+            <Input
+                type={type}
+                value={type === 'date' ? current : value}
+                placeholder={placeholder}
+                onChange={(event) =>
+                    type === 'date'
+                        ? commit(event.target.value)
+                        : setValue(event.target.value)
+                }
+                onBlur={() => type !== 'date' && commit(value)}
+                onKeyDown={(event) => event.key === 'Enter' && commit(value)}
+                className={className}
+            />
+        </label>
     );
 }
 
@@ -173,8 +199,19 @@ export default function ActivityIndex({
                                     label: member.name,
                                 }))}
                             />
-                            <DateFilter name="from" label="From date" />
-                            <DateFilter name="to" label="To date" />
+                            <InputFilter
+                                name="client"
+                                label="Client #"
+                                placeholder="ID"
+                                className="w-full sm:w-20"
+                            />
+                            <InputFilter
+                                name="ip"
+                                label="IP"
+                                placeholder="203.0.113.5"
+                            />
+                            <InputFilter name="from" label="From" type="date" />
+                            <InputFilter name="to" label="To" type="date" />
                         </>
                     }
                 />

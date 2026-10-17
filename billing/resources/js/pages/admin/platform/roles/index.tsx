@@ -15,22 +15,12 @@ type RoleRow = {
     name: string;
     description: string | null;
     permissions: string[];
+    /** Human summary from the server, e.g. ["Clients (3)", "Billing (all)"]. */
+    summary: string[];
     users_count: number;
     is_system: boolean;
     editable: boolean;
 };
-
-function summary(permissions: string[]): string {
-    if (permissions.includes('*')) {
-        return 'Full access';
-    }
-
-    const shown = permissions.slice(0, 3).join(', ');
-
-    return permissions.length > 3
-        ? `${shown} +${permissions.length - 3} more`
-        : shown;
-}
 
 export default function RolesIndex({ roles }: { roles: RoleRow[] }) {
     const columns: DataTableColumn<RoleRow>[] = [
@@ -58,8 +48,13 @@ export default function RolesIndex({ roles }: { roles: RoleRow[] }) {
             key: 'permissions',
             header: 'Permissions',
             cell: (role) => (
-                <span className="font-mono text-xs text-muted-foreground">
-                    {summary(role.permissions)}
+                <span
+                    className="text-muted-foreground"
+                    title={role.permissions.join(', ')}
+                >
+                    {role.summary.slice(0, 3).join(' · ')}
+                    {role.summary.length > 3 &&
+                        ` · ${role.summary.length - 3} more`}
                 </span>
             ),
         },
