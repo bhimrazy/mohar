@@ -4,6 +4,7 @@ namespace App\Modules\Catalog\Http\Requests;
 
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesDriverBinding;
+use App\Modules\Catalog\Models\Product;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -45,6 +46,13 @@ class ProductProvisioningRequest extends FormRequest
     public function messages(): array
     {
         return $this->driverMessages();
+    }
+
+    protected function storedDriverConfig(): ?array
+    {
+        $product = $this->route('product');
+
+        return $product instanceof Product ? $product->driver_config : null;
     }
 
     /**

@@ -46,6 +46,7 @@ type Product = ProductDetails & {
     provisioning_driver: string;
     server_group_id: number | null;
     driver_config: Record<string, unknown> | unknown[];
+    driver_secret_keys: string[];
     allow_config_option_upgrades: boolean;
 };
 
@@ -267,6 +268,7 @@ export default function EditProduct(props: Props) {
                             driver={product.provisioning_driver}
                             serverGroupId={product.server_group_id}
                             driverConfig={product.driver_config}
+                            secretKeys={product.driver_secret_keys}
                             drivers={props.drivers}
                             canManage={canManage}
                         />

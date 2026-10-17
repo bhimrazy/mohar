@@ -62,6 +62,7 @@ type Addon = {
     prorata_with_parent: boolean;
     provisioning_driver: string;
     driver_config: Record<string, unknown> | unknown[];
+    driver_secret_keys: string[];
     product_ids: number[];
     prices: PriceRow[];
 };
@@ -347,6 +348,9 @@ export default function AddonForm({
                                         }
                                         errors={errors}
                                         disabled={!canManage}
+                                        secretKeys={
+                                            addon?.driver_secret_keys ?? []
+                                        }
                                     />
                                     <div className="grid items-start gap-6 sm:grid-cols-2">
                                         <Field

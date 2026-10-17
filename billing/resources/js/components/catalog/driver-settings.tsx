@@ -29,6 +29,8 @@ type DriverSettingsProps = {
     onConfigChange: (config: KeyValuePair[]) => void;
     errors: Record<string, string | undefined>;
     disabled?: boolean;
+    /** Secret settings already stored (values are never sent to the browser). */
+    secretKeys?: string[];
 };
 
 /**
@@ -45,6 +47,7 @@ export function DriverSettings({
     onConfigChange,
     errors,
     disabled,
+    secretKeys = [],
 }: DriverSettingsProps) {
     const selected = drivers.find((candidate) => candidate.key === driver);
     const fields = selected?.config_fields ?? [];
@@ -193,6 +196,11 @@ export function DriverSettings({
                                                   : 'text'
                                         }
                                         autoComplete="off"
+                                        placeholder={
+                                            secretKeys.includes(field.key)
+                                                ? '•••••••• (leave empty to keep)'
+                                                : undefined
+                                        }
                                         value={valueOf(field.key)}
                                         disabled={disabled}
                                         onChange={(event) =>
@@ -229,6 +237,7 @@ export function DriverSettings({
                     }
                     errors={errors}
                     disabled={disabled}
+                    secretKeys={secretKeys}
                 />
             </div>
         </div>

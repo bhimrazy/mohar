@@ -13,6 +13,7 @@ use App\Modules\Catalog\Http\Requests\AddonRequest;
 use App\Modules\Catalog\Models\Addon;
 use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Catalog\Services\DriverSecrets;
 use App\Modules\Catalog\Support\CyclePicker;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Database\Eloquent\Builder;
@@ -84,6 +85,7 @@ class AddonController extends Controller
         $this->authorize('catalog.addons.view');
 
         $addon->load(['prices', 'products:id']);
+        $masked = app(DriverSecrets::class)->mask($addon->provisioning_driver, $addon->driver_config);
 
         return Inertia::render('admin/catalog/addons/form', [
             ...$this->formOptions($addon->products->modelKeys()),
@@ -93,7 +95,8 @@ class AddonController extends Controller
                 'payment_type' => $addon->payment_type->value,
                 'auto_setup' => $addon->auto_setup->value,
                 'status' => $addon->status(),
-                'driver_config' => $addon->driver_config ?? [],
+                'driver_config' => $masked['config'],
+                'driver_secret_keys' => $masked['secret_keys'],
                 'product_ids' => $addon->products->modelKeys(),
                 'prices' => $addon->prices->map(fn (Price $price): array => $price->toMatrixRow())->values(),
             ],

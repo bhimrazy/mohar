@@ -15,6 +15,7 @@ type ProvisioningTabProps = {
     driver: string;
     serverGroupId: number | null;
     driverConfig: Record<string, unknown> | unknown[];
+    secretKeys: string[];
     drivers: ProvisioningDriver[];
     canManage: boolean;
 };
@@ -25,6 +26,7 @@ export function ProvisioningTab({
     driver,
     serverGroupId,
     driverConfig,
+    secretKeys,
     drivers,
     canManage,
 }: ProvisioningTabProps) {
@@ -70,6 +72,7 @@ export function ProvisioningTab({
                         }
                         errors={errors}
                         disabled={!canManage}
+                        secretKeys={secretKeys}
                     />
                     <Field
                         htmlFor="server_group_id"

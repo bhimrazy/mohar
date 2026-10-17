@@ -3,6 +3,7 @@
 namespace App\Modules\Catalog\Http\Resources;
 
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Catalog\Services\DriverSecrets;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -46,7 +47,7 @@ class ProductResource extends JsonResource
             'auto_setup' => $this->auto_setup->value,
             'provisioning_driver' => $this->provisioning_driver,
             'server_group_id' => $this->server_group_id,
-            'driver_config' => $this->driver_config ?? [],
+            ...$this->maskedDriverConfig(),
             'allow_config_option_upgrades' => $this->allow_config_option_upgrades,
             'prorata_enabled' => $this->prorata_enabled,
             'prorata_day' => $this->prorata_day,
@@ -58,5 +59,17 @@ class ProductResource extends JsonResource
             'terminate_days_override' => $this->terminate_days_override,
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Driver settings with secret values blanked; the browser only learns which secrets are set.
+     *
+     * @return array{driver_config: array<string, string>, driver_secret_keys: list<string>}
+     */
+    private function maskedDriverConfig(): array
+    {
+        $masked = app(DriverSecrets::class)->mask($this->provisioning_driver, $this->driver_config);
+
+        return ['driver_config' => $masked['config'], 'driver_secret_keys' => $masked['secret_keys']];
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Modules\Catalog\Http\Requests\Concerns;
 
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Modules\Catalog\Services\DriverSecrets;
 use Closure;
 use Illuminate\Validation\Validator;
 
@@ -63,9 +64,26 @@ trait ValidatesDriverBinding
     }
 
     /**
+     * Settings currently stored for the product/addon being edited (null when creating).
+     *
+     * @return array<string, mixed>|null
+     */
+    abstract protected function storedDriverConfig(): ?array;
+
+    /**
+     * Submitted settings; a blank secret keeps its stored value (secrets are never sent to the browser).
+     *
      * @return array<string, string>
      */
     protected function driverConfig(): array
+    {
+        return app(DriverSecrets::class)->merge((string) $this->input('provisioning_driver'), $this->submittedDriverConfig(), $this->storedDriverConfig());
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function submittedDriverConfig(): array
     {
         $config = [];
 

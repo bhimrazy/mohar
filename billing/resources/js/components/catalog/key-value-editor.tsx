@@ -4,7 +4,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { KeyValuePair } from './types';
 
+/** Setting names treated as secrets (mirrors App\Modules\Catalog\Services\DriverSecrets). */
+const SECRET_NAME =
+    /(pass(word)?|secret|token|api[_.-]?key|private[_.-]?key|credential)$/i;
+
+export function isSecretSetting(
+    key: string,
+    secretKeys: string[] = [],
+): boolean {
+    return secretKeys.includes(key) || SECRET_NAME.test(key);
+}
+
 type KeyValueEditorProps = {
+    /** Keys whose stored value is secret: shown masked, blank keeps the stored value. */
+    secretKeys?: string[];
     value: KeyValuePair[];
     onChange: (value: KeyValuePair[]) => void;
     errors?: Record<string, string | undefined>;
@@ -37,6 +50,7 @@ export function KeyValueEditor({
     disabled,
     keyPlaceholder = 'Setting',
     valuePlaceholder = 'Value',
+    secretKeys = [],
 }: KeyValueEditorProps) {
     const update = (index: number, patch: Partial<KeyValuePair>) =>
         onChange(
@@ -73,7 +87,17 @@ export function KeyValueEditor({
                             />
                             <Input
                                 aria-label={`Setting ${index + 1} value`}
-                                placeholder={valuePlaceholder}
+                                type={
+                                    isSecretSetting(pair.key, secretKeys)
+                                        ? 'password'
+                                        : 'text'
+                                }
+                                autoComplete="off"
+                                placeholder={
+                                    secretKeys.includes(pair.key)
+                                        ? '•••••••• (leave empty to keep)'
+                                        : valuePlaceholder
+                                }
                                 value={pair.value}
                                 disabled={disabled}
                                 onChange={(event) =>

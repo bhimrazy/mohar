@@ -8,6 +8,7 @@ use App\Modules\Catalog\Enums\AutoSetup;
 use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesDriverBinding;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesPriceMatrix;
+use App\Modules\Catalog\Models\Addon;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -71,6 +72,13 @@ class AddonRequest extends FormRequest
             fn (Validator $validator) => $this->validateDistinctPriceRows($validator),
             fn (Validator $validator) => $this->validateRequiredDriverFields($validator, $drivers),
         ];
+    }
+
+    protected function storedDriverConfig(): ?array
+    {
+        $addon = $this->route('addon');
+
+        return $addon instanceof Addon ? $addon->driver_config : null;
     }
 
     /**

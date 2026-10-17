@@ -96,7 +96,7 @@ class Product extends Model
             'recurring_cycles_limit' => 'integer',
             'fixed_term_days' => 'integer',
             'server_group_id' => 'integer',
-            'driver_config' => 'array',
+            'driver_config' => 'encrypted:array',
             'allow_config_option_upgrades' => 'boolean',
             'prorata_enabled' => 'boolean',
             'prorata_day' => 'integer',

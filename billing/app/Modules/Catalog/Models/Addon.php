@@ -60,7 +60,7 @@ class Addon extends Model
             'weight' => 'integer',
             'allow_quantity' => 'boolean',
             'prorata_with_parent' => 'boolean',
-            'driver_config' => 'array',
+            'driver_config' => 'encrypted:array',
         ];
     }
 
