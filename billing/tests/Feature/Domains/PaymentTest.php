@@ -5,6 +5,7 @@ use App\Enums\BillableType;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRenewed;
 use App\Events\Domains\RegistrarActionFailed;
+use App\Modules\Domains\Actions\PerformRenewal;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Jobs\RegisterDomain;
@@ -115,8 +116,8 @@ test('a renewal retried after the first attempt succeeded is not sent again', fu
     $domain = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
     $job = new RenewDomain($domain->id, 1, '2027-01-31');
 
-    $job->handle(app(\App\Modules\Domains\Actions\PerformRenewal::class));
-    $job->handle(app(\App\Modules\Domains\Actions\PerformRenewal::class));
+    $job->handle(app(PerformRenewal::class));
+    $job->handle(app(PerformRenewal::class));
 
     expect($domain->fresh()->expiry_date->toDateString())->toBe('2028-01-31')
         ->and($this->registrar->commands())->toBe(['renew']);
@@ -163,9 +164,9 @@ test('an expired domain is not renewed automatically on payment', function () {
 test('anchored renewals keep a leap-day expiry', function () {
     $domain = Domain::factory()->expiring('2028-02-29')->create(['tld_id' => $this->com->id, 'registrar_key' => null]);
 
-    app(\App\Modules\Domains\Actions\PerformRenewal::class)->handle($domain, 1);
+    app(PerformRenewal::class)->handle($domain, 1);
     expect($domain->fresh()->expiry_date->toDateString())->toBe('2029-02-28');
 
-    app(\App\Modules\Domains\Actions\PerformRenewal::class)->handle($domain->fresh(), 3);
+    app(PerformRenewal::class)->handle($domain->fresh(), 3);
     expect($domain->fresh()->expiry_date->toDateString())->toBe('2032-02-29');
 });

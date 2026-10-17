@@ -10,6 +10,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Events\DomainSyncReport;
 use App\Modules\Domains\Events\DomainTransferredAway;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Services\RenewalInvoices;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -66,7 +67,7 @@ test('notify-only sync reports a different expiry without changing anything', fu
 test('sync applies a new expiry and moves the due date only without an open renewal invoice', function () {
     $free = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
     $invoiced = Domain::factory()->expiring('2027-01-31')->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
-    app(\App\Modules\Domains\Services\RenewalInvoices::class)->issue($invoiced);
+    app(RenewalInvoices::class)->issue($invoiced);
     $this->registrar->will('sync', new SyncResult(true, expiryDate: CarbonImmutable::parse('2028-01-31')));
 
     app(SyncDomains::class)->handle();
@@ -98,7 +99,7 @@ test('sync confirms a registration that timed out', function () {
 test('a domain transferred away stops invoicing', function () {
     Event::fake([DomainTransferredAway::class]);
     $domain = Domain::factory()->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
-    app(\App\Modules\Domains\Services\RenewalInvoices::class)->issue($domain);
+    app(RenewalInvoices::class)->issue($domain);
     $this->registrar->will('sync', new SyncResult(false, transferredAway: true));
 
     app(SyncDomains::class)->handle();

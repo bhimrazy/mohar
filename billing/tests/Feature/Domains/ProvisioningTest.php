@@ -6,6 +6,7 @@ use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Models\Client;
+use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -14,6 +15,7 @@ use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarCommandLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Validation\ValidationException;
@@ -113,8 +115,8 @@ test('a registrar timeout leaves the domain pending registration and never re-re
     $this->registrar->will('register', new RegistrarTimeout);
     $id = $this->registry->createPending(draft($this->client));
 
-    (new RegisterDomain($id))->handle(app(\App\Modules\Domains\Actions\SubmitToRegistrar::class));
-    (new RegisterDomain($id))->handle(app(\App\Modules\Domains\Actions\SubmitToRegistrar::class));
+    (new RegisterDomain($id))->handle(app(SubmitToRegistrar::class));
+    (new RegisterDomain($id))->handle(app(SubmitToRegistrar::class));
 
     expect(Domain::query()->findOrFail($id)->status)->toBe(DomainStatus::PendingRegistration)
         ->and($this->registrar->commands())->toBe(['register']);
@@ -137,7 +139,7 @@ test('retryable registrar errors are re-thrown for the queue to retry', function
     $this->registrar->will('register', new RegistrarException('Connection refused', retryable: true));
     $id = $this->registry->createPending(draft($this->client));
 
-    (new RegisterDomain($id))->handle(app(\App\Modules\Domains\Actions\SubmitToRegistrar::class));
+    (new RegisterDomain($id))->handle(app(SubmitToRegistrar::class));
 })->throws(RegistrarException::class, 'Connection refused');
 
 test('a resubmission is reconciled with the registrar instead of registering twice', function () {
@@ -159,7 +161,7 @@ test('an accepted transfer moves to pending transfer', function () {
 
     expect(Domain::query()->findOrFail($id)->status)->toBe(DomainStatus::PendingTransfer);
     Event::assertDispatched(DomainTransferInitiated::class, fn (DomainTransferInitiated $event) => $event->domainId === $id);
-    expect(\App\Modules\Domains\Models\RegistrarCommandLog::query()->where('command', 'transfer')->value('request'))
+    expect(RegistrarCommandLog::query()->where('command', 'transfer')->value('request'))
         ->toHaveKey('epp_code', '[redacted]');
 });
 
