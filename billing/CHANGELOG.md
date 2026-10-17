@@ -46,6 +46,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   audit trail in `impersonation_sessions` and `activity_log.impersonator_id`.
 - Real UI for the admin dashboard, clients index/show/form, client dashboard and account details.
 - Permission catalog: `core.clients.create|update` replace `core.clients.manage`.
+
 ### DevOps
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
