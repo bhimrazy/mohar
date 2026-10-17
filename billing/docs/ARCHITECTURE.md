@@ -189,7 +189,11 @@ php artisan test --compact                       # all tests green (whole suite,
 composer test:pgsql                              # same suite on PostgreSQL (docker compose up -d postgres)
 php artisan wayfinder:generate --with-form && npx tsc --noEmit && npm run check
 npm run build                                    # pages compile
+composer deps:check                              # lockfiles, audits, 7-day dependency cooldown
 ```
+
+Dependencies: exact pins, lockfiles as source of truth, nothing younger than 7 days, no new direct dependency
+without CTO approval — `docs/devops/DEPENDENCY_POLICY.md` (ADR 0007). CI design: `docs/devops/CI.md`.
 
 ## Git workflow
 

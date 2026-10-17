@@ -42,3 +42,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `vite` is now aliased to `@voidzero-dev/vite-plus-core@0.3.3` (dependency + override), as 0.3.3 requires.
 - Fixed: admin client search was case-sensitive on PostgreSQL (`whereLike` now renders `ilike`); client,
   contact and new-user emails are stored lowercase.
+- Dependency policy (ADR 0007, `docs/devops/DEPENDENCY_POLICY.md`): exact versions for every direct Composer/npm
+  dependency, `.npmrc` `save-exact` + native `min-release-age=7`, Composer `config.policy` (block advisories and
+  malware), RustFS image digest-pinned. `scripts/check-dependency-age.mjs` fails CI and `composer ci` when a
+  changed package, action, image or tool is younger than 7 days, an action SHA does not match its tag or
+  anything is unpinned; `security-exception` label + CTO approval waives only the cooldown.
+- Lockfiles brought into compliance: 94 packages younger than 7 days moved back to the newest older release
+  (e.g. `laravel/framework` 13.37.0 → 13.35.0, `react` 19.3.1 → 19.3.0, `radix-ui` 1.8.1 → 1.7.0 and the
+  `@radix-ui/*` family, symfony 8.1.9 → 8.1.8).
+- New gates: `composer validate`, `composer audit --locked`, `npm audit --audit-level=high` (`composer deps:check`).
+- CI minutes: one job instead of five (≈ 2 billed minutes per PR run instead of 5), no runs for drafts,
+  feature-branch pushes or screenshot-only changes, docs-only PRs run only `vp check`, PHPStan result cache,
+  15-minute timeout (`docs/devops/CI.md`).
