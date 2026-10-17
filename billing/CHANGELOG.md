@@ -55,3 +55,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - CI minutes: one job instead of five (≈ 2 billed minutes per PR run instead of 5), no runs for drafts,
   feature-branch pushes or screenshot-only changes, docs-only PRs run only `vp check`, PHPStan result cache,
   15-minute timeout (`docs/devops/CI.md`).
+- Dependency check hardening (PR #9 review): image digests must be the tag's registry digest (index or platform),
+  npm `resolved`/`integrity` and Composer `dist`/`source` must match the registry for the checked name@version;
+  offline unit tests for these rules run in `npm test`. Policy checks run before `composer install`/`npm ci`;
+  push runs diff against `github.event.before`; `security-exception` waives only `Security-Exception:
+name@version` items listed in the PR body (job summary lists them). Vitest (`npm test`) in CI and `composer ci`.
+  No workflow `paths-ignore` (image/docs-only PRs take the in-job fast path). Follow-up #11: framework 13.36.x +
+  Wayfinder 0.1.22 after 2026-10-22.

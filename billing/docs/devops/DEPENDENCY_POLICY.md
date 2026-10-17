@@ -44,11 +44,23 @@ composer deps:check                                # composer validate + compose
 ```
 
 - Pinning rules are checked offline for every item; ages are fetched only for changed items (or all with
-  `--all`). Publish dates are immutable and cached in `node_modules/.cache/dependency-age.json`.
+  `--all`). Publish dates are immutable and cached locally in `storage/framework/cache/dependency-age.json`
+  (CI does not persist it; a PR run only fetches its few changed items).
+- Every age is bound to what is actually installed: an action SHA must equal its tag; an image digest must be
+  the tag's current multi-arch index digest (registry `Docker-Content-Digest`) or one of its platform digests
+  (otherwise exit 2: its origin and age cannot be proven — re-pin); an npm `resolved` URL must be
+  `https://registry.npmjs.org/<name>/-/<basename>-<version>.tgz` and its `integrity` must equal the registry's;
+  a Composer `dist`/`source` URL and reference must equal packagist's for that version.
+- The pure rules live in `scripts/dependency-policy.mjs` and are unit-tested offline
+  (`scripts/__tests__/dependency-policy.test.mjs`, part of `npm test`), including the negative cases (another
+  image's digest under a tag, a tarball of another package, a swapped integrity or Composer archive).
 - Exit codes: `0` ok · `1` policy violation · `2` a date could not be verified (network/registry failure —
   never treated as a pass). Set `GITHUB_TOKEN` locally if you hit GitHub API rate limits.
 - CI ([CI.md](CI.md)) runs it on every PR and push, together with `composer validate`, `composer audit --locked`
-  and `npm audit --audit-level=high`. `composer ci` runs the same via `composer deps:check`.
+  and `npm audit --audit-level=high --package-lock-only` — all **before** `composer install` / `npm ci`, so no
+  package code runs before the lockfiles pass. PR runs diff against the PR base, pushes against
+  `github.event.before` (a new branch or an unreachable base checks `--all`). `composer ci` runs the same via
+  `composer deps:check`.
 
 ## Adding or upgrading a dependency
 
@@ -71,12 +83,32 @@ it in the same PR as the compose.yaml update (CI fails on drift).
 A fix for a critical/high vulnerability may be adopted before it is 7 days old:
 
 1. Open the PR with the minimal version bump and link the advisory (GHSA/CVE) in the description.
-2. Add the **`security-exception`** label. The cooldown step then reports violations as warnings instead of
-   failing (re-run the job after labelling; it reads labels at run time). Pinning, SHA/tag integrity, lockfile
-   sync and the audits are **still enforced**.
+2. Add the **`security-exception`** label **and** list every item to waive in the PR body, one line each:
+
+    ```text
+    Security-Exception: laravel/framework@13.36.1
+    Security-Exception: @scope/pkg@1.2.3, other-pkg@4.5.6
+    ```
+
+    Only those exact `name@version` items skip the cooldown; anything else that is too new still fails, so
+    fresh packages cannot ride along with a security bump. The job summary lists the waived items. Re-run the
+    job after editing the label or body (both are read at run time). Pinning/binding checks, lockfile sync and
+    the audits are **always enforced**.
+
 3. The CTO approves the PR explicitly (review comment naming the advisory). Without that approval it is not merged.
-4. Locally: `DEPENDENCY_AGE_EXCEPTION=1 composer deps:check`; npm needs `--min-release-age=0` (or
-   `min-release-age-exclude`) for that one install.
+4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs
+   `--min-release-age=0` (or `min-release-age-exclude`) for that one install.
+
+**This is a process control, not a technical one**: the repository has a single admin account that every agent
+and engineer acts as, so the label, the body and the approval can all be set by the PR author. Making it a
+technical control needs a second identity (required review from a separate account, or a protected
+environment with required reviewers).
 
 Dependabot **security** updates bypass its cooldown, so they arrive as PRs that fail the check — handle them
-with the same label + approval flow.
+with the same label + `Security-Exception` lines + approval flow.
+
+## Open follow-ups
+
+- [#11](https://github.com/bhimrazy/whmcs/issues/11) — bump `laravel/framework` to 13.36.x + `laravel/wayfinder`
+  0.1.22 on/after 2026-10-22 (security hardening in framework #61837 and #61755 was skipped by the cooldown
+  downgrade to 13.34.0); merge before `feature/platform`, or that PR takes the exception path.

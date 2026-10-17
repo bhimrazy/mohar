@@ -12,30 +12,32 @@ jobs, setup work and pointless runs.
 | Draft PR                                      | no — runs when marked ready for review (`ready_for_review`) |
 | Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)     |
 | Push to `develop`/`main` (merges)             | yes, never cancelled                                        |
-| Only `billing/docs/screenshots/**` / `*.png`  | no (`paths-ignore`)                                         |
-| Only Markdown / `billing/docs/**` (PR)        | the job runs `vp check` (Markdown formatting) only          |
+| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting)     |
 | Manual                                        | `workflow_dispatch`                                         |
 
 ## One job
 
 Every job pays its own runner start, checkout, PHP/Node setup, dependency install (~25 s) and, for the
-PostgreSQL suite, the service container start (~20 s), and each job is rounded up to a whole minute. One job
-therefore costs less than several parallel ones; steps run cheapest first so a failure stops early:
+PostgreSQL suite, the service container start (~12–20 s), and each job is rounded up to a whole minute. One
+job therefore costs less than several parallel ones. Steps run cheapest first so a failure stops early, and
+the dependency policy runs **before** anything is installed (no package code — e.g. Composer's
+`package:discover` hook — executes before the lockfiles pass):
 
-| #   | Step                                                                             | ≈ s (2-core runner) |
-| --- | -------------------------------------------------------------------------------- | ------------------- |
-| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)           | 22                  |
-| 1   | checkout (depth 2) · docs-only detection                                         | 2                   |
-| 2   | setup: Composer + npm from lockfiles (cached), `.env`, Wayfinder                 | 26                  |
-| 3   | `vp check` (format + lint) — the only step on docs-only PRs                      | 5                   |
-| 4   | postgres digest drift (ci.yml = compose.yaml)                                    | 0                   |
-| 5   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high` | 5                   |
-| 6   | dependency cooldown (`scripts/check-dependency-age.mjs --base=HEAD^1`)           | 2                   |
-| 7   | Pint · tsc                                                                       | 11                  |
-| 8   | PHPStan (result cache restored)                                                  | 4–8                 |
-| 9   | Pest on SQLite (`--parallel`)                                                    | 6                   |
-| 10  | `composer test:pgsql` (migrate:fresh --seed + Pest on PostgreSQL)                | 13                  |
-| 11  | `npm run build` · cache save · container stop                                    | 14                  |
+| #   | Step                                                                                                 | s (run 39065947655) |
+| --- | ---------------------------------------------------------------------------------------------------- | ------------------- |
+| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                               | 12                  |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base     | 2                   |
+| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                     | ~8                  |
+| 3   | postgres digest drift (ci.yml = compose.yaml)                                                        | 0                   |
+| 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 2                   |
+| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)         | 2                   |
+| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | ~19                 |
+| 7   | `vp check` (format + lint) — the only step on docs-only PRs                                          | 6                   |
+| 8   | Pint · tsc · Vitest (`npm test`)                                                                     | 8 + ~3              |
+| 9   | PHPStan (result cache restored)                                                                      | 6                   |
+| 10  | Pest on SQLite (`--parallel`)                                                                        | 3                   |
+| 11  | `composer test:pgsql` (migrate:fresh --seed + Pest on PostgreSQL)                                    | 6                   |
+| 12  | `npm run build` · cache save · container stop                                                        | 6 + 7               |
 
 `timeout-minutes: 15` caps a hung run. Shared setup lives in `.github/actions/setup-app` (composite action).
 
@@ -49,13 +51,13 @@ is exercised by `composer ci`); every process gets its own SQLite in-memory data
 
 ## Billable minutes per PR run
 
-| Design                                     | Jobs | Job durations                                                                        | Billable                 |
-| ------------------------------------------ | ---- | ------------------------------------------------------------------------------------ | ------------------------ |
-| Before (PR #1 layout; PRs #3–#5, develop)  | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s | **5 min**                |
-| Considered: `quality` + `tests`            | 2    | estimated ≈ 75 s + ≈ 61 s                                                            | 3–4 min                  |
-| After: one job                             | 1    | estimated ≈ 110–120 s (sum of the measured step times above)                         | **2 min** (3 if > 120 s) |
-| After, docs-only PR                        | 1    | ≈ 50 s                                                                               | **1 min**                |
-| Draft PR / feature push / screenshots only | 0    | —                                                                                    | **0**                    |
+| Design                                    | Jobs | Job durations                                                                        | Billable  |
+| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------ | --------- |
+| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s | **5 min** |
+| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                            | 3–4 min   |
+| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                | **2 min** |
+| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                               | **1 min** |
+| Draft PR / feature-branch push            | 0    | —                                                                                    | **0**     |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
 (job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the
@@ -64,7 +66,8 @@ first levers. Trade-off: feedback arrives after ~2 min instead of ~1 min, and th
 ## Required checks
 
 Mark `CI (policy, lint, types, static, tests, build)` as the required status check on `develop` and `main`.
-Docs-only PRs still report it (green), so branch protection never waits for a skipped job.
+There is no workflow-level `paths-ignore`, so every PR — including docs- or image-only ones — reports the
+check (green via the in-job fast path) and branch protection never waits for a check that was not created.
 
 ## Changing the workflow
 

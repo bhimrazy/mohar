@@ -19,8 +19,9 @@ GitHub Actions, Docker images or the lockfiles themselves.
   dependencies) verifies publish dates of every changed locked package, action, image and tool in CI and in
   `composer ci`, and fails closed when a date cannot be verified.
 - `composer audit` and `npm audit --audit-level=high` are required CI gates.
-- Critical security fixes may skip the cooldown only with the `security-exception` PR label and explicit CTO
-  approval; pinning and audit gates still apply.
+- Critical security fixes may skip the cooldown only for the `name@version` items listed as
+  `Security-Exception:` lines in a PR carrying the `security-exception` label, with explicit CTO approval;
+  pinning, binding and audit gates still apply. With a single admin account this is a process control.
 
 When adopted, the lockfiles contained 94 packages younger than 7 days (incl. `laravel/framework` 13.37.0,
 `react` 19.3.1, the Radix UI 1.8 family); they were moved back to the newest mutually compatible releases older

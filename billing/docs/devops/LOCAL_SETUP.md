@@ -92,7 +92,8 @@ DB_DATABASE=billing_test_orders composer test:pgsql
 CI runs the same gates in one job — see [CI.md](CI.md) for the step list, triggers and caching, and
 [DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for pinning, the 7-day cooldown and `composer deps:check`.
 `composer ci` runs, in order: `deps:check` (lockfiles in sync, `composer audit`, `npm audit`, dependency
-cooldown — needs network), Pint, Wayfinder, `vp check`, tsc, Larastan, Pest on SQLite, `test:pgsql`, build.
+cooldown and binding checks — needs network), Pint, Wayfinder, `vp check`, tsc, Vitest (`npm test`), Larastan,
+Pest on SQLite, `test:pgsql`, build.
 
 Validate workflow changes with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 (download the
 release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from the repository root).
