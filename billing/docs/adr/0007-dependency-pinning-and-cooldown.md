@@ -23,7 +23,8 @@ GitHub Actions, Docker images or the lockfiles themselves.
   approval; pinning and audit gates still apply.
 
 When adopted, the lockfiles contained 94 packages younger than 7 days (incl. `laravel/framework` 13.37.0,
-`react` 19.3.1, the Radix UI 1.8 family); they were moved back to the newest releases older than 7 days.
+`react` 19.3.1, the Radix UI 1.8 family); they were moved back to the newest mutually compatible releases older
+than 7 days (`laravel/framework` 13.34.0: 13.35 introduced the QUERY verb, which only Wayfinder ≥ 0.1.22 supports).
 
 ## Consequences
 

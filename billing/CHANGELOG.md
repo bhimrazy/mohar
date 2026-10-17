@@ -48,8 +48,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   changed package, action, image or tool is younger than 7 days, an action SHA does not match its tag or
   anything is unpinned; `security-exception` label + CTO approval waives only the cooldown.
 - Lockfiles brought into compliance: 94 packages younger than 7 days moved back to the newest older release
-  (e.g. `laravel/framework` 13.37.0 → 13.35.0, `react` 19.3.1 → 19.3.0, `radix-ui` 1.8.1 → 1.7.0 and the
-  `@radix-ui/*` family, symfony 8.1.9 → 8.1.8).
+  (e.g. `laravel/framework` 13.37.0 → 13.34.0, Pest 5.3.2 → 5.3.0 with PHPUnit 13.3.6, symfony 8.1.9 → 8.1.8,
+  `react` 19.3.1 → 19.3.0, `radix-ui` 1.8.1 → 1.7.0 and the `@radix-ui/*` family). Framework 13.35+ needs
+  Wayfinder ≥ 0.1.22 (QUERY verb) and PHPUnit 13.4 needs framework ≥ 13.35, so both wait for the cooldown.
 - New gates: `composer validate`, `composer audit --locked`, `npm audit --audit-level=high` (`composer deps:check`).
 - CI minutes: one job instead of five (≈ 2 billed minutes per PR run instead of 5), no runs for drafts,
   feature-branch pushes or screenshot-only changes, docs-only PRs run only `vp check`, PHPStan result cache,

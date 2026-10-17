@@ -9,7 +9,7 @@ reach us. Decision record: [ADR 0007](../adr/0007-dependency-pinning-and-cooldow
 
 | What                    | Pinning rule                                                                                                 | Cooldown enforced by                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.35.0"`), `composer.lock` is the source of truth | `scripts/check-dependency-age.mjs` (packagist `time`)                |
+| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.34.0"`), `composer.lock` is the source of truth | `scripts/check-dependency-age.mjs` (packagist `time`)                |
 | npm packages            | exact versions in `package.json`, `save-exact=true`, `package-lock.json` is the source of truth              | `.npmrc` `min-release-age=7` (native) + the script (registry `time`) |
 | GitHub Actions          | full commit SHA + `# <tag>` comment on the same line; SHA must equal the tag                                 | the script (release date, tag → SHA)                                 |
 | Docker images           | `<name>:<tag>@sha256:<digest>` (compose and workflow `services:`)                                            | the script (Docker Hub push date)                                    |
@@ -57,6 +57,8 @@ composer deps:check                                # composer validate + compose
 2. Install it exactly: `npm install <pkg>@<x.y.z>` (saved exact) or `composer require <vendor/pkg>:<x.y.z>`.
    For a transitive Composer package: `composer update <vendor/pkg> --with=<vendor/pkg>:<x.y.z>`.
 3. Run `composer deps:check` (and the full `composer ci`), commit manifest + lockfile together.
+   After a downgrade, run `php artisan view:clear`: compiled Blade views of the newer package version (e.g.
+   Wayfinder's templates) are otherwise reused because the older files have older mtimes. `composer ci` does it.
 4. Adding a **new** direct dependency still needs CTO approval (ARCHITECTURE: "do not change the application's
    dependencies without approval").
 
