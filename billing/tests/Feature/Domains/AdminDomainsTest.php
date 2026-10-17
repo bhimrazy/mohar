@@ -8,6 +8,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Jobs\RenewDomain;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
@@ -198,4 +199,41 @@ test('deleting a domain record never calls the registrar', function () {
     $this->assertSoftDeleted($domain);
     expect($this->registrar->calls)->toBe([])
         ->and(Domain::withTrashed()->find($domain->id)->active_name)->toBeNull();
+});
+
+test('renewal is not offered for pending registrations or transfers', function (DomainStatus $status) {
+    Queue::fake();
+    actingAsStaff(['domains.*']);
+    $domain = Domain::factory()->pending()->status($status)->create(['tld_id' => $this->com->id]);
+
+    $this->post(route('admin.domains.command', [$domain, 'renew']))->assertSessionHasErrors('domain');
+
+    Queue::assertNotPushed(RenewDomain::class);
+})->with([DomainStatus::Pending, DomainStatus::PendingTransfer, DomainStatus::PendingRegistration]);
+
+test('domains needing review are listed and forcing a status closes the review', function () {
+    actingAsStaff(['domains.*']);
+    $flagged = Domain::factory()->pending()->status(DomainStatus::PendingRegistration)->create([
+        'tld_id' => $this->com->id, 'needs_review' => true, 'registrar_meta' => ['submission' => now()->toIso8601String()],
+    ]);
+    Domain::factory()->create(['tld_id' => $this->com->id]);
+
+    $this->get(route('admin.domains.index', ['attention' => 1]))
+        ->assertInertia(fn (Assert $page) => $page->has('domains.data', 1)->where('domains.data.0.id', $flagged->id));
+    $this->post(route('admin.domains.command', [$flagged, 'sync']))->assertRedirect();
+
+    $this->put(route('admin.domains.status', $flagged), ['status' => 'active', 'reason' => 'Verified at the registrar'])->assertRedirect();
+
+    expect($flagged->fresh())->needs_review->toBeFalse()->registrar_meta->toBeNull();
+});
+
+test('a disabled registrar is shown on the detail page and refuses sync', function () {
+    actingAsStaff(['domains.*']);
+    RegistrarAccount::query()->create(['key' => 'fake', 'is_active' => false]);
+    $domain = Domain::factory()->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
+
+    $this->get(route('admin.domains.show', $domain))->assertInertia(fn (Assert $page) => $page->where('registrar.active', false));
+    $this->post(route('admin.domains.command', [$domain, 'sync']))->assertSessionHasErrors('registrar');
+
+    expect($this->registrar->calls)->toBe([]);
 });

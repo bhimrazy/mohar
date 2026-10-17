@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * The only place a domain's status changes (spec §3). Locks the row, enforces the transition table
- * (unless forced by staff), writes the activity log and emits DomainStatusChanged after commit.
+ * (unless forced by staff), writes the activity log and emits DomainStatusChanged after commit. A stored
+ * transfer-in EPP code is wiped when the domain reaches a terminal status.
  */
 class DomainStateMachine
 {
@@ -36,6 +37,10 @@ class DomainStateMachine
 
             $locked->fill($attributes);
             $locked->status = $to;
+
+            if ($to->isTerminal()) {
+                $locked->epp_code = null;
+            }
 
             if (! $to->isTerminal() && $from->isTerminal() && $this->nameIsHeldElsewhere($locked)) {
                 throw new DomainActionNotAllowed("Another domain record already holds {$locked->name}.");

@@ -98,11 +98,14 @@ return new class extends Migration
             $table->timestamp('last_synced_at')->nullable()->index();
             $table->string('last_sync_status', 20)->nullable();
             $table->text('last_error')->nullable();
+            $table->boolean('needs_review')->default(false)->index();
             $table->json('registrar_meta')->nullable();
             $table->timestamp('transfer_stale_notified_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
             $table->index(['client_id', 'status']);
+            $table->index(['status', 'next_invoice_date']);
+            $table->index(['status', 'expiry_date']);
         });
 
         Schema::create('domain_contacts', function (Blueprint $table) {
@@ -145,7 +148,7 @@ return new class extends Migration
             $table->smallInteger('offset_days');
             $table->string('template_key', 100);
             $table->json('recipients');
-            $table->timestamp('sent_at');
+            $table->timestamp('dispatched_at');
             $table->unique(['domain_id', 'expiry_date', 'offset_days']);
         });
 

@@ -42,7 +42,8 @@ enum DomainStatus: string
     }
 
     /**
-     * Statuses this one may move to through normal (non-forced) transitions.
+     * Statuses this one may move to through normal (non-forced) transitions. Expired → active is a staff
+     * action only (forced renewal or status change).
      *
      * @return list<self>
      */
@@ -55,7 +56,7 @@ enum DomainStatus: string
             self::Active => [self::Grace, self::Redemption, self::Expired, self::TransferredAway, self::Cancelled],
             self::Grace => [self::Redemption, self::Expired, self::Active],
             self::Redemption => [self::Expired, self::Active],
-            self::Expired => [self::Active, self::Cancelled],
+            self::Expired => [self::Cancelled],
             self::TransferredAway, self::Cancelled, self::Fraud => [],
         };
     }

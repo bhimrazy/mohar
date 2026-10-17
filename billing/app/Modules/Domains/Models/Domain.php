@@ -57,6 +57,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property CarbonImmutable|null $last_synced_at
  * @property string|null $last_sync_status ok|error|unsupported
  * @property string|null $last_error
+ * @property bool $needs_review registrar outcome unknown or inconsistent; staff must verify before any retry
  * @property array<string, mixed>|null $registrar_meta
  * @property CarbonImmutable|null $transfer_stale_notified_at
  * @property CarbonImmutable|null $created_at
@@ -73,7 +74,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'first_payment_amount', 'recurring_amount', 'currency', 'promotion_id', 'gateway_key', 'auto_renew',
     'id_protection', 'dns_management', 'email_forwarding', 'registrar_lock', 'nameservers', 'epp_code',
     'is_premium', 'premium_renew_cost', 'linked_service_id', 'linked_service_status', 'linked_service_due_date',
-    'provision_invoice_id', 'additional_fields', 'last_synced_at', 'last_sync_status', 'last_error',
+    'provision_invoice_id', 'additional_fields', 'last_synced_at', 'last_sync_status', 'last_error', 'needs_review',
     'registrar_meta', 'transfer_stale_notified_at',
 ])]
 class Domain extends Model
@@ -120,6 +121,7 @@ class Domain extends Model
             'additional_fields' => 'array',
             'registrar_meta' => 'array',
             'last_synced_at' => 'datetime',
+            'needs_review' => 'boolean',
             'transfer_stale_notified_at' => 'datetime',
         ];
     }
@@ -201,6 +203,18 @@ class Domain extends Model
         $query->withStatus([DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption])
             ->whereDate('expiry_date', '>=', $today)
             ->whereDate('expiry_date', '<=', $today->addDays($days));
+    }
+
+    /**
+     * Domains with an unverified registrar outcome, or a pending order whose registrar action failed.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeNeedingAttention(Builder $query): void
+    {
+        $query->where(fn (Builder $query) => $query
+            ->where('needs_review', true)
+            ->orWhere(fn (Builder $query) => $query->withStatus([DomainStatus::Pending, DomainStatus::PendingRegistration])->whereNotNull('last_error')));
     }
 
     /**

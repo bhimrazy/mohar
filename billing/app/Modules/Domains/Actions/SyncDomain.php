@@ -76,6 +76,7 @@ class SyncDomain
             if (! $notifyOnly) {
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, 1));
                 $this->states->transition($domain, DomainStatus::Active, 'Transfer completed', [
+                    ...$this->resolved($domain),
                     'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
@@ -95,9 +96,7 @@ class SyncDomain
             $change = $this->change($domain, 'status', $domain->status->value, DomainStatus::Pending->value, ! $notifyOnly);
 
             if (! $notifyOnly) {
-                $meta = $domain->registrar_meta ?? [];
-                unset($meta['submitted_at']);
-                $this->states->transition($domain, DomainStatus::Pending, 'Transfer failed: '.$reason, ['last_error' => $reason, 'registrar_meta' => $meta ?: null]);
+                $this->states->transition($domain, DomainStatus::Pending, 'Transfer failed: '.$reason, [...$this->resolved($domain), 'last_error' => $reason]);
                 DomainEvents::dispatch(new DomainTransferFailed($domain->id, $domain->client_id, $reason));
             }
 
@@ -140,6 +139,7 @@ class SyncDomain
             if ($apply) {
                 $this->dates->applyExpiry($domain, $result->expiryDate ?? $this->dates->extend($domain, $domain->period_years));
                 $this->states->transition($domain, DomainStatus::Active, 'Registration confirmed by sync', [
+                    ...$this->resolved($domain),
                     'registration_date' => $domain->registration_date ?? CarbonImmutable::today(),
                     'expiry_date' => $domain->expiry_date,
                     'next_due_date' => $domain->next_due_date,
@@ -181,6 +181,19 @@ class SyncDomain
         }
 
         return $changes;
+    }
+
+    /**
+     * Attributes that close an open submission once the registrar reported its outcome.
+     *
+     * @return array{registrar_meta: array<string, mixed>|null, needs_review: false}
+     */
+    private function resolved(Domain $domain): array
+    {
+        $meta = $domain->registrar_meta ?? [];
+        unset($meta['submission'], $meta['submitted_at']);
+
+        return ['registrar_meta' => $meta ?: null, 'needs_review' => false];
     }
 
     /**

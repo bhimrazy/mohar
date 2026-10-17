@@ -47,6 +47,7 @@ class DomainResource extends JsonResource
             'contact_change_pending' => (bool) ($meta['contact_change_pending'] ?? false),
             'transfer_lock_until' => $meta['transfer_lock_until'] ?? null,
             'last_error' => $this->when($staff, $this->last_error),
+            'needs_review' => $this->when($staff, $this->needs_review),
             'last_synced_at' => $this->when($staff, fn (): ?string => $this->last_synced_at?->toIso8601String()),
             'last_sync_status' => $this->when($staff, $this->last_sync_status),
             'linked_service_id' => $this->when($staff, $this->linked_service_id),

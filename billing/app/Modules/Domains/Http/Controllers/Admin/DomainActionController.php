@@ -4,9 +4,11 @@ namespace App\Modules\Domains\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
+use App\Modules\Domains\Actions\IssueRenewalNow;
 use App\Modules\Domains\Actions\MoveDomainToClient;
 use App\Modules\Domains\Actions\RetrieveEppCode;
 use App\Modules\Domains\Actions\SetRegistrarLock;
+use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Actions\SyncDomain;
 use App\Modules\Domains\Actions\UpdateContacts;
 use App\Modules\Domains\Actions\UpdateNameservers;
@@ -16,6 +18,7 @@ use App\Modules\Domains\Http\Requests\ContactsRequest;
 use App\Modules\Domains\Http\Requests\ForceStatusRequest;
 use App\Modules\Domains\Http\Requests\MoveDomainRequest;
 use App\Modules\Domains\Http\Requests\NameserversRequest;
+use App\Modules\Domains\Http\Requests\RenewNowRequest;
 use App\Modules\Domains\Http\Requests\ToggleRequest;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Jobs\RenewDomain;
@@ -34,7 +37,14 @@ class DomainActionController extends Controller
     public function status(ForceStatusRequest $request, Domain $domain, DomainStateMachine $states): RedirectResponse
     {
         $status = DomainStatus::from($request->string('status')->toString());
-        $states->transition($domain, $status, $request->string('reason')->toString(), force: true);
+        $meta = $domain->registrar_meta ?? [];
+        unset($meta['submission'], $meta['renew_sent_for']);
+
+        // Staff have verified the registrar state: forcing a status also closes any unresolved submission.
+        $states->transition($domain, $status, $request->string('reason')->toString(), [
+            'needs_review' => false,
+            'registrar_meta' => $meta ?: null,
+        ], force: true);
 
         return $this->done(__('Status set to :status.', ['status' => $status->label()]), $domain);
     }
@@ -87,12 +97,24 @@ class DomainActionController extends Controller
                 throw new DomainActionNotAllowed("Only a pending {$command} can be submitted.");
             }
 
+            if (SubmitToRegistrar::hasOpenClaim($domain) || $domain->needs_review) {
+                throw new DomainActionNotAllowed('A submission is in progress or awaiting verification. Check the registrar, then set the status.');
+            }
+
             dispatch($command === 'transfer' ? new TransferDomain($domain->id, $staffId) : new RegisterDomain($domain->id, $staffId));
 
             return $this->done(__('The :command was queued.', ['command' => $command === 'transfer' ? 'transfer' : 'registration']), $domain);
         }
 
         if ($command === 'renew') {
+            if (! in_array($domain->status, [DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption, DomainStatus::Expired], true)) {
+                throw new DomainActionNotAllowed("A {$domain->status->label()} domain cannot be renewed.");
+            }
+
+            if (isset($domain->registrar_meta['renew_sent_for']) || $domain->needs_review) {
+                throw new DomainActionNotAllowed('A renewal is in progress or awaiting verification. Check the registrar first.');
+            }
+
             RenewDomain::dispatch($domain->id, $domain->period_years, $domain->expiry_date?->toDateString(), null, $staffId);
 
             return $this->done(__('Renewal for :years year(s) queued.', ['years' => $domain->period_years]), $domain);
@@ -105,6 +127,13 @@ class DomainActionController extends Controller
         }
 
         return $this->done(trans_choice('{0} In sync with the registrar.|{1} Sync applied 1 change.|[2,*] Sync applied :count changes.', count($result['changes'])), $domain);
+    }
+
+    public function renewalInvoice(RenewNowRequest $request, Domain $domain, IssueRenewalNow $renew): RedirectResponse
+    {
+        $invoice = $renew->handle($domain, 'staff');
+
+        return $this->done(__('Renewal invoice :number created.', ['number' => $invoice->number]), $domain);
     }
 
     private function done(string $message, Domain $domain): RedirectResponse

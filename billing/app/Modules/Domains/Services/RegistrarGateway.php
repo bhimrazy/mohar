@@ -6,6 +6,7 @@ use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Exceptions\CapabilityNotSupported;
 use App\Modules\Domains\Exceptions\RegistrarException;
+use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use Closure;
@@ -14,14 +15,26 @@ use JsonSerializable;
 use Throwable;
 
 /**
- * The only way to call a registrar driver: checks the capability, times the call and writes
- * registrar_command_log with secrets redacted and responses truncated.
+ * The only way to call a registrar driver: refuses disabled registrars and unsupported capabilities,
+ * times the call and writes registrar_command_log with secrets redacted and responses truncated.
+ *
+ * Failure semantics for the non-idempotent commands (register, transfer, renew, restore): only a
+ * RegistrarException(retryable: true) from the driver means "not executed, safe to retry". Any other
+ * unexpected error (read timeout after sending, response parse error) becomes a RegistrarTimeout: the
+ * outcome is unknown and the caller must verify with the registrar before anything is re-sent.
  */
 class RegistrarGateway
 {
     public const MAX_RESPONSE_BYTES = 16384;
 
-    private const SECRET_KEYS = ['epp_code', 'eppcode', 'auth_code', 'authcode', 'code', 'password', 'api_key', 'apikey', 'secret', 'token'];
+    /** Commands that change state at the registry and must never be blindly repeated. */
+    public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
+
+    /** Keys redacted when they equal one of these. */
+    private const SECRET_KEYS = ['code', 'pw', 'key', 'pass'];
+
+    /** Keys redacted when they contain one of these. */
+    private const SECRET_FRAGMENTS = ['epp', 'auth', 'password', 'secret', 'token', 'api_key', 'apikey', 'private_key', 'transfer_code'];
 
     public function __construct(private RegistrarManager $registrars) {}
 
@@ -32,13 +45,18 @@ class RegistrarGateway
      *
      * @param  Closure(Registrar): T  $call
      * @param  array<string, mixed>  $request
+     * @param  bool  $logSuccess  false for high-volume read calls (public lookups): only failures are logged
      * @return T
      *
      * @throws RegistrarException
      */
-    public function call(string $registrarKey, string $capability, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null): mixed
+    public function call(string $registrarKey, string $capability, Closure $call, ?Domain $domain = null, array $request = [], ?int $staffId = null, bool $logSuccess = true): mixed
     {
         $driver = $this->registrars->driver($registrarKey);
+
+        if (! $this->registrars->isActive($registrarKey)) {
+            throw new RegistrarException("The {$driver->name()} registrar is disabled; enable it under Registrars first.");
+        }
 
         if (! in_array($capability, $driver->capabilities(), true)) {
             throw new CapabilityNotSupported($capability, $driver->name());
@@ -49,7 +67,10 @@ class RegistrarGateway
 
         try {
             $result = $call($driver);
-            $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId);
+
+            if ($logSuccess) {
+                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId);
+            }
 
             return $result;
         } catch (RegistrarException $exception) {
@@ -58,6 +79,10 @@ class RegistrarGateway
             throw $exception;
         } catch (Throwable $exception) {
             $this->record($registrarKey, $capability, $domain, $request, null, false, $exception->getMessage(), $started, $staffId);
+
+            if (in_array($capability, self::MUTATING, true)) {
+                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$exception->getMessage()}");
+            }
 
             throw new RegistrarException('The registrar call failed: '.$exception->getMessage(), retryable: true, previous: $exception);
         }
@@ -98,12 +123,29 @@ class RegistrarGateway
         foreach ($data as $key => $value) {
             if (is_array($value)) {
                 $data[$key] = self::redact($value);
-            } elseif (in_array(strtolower((string) $key), self::SECRET_KEYS, true) && $value !== null && $value !== '') {
+            } elseif ($value !== null && $value !== '' && self::isSecretKey((string) $key)) {
                 $data[$key] = '[redacted]';
             }
         }
 
         return $data;
+    }
+
+    private static function isSecretKey(string $key): bool
+    {
+        $key = strtolower($key);
+
+        if (in_array($key, self::SECRET_KEYS, true)) {
+            return true;
+        }
+
+        foreach (self::SECRET_FRAGMENTS as $fragment) {
+            if (str_contains($key, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

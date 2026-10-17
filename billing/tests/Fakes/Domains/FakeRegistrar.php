@@ -13,6 +13,7 @@ use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\Domain;
+use Closure;
 use Throwable;
 
 /**
@@ -26,7 +27,7 @@ class FakeRegistrar implements Registrar
     /** @var list<array{command: string, domain: string|null}> */
     public array $calls = [];
 
-    /** @var array<string, mixed> command => result object or Throwable */
+    /** @var array<string, mixed> command => result object, Throwable, or Closure returning either (runs during the call) */
     public array $results = [];
 
     public static function install(string $key = 'fake'): self
@@ -170,6 +171,10 @@ class FakeRegistrar implements Registrar
     private function resolve(string $command, mixed $default): mixed
     {
         $result = $this->results[$command] ?? $default;
+
+        if ($result instanceof Closure) {
+            $result = $result();
+        }
 
         if ($result instanceof Throwable) {
             throw $result;

@@ -144,7 +144,7 @@ test('retryable registrar errors are re-thrown for the queue to retry', function
 
 test('a resubmission is reconciled with the registrar instead of registering twice', function () {
     $id = $this->registry->createPending(draft($this->client));
-    Domain::query()->whereKey($id)->update(['registrar_meta' => json_encode(['submitted_at' => now()->toIso8601String()])]);
+    Domain::query()->whereKey($id)->update(['registrar_meta' => json_encode(['submission' => now()->subHour()->toIso8601String()])]);
     $this->registrar->will('info', new DomainInfo('active', expiryDate: CarbonImmutable::parse('2027-10-17')));
 
     $this->registry->process($id);
