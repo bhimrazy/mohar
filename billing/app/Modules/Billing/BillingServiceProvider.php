@@ -44,6 +44,7 @@ use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Support\Facades\Event;
 
 class BillingServiceProvider extends ModuleServiceProvider
@@ -80,6 +81,13 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Card data must never be flashed into the session by a validation redirect (PCI DSS 3.3.1).
+        $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
+            if (method_exists($handler, 'dontFlash')) {
+                $handler->dontFlash(['card_number', 'cvc', 'cvv', 'pan']);
+            }
+        });
 
         $this->registerAutomation();
         $this->registerNavigation();

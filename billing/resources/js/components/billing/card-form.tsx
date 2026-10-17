@@ -6,7 +6,6 @@ export type CardDetails = {
     card_number: string;
     exp_month: string;
     exp_year: string;
-    cvc: string;
 };
 
 export type CardToken = {
@@ -19,10 +18,15 @@ export const emptyCard: CardDetails = {
     card_number: '',
     exp_month: '',
     exp_year: '',
-    cvc: '',
 };
 
 type VaultErrors = Partial<Record<keyof CardDetails, string>>;
+
+function xsrfToken(): string {
+    const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
+
+    return match ? decodeURIComponent(match[1]) : '';
+}
 
 /**
  * Sends card details straight to the gateway's vault (sandbox: JSON endpoint) and returns a token.
@@ -39,12 +43,12 @@ export async function tokenizeCard(
             'Content-Type': 'application/json',
             Accept: 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
+            'X-XSRF-TOKEN': xsrfToken(),
         },
         body: JSON.stringify({
             card_number: card.card_number.replace(/\s+/g, ''),
             exp_month: Number(card.exp_month),
             exp_year: Number(card.exp_year),
-            cvc: card.cvc,
         }),
     });
 
@@ -135,23 +139,7 @@ export function CardFields({
                     aria-invalid={!!errors.exp_year}
                 />
             </Field>
-            <Field
-                htmlFor={`${idPrefix}-cvc`}
-                label="CVC"
-                error={errors.cvc}
-                className="sm:col-span-2"
-            >
-                <Input
-                    id={`${idPrefix}-cvc`}
-                    inputMode="numeric"
-                    autoComplete="cc-csc"
-                    placeholder="123"
-                    maxLength={4}
-                    value={value.cvc}
-                    onChange={set('cvc')}
-                    aria-invalid={!!errors.cvc}
-                />
-            </Field>
+
         </div>
     );
 }

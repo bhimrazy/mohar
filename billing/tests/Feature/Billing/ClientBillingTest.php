@@ -124,16 +124,28 @@ test('the sandbox vault tokenises valid cards without storing them', function ()
     sandboxGateway();
     actingAsClient();
 
-    $response = $this->postJson(route('billing.sandbox.tokens'), ['card_number' => '4242 4242 4242 4242', 'exp_month' => 12, 'exp_year' => now()->year + 1, 'cvc' => '123'])
+    $response = $this->postJson(route('billing.sandbox.tokens'), ['card_number' => '4242 4242 4242 4242', 'exp_month' => 12, 'exp_year' => now()->year + 1])
         ->assertOk()
         ->assertJsonPath('last4', '4242')
         ->assertJsonPath('brand', 'visa');
 
     expect($response->json('token'))->toStartWith('sbx_')->not->toContain('4242424242424242');
 
-    $this->postJson(route('billing.sandbox.tokens'), ['card_number' => '1234', 'exp_month' => 13, 'exp_year' => 2000, 'cvc' => 'x'])
+    $this->postJson(route('billing.sandbox.tokens'), ['card_number' => '1234', 'exp_month' => 13, 'exp_year' => 2000])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['card_number', 'exp_month', 'exp_year', 'cvc']);
+        ->assertJsonValidationErrors(['card_number', 'exp_month', 'exp_year']);
+});
+
+test('card data is never flashed into the session', function () {
+    sandboxGateway();
+    actingAsClient();
+
+    $this->post(route('billing.sandbox.tokens'), ['card_number' => '4242424242424241', 'exp_month' => 12, 'exp_year' => now()->year + 1])->assertForbidden();
+    expect(session()->getOldInput())->not->toHaveKey('card_number');
+
+    $this->from('/x')->post(route('client.pay-methods.store'), ['gateway' => '', 'token' => '', 'card_number' => '4242424242424242', 'cvc' => '123'])
+        ->assertSessionHasErrors('gateway');
+    expect(session()->getOldInput())->not->toHaveKeys(['card_number', 'cvc']);
 });
 
 test('clients manage their stored pay methods', function () {

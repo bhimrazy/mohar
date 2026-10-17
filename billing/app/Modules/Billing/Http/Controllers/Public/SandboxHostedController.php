@@ -32,8 +32,9 @@ class SandboxHostedController extends Controller
         $driver = $gateways->driver('sandbox_card');
         abort_unless($driver instanceof SandboxCardDriver, 404);
 
-        $request->validate(['card_number' => ['nullable', 'string', 'max:30']]);
-        $target = $driver->completeHostedPayment($reference, $request->string('card_number')->toString(), $request->boolean('cancel'));
+        // No validator here on purpose: a validation redirect would flash the card number into the session.
+        $card = substr((string) preg_replace('/\D/', '', $request->string('card_number')->toString()), 0, 19);
+        $target = $driver->completeHostedPayment($reference, $card, $request->boolean('cancel'));
 
         return redirect()->away((string) $target);
     }

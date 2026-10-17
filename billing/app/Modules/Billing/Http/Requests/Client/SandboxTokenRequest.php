@@ -11,9 +11,12 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class SandboxTokenRequest extends FormRequest
 {
+    /**
+     * JSON only (the hosted-fields script): a form post could flash card data into the session on errors.
+     */
     public function authorize(): bool
     {
-        return true;
+        return $this->expectsJson();
     }
 
     /**
@@ -29,7 +32,6 @@ class SandboxTokenRequest extends FormRequest
             }],
             'exp_month' => ['required', 'integer', 'between:1,12'],
             'exp_year' => ['required', 'integer', 'min:'.now()->year, 'max:'.(now()->year + 20)],
-            'cvc' => ['required', 'string', 'regex:/^\d{3,4}$/'],
         ];
     }
 }
