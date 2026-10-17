@@ -8,16 +8,19 @@
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
  *   - Docker images      (billing/compose.yaml + workflow `image:` → Docker Hub tag push date; digest required)
  *   - Tools              (billing/.nvmrc → nodejs.org; setup-php `tools: composer:X` → GitHub release)
- * and when an action or image is not pinned (SHA / digest) — that part runs offline on every item.
+ * and when anything is not pinned or not bound to what is checked: action SHA = tag, image digest published
+ * under its tag (index or platform digest), npm tarball URL + integrity = registry tarball of that name@version,
+ * Composer dist/source URL + reference = packagist's for that version.
  *
  * Default: only items added or changed versus a git base (the PR base). `--all` checks everything.
  *
- *   node scripts/check-dependency-age.mjs [--all] [--base=<git-ref>] [--min-days=<n>] [--report-only]
+ *   node scripts/check-dependency-age.mjs [--all] [--base=<git-ref>] [--min-days=<n>]
  *
  * Env: MIN_RELEASE_AGE_DAYS, DEPENDENCY_AGE_BASE (git ref, default: merge-base with develop),
- *      DEPENDENCY_AGE_EXCEPTION=1 (security-exception PR label: cooldown reported, not enforced; pinning still is),
- *      GITHUB_TOKEN (API limits),
- *      DEPENDENCY_AGE_CACHE (cache file, default node_modules/.cache/dependency-age.json).
+ *      DEPENDENCY_AGE_EXCEPTIONS ("Security-Exception: name@version" lines, or "name@version, ..."): waives the
+ *      cooldown for exactly those items (CI passes them from the PR body when the security-exception label is set),
+ *      GITHUB_TOKEN (API limits), GITHUB_STEP_SUMMARY (waived items are listed there),
+ *      DEPENDENCY_AGE_CACHE (cache file, default storage/framework/cache/dependency-age.json).
  * Exit codes: 0 ok · 1 policy violation · 2 could not verify (network/registry error).
  */
 import { execFileSync } from 'node:child_process';
@@ -30,6 +33,14 @@ import {
 } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+    composerDistProblems,
+    digestBelongsToTag,
+    isExcepted,
+    npmEntryProblems,
+    npmIntegrityProblem,
+    parseSecurityExceptions,
+} from './dependency-policy.mjs';
 
 const DAY_MS = 86_400_000;
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,33 +57,36 @@ const option = (name) =>
         .slice(1)
         .join('=');
 const checkAll = args.includes('--all');
-const reportOnly =
-    args.includes('--report-only') ||
-    process.env.DEPENDENCY_AGE_EXCEPTION === '1';
+const exceptionText = process.env.DEPENDENCY_AGE_EXCEPTIONS ?? '';
+const exceptions = parseSecurityExceptions(
+    /security-exception:/i.test(exceptionText)
+        ? exceptionText
+        : `Security-Exception: ${exceptionText}`,
+);
 const minDays = Number(
     option('min-days') ?? process.env.MIN_RELEASE_AGE_DAYS ?? 7,
 );
 const cachePath =
     process.env.DEPENDENCY_AGE_CACHE ??
-    join(appRoot, 'node_modules', '.cache', 'dependency-age.json');
+    join(appRoot, 'storage', 'framework', 'cache', 'dependency-age.json');
 const inActions = process.env.GITHUB_ACTIONS === 'true';
 
 if (!Number.isFinite(minDays) || minDays < 0) {
     fail(2, `Invalid minimum release age: ${minDays}`);
 }
 
-/** @type {Record<string, string>} immutable "kind|name|version" → ISO publish date */
+/** @type {Record<string, string>} immutable "kind|name|version|ref" → ISO publish date (local only; not cached in CI) */
 const cache = readJson(cachePath) ?? {};
 /** Pinning / integrity violations: always enforced. */
 const violations = [];
-/** Cooldown violations: waived (reported only) by the security-exception label. */
+/** @type {{item: Item, message: string}[]} cooldown violations: only these can be waived, per item. */
 const ageViolations = [];
 const errors = [];
 
 // ---------------------------------------------------------------- collect
 
 /**
- * @typedef {{kind: 'composer'|'npm'|'action'|'image'|'tool', name: string, version: string, ref?: string, file: string}} Item
+ * @typedef {{kind: 'composer'|'npm'|'action'|'image'|'tool', name: string, version: string, ref?: string, file: string, integrity?: string, dist?: object, source?: object}} Item
  * @param {(path: string) => string|null} read  file reader relative to the repository root
  * @param {() => string[]} listWorkflowFiles
  * @returns {Item[]}
@@ -88,6 +102,9 @@ function collect(read, listWorkflowFiles) {
             kind: 'composer',
             name: pkg.name,
             version: pkg.version,
+            ref: `${pkg.dist?.url ?? ''}#${pkg.dist?.reference ?? ''}#${pkg.source?.reference ?? ''}`,
+            dist: pkg.dist,
+            source: pkg.source,
             file: `${appDir}/composer.lock`,
         });
     }
@@ -106,7 +123,9 @@ function collect(read, listWorkflowFiles) {
             kind: 'npm',
             name,
             version: entry.version,
-            ref: entry.resolved,
+            ref: `${entry.resolved ?? ''}#${entry.integrity ?? ''}`,
+            resolved: entry.resolved,
+            integrity: entry.integrity,
             file: `${appDir}/package-lock.json`,
         });
     }
@@ -226,14 +245,12 @@ for (const item of headItems) {
             `${item.file}: image ${item.name} must be pinned as <name>:<tag>@sha256:<digest>`,
         );
     }
-    if (
-        item.kind === 'npm' &&
-        item.ref &&
-        !item.ref.startsWith('https://registry.npmjs.org/')
-    ) {
-        violations.push(
-            `${item.file}: npm ${item.name}@${item.version} is not installed from registry.npmjs.org (${item.ref})`,
-        );
+    if (item.kind === 'npm') {
+        for (const problem of npmEntryProblems(item)) {
+            violations.push(
+                `${item.file}: npm ${item.name}@${item.version} ${problem}`,
+            );
+        }
     }
     if (item.kind === 'composer' && /^dev-|-dev$/.test(item.version)) {
         violations.push(
@@ -272,9 +289,10 @@ await mapLimit(unique, 8, async (item) => {
     const ageDays = (now - Date.parse(published)) / DAY_MS;
     const line = `${label(item).padEnd(70)} ${published.slice(0, 10)}  ${ageDays.toFixed(1).padStart(6)} d`;
     if (ageDays < minDays) {
-        ageViolations.push(
-            `${label(item)} was published ${published} (${ageDays.toFixed(1)} days ago, minimum ${minDays})`,
-        );
+        ageViolations.push({
+            item,
+            message: `${label(item)} was published ${published} (${ageDays.toFixed(1)} days ago, minimum ${minDays})`,
+        });
         console.log(`  ✗ ${line}`);
     } else if (!checkAll) {
         console.log(`  ✓ ${line}`);
@@ -290,25 +308,31 @@ for (const message of errors) {
 for (const message of violations) {
     annotate('error', message);
 }
-for (const message of ageViolations) {
-    annotate(reportOnly ? 'warning' : 'error', message);
+const waived = ageViolations.filter(({ item }) => isExcepted(exceptions, item));
+const enforcedAge = ageViolations.filter(
+    ({ item }) => !isExcepted(exceptions, item),
+);
+for (const { message } of waived) {
+    annotate(
+        'warning',
+        `${message} — waived by Security-Exception (CTO approval required)`,
+    );
 }
+for (const { message } of enforcedAge) {
+    annotate('error', message);
+}
+writeSummary(waived);
 if (errors.length > 0) {
     fail(
         2,
-        `${errors.length} item(s) could not be verified (network or registry failure). Re-run, or check connectivity to the registries.`,
+        `${errors.length} item(s) could not be verified (network or registry failure, or an unprovable image digest).`,
     );
 }
-const enforced = violations.length + (reportOnly ? 0 : ageViolations.length);
+const enforced = violations.length + enforcedAge.length;
 if (enforced > 0) {
     fail(
         1,
-        `${enforced} dependency policy violation(s). See docs/devops/DEPENDENCY_POLICY.md (cooldown only: "security-exception" label + CTO approval).`,
-    );
-}
-if (ageViolations.length > 0) {
-    console.log(
-        `\n${ageViolations.length} cooldown violation(s) reported only (security-exception): CTO approval required on the PR.`,
+        `${enforced} dependency policy violation(s). See docs/devops/DEPENDENCY_POLICY.md (cooldown only: "security-exception" label + "Security-Exception: name@version" lines + CTO approval).`,
     );
 }
 console.log('Dependency policy: OK');
@@ -326,11 +350,31 @@ async function publishedAt(item) {
         const doc = await fetchJson(
             `https://registry.npmjs.org/${item.name.replace('/', '%2f')}`,
         );
+        const integrityProblem = npmIntegrityProblem(
+            item.integrity,
+            doc.versions?.[item.version]?.dist,
+        );
+        if (integrityProblem) {
+            policyError(
+                `${item.file}: npm ${item.name}@${item.version} ${integrityProblem}`,
+            );
+        }
         date =
             doc.time?.[item.version] ??
             missing(`version ${item.version} not found on registry.npmjs.org`);
     } else if (item.kind === 'composer') {
-        date = await packagistTime(item.name, item.version);
+        const published = await packagistEntry(item.name, item.version);
+        const problems = composerDistProblems(item, published);
+        if (problems.length > 0) {
+            policyError(
+                `${item.file}: composer ${item.name}@${item.version} ${problems.join('; ')}`,
+            );
+        }
+        date =
+            published.time ??
+            missing(
+                `no publish time for ${item.name} ${item.version} on packagist`,
+            );
     } else if (item.kind === 'action') {
         if (!/^[0-9a-f]{40}$/.test(item.ref ?? '') || item.version === '') {
             return null;
@@ -357,7 +401,7 @@ async function publishedAt(item) {
     return date;
 }
 
-async function packagistTime(name, version) {
+async function packagistEntry(name, version) {
     const doc = await fetchJson(`https://repo.packagist.org/p2/${name}.json`);
     let previous = {};
     for (const raw of doc.packages?.[name] ?? []) {
@@ -370,10 +414,7 @@ async function packagistTime(name, version) {
         }
         previous = entry;
         if (entry.version === version) {
-            return (
-                entry.time ??
-                missing(`no publish time for ${name} ${version} on packagist`)
-            );
+            return entry;
         }
     }
     return missing(`version ${version} not found on repo.packagist.org`);
@@ -396,12 +437,8 @@ async function actionReleaseDate(item) {
         ).object.sha;
     }
     if (sha !== item.ref) {
-        // Thrown, not cached: a mismatch must be reported on every run.
-        throw Object.assign(
-            new Error(
-                `${item.file}: ${item.name}@${item.ref} does not match tag ${item.version} (${sha})`,
-            ),
-            { policy: true },
+        policyError(
+            `${item.file}: ${item.name}@${item.ref} does not match tag ${item.version} (${sha})`,
         );
     }
     try {
@@ -424,7 +461,12 @@ async function actionReleaseDate(item) {
     }
 }
 
-/** The pinned digest is at least as old as the tag's latest push, so that push date is a safe lower bound. */
+/**
+ * The pinned digest must be what the registry serves for the tag right now — the multi-arch index digest
+ * (registry `Docker-Content-Digest`) or one of its platform manifests (Docker Hub tag API). Only then is the
+ * tag's push date the digest's publish date. Anything else (another image's digest, a re-pushed tag) cannot
+ * be proven and fails closed.
+ */
 async function dockerHubDate(item) {
     const [image, tag = 'latest'] = item.name.split(':');
     if (/^[^/]+\.[^/]+\//.test(image)) {
@@ -433,19 +475,49 @@ async function dockerHubDate(item) {
         );
     }
     const repo = image.includes('/') ? image : `library/${image}`;
-    const doc = await fetchJson(
-        `https://hub.docker.com/v2/repositories/${repo}/tags/${tag}`,
-    );
-    const pushed = doc.tag_last_pushed ?? doc.last_updated;
-    if (
-        doc.digest !== item.version &&
-        Date.now() - Date.parse(pushed) < minDays * DAY_MS
-    ) {
+    const [indexDigest, doc] = await Promise.all([
+        registryTagDigest(repo, tag),
+        fetchJson(`https://hub.docker.com/v2/repositories/${repo}/tags/${tag}`),
+    ]);
+    const platformDigests = (doc.images ?? [])
+        .map((image) => image.digest)
+        .filter(Boolean);
+    if (!digestBelongsToTag(item.version, { indexDigest, platformDigests })) {
         return missing(
-            `${item.name} was re-pushed on ${pushed} and the pinned digest is no longer current — cannot prove its age`,
+            `${item.file}: ${item.version} is not the digest of ${item.name} (registry serves ${indexDigest}) — cannot prove which image or how old it is; re-pin to the tag's current digest`,
         );
     }
-    return pushed;
+
+    return doc.tag_last_pushed ?? doc.last_updated;
+}
+
+async function registryTagDigest(repo, tag) {
+    const { token } = await fetchJson(
+        `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull`,
+    );
+    const response = await fetch(
+        `https://registry-1.docker.io/v2/${repo}/manifests/${tag}`,
+        {
+            method: 'HEAD', // HEAD requests do not count against Docker Hub pull limits
+            headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: [
+                    'application/vnd.oci.image.index.v1+json',
+                    'application/vnd.docker.distribution.manifest.list.v2+json',
+                    'application/vnd.oci.image.manifest.v1+json',
+                    'application/vnd.docker.distribution.manifest.v2+json',
+                ].join(', '),
+            },
+            signal: AbortSignal.timeout(30_000),
+        },
+    );
+    if (!response.ok) {
+        throw new Error(
+            `HTTP ${response.status} from registry-1.docker.io for ${repo}:${tag}`,
+        );
+    }
+
+    return response.headers.get('docker-content-digest');
 }
 
 // ---------------------------------------------------------------- helpers
@@ -492,6 +564,35 @@ function githubHeaders() {
 
 function missing(message) {
     throw new Error(message);
+}
+
+/** A binding/integrity violation: thrown (never cached) so it is reported on every run. */
+function policyError(message) {
+    throw Object.assign(new Error(message), { policy: true });
+}
+
+function writeSummary(waivedItems) {
+    const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+    const listed = [...exceptions];
+    if (!summaryPath || (listed.length === 0 && waivedItems.length === 0)) {
+        return;
+    }
+    const rows = waivedItems.map(({ message }) => `| ${message} |`);
+    const text = [
+        '### Dependency cooldown — security exceptions',
+        '',
+        `Listed in the PR: ${listed.map((entry) => `\`${entry}\``).join(', ') || '—'}`,
+        '',
+        '| Waived (CTO approval required) |',
+        '| --- |',
+        ...(rows.length > 0 ? rows : ['| none needed |']),
+        '',
+    ].join('\n');
+    try {
+        writeFileSync(summaryPath, text, { flag: 'a' });
+    } catch {
+        // the summary is informational
+    }
 }
 
 function resolveBase() {
