@@ -161,7 +161,10 @@ export default function TicketsIndex({
                 const name = ticket.client ?? ticket.requester_name;
 
                 return (
-                    <div className="min-w-0" title={`${name} · ${ticket.requester_email}`}>
+                    <div
+                        className="min-w-0"
+                        title={`${name} · ${ticket.requester_email}`}
+                    >
                         <div className="truncate">{name}</div>
                         <div className="truncate text-xs text-muted-foreground">
                             {ticket.is_unverified_requester ? (

@@ -19,11 +19,10 @@ type TicketThreadProps = {
     onRate?: (message: TicketMessage, rating: number) => void;
 };
 
-function authorLabel(message: TicketMessage, audience: 'admin' | 'customer') {
+function authorLabel(message: TicketMessage) {
     if (message.author_type === 'system') {
         return message.is_autoresponse ? 'Automatic reply' : 'System';
     }
-
 
     return message.author_name;
 }
@@ -48,10 +47,11 @@ export function TicketThread({
                     <li
                         key={message.id}
                         id={`message-${message.id}`}
-                        aria-label={`${isNote ? 'Internal note' : 'Message'} from ${authorLabel(message, audience)}`}
+                        aria-label={`${isNote ? 'Internal note' : 'Message'} from ${authorLabel(message)}`}
                         className={cn(
                             'rounded-xl border shadow-xs',
-                            isNote && cn('border-dashed', toneSurface('warning')),
+                            isNote &&
+                                cn('border-dashed', toneSurface('warning')),
                             !isNote && isStaff && toneSurface('info'),
                             !isNote && !isStaff && !isSystem && 'bg-card',
                             isSystem && !isNote && 'bg-background',
@@ -74,7 +74,7 @@ export function TicketThread({
                             </Avatar>
                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                                 <span className="truncate text-sm font-medium">
-                                    {authorLabel(message, audience)}
+                                    {authorLabel(message)}
                                 </span>
                                 {isNote && (
                                     <StatusBadge

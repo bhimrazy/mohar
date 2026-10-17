@@ -20,7 +20,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { index as kbIndex } from '@/routes/support/kb';
 import type { SelectOption } from '@/types/app';
-import type { DepartmentOption, ServiceOption, UploadLimits } from '@/types/support';
+import type {
+    DepartmentOption,
+    ServiceOption,
+    UploadLimits,
+} from '@/types/support';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 type OpenTicketFormProps = {
