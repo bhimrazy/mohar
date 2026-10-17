@@ -21,11 +21,13 @@ use App\Modules\Services\Actions\TerminateOverdueServices;
 use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Drivers\Provisioning\NoneDriver;
+use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Listeners\ApplyPaidInvoice;
 use App\Modules\Services\Listeners\RecordOrderInvoice;
 use App\Modules\Services\Listeners\SyncCancelledInvoice;
+use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
@@ -95,7 +97,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Services', 'admin.services.index', 'Server', 'Services', 10, 'services.services.view', 'admin.services.services.*'));
         $navigation->add('admin', new NavItem('Servers', 'admin.services.servers.index', 'Boxes', 'Services', 20, 'services.servers.view', 'admin.services.serve*'));
-        $navigation->add('admin', new NavItem('Cancellation requests', 'admin.services.cancellations.index', 'Inbox', 'Services', 30, 'services.cancellations.manage', 'admin.services.cancellations.*'));
+        $navigation->add('admin', new NavItem('Cancellation requests', 'admin.services.cancellations.index', 'Inbox', 'Services', 30, 'services.cancellations.manage', 'admin.services.cancellations.*',
+            badge: fn (?User $user): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count()));
         $navigation->add('admin', new NavItem('Module log', 'admin.services.module-log.index', 'Activity', 'Services', 40, 'services.module_log.view', 'admin.services.module-log.*'));
         $navigation->add('client', new NavItem('My services', 'client.services.index', 'Server', 'Services', 10, activePattern: 'client.services.*'));
         $navigation->add('admin-client', new NavItem('Services', 'admin.services.index', 'Server', order: 20, permission: 'services.services.view'));
@@ -125,6 +128,55 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
         ], 'services.module_log.view', 32);
+
+        $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
+            'label' => 'Services waiting for provisioning',
+            'count' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
+            'href' => route('admin.services.index', ['status' => 'pending']),
+            'tone' => 'warning',
+        ], 'services.services.view', 30);
+
+        $dashboard->todo('admin', 'services.failed', fn (?User $user): array => [
+            'label' => 'Failed module actions',
+            'count' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
+            'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
+            'tone' => 'danger',
+        ], 'services.module_log.view', 31);
+
+        $dashboard->todo('admin', 'services.cancellations', fn (?User $user): array => [
+            'label' => 'Cancellation requests to review',
+            'count' => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count(),
+            'href' => route('admin.services.cancellations.index'),
+            'tone' => 'warning',
+        ], 'services.cancellations.manage', 32);
+
+        $dashboard->widget('admin', 'services.renewals', 'list', function (?User $user): array {
+            $today = CarbonImmutable::today();
+
+            return [
+                'title' => 'Renewals due in 7 days',
+                'items' => Service::query()
+                    ->with('client')
+                    ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
+                    ->where('do_not_renew', false)
+                    ->whereNotNull('next_due_date')
+                    ->whereDate('next_due_date', '>=', $today)
+                    ->whereDate('next_due_date', '<=', $today->addDays(7))
+                    ->orderBy('next_due_date')
+                    ->orderBy('id')
+                    ->limit(6)
+                    ->get()
+                    ->map(fn (Service $service): array => [
+                        'title' => $service->label(),
+                        'subtitle' => $service->client->display_name,
+                        'href' => route('admin.services.services.show', $service),
+                        'meta' => $service->next_due_date?->toDateString(),
+                        'status' => $service->status->value,
+                    ])->values()->all(),
+                'href' => route('admin.services.index', ['status' => 'active']),
+                'empty' => 'No renewals due in the next 7 days.',
+            ];
+        }, 'services.services.view', 40, 'md');
 
         $dashboard->card('client', 'services.active', fn (?User $user, Client $client): array => [
             'label' => 'Active services',

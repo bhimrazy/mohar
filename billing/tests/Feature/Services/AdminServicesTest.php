@@ -78,18 +78,16 @@ test('the detail page exposes commands and hides credentials until requested wit
             ->missing('service.password')
             ->missing('credentials')
             ->where('commands.0.value', 'suspend')
-            ->where('can.credentials', true));
-
-    $this->get(route('admin.services.services.show', $service), ['X-Inertia' => 'true', 'X-Inertia-Partial-Component' => 'admin/services/show', 'X-Inertia-Partial-Data' => 'credentials'])
-        ->assertJsonPath('props.credentials.password', 'Visible-Pass1');
+            ->where('can.credentials', true)
+            ->reloadOnly('credentials', fn (Assert $reload) => $reload->where('credentials.password', 'Visible-Pass1')));
 });
 
 test('credentials stay hidden without the reveal permission', function () {
     actingAsStaff(['services.services.view']);
     $service = Service::factory()->onServer()->create();
 
-    $this->get(route('admin.services.services.show', $service), ['X-Inertia' => 'true', 'X-Inertia-Partial-Component' => 'admin/services/show', 'X-Inertia-Partial-Data' => 'credentials'])
-        ->assertJsonPath('props.credentials', null);
+    $this->get(route('admin.services.services.show', $service))
+        ->assertInertia(fn (Assert $page) => $page->reloadOnly('credentials', fn (Assert $reload) => $reload->where('credentials', null)));
 });
 
 test('staff run module commands and see failures inline', function () {
@@ -262,4 +260,23 @@ test('dashboard cards, navigation and merge fields are registered', function () 
         ->and($fields)->not->toHaveKey('password');
 
     $this->get(route('admin.services.index'))->assertInertia(fn (Assert $page) => $page->where('navigation', fn ($groups) => collect($groups)->firstWhere('title', 'Services')['items'][0]['title'] === 'Services'));
+});
+
+test('dashboard todos, the renewals widget and the cancellation badge reflect open work', function () {
+    $user = actingAsStaff(['services.*']);
+    Service::factory()->pending()->create();
+    $renewing = Service::factory()->dueOn(today()->addDays(3))->create();
+    Service::factory()->dueOn(today()->addDays(20))->create();
+    CancellationRequest::query()->create(['service_id' => $renewing->id, 'type' => 'immediate', 'status' => 'open', 'process_after' => today()]);
+
+    $dashboard = app(Dashboard::class);
+    $todos = collect($dashboard->resolveTodos('admin', $user))->keyBy('key');
+    $widget = collect($dashboard->resolveWidgets('admin', $user))->firstWhere('key', 'services.renewals');
+
+    expect($todos->keys()->all())->toBe(['services.pending', 'services.cancellations'])
+        ->and($todos['services.pending']['count'])->toBe(1)
+        ->and($widget['items'])->toHaveCount(1)
+        ->and($widget['items'][0]['href'])->toBe(route('admin.services.services.show', $renewing));
+
+    $this->get(route('admin.services.index'))->assertInertia(fn (Assert $page) => $page->where('navigation', fn ($groups) => collect(collect($groups)->firstWhere('title', 'Services')['items'])->firstWhere('title', 'Cancellation requests')['badge'] === 1));
 });
