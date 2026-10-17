@@ -4,6 +4,8 @@ use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 
 beforeEach(function () {
@@ -120,11 +122,53 @@ test('the next read sees an updated setting even through a fresh Settings instan
         'automation_time' => '04:30',
     ]])->assertSessionHasNoErrors();
 
-    expect((new Settings)->get('core.company_name'))->toBe('Northwind Hosting');
+    expect((new Settings(app(SettingsRegistry::class)))->get('core.company_name'))->toBe('Northwind Hosting');
 });
 
 test('unknown sections return 404', function () {
     actingAsStaff();
 
     $this->get(route('admin.platform.settings.edit', ['section' => 'nope']))->assertNotFound();
+});
+
+test('secret settings are encrypted at rest and decrypted on read', function () {
+    $settings = app(Settings::class);
+    $settings->set('acme.api_key', 'sk_live_plaintext_123');
+    $settings->set('acme.label', 'Not secret');
+
+    $stored = DB::table('settings')->where('key', 'acme.api_key')->value('value');
+    expect($stored)->not->toContain('sk_live_plaintext_123')
+        ->toContain(Settings::ENCRYPTED_PREFIX)
+        ->and(json_decode((string) DB::table('settings')->where('key', 'acme.label')->value('value')))->toBe('Not secret')
+        ->and($settings->get('acme.api_key'))->toBe('sk_live_plaintext_123')
+        ->and((new Settings(app(SettingsRegistry::class)))->get('acme.api_key'))->toBe('sk_live_plaintext_123');
+});
+
+test('the settings cache never holds a plaintext secret', function () {
+    $settings = app(Settings::class);
+    $settings->set('acme.api_key', 'sk_live_cached_456');
+    $settings->get('acme.api_key');
+
+    expect(serialize(Cache::get('core.settings')))->not->toContain('sk_live_cached_456')
+        ->and(json_encode($settings->all()))->not->toContain('sk_live_cached_456');
+});
+
+test('plaintext secrets saved before encryption are encrypted by the migration step', function () {
+    DB::table('settings')->insert(['key' => 'acme.api_key', 'value' => json_encode('sk_legacy_789'), 'created_at' => now(), 'updated_at' => now()]);
+    $settings = app(Settings::class);
+
+    expect($settings->encryptStoredSecrets())->toBe(1)
+        ->and($settings->encryptStoredSecrets())->toBe(0)
+        ->and(DB::table('settings')->where('key', 'acme.api_key')->value('value'))->not->toContain('sk_legacy_789')
+        ->and($settings->get('acme.api_key'))->toBe('sk_legacy_789');
+});
+
+test('a secret saved through the settings UI is stored encrypted and never rendered', function () {
+    actingAsStaff(['acme.settings.manage']);
+
+    $this->put(route('admin.platform.settings.update', ['section' => 'acme']), ['acme' => ['label' => 'Default', 'retries' => 3, 'enabled' => false, 'mode' => 'test', 'api_key' => 'sk_ui_000']])
+        ->assertSessionHasNoErrors();
+
+    expect(DB::table('settings')->where('key', 'acme.api_key')->value('value'))->not->toContain('sk_ui_000');
+    $this->get(route('admin.platform.settings.edit', ['section' => 'acme']))->assertDontSee('sk_ui_000');
 });

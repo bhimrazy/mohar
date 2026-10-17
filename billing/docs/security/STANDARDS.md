@@ -60,8 +60,9 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## 5. Secrets
 
-- Settings marked `secret: true` are write-only. They are never in Inertia props or HTML, are masked in the audit
-  diff, and a blank submission keeps the stored value.
+- Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString`). The cache
+  holds only the ciphertext, and only `get()` decrypts. They are write-only: never in Inertia props or HTML, masked in
+  the audit diff, and a blank submission keeps the stored value.
 - Module credentials (gateways, registrars, servers) are encrypted at rest with Laravel's encrypter, never cached in
   plaintext, and never sent to the browser. Tests assert that no secret value appears in any rendered page.
 - Tokens in URLs (invitations, password resets) are hashed at rest, single-use, expiring, and served with
