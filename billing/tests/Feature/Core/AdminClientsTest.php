@@ -40,6 +40,18 @@ test('staff can search clients', function () {
             ->where('clients.data.0.last_name', 'Lovelace'));
 });
 
+test('client search is case-insensitive on every database', function () {
+    actingAsStaff(['core.clients.view']);
+    Client::factory()->create(['first_name' => 'Ada', 'last_name' => 'Lovelace', 'email' => 'Ada@Example.com']);
+    Client::factory()->count(2)->create(['first_name' => 'Someone', 'last_name' => 'Else']);
+
+    $this->get(route('admin.clients.index', ['search' => 'lOVELACE']))
+        ->assertInertia(fn (Assert $page) => $page->has('clients.data', 1));
+
+    $this->get(route('admin.clients.index', ['search' => 'ada@example']))
+        ->assertInertia(fn (Assert $page) => $page->has('clients.data', 1));
+});
+
 test('staff can create a client', function () {
     Event::fake([ClientRegistered::class]);
     actingAsStaff(['core.clients.*']);

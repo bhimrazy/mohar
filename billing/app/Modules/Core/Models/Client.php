@@ -107,10 +107,10 @@ class Client extends Model
 
         $query->where(function (Builder $query) use ($term): void {
             $like = '%'.$term.'%';
-            $query->where('first_name', 'like', $like)
-                ->orWhere('last_name', 'like', $like)
-                ->orWhere('company_name', 'like', $like)
-                ->orWhere('email', 'like', $like);
+            $query->whereLike('first_name', $like)
+                ->orWhereLike('last_name', $like)
+                ->orWhereLike('company_name', $like)
+                ->orWhereLike('email', $like);
 
             if (ctype_digit($term)) {
                 $query->orWhere('id', (int) $term);
