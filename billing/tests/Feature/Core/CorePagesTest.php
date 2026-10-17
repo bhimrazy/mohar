@@ -21,6 +21,9 @@ test('the admin dashboard renders permitted widgets, deferred widgets and to-dos
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/dashboard')
+            ->where('cards.0.key', 'core.clients')
+            ->where('cards.0.value', 2)
+            ->where('activity', null)
             ->where('widgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.list')
                 && collect($widgets)->firstWhere('key', 'core.clients')['value'] === 2
                 && ! collect($widgets)->pluck('key')->contains('test.hidden')
@@ -37,7 +40,17 @@ test('dashboard widgets and to-dos are hidden without permission', function () {
     actingAsStaff(['support.*']);
 
     $this->get(route('admin.dashboard'))
-        ->assertInertia(fn (Assert $page) => $page->where('widgets', [])->where('todos', []));
+        ->assertInertia(fn (Assert $page) => $page->where('cards', [])->where('activity', null)->where('widgets', [])->where('todos', []));
+});
+
+test('staff with the activity-log permission get recent activity and the activity widget', function () {
+    ActivityLog::query()->create(['description' => 'Something happened']);
+    actingAsStaff(['core.activity_log.view']);
+
+    $this->get(route('admin.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page
+            ->where('activity.0.description', 'Something happened')
+            ->where('widgets', fn ($widgets) => collect($widgets)->firstWhere('key', 'platform.activity')['items'][0]['title'] === 'Something happened'));
 });
 
 test('the client profile shows activity only to staff with the activity-log permission, without IPs', function () {

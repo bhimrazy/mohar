@@ -3,6 +3,7 @@
 namespace App\Modules\Platform\Database\Seeders;
 
 use App\Models\User;
+use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Contact;
@@ -25,6 +26,8 @@ class PlatformSeeder extends Seeder
             // The seeded admin has no 2FA yet; enforce it in production only.
             $settings->set('security.staff_2fa_required', false);
         }
+
+        $this->seedHistory();
 
         $resellers = ClientGroup::query()->firstOrCreate(['name' => 'Resellers'], ['colour' => '#2563eb', 'discount_percent' => 10, 'separate_invoices' => true]);
         ClientGroup::query()->firstOrCreate(['name' => 'VIP'], ['colour' => '#d97706', 'discount_percent' => 5, 'exempt_from_suspension' => true]);
@@ -67,6 +70,32 @@ class PlatformSeeder extends Seeder
             $activity->log('Contact accounts@demolabs.test added', $demo, $demo->id, event: 'contact.created', actor: $admin);
             $activity->log('Login helper@demolabs.test added to the account', $helper, $demo->id, ['permissions' => ['billing', 'support']], 'client.user_added', $admin);
             $activity->log('Client group Resellers updated', $resellers, properties: ['discount_percent' => '10.00'], event: 'client_group.updated', actor: $admin);
+        }
+    }
+
+    /**
+     * Demo history for the dashboard: sign-ups spread over the last 12 weeks and a few days of automation runs.
+     */
+    private function seedHistory(): void
+    {
+        if (AutomationRun::query()->exists()) {
+            return;
+        }
+
+        Client::query()->where('email', '!=', 'demo@example.com')->orderBy('id')->get()->each(function (Client $client, int $index): void {
+            $client->forceFill(['created_at' => now()->subDays(($index * 7) % 80 + 1)->subHours($index)])->saveQuietly();
+        });
+
+        foreach (range(3, 1) as $daysAgo) {
+            foreach (['platform.prune_invitations' => 'no invitations pruned', 'platform.prune_activity_log' => 'no entries pruned'] as $task => $summary) {
+                AutomationRun::query()->create([
+                    'run_date' => today()->subDays($daysAgo),
+                    'task' => $task,
+                    'status' => 'success',
+                    'summary' => $summary,
+                    'duration_ms' => 40 + $daysAgo * 7,
+                ]);
+            }
         }
     }
 }

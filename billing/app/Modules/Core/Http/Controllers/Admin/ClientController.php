@@ -109,6 +109,7 @@ class ClientController extends Controller
                 'impersonate' => $can('core.clients.impersonate'),
                 'manageContacts' => $can('core.contacts.manage'),
                 'manageUsers' => $can('core.users.manage'),
+                'resetTwoFactor' => $can('core.users.reset_2fa'),
                 'viewActivity' => $can('core.activity_log.view'),
             ],
         ]);
