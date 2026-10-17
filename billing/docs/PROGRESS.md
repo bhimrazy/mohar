@@ -9,7 +9,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Design system & shared UI                           | Senior Product Designer | `develop`               | 🟡 in progress            | `resources/js/components/app`                                        |
 | Product specs (commerce)                            | PM — Commerce           | `develop`               | 🟡 in progress            | catalog, orders, billing, services                                   |
 | Product specs (operations)                          | PM — Operations         | `develop`               | 🟡 in progress            | domains, support, notifications, affiliates, platform-admin, reports |
-| Catalog                                             | Senior Engineer         | `feature/catalog`       | ⏳ queued                 |                                                                      |
+| Catalog                                             | Senior Engineer         | `feature/catalog`       | 🔵 in review              | PriceBook + admin UI; screenshots `docs/screenshots/catalog/`        |
 | Orders                                              | Senior Engineer         | `feature/orders`        | ⏳ queued                 |                                                                      |
 | Billing                                             | Senior Engineer         | `feature/billing`       | ⏳ queued                 |                                                                      |
 | Services & Provisioning                             | Senior Engineer         | `feature/services`      | ⏳ queued                 |                                                                      |
