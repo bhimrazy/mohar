@@ -3,7 +3,7 @@
 # such commands running machine-wide, at low CPU/IO priority. Waits for a free slot.
 #   /workspaces/whmcs/scripts/heavy.sh php artisan test --compact tests/Feature/Billing
 set -uo pipefail
-slots="${HEAVY_SLOTS:-2}"
+slots="${HEAVY_SLOTS:-3}"
 lockdir="${HEAVY_LOCK_DIR:-/tmp/heavy-slots}"
 mkdir -p "$lockdir"
 while true; do
