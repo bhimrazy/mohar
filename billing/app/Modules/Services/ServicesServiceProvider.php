@@ -3,6 +3,7 @@
 namespace App\Modules\Services;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
@@ -27,6 +28,7 @@ use App\Modules\Services\Listeners\RecordOrderInvoice;
 use App\Modules\Services\Listeners\SyncCancelledInvoice;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
@@ -58,6 +60,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         });
         $this->app->singleton(LogDriver::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
+        $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
     }
 
     protected function bootModule(): void

@@ -4,6 +4,7 @@ namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\SaveServer;
 use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
 use App\Modules\Services\Enums\FillType;
 use App\Modules\Services\Http\Requests\ServerRequest;
@@ -11,7 +12,6 @@ use App\Modules\Services\Http\Resources\ServerResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -44,14 +44,9 @@ class ServerController extends Controller
         return Inertia::render('admin/services/servers/form', $this->formOptions($drivers));
     }
 
-    public function store(ServerRequest $request): RedirectResponse
+    public function store(ServerRequest $request, SaveServer $save): RedirectResponse
     {
-        $server = DB::transaction(function () use ($request): Server {
-            $server = Server::query()->create($request->serverData());
-            $this->keepSingleDefault($server);
-
-            return $server;
-        });
+        $server = $save->handle(null, $request->serverData());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server :name created.', ['name' => $server->name])]);
 
@@ -68,12 +63,9 @@ class ServerController extends Controller
         ]);
     }
 
-    public function update(ServerRequest $request, Server $server): RedirectResponse
+    public function update(ServerRequest $request, Server $server, SaveServer $save): RedirectResponse
     {
-        DB::transaction(function () use ($request, $server): void {
-            $server->update($request->serverData());
-            $this->keepSingleDefault($server);
-        });
+        $save->handle($server, $request->serverData());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server :name updated.', ['name' => $server->name])]);
 
@@ -112,13 +104,6 @@ class ServerController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => $result->message ?? __('Connection succeeded.')]);
 
         return back();
-    }
-
-    private function keepSingleDefault(Server $server): void
-    {
-        if ($server->is_default) {
-            Server::query()->where('driver', $server->driver)->whereKeyNot($server->id)->update(['is_default' => false]);
-        }
     }
 
     /**
