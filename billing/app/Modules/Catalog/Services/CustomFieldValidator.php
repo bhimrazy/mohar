@@ -8,6 +8,9 @@ use App\Modules\Catalog\Support\RegexMatcher;
 
 /**
  * Validates client-submitted custom field values for a product (order form).
+ *
+ * Staged: Orders validates against PriceBook::customFieldsFor() (regex/required/options) today; this
+ * class becomes reachable when a validation method is added to the contract.
  */
 class CustomFieldValidator
 {

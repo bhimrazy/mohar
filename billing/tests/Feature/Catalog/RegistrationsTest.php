@@ -2,6 +2,7 @@
 
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillingCycle;
+use App\Modules\Catalog\Actions\ConvertPrices;
 use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Models\Currency;
@@ -77,4 +78,16 @@ it('converts prices from the default currency when the setting is on', function 
 
     $eur = Price::query()->where('currency', 'EUR')->firstOrFail();
     expect($eur->amount)->toBe(919)->and($eur->setup_fee)->toBe(460);
+});
+
+it('turns off converted prices whose default-currency source was removed', function () {
+    Currency::factory()->create();
+    Currency::factory()->euro()->create();
+    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->withPrice('EUR', BillingCycle::Annually, 9000)->create();
+
+    app(ConvertPrices::class)->handle();
+
+    expect($product->prices()->where('currency', 'EUR')->where('cycle', 'monthly')->value('amount'))->toBe(920)
+        ->and($product->prices()->where('currency', 'EUR')->where('cycle', 'annually')->value('enabled'))->toBeFalse();
+    $this->assertDatabaseHas('activity_log', ['description' => 'Prices converted from the default currency']);
 });
