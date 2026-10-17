@@ -133,47 +133,50 @@ export default function TicketsIndex({
             key: 'subject',
             header: 'Ticket',
             primary: true,
+            className: 'w-full max-w-0',
             cell: (ticket) => (
-                <span className="flex min-w-0 items-center gap-2">
-                    {ticket.is_pinned && (
-                        <Pin
-                            className="size-3.5 shrink-0 text-muted-foreground"
-                            aria-label="Pinned"
-                        />
-                    )}
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                        #{ticket.number}
+                <span className="block min-w-0" title={ticket.subject}>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                        {ticket.is_pinned && (
+                            <Pin
+                                className="size-3.5 shrink-0 text-muted-foreground"
+                                aria-label="Pinned"
+                            />
+                        )}
+                        <span className="truncate">{ticket.subject}</span>
                     </span>
-                    <span className="truncate">{ticket.subject}</span>
+                    <span className="block truncate text-xs font-normal text-muted-foreground">
+                        <span className="font-mono">#{ticket.number}</span>
+                        {' · '}
+                        {ticket.department}
+                    </span>
                 </span>
             ),
         },
         {
             key: 'requester',
             header: 'Requester',
-            cell: (ticket) => (
-                <div className="min-w-0">
-                    <div className="truncate">
-                        {ticket.client ?? ticket.requester_name}
+            className: 'max-w-56',
+            cell: (ticket) => {
+                const name = ticket.client ?? ticket.requester_name;
+
+                return (
+                    <div className="min-w-0" title={`${name} · ${ticket.requester_email}`}>
+                        <div className="truncate">{name}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                            {ticket.is_unverified_requester ? (
+                                <span className="text-destructive">
+                                    Unverified requester
+                                </span>
+                            ) : ticket.client_id ? (
+                                ticket.requester_email
+                            ) : (
+                                `Guest · ${ticket.requester_email}`
+                            )}
+                        </div>
                     </div>
-                    {ticket.is_unverified_requester && (
-                        <div className="text-xs text-destructive">
-                            Unverified requester
-                        </div>
-                    )}
-                    {!ticket.client_id && (
-                        <div className="text-xs text-muted-foreground">
-                            Guest · {ticket.requester_email}
-                        </div>
-                    )}
-                </div>
-            ),
-        },
-        {
-            key: 'department',
-            header: 'Department',
-            hideOnMobile: true,
-            cell: (ticket) => ticket.department,
+                );
+            },
         },
         {
             key: 'status',
@@ -189,6 +192,7 @@ export default function TicketsIndex({
             key: 'assignee',
             header: 'Assignee',
             hideOnMobile: true,
+            className: 'hidden max-w-36 truncate xl:table-cell',
             cell: (ticket) =>
                 ticket.assignee ?? (
                     <span className="text-muted-foreground">Unassigned</span>
@@ -198,6 +202,7 @@ export default function TicketsIndex({
             key: 'last_reply',
             header: 'Last reply',
             align: 'right',
+            className: 'whitespace-nowrap',
             cell: (ticket) => (
                 <DateTime value={ticket.last_reply_at} relative />
             ),

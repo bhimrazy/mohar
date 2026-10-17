@@ -220,3 +220,22 @@ New: `TicketNoteAdded(mentions[])`, `TicketStatusChanged`, `TicketDepartmentChan
 
 Live chat, business-hours SLA calendars, escalation-rule engine, scheduled ticket actions, per-department custom fields, IMAP/OAuth mailbox import,
 billable items from tickets, ticket feedback surveys on close, ticket splitting, KB/announcement translations, downloads library, satisfaction surveys by email.
+
+## 16. Implementation notes (v1, accepted deviations)
+
+- **Captcha → honeypot + rate limit.** Guest submission uses a hidden honeypot field and `throttle:support-guest`
+  (6/min per IP) until shared captcha infrastructure exists (`security.captcha_on_ticket_submit` is not read yet).
+- **Statuses are a PHP enum** (`open, answered, customer_reply, on_hold, in_progress, closed`). Which statuses count
+  as "awaiting reply" or auto-close are settings (`support.awaiting_reply_statuses`, `support.auto_close_statuses`);
+  there is no `ticket_statuses` table and no custom statuses in v1.
+- **Related service** is validated with `Contracts\Services\ClientServiceDirectory::belongsToClient()` and offered
+  from `forClient()`; with the Core null directory no service can be linked and the picker is hidden.
+- **Guest email matching a client** (§4.1): the ticket is attached to that client but flagged
+  `is_unverified_requester` for staff, and the submitter only gets a confirmation page — the access link is emailed.
+- **Inbound reply verification** (§6.6): a reply is trusted only when the sender is linked to the ticket **and** it is
+  threaded on one of our Message-IDs or the provider reports SPF/DKIM/DMARC pass; subject-token-only matches are held
+  back (`blocked`) for staff import with the "unverified sender" badge.
+- **Merges**: guest identity is the requester email; merging different requesters needs
+  `support.tickets.merge_cross_client`. Merged guest links show a "merged" page and never expose the target's key.
+- **Markdown**: raw HTML stripped, unsafe links removed, images rendered as links (no remote loads).
+- **Mentions**: `@handle` = local part of a staff email address; only staff with department access are reported.

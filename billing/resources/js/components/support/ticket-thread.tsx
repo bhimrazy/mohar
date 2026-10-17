@@ -1,7 +1,7 @@
 import { Lock, Star } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DateTime } from '@/components/app/date';
-import { StatusBadge } from '@/components/app/status-badge';
+import { StatusBadge, toneSurface } from '@/components/app/status-badge';
 import { AttachmentList } from '@/components/support/attachment-list';
 import { Markdown } from '@/components/support/markdown';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -24,9 +24,6 @@ function authorLabel(message: TicketMessage, audience: 'admin' | 'customer') {
         return message.is_autoresponse ? 'Automatic reply' : 'System';
     }
 
-    if (message.author_type === 'staff' && audience === 'customer') {
-        return `${message.author_name} · Support team`;
-    }
 
     return message.author_name;
 }
@@ -51,10 +48,11 @@ export function TicketThread({
                     <li
                         key={message.id}
                         id={`message-${message.id}`}
+                        aria-label={`${isNote ? 'Internal note' : 'Message'} from ${authorLabel(message, audience)}`}
                         className={cn(
                             'rounded-xl border shadow-xs',
-                            isNote && 'border-dashed bg-muted/60',
-                            !isNote && isStaff && 'bg-muted/30',
+                            isNote && cn('border-dashed', toneSurface('warning')),
+                            !isNote && isStaff && toneSurface('info'),
                             !isNote && !isStaff && !isSystem && 'bg-card',
                             isSystem && !isNote && 'bg-background',
                             isStaff && !isNote && 'sm:ml-8',
@@ -83,6 +81,13 @@ export function TicketThread({
                                         status="internal-note"
                                         label="Internal note"
                                         tone="warning"
+                                    />
+                                )}
+                                {audience === 'customer' && isStaff && (
+                                    <StatusBadge
+                                        status="staff"
+                                        label="Support team"
+                                        tone="info"
                                     />
                                 )}
                                 {audience === 'admin' &&

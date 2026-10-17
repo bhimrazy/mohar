@@ -89,6 +89,25 @@ const DOT_CLASSES: Record<StatusTone, string> = {
     outline: 'bg-muted-foreground/40',
 };
 
+const SURFACE_CLASSES: Record<StatusTone, string> = {
+    success:
+        'border-emerald-600/25 bg-emerald-500/[0.06] dark:border-emerald-400/25 dark:bg-emerald-400/[0.07]',
+    warning:
+        'border-amber-600/30 bg-amber-500/[0.08] dark:border-amber-400/30 dark:bg-amber-400/[0.08]',
+    danger: 'border-red-600/25 bg-red-500/[0.06] dark:border-red-400/25 dark:bg-red-400/[0.07]',
+    info: 'border-sky-600/25 bg-sky-500/[0.06] dark:border-sky-400/25 dark:bg-sky-400/[0.07]',
+    neutral: 'border-border bg-muted/40',
+    outline: 'border-dashed border-border bg-transparent',
+};
+
+/**
+ * Tinted card surface for a tone (e.g. staff replies = info, internal notes = warning),
+ * so tone colours stay defined in this one file.
+ */
+export function toneSurface(tone: StatusTone): string {
+    return SURFACE_CLASSES[tone];
+}
+
 export function normalizeStatus(status: string): string {
     return status
         .trim()
