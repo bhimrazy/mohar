@@ -1,5 +1,6 @@
 <?php
 
+use App\Events\Support\InboundEmailBounced;
 use App\Events\Support\TicketOpened;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -10,7 +11,6 @@ use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Drivers\Inbound\GenericDriver;
 use App\Modules\Support\Enums\AuthorType;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\InboundEmailBounced;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\InboundEmail;
 use App\Modules\Support\Models\SpamRule;

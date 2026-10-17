@@ -1,9 +1,9 @@
 <?php
 
 use App\Events\Support\TicketAssigned;
+use App\Events\Support\TicketUnassigned;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
-use App\Modules\Support\Events\TicketUnassigned;
 use App\Modules\Support\Models\Department;
 use App\Support\Search\GlobalSearch;
 use Illuminate\Support\Facades\Event;

@@ -1,9 +1,9 @@
 <?php
 
+use App\Events\Support\NetworkIncidentResolved;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Enums\IncidentStatus;
-use App\Modules\Support\Events\NetworkIncidentResolved;
 use App\Modules\Support\Models\Announcement;
 use App\Modules\Support\Models\CannedReply;
 use App\Modules\Support\Models\CannedReplyCategory;

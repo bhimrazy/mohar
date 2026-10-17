@@ -1,10 +1,10 @@
 <?php
 
+use App\Events\Support\TicketMerged;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Actions\PostReply;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\TicketMerged;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;

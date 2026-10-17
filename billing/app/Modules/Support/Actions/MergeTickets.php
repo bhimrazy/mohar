@@ -2,11 +2,11 @@
 
 namespace App\Modules\Support\Actions;
 
+use App\Events\Support\TicketMerged;
 use App\Models\User;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\ClosedBy;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\TicketMerged;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketAttachment;
 use App\Modules\Support\Models\TicketMessage;

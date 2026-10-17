@@ -2,14 +2,14 @@
 
 namespace App\Modules\Support\Actions;
 
+use App\Events\Support\InboundEmailBounced;
+use App\Events\Support\InboundEmailRejected;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Data\TicketDraft;
 use App\Modules\Support\Drivers\Inbound\InboundMessage;
 use App\Modules\Support\Enums\InboundEmailStatus;
 use App\Modules\Support\Enums\TicketSource;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\InboundEmailBounced;
-use App\Modules\Support\Events\InboundEmailRejected;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\InboundEmail;
 use App\Modules\Support\Models\SpamRule;

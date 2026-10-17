@@ -2,8 +2,8 @@
 
 namespace App\Modules\Support\Http\Controllers\Admin;
 
+use App\Events\Support\AnnouncementPublished;
 use App\Http\Controllers\Controller;
-use App\Modules\Support\Events\AnnouncementPublished;
 use App\Modules\Support\Http\Requests\AnnouncementRequest;
 use App\Modules\Support\Models\Announcement;
 use Illuminate\Http\RedirectResponse;

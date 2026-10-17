@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Support\Events;
+namespace App\Events\Support;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A client or guest rated a staff reply (1-5).
- *
- * Module-local until promoted to App\Events\Support by the shared-kernel owner (spec §12).
  */
 final class TicketReplyRated
 {

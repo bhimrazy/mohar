@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Support\Events;
+namespace App\Events\Support;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Source tickets were merged into the target ticket.
- *
- * Module-local until promoted to App\Events\Support by the shared-kernel owner (spec §12).
  */
 final class TicketMerged
 {

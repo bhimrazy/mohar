@@ -3,14 +3,15 @@
 use App\Events\Support\TicketClosed;
 use App\Events\Support\TicketNoteAdded;
 use App\Events\Support\TicketOpened;
+use App\Events\Support\TicketReopened;
 use App\Events\Support\TicketReplied;
+use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Support\Actions\AddNote;
 use App\Modules\Support\Actions\PostReply;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\TicketReopened;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\StaffSignature;
 use App\Modules\Support\Models\Ticket;
@@ -152,4 +153,18 @@ test('first response minutes ignore autoresponses and notes', function () {
     $ticket = Ticket::query()->findOrFail($ticket->id);
     expect((int) $ticket->created_at->diffInMinutes($ticket->first_staff_reply_at))->toBe(45)
         ->and($ticket->messages()->where('is_autoresponse', true)->count())->toBe(1);
+});
+
+test('staff @mentions in notes are reported only for colleagues with department access', function () {
+    $department = Department::factory()->create();
+    $ticket = clientTicket(Client::factory()->create(), $department);
+    $colleague = User::factory()->staff(['support.tickets.view'])->create(['email' => 'sam@example.test']);
+    $department->staff()->attach($colleague->id);
+    User::factory()->staff(['support.tickets.view'])->create(['email' => 'outsider@example.test']);
+    $author = supportStaff([$department]);
+    Event::fake([TicketNoteAdded::class]);
+
+    app(AddNote::class)->handle($ticket, $author, 'Hey @sam and @outsider, see mail to bob@example.com');
+
+    Event::assertDispatched(TicketNoteAdded::class, fn (TicketNoteAdded $event) => $event->mentions === [$colleague->id]);
 });

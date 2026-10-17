@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Support\Events;
+namespace App\Events\Support;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * An inbound email must be answered with a bounce template (ticket.closed_bounce, ...).
- *
- * Module-local until promoted to App\Events\Support by the shared-kernel owner (spec §12).
  */
 final class InboundEmailBounced
 {

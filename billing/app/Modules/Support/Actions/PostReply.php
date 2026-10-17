@@ -3,13 +3,13 @@
 namespace App\Modules\Support\Actions;
 
 use App\Events\Support\TicketClosed;
+use App\Events\Support\TicketReopened;
 use App\Events\Support\TicketReplied;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\ClosedBy;
 use App\Modules\Support\Enums\MessageType;
 use App\Modules\Support\Enums\TicketSource;
 use App\Modules\Support\Enums\TicketStatus;
-use App\Modules\Support\Events\TicketReopened;
 use App\Modules\Support\Exceptions\TicketVersionConflict;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;

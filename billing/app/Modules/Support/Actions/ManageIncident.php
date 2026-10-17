@@ -2,10 +2,10 @@
 
 namespace App\Modules\Support\Actions;
 
+use App\Events\Support\NetworkIncidentOpened;
+use App\Events\Support\NetworkIncidentResolved;
+use App\Events\Support\NetworkIncidentUpdated;
 use App\Modules\Support\Enums\IncidentStatus;
-use App\Modules\Support\Events\NetworkIncidentOpened;
-use App\Modules\Support\Events\NetworkIncidentResolved;
-use App\Modules\Support\Events\NetworkIncidentUpdated;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\NetworkIncidentUpdate;
 use Illuminate\Support\Facades\DB;
