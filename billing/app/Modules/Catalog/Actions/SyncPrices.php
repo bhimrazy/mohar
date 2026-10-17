@@ -57,13 +57,13 @@ class SyncPrices
                 }
             }
 
-            $removed = $existing->except($keep);
+            $removed = $existing->toBase()->except($keep);
 
             foreach ($removed as $key => $price) {
                 $changes[] = ['currency' => $price->currency, 'cycle' => $price->cycle->value, 'old' => $price->amount, 'new' => null];
             }
 
-            Price::query()->whereKey($removed->modelKeys())->delete();
+            Price::query()->whereKey($removed->map(fn (Price $price): int => $price->id)->values()->all())->delete();
 
             if ($changes !== []) {
                 $this->activity->log('Prices updated', $priceable, null, ['changes' => $changes]);
