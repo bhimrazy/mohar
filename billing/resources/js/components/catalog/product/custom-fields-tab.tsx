@@ -259,7 +259,7 @@ function CustomFieldDialog({
                             Shown on the order form unless it is staff only.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid items-start gap-4 sm:grid-cols-2">
                         <Field
                             htmlFor="field-name"
                             label="Name"

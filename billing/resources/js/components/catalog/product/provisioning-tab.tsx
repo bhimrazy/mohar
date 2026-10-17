@@ -49,7 +49,7 @@ export function ProvisioningTab({
                 title="Provisioning"
                 description="Which module creates, suspends and terminates accounts for this product. Use “none” for products handled manually."
             >
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid items-start gap-6 sm:grid-cols-2">
                     <Field
                         htmlFor="provisioning_driver"
                         label="Driver key"

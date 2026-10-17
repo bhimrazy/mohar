@@ -189,7 +189,7 @@ export function ProductDetailsForm({
     return (
         <form onSubmit={submit} className="flex flex-col gap-6">
             <SectionCard title="Product">
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid items-start gap-6 sm:grid-cols-2">
                     {select(
                         'product_group_id',
                         'Group',
@@ -259,7 +259,7 @@ export function ProductDetailsForm({
                 title="Billing"
                 description="Prices are set per currency and cycle on the Pricing tab."
             >
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid items-start gap-6 sm:grid-cols-2">
                     {select(
                         'payment_type',
                         'Payment type',
@@ -302,7 +302,7 @@ export function ProductDetailsForm({
                                 'Align the first period to a fixed day of the month.',
                             )}
                             {data.prorata_enabled && (
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     {text('prorata_day', 'Prorata day', {
                                         type: 'number',
                                         hint: 'Day of the month (1–31).',
@@ -323,7 +323,7 @@ export function ProductDetailsForm({
             </SectionCard>
 
             <SectionCard title="Availability">
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid items-start gap-6 sm:grid-cols-2">
                     <div className="grid gap-3 sm:col-span-2">
                         {toggle(
                             'is_hidden',
@@ -357,7 +357,7 @@ export function ProductDetailsForm({
                 title="Automation"
                 description="When services are provisioned and which emails they send."
             >
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid items-start gap-6 sm:grid-cols-2">
                     {select('auto_setup', 'Auto-setup', enums.autoSetups)}
                     {text('welcome_email_key', 'Welcome email template', {
                         optional: true,
@@ -398,7 +398,7 @@ export function ProductDetailsForm({
                     title="Free domain"
                     description="Offer a free domain registration with this product."
                 >
-                    <div className="grid gap-6 sm:grid-cols-2">
+                    <div className="grid items-start gap-6 sm:grid-cols-2">
                         {select(
                             'free_domain',
                             'Free domain',

@@ -62,7 +62,7 @@ export default function ProductGroupForm({ group }: { group: Group | null }) {
                 />
                 <form onSubmit={submit} className="flex flex-col gap-6">
                     <SectionCard title="Group">
-                        <div className="grid gap-6 sm:grid-cols-2">
+                        <div className="grid items-start gap-6 sm:grid-cols-2">
                             <Field
                                 htmlFor="name"
                                 label="Name"

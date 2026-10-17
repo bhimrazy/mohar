@@ -607,7 +607,7 @@ function OptionDialog({
                             (the price when ticked, or per unit).
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid items-start gap-4 sm:grid-cols-2">
                         <Field
                             htmlFor="option-name"
                             label="Label"
@@ -656,7 +656,7 @@ function OptionDialog({
                             />
                         </Field>
                         {data.type === 'quantity' && (
-                            <div className="grid gap-4 sm:col-span-2 sm:grid-cols-3">
+                            <div className="grid items-start gap-4 sm:col-span-2 sm:grid-cols-3">
                                 <Field
                                     htmlFor="option-min"
                                     label="Minimum"
@@ -824,7 +824,7 @@ function ValueDialog({
                                 : 'Price for each cycle the product sells. Missing prices block the cycle on products using this option.'}
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="grid items-start gap-4 sm:grid-cols-2">
                         <Field
                             htmlFor="value-label"
                             label="Label"
