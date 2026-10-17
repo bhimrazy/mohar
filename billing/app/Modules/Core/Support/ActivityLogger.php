@@ -20,7 +20,7 @@ class ActivityLogger
      */
     public function log(string $description, ?Model $subject = null, ?int $clientId = null, array $properties = [], ?string $event = null, ?User $actor = null): ActivityLog
     {
-        $request = app()->runningInConsole() ? null : request();
+        $request = app()->runningInConsole() && ! app()->runningUnitTests() ? null : request();
         $actor ??= $request?->user();
         $impersonatorId = $request?->hasSession() ? $request->session()->get(self::IMPERSONATOR_SESSION_KEY) : null;
 
