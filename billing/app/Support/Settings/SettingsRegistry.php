@@ -50,6 +50,8 @@ class SettingsRegistry
 
     public function isSecret(string $key): bool
     {
-        return $this->definition($key)?->secret ?? false;
+        $definition = $this->definition($key);
+
+        return $definition !== null && $definition->secret;
     }
 }
