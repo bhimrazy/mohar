@@ -191,6 +191,15 @@ class Ticket extends Model
     }
 
     /**
+     * Who the ticket belongs to: the client account, or for guest tickets the requester's email.
+     * Two tickets are "the same requester" only when these match.
+     */
+    public function requesterIdentity(): string
+    {
+        return $this->client_id !== null ? 'client:'.$this->client_id : 'guest:'.mb_strtolower($this->requester_email);
+    }
+
+    /**
      * The ticket that finally receives replies (follows merge chains).
      */
     public function resolveMergeTarget(): self

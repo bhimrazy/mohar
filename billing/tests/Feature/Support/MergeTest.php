@@ -1,14 +1,18 @@
 <?php
 
 use App\Events\Support\TicketMerged;
+use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Support\Actions\MergeTickets;
 use App\Modules\Support\Actions\PostReply;
 use App\Modules\Support\Data\TicketAuthor;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\Department;
 use App\Modules\Support\Models\Ticket;
+use App\Modules\Support\Models\TicketEvent;
 use App\Modules\Support\Models\TicketMessage;
 use Illuminate\Support\Facades\Event;
+use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
@@ -49,4 +53,64 @@ test('tickets of different clients merge only with the cross-client permission',
     supportStaff([$department], ['support.tickets.view', 'support.tickets.manage', 'support.tickets.merge_cross_client']);
     $this->post(route('admin.support.tickets.merge'), ['tickets' => [$a->id, $b->id]])->assertRedirect();
     expect($b->fresh()->merged_into_id)->toBe($a->id);
+});
+
+test('guest tickets of different emails need the cross-client permission to merge', function () {
+    $department = Department::factory()->create();
+    $victim = guestTicket($department, 'victim@example.com');
+    $attacker = guestTicket($department, 'attacker@example.com');
+    supportStaff([$department]);
+
+    $this->post(route('admin.support.tickets.merge'), ['tickets' => [$victim->id, $attacker->id]])->assertSessionHasErrors('tickets');
+
+    expect($attacker->fresh()->merged_into_id)->toBeNull();
+});
+
+test('a merged guest link never reveals or grants access to the target ticket', function () {
+    $department = Department::factory()->create();
+    $victim = guestTicket($department, 'victim@example.com');
+    $attacker = guestTicket($department, 'attacker@example.com');
+    supportStaff([$department], ['support.tickets.view', 'support.tickets.manage', 'support.tickets.merge_cross_client']);
+    $this->post(route('admin.support.tickets.merge'), ['tickets' => [$victim->id, $attacker->id]])->assertRedirect();
+    auth()->logout();
+
+    $response = $this->get(route('support.tickets.show', ['number' => $attacker->number, 'key' => $attacker->access_key]));
+
+    $response->assertOk()->assertInertia(fn (Assert $page) => $page->component('public/support/tickets/merged')
+        ->where('number', $attacker->number)
+        ->missing('ticket')
+        ->missing('accessKey'));
+    expect($response->getContent())->not->toContain($victim->access_key)
+        ->and($victim->fresh()->cc)->not->toContain('attacker@example.com');
+
+    $this->post(route('support.tickets.reply', ['number' => $attacker->number, 'key' => $attacker->access_key]), ['body' => 'injected'])->assertNotFound();
+    expect(TicketMessage::query()->where('body', 'injected')->exists())->toBeFalse();
+});
+
+test('after a cross-client merge the source client cannot post into the target ticket', function () {
+    [, $clientA] = actingAsClient();
+    $department = Department::factory()->create();
+    $target = clientTicket(Client::factory()->create(), $department);
+    $source = clientTicket($clientA, $department);
+    app(MergeTickets::class)->handle([$target->id, $source->id], User::factory()->staff()->create(), allowCrossClient: true);
+
+    $this->get(route('client.support.tickets.show', $source->number))->assertNotFound();
+    $this->post(route('client.support.tickets.reply', $source->number), ['body' => 'injected by A'])->assertNotFound();
+
+    expect(TicketMessage::query()->where('body', 'injected by A')->exists())->toBeFalse();
+});
+
+test('a status change caused by a merge is audited', function () {
+    $client = Client::factory()->create();
+    $department = Department::factory()->create();
+    $older = clientTicket($client, $department);
+    $staff = supportStaff([$department]);
+    app(PostReply::class)->handle($older, TicketAuthor::staff($staff), 'Answered');
+    $this->travel(1)->minutes();
+    $newer = clientTicket($client, $department);
+
+    app(MergeTickets::class)->handle([$older->id, $newer->id], $staff);
+
+    expect($older->fresh()->status)->toBe(TicketStatus::Open)
+        ->and(TicketEvent::query()->where('ticket_id', $older->id)->where('type', 'status')->latest('id')->first()?->to)->toBe('open');
 });

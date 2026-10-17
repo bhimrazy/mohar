@@ -79,14 +79,12 @@ class GuestTicketController extends Controller
         return to_route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key]);
     }
 
-    public function show(Request $request, string $number): Response|RedirectResponse
+    public function show(Request $request, string $number): Response
     {
         $ticket = $this->ticket($request, $number);
 
         if ($ticket->merged_into_id !== null) {
-            $target = $ticket->resolveMergeTarget();
-
-            return to_route('support.tickets.show', ['number' => $target->number, 'key' => $target->access_key]);
+            return Inertia::render('public/support/tickets/merged', ['number' => $ticket->number]);
         }
 
         $ticket->load(['department', 'messages' => fn ($query) => $query->public(), 'messages.attachments']);
@@ -101,7 +99,8 @@ class GuestTicketController extends Controller
 
     public function reply(CustomerReplyRequest $request, string $number, PostReply $reply): RedirectResponse
     {
-        $ticket = $this->ticket($request, $number)->resolveMergeTarget();
+        $ticket = $this->ticket($request, $number);
+        abort_if($ticket->merged_into_id !== null, 404);
         $reply->handle($ticket, TicketAuthor::guest($ticket->requester_name, $ticket->requester_email), $request->string('body')->toString(), $request->incomingFiles());
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Reply sent.')]);

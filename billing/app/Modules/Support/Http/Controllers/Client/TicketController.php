@@ -127,6 +127,7 @@ class TicketController extends Controller
     public function reply(CustomerReplyRequest $request, string $number, PostReply $reply): RedirectResponse
     {
         $ticket = $this->ticket($number)->resolveMergeTarget();
+        abort_unless($ticket->client_id === $this->context->id(), 404);
         /** @var User $user */
         $user = $request->user();
         $reply->handle($ticket, TicketAuthor::client($user), $request->string('body')->toString(), $request->incomingFiles());
