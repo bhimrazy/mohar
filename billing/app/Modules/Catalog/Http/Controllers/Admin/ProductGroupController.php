@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
+use App\Contracts\Billing\GatewayDirectory;
 use App\Http\Controllers\Controller;
 use App\Modules\Catalog\Actions\DeleteProductGroup;
 use App\Modules\Catalog\Actions\ReorderProductGroups;
@@ -10,15 +11,18 @@ use App\Modules\Catalog\Http\Requests\ProductGroupRequest;
 use App\Modules\Catalog\Http\Requests\ReorderProductGroupsRequest;
 use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Catalog\Support\Gateways;
+use App\Modules\Core\Models\Currency;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ProductGroupController extends Controller
 {
-    public function index(): Response
+    public function index(GatewayDirectory $gateways): Response
     {
         $this->authorize('catalog.products.view');
+
+        $gatewayNames = array_column($gateways->available(Currency::default()->code), 'label', 'key');
 
         $groups = ProductGroup::query()->ordered()->withCount('products')->get();
 
@@ -32,6 +36,7 @@ class ProductGroupController extends Controller
                 'allowed_gateways' => $group->allowed_gateways,
                 'products_count' => $group->products_count,
             ])->values(),
+            'gatewayNames' => (object) $gatewayNames,
             'gatewayConflicts' => $this->gatewayConflicts($groups),
             'canManage' => request()->user()?->hasPermission('catalog.products.manage') ?? false,
         ]);

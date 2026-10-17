@@ -62,7 +62,7 @@ class CustomFieldValidator
             return $this->message('Choose one of the listed options for :field.', ['field' => $field->name]);
         }
 
-        if ($field->type === CustomFieldType::Link && filter_var($value, FILTER_VALIDATE_URL) === false) {
+        if ($field->type === CustomFieldType::Link && (filter_var($value, FILTER_VALIDATE_URL) === false || ! in_array(strtolower((string) parse_url($value, PHP_URL_SCHEME)), ['http', 'https'], true))) {
             return $this->message('Enter a valid URL for :field.', ['field' => $field->name]);
         }
 

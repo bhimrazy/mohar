@@ -125,6 +125,7 @@ class ProductController extends Controller
             'assignedAddonIds' => $product->addons->modelKeys(),
             'upgradeCandidates' => Product::query()
                 ->whereKeyNot($product->id)
+                ->where(fn (Builder $query) => $query->where('is_retired', false)->orWhereIn('id', $product->upgradeTargets->modelKeys()))
                 ->with('group:id,name')
                 ->orderBy('product_group_id')->ordered()
                 ->get()

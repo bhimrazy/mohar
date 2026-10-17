@@ -75,7 +75,7 @@ it('validates the group slug', function (string $slug, string $error) {
         ->assertSessionHasErrors(['slug' => $error]);
 })->with([
     'no letter' => ['123', 'The slug must contain at least one letter.'],
-    'duplicate' => ['taken', 'The slug has already been taken.'],
+    'duplicate' => ['taken', 'This slug is already used. Change the name or enter a different slug.'],
 ]);
 
 it('requires gateways when restricting them', function () {
@@ -117,9 +117,28 @@ it('refuses to delete a group that still has products', function () {
 it('deletes an empty group', function () {
     actingAsStaff(['catalog.products.manage']);
     $group = ProductGroup::factory()->create();
-    Product::factory()->for($group, 'group')->create()->delete();
 
     $this->delete(route('admin.catalog.groups.destroy', $group))->assertRedirect(route('admin.catalog.groups.index'));
 
     $this->assertModelMissing($group);
+});
+
+it('keeps groups whose deleted products are still referenced by history', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $group = ProductGroup::factory()->create();
+    $product = Product::factory()->for($group, 'group')->create();
+    $product->delete();
+
+    $this->delete(route('admin.catalog.groups.destroy', $group))->assertSessionHasErrors('group');
+
+    $this->assertModelExists($group);
+    $this->assertSoftDeleted($product);
+});
+
+it('only reports the name when both name and slug are missing', function () {
+    actingAsStaff(['catalog.products.manage']);
+
+    $this->post(route('admin.catalog.groups.store'), ['name' => '', 'slug' => ''])
+        ->assertSessionHasErrors('name')
+        ->assertSessionDoesntHaveErrors('slug');
 });

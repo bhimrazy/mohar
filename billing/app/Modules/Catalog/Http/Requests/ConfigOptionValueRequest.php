@@ -5,6 +5,8 @@ namespace App\Modules\Catalog\Http\Requests;
 use App\Enums\BillingCycle;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesPriceMatrix;
 use App\Modules\Catalog\Models\ConfigOption;
+use App\Modules\Catalog\Models\ConfigOptionValue;
+use App\Modules\Catalog\Services\ConfigOptionPricingGuard;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -56,7 +58,40 @@ class ConfigOptionValueRequest extends FormRequest
                     $validator->errors()->add('label', __('Yes/no and quantity options have a single price row. Edit the existing one instead.'));
                 }
             },
+            fn (Validator $validator) => $this->validateCoversProductCycles($validator),
         ];
+    }
+
+    /**
+     * A visible value must be priced for every currency × cycle sold by products using its option group,
+     * otherwise those products could no longer be quoted for that cycle.
+     */
+    private function validateCoversProductCycles(Validator $validator): void
+    {
+        $value = $this->route('value');
+        $option = $value instanceof ConfigOptionValue ? $value->option : $this->route('option');
+
+        if ($validator->errors()->isNotEmpty() || ! $option instanceof ConfigOption || $option->is_hidden || $this->boolean('is_hidden')) {
+            return;
+        }
+
+        $priced = array_map(fn (array $pair): string => $pair['currency'].'|'.$pair['cycle'], $this->enabledPricePairs());
+        $guard = app(ConfigOptionPricingGuard::class);
+        $missing = [];
+
+        foreach ($option->group->products()->where('is_retired', false)->orderBy('products.id')->get() as $product) {
+            foreach ($guard->enabledPairsOf($product) as $pair) {
+                if (! in_array($pair['currency'].'|'.$pair['cycle'], $priced, true)) {
+                    $missing[] = "{$product->name} ({$pair['currency']}, {$pair['cycle']})";
+                }
+            }
+        }
+
+        if ($missing !== []) {
+            $validator->errors()->add('prices', __('Products using this option sell cycles this value has no price for: :missing. Price them or hide the value.', [
+                'missing' => implode('; ', array_slice($missing, 0, 6)).(count($missing) > 6 ? ' …' : ''),
+            ]));
+        }
     }
 
     /**

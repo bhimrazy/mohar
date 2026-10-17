@@ -21,7 +21,7 @@ trait ValidatesSlug
      */
     protected function slugRules(): array
     {
-        return ['required', 'string', 'max:120', 'alpha_dash:ascii', 'regex:/[a-z]/i'];
+        return ['required_with:name', 'nullable', 'string', 'max:120', 'alpha_dash:ascii', 'regex:/[a-z]/i'];
     }
 
     /**
@@ -29,6 +29,9 @@ trait ValidatesSlug
      */
     protected function slugMessages(): array
     {
-        return ['slug.regex' => __('The slug must contain at least one letter.')];
+        return [
+            'slug.regex' => __('The slug must contain at least one letter.'),
+            'slug.unique' => __('This slug is already used. Change the name or enter a different slug.'),
+        ];
     }
 }

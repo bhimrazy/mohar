@@ -191,3 +191,28 @@ it('cannot delete the only value of a single-value option', function () {
 
     $this->delete(route('admin.catalog.values.destroy', $value))->assertSessionHasErrors('value');
 });
+
+it('refuses a visible value without prices for cycles its products sell', function () {
+    actingAsStaff(['catalog.options.manage']);
+    $option = ConfigOption::factory()->create();
+    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create(['name' => 'VPS']);
+    $product->configOptionGroups()->attach($option->config_option_group_id);
+    $prices = [['currency' => 'USD', 'cycle' => 'annually', 'enabled' => true, 'amount' => 900, 'setup_fee' => 0]];
+
+    $this->post(route('admin.catalog.options.values.store', $option), ['label' => '8 GB', 'prices' => $prices])
+        ->assertSessionHasErrors(['prices' => 'Products using this option sell cycles this value has no price for: VPS (USD, monthly). Price them or hide the value.']);
+    $this->post(route('admin.catalog.options.values.store', $option), ['label' => '8 GB', 'is_hidden' => true, 'prices' => $prices])
+        ->assertSessionHasNoErrors();
+});
+
+it('hides retired products from the assignment list unless already assigned', function () {
+    actingAsStaff(['catalog.options.view']);
+    $group = ConfigOptionGroup::factory()->create();
+    $assigned = Product::factory()->retired()->create();
+    $group->products()->attach($assigned);
+    Product::factory()->retired()->create();
+    $active = Product::factory()->create();
+
+    $this->get(route('admin.catalog.option-groups.edit', $group))
+        ->assertInertia(fn (Assert $page) => $page->where('products', fn ($products) => collect($products)->pluck('id')->sort()->values()->all() === collect([$assigned->id, $active->id])->sort()->values()->all()));
+});

@@ -39,12 +39,15 @@ type Group = {
 type Props = {
     groups: Group[];
     gatewayConflicts: [string, string][];
+    /** Gateway key → display name, from Billing. */
+    gatewayNames: Record<string, string>;
     canManage: boolean;
 };
 
 export default function ProductGroupsIndex({
     groups,
     gatewayConflicts,
+    gatewayNames,
     canManage,
 }: Props) {
     const [deleting, setDeleting] = useState<Group | null>(null);
@@ -102,7 +105,9 @@ export default function ProductGroupsIndex({
                 group.allowed_gateways === null ? (
                     <span className="text-muted-foreground">All</span>
                 ) : (
-                    group.allowed_gateways.join(', ')
+                    group.allowed_gateways
+                        .map((key) => gatewayNames[key] ?? key)
+                        .join(', ')
                 ),
         },
         {

@@ -68,7 +68,7 @@ class AddonController extends Controller
     {
         $this->authorize('catalog.addons.manage');
 
-        return Inertia::render('admin/catalog/addons/form', [...$this->formOptions(), 'addon' => null]);
+        return Inertia::render('admin/catalog/addons/form', [...$this->formOptions([]), 'addon' => null]);
     }
 
     public function store(AddonRequest $request, SaveAddon $save): RedirectResponse
@@ -86,7 +86,7 @@ class AddonController extends Controller
         $addon->load(['prices', 'products:id']);
 
         return Inertia::render('admin/catalog/addons/form', [
-            ...$this->formOptions(),
+            ...$this->formOptions($addon->products->modelKeys()),
             'addon' => [
                 ...$addon->only(['id', 'name', 'description', 'is_taxable', 'show_on_order', 'is_hidden', 'is_retired', 'suspend_parent_on_overdue', 'welcome_email_key', 'weight', 'allow_quantity', 'prorata_with_parent', 'provisioning_driver']),
                 'kind' => $addon->kind->value,
@@ -119,9 +119,10 @@ class AddonController extends Controller
     }
 
     /**
+     * @param  list<int>  $assignedProductIds  retired products stay listed only when already assigned
      * @return array<string, mixed>
      */
-    private function formOptions(): array
+    private function formOptions(array $assignedProductIds): array
     {
         return [
             'kinds' => AddonKind::options(),
@@ -129,7 +130,9 @@ class AddonController extends Controller
             'autoSetups' => AutoSetup::options(),
             'cyclesByPaymentType' => collect(PaymentType::cases())->mapWithKeys(fn (PaymentType $type): array => [$type->value => CyclePicker::options($type->cycles())]),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(['code', 'name', 'prefix', 'is_default']),
-            'products' => Product::query()->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
+            'products' => Product::query()
+                ->where(fn (Builder $query) => $query->where('is_retired', false)->orWhereIn('id', $assignedProductIds))
+                ->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
                 ->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'group' => $product->group->name, 'status' => $product->status()]),
             'drivers' => app(ProvisioningDrivers::class)->all(),
             'canManage' => request()->user()?->hasPermission('catalog.addons.manage') ?? false,

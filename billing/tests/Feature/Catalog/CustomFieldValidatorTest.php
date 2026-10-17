@@ -39,3 +39,14 @@ it('accepts valid values', function () {
 
     expect(app(CustomFieldValidator::class)->validate($field->product_id, [$field->id => '123']))->toBe([]);
 });
+
+it('only accepts http and https links', function (string $url, bool $valid) {
+    $field = ProductCustomField::factory()->create(['name' => 'Site', 'type' => 'link']);
+
+    expect(app(CustomFieldValidator::class)->validate($field->product_id, [$field->id => $url]))->toBe($valid ? [] : [$field->id => 'Enter a valid URL for Site.']);
+})->with([
+    'https' => ['https://example.com', true],
+    'http' => ['http://example.com/path', true],
+    'javascript' => ['javascript://example.com/%0Aalert(1)', false],
+    'ftp' => ['ftp://example.com', false],
+]);

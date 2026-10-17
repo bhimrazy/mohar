@@ -84,7 +84,7 @@ class ConfigOptionGroupController extends Controller
                     'prices' => $value->prices->map(fn (Price $price): array => $price->toMatrixRow())->values(),
                 ])->values(),
             ])->values(),
-            'products' => $this->productChoices(),
+            'products' => $this->productChoices($optionGroup->products->modelKeys()),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(['code', 'name', 'prefix', 'is_default']),
             'cycles' => CyclePicker::options([...BillingCycle::recurring(), BillingCycle::OneTime]),
             'optionTypes' => ConfigOptionType::options(),
@@ -111,12 +111,17 @@ class ConfigOptionGroupController extends Controller
     }
 
     /**
-     * @return list<array{id: int, name: string, group: string}>
+     * Products that can be assigned: everything not retired, plus retired products already assigned.
+     *
+     * @param  list<int>  $assignedIds
+     * @return list<array{id: int, name: string, group: string, status: string}>
      */
-    private function productChoices(): array
+    private function productChoices(array $assignedIds = []): array
     {
-        return array_values(Product::query()->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
-            ->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'group' => $product->group->name])
+        return array_values(Product::query()
+            ->where(fn ($query) => $query->where('is_retired', false)->orWhereIn('id', $assignedIds))
+            ->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
+            ->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'group' => $product->group->name, 'status' => $product->status()])
             ->all());
     }
 }
