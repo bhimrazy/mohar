@@ -65,7 +65,7 @@ class CatalogPriceBook implements PriceBook
             ])
             ->find($selection->productId);
 
-        if ($product === null || $product->is_retired) {
+        if ($product === null || $product->is_retired || ! $this->wellFormedOptions($selection->configOptions)) {
             return null;
         }
 
@@ -73,6 +73,23 @@ class CatalogPriceBook implements PriceBook
         $discount = $selection->clientId === null ? 0.0 : $this->groupDiscount($selection->clientId);
 
         return $quote !== null && $discount > 0 ? PriceCalculator::discount($quote, $discount) : $quote;
+    }
+
+    /**
+     * Contract shape is option id => value id (or quantity); anything else (strings, floats, arrays) is an invalid
+     * selection and must yield a null quote instead of a TypeError further down.
+     *
+     * @param  array<mixed, mixed>  $options
+     */
+    private function wellFormedOptions(array $options): bool
+    {
+        foreach ($options as $optionId => $value) {
+            if (! is_int($optionId) || ! is_int($value)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

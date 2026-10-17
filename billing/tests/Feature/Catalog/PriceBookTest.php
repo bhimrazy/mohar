@@ -80,6 +80,17 @@ describe('availableCycles', function () {
 });
 
 describe('quote', function () {
+    it('returns null instead of throwing for malformed option selections', function (array $options) {
+        $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create();
+
+        expect(priceBook()->quote(new ProductSelection($product->id, BillingCycle::Monthly, 'USD', $options)))->toBeNull();
+    })->with([
+        'string value' => [[1 => 'abc']],
+        'float value' => [[1 => 1.5]],
+        'array value' => [[1 => [2]]],
+        'string key' => [['ram' => 2]],
+    ]);
+
     it('adds the selected option value to the product price', function () {
         $option = ConfigOption::factory()->create(['name' => 'RAM']);
         $value = ConfigOptionValue::factory()->for($option, 'option')->withPrice('EUR', BillingCycle::Monthly, 500, 250)->create(['label' => '4GB RAM']);
