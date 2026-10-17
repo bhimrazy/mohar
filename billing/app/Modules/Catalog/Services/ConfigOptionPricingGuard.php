@@ -53,6 +53,29 @@ class ConfigOptionPricingGuard
     }
 
     /**
+     * Same check for one option regardless of its own visibility (used before un-hiding it).
+     *
+     * @param  list<array{currency: string, cycle: string}>  $enabledProductPrices
+     * @return list<string>
+     */
+    public function missingPricesForOption(array $enabledProductPrices, ConfigOption $option): array
+    {
+        $missing = [];
+
+        foreach ($option->values()->where('is_hidden', false)->with('prices')->get() as $value) {
+            foreach ($enabledProductPrices as $row) {
+                $cycle = BillingCycle::from($row['cycle']);
+
+                if ($value->priceFor($row['currency'], $cycle) === null) {
+                    $missing[] = $this->describe($option, $value, $row['currency'], $cycle);
+                }
+            }
+        }
+
+        return array_values(array_unique($missing));
+    }
+
+    /**
      * Enabled (currency, cycle) pairs a product sells, from its loaded or queried prices.
      *
      * @return list<array{currency: string, cycle: string}>

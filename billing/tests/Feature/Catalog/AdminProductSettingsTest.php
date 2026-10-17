@@ -273,3 +273,15 @@ it('validates the provisioning binding', function () {
         'driver_config' => [['key' => 'a', 'value' => '1'], ['key' => 'a', 'value' => '2']],
     ])->assertSessionHasErrors(['provisioning_driver', 'driver_config.1.key' => 'Each setting name can only be used once.']);
 });
+
+it('refuses to attach retired addons but keeps ones already attached', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $product = Product::factory()->create();
+    $kept = Addon::factory()->retired()->create();
+    $product->addons()->attach($kept);
+    $retired = Addon::factory()->retired()->create();
+
+    $this->put(route('admin.catalog.products.addons.update', $product), ['addon_ids' => [$kept->id, $retired->id]])
+        ->assertSessionHasErrors(['addon_ids' => 'Retired addons can\'t be added to products.']);
+    $this->put(route('admin.catalog.products.addons.update', $product), ['addon_ids' => [$kept->id]])->assertSessionHasNoErrors();
+});

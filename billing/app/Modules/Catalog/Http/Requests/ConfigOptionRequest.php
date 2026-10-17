@@ -4,6 +4,7 @@ namespace App\Modules\Catalog\Http\Requests;
 
 use App\Modules\Catalog\Enums\ConfigOptionType;
 use App\Modules\Catalog\Models\ConfigOption;
+use App\Modules\Catalog\Services\ConfigOptionPricingGuard;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -49,7 +50,7 @@ class ConfigOptionRequest extends FormRequest
     /**
      * @return array<int, \Closure(Validator): void>
      */
-    public function after(): array
+    public function after(ConfigOptionPricingGuard $guard): array
     {
         return [function (Validator $validator): void {
             $option = $this->route('option');
@@ -57,6 +58,25 @@ class ConfigOptionRequest extends FormRequest
 
             if ($option instanceof ConfigOption && $type?->hasSingleValue() && $option->values()->count() > 1) {
                 $validator->errors()->add('type', __('Yes/no and quantity options have a single price row. Delete the extra values first.'));
+            }
+        }, function (Validator $validator) use ($guard): void {
+            $option = $this->route('option');
+
+            if ($validator->errors()->isNotEmpty() || ! $option instanceof ConfigOption || ! $option->is_hidden || $this->boolean('is_hidden')) {
+                return;
+            }
+
+            foreach ($option->group->products()->where('is_retired', false)->orderBy('products.id')->get() as $product) {
+                $missing = $guard->missingPricesForOption($guard->enabledPairsOf($product), $option);
+
+                if ($missing !== []) {
+                    $validator->errors()->add('is_hidden', __('Price this option for every cycle :product sells before showing it. Missing: :missing', [
+                        'product' => $product->name,
+                        'missing' => implode('; ', array_slice($missing, 0, 4)).(count($missing) > 4 ? ' …' : ''),
+                    ]));
+
+                    return;
+                }
             }
         }];
     }

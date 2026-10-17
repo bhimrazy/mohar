@@ -216,3 +216,18 @@ it('hides retired products from the assignment list unless already assigned', fu
     $this->get(route('admin.catalog.option-groups.edit', $group))
         ->assertInertia(fn (Assert $page) => $page->where('products', fn ($products) => collect($products)->pluck('id')->sort()->values()->all() === collect([$assigned->id, $active->id])->sort()->values()->all()));
 });
+
+it('refuses to unhide an option that is not priced for the cycles its products sell', function () {
+    actingAsStaff(['catalog.options.manage']);
+    $option = ConfigOption::factory()->hidden()->create(['name' => 'RAM']);
+    ConfigOptionValue::factory()->for($option, 'option')->withPrice('USD', BillingCycle::Annually, 900)->create(['label' => '8 GB']);
+    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create(['name' => 'VPS']);
+    $product->configOptionGroups()->attach($option->config_option_group_id);
+
+    $this->put(route('admin.catalog.options.update', $option), ['name' => 'RAM', 'type' => 'dropdown', 'is_hidden' => false])
+        ->assertSessionHasErrors(['is_hidden' => 'Price this option for every cycle VPS sells before showing it. Missing: RAM › 8 GB (USD, monthly)']);
+    $this->put(route('admin.catalog.options.update', $option), ['name' => 'RAM', 'type' => 'dropdown', 'is_hidden' => true])
+        ->assertSessionHasNoErrors();
+
+    expect($option->fresh()->is_hidden)->toBeTrue();
+});
