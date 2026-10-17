@@ -12,14 +12,17 @@ use Illuminate\Support\Facades\Route;
  */
 class Navigation
 {
-    /** "admin-client" items are links on the admin client profile; their route receives ['client' => id]. */
-    public const AREAS = ['admin', 'client', 'admin-client'];
+    /**
+     * "admin-client" items are links on the admin client profile; their route receives ['client' => id].
+     * "admin-create" items are quick-create actions (New client, New invoice, ...) in the admin header.
+     */
+    public const AREAS = ['admin', 'client', 'admin-client', 'admin-create'];
 
     /** Fixed ordering of sidebar groups; unknown groups go last. */
     public const GROUP_ORDER = ['General', 'Clients', 'Orders', 'Billing', 'Services', 'Domains', 'Support', 'Marketing', 'Reports', 'Setup'];
 
     /** @var array<string, list<NavItem>> */
-    private array $items = ['admin' => [], 'client' => [], 'admin-client' => []];
+    private array $items = ['admin' => [], 'client' => [], 'admin-client' => [], 'admin-create' => []];
 
     public function add(string $area, NavItem $item): void
     {
@@ -27,7 +30,7 @@ class Navigation
     }
 
     /**
-     * @return list<array{title: string, items: list<array{title: string, href: string, icon: string, active: bool}>}>
+     * @return list<array{title: string, items: list<array{title: string, href: string, icon: string, active: bool, badge: int|null}>}>
      */
     public function forUser(string $area, ?User $user): array
     {
@@ -48,6 +51,7 @@ class Navigation
                     'href' => route($item->route),
                     'icon' => $item->icon,
                     'active' => $current === $item->route || ($item->activePattern !== null && fnmatch($item->activePattern, $current)),
+                    'badge' => $item->badge !== null ? ($item->badge)($user) : null,
                 ])->all()),
             ])
             ->all());
@@ -69,6 +73,21 @@ class Navigation
                 'href' => route($item->route, ['client' => $clientId]),
                 'icon' => $item->icon,
             ])
+            ->all());
+    }
+
+    /**
+     * Quick-create actions visible to the user.
+     *
+     * @return list<array{title: string, href: string, icon: string}>
+     */
+    public function quickActions(?User $user): array
+    {
+        return array_values(collect($this->items['admin-create'])
+            ->filter(fn (NavItem $item): bool => Route::has($item->route))
+            ->filter(fn (NavItem $item): bool => $item->permission === null || ($user?->hasPermission($item->permission) ?? false))
+            ->sortBy('order')
+            ->map(fn (NavItem $item): array => ['title' => $item->title, 'href' => route($item->route), 'icon' => $item->icon])
             ->all());
     }
 }

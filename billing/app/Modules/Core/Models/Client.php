@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
@@ -55,6 +56,16 @@ class Client extends Model
     protected function casts(): array
     {
         return ['tax_exempt' => 'boolean'];
+    }
+
+    /**
+     * Emails are stored lowercase: unique indexes and equality lookups are case-sensitive on PostgreSQL.
+     *
+     * @return Attribute<string, string>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => Str::lower($value));
     }
 
     /**
@@ -107,10 +118,10 @@ class Client extends Model
 
         $query->where(function (Builder $query) use ($term): void {
             $like = '%'.$term.'%';
-            $query->where('first_name', 'like', $like)
-                ->orWhere('last_name', 'like', $like)
-                ->orWhere('company_name', 'like', $like)
-                ->orWhere('email', 'like', $like);
+            $query->whereLike('first_name', $like)
+                ->orWhereLike('last_name', $like)
+                ->orWhereLike('company_name', $like)
+                ->orWhereLike('email', $like);
 
             if (ctype_digit($term)) {
                 $query->orWhere('id', (int) $term);

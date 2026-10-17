@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Fortify\CreateNewUser;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -83,4 +84,18 @@ test('registration creates an owned client account', function () {
     $client = $user->clients()->firstOrFail();
     expect($client)->first_name->toBe('Jane')->last_name->toBe('Doe')
         ->and((bool) $client->pivot->is_owner)->toBeTrue();
+});
+
+test('new users and their client accounts store the email lowercase', function () {
+    Currency::factory()->create();
+
+    $user = app(CreateNewUser::class)->create([
+        'name' => 'Jane Doe',
+        'email' => 'Jane.Doe@Example.COM',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ]);
+
+    expect($user->email)->toBe('jane.doe@example.com')
+        ->and($user->clients()->sole()->email)->toBe('jane.doe@example.com');
 });

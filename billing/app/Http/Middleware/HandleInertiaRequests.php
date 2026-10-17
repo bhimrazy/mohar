@@ -45,6 +45,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'area' => $area = $this->area($request),
             'navigation' => fn (): array => $request->user() ? app(Navigation::class)->forUser($area, $request->user()) : [],
+            'quickActions' => fn (): array => $area === 'admin' && $request->user() ? app(Navigation::class)->quickActions($request->user()) : [],
             'clientAccounts' => fn (): array => $area === 'client' && $request->user()
                 ? $request->user()->clients()->get(['clients.id', 'clients.first_name', 'clients.last_name', 'clients.company_name'])
                     ->map(fn ($client): array => ['id' => $client->id, 'name' => $client->display_name])->all()
