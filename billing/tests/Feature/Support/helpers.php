@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Services\ClientServiceDirectory;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Actions\OpenTicket;
@@ -43,6 +44,30 @@ if (! function_exists('supportStaff')) {
         test()->actingAs($user);
 
         return $user;
+    }
+
+    /**
+     * Bind a ClientServiceDirectory fake: client id => list of service ids.
+     *
+     * @param  array<int, list<int>>  $services
+     */
+    function fakeServiceDirectory(array $services): void
+    {
+        app()->instance(ClientServiceDirectory::class, new class($services) implements ClientServiceDirectory
+        {
+            /** @param  array<int, list<int>>  $services */
+            public function __construct(private array $services) {}
+
+            public function forClient(int $clientId): array
+            {
+                return array_map(fn (int $id): array => ['id' => $id, 'label' => "Web hosting #{$id}", 'status' => 'active'], $this->services[$clientId] ?? []);
+            }
+
+            public function belongsToClient(int $serviceId, int $clientId): bool
+            {
+                return in_array($serviceId, $this->services[$clientId] ?? [], true);
+            }
+        });
     }
 
     /**

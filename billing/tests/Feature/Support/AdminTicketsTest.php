@@ -170,3 +170,19 @@ test('staff save a signature', function () {
     $this->put(route('admin.support.signature.update'), ['signature' => ''])->assertRedirect();
     expect(StaffSignature::query()->count())->toBe(0);
 });
+
+test('staff may only link services of the ticket client', function () {
+    $department = Department::factory()->create();
+    $client = Client::factory()->create();
+    $ticket = clientTicket($client, $department);
+    $guest = guestTicket($department);
+    fakeServiceDirectory([$client->id => [5]]);
+    supportStaff([$department]);
+
+    $this->get(route('admin.support.tickets.show', $ticket))->assertInertia(fn (Assert $page) => $page->where('services.0.id', 5));
+    $this->patch(route('admin.support.tickets.update', $ticket), ['service_id' => 6])->assertSessionHasErrors('service_id');
+    $this->patch(route('admin.support.tickets.update', $ticket), ['service_id' => 5])->assertRedirect();
+    $this->patch(route('admin.support.tickets.update', $guest), ['service_id' => 5])->assertSessionHasErrors('service_id');
+
+    expect($ticket->fresh()->service_id)->toBe(5)->and($guest->fresh()->service_id)->toBeNull();
+});

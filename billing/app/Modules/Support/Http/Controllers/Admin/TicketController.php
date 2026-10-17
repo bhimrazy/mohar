@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support\Http\Controllers\Admin;
 
+use App\Contracts\Services\ClientServiceDirectory;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -46,6 +47,7 @@ class TicketController extends Controller
         private TicketAccess $access,
         private TicketPresenter $presenter,
         private SupportSettings $settings,
+        private ClientServiceDirectory $services,
     ) {}
 
     public function index(Request $request): Response
@@ -123,6 +125,7 @@ class TicketController extends Controller
                 'name' => trim($client->first_name.' '.$client->last_name),
                 'email' => $client->email,
             ] : null,
+            'services' => $client ? $this->services->forClient($client->id) : [],
             'limits' => $this->presenter->uploadLimits(true),
         ]);
     }
@@ -193,6 +196,7 @@ class TicketController extends Controller
             'priorities' => TicketPriority::options(),
             'cannedReplies' => CannedReply::query()->with('category:id,name')->orderBy('sort_order')->orderBy('name')->orderBy('id')->get()
                 ->map(fn (CannedReply $reply): array => ['id' => $reply->id, 'name' => $reply->name, 'body' => $reply->body, 'category' => $reply->category?->name]),
+            'services' => $ticket->client_id !== null ? $this->services->forClient($ticket->client_id) : [],
             'limits' => $this->presenter->uploadLimits(true),
             'can' => [
                 'reply' => $user->hasPermission('support.tickets.reply'),

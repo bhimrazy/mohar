@@ -20,6 +20,7 @@ import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { PriorityBadge } from '@/components/support/priority-badge';
 import { ReplyForm } from '@/components/support/reply-form';
+import { ServicePicker } from '@/components/support/service-picker';
 import type { CannedReplyOption } from '@/components/support/reply-form';
 import { TicketThread } from '@/components/support/ticket-thread';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -57,12 +58,14 @@ import { useClipboard } from '@/hooks/use-clipboard';
 import { show as clientShow } from '@/routes/admin/clients';
 import type { SelectOption } from '@/types/app';
 import type {
+    ServiceOption,
     TicketDetail,
     TicketMessage,
     UploadLimits,
 } from '@/types/support';
 
 type Props = {
+    services: ServiceOption[];
     ticket: TicketDetail & { id: number; version: number };
     client: {
         id: number;
@@ -396,7 +399,12 @@ export default function TicketShow(props: Props) {
                                     {
                                         label: 'Related service',
                                         value: ticket.service_id
-                                            ? `Service #${ticket.service_id}`
+                                            ? (props.services.find(
+                                                  (service) =>
+                                                      service.id ===
+                                                      ticket.service_id,
+                                              )?.label ??
+                                              `Service #${ticket.service_id}`)
                                             : null,
                                     },
                                     {
@@ -464,6 +472,7 @@ function OptionsCard({
     priorities,
     departments,
     staff,
+    services,
 }: Props) {
     const [pinned, setPinned] = useState(Boolean(ticket.is_pinned));
     const [preventClose, setPreventClose] = useState(
@@ -573,19 +582,11 @@ function OptionsCard({
                                 defaultValue={(ticket.cc ?? []).join(', ')}
                             />
                         </Field>
-                        <Field
-                            htmlFor="service_id"
-                            label="Related service ID"
-                            optional
+                        <ServicePicker
+                            services={services}
+                            defaultValue={ticket.service_id}
                             error={errors.service_id}
-                        >
-                            <Input
-                                id="service_id"
-                                name="service_id"
-                                inputMode="numeric"
-                                defaultValue={ticket.service_id ?? ''}
-                            />
-                        </Field>
+                        />
                         <ToggleRow
                             id="pinned"
                             label="Pin to top"

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Support\Http\Controllers\Client;
 
+use App\Contracts\Services\ClientServiceDirectory;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Support\ClientContext;
@@ -32,7 +33,8 @@ use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Client-area tickets. Every query is scoped to the current client account (IDOR-safe).
+ * Client-area tickets. Every lookup is scoped to the current client account, including the target of
+ * a merged ticket, and related services are validated through ClientServiceDirectory.
  */
 class TicketController extends Controller
 {
@@ -40,6 +42,7 @@ class TicketController extends Controller
         private ClientContext $context,
         private TicketPresenter $presenter,
         private CustomerDepartments $departments,
+        private ClientServiceDirectory $services,
     ) {}
 
     public function index(Request $request): Response
@@ -72,6 +75,7 @@ class TicketController extends Controller
             'departments' => $this->departments->options($this->departments->available(false, $slug)),
             'selected' => $slug !== null ? (string) Department::query()->where('slug', $slug)->value('id') : null,
             'priorities' => TicketPriority::options(),
+            'services' => $this->services->forClient($this->context->id()),
             'limits' => $this->presenter->uploadLimits(false),
         ]);
     }

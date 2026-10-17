@@ -15,11 +15,12 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { ServicePicker } from '@/components/support/service-picker';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { index as kbIndex } from '@/routes/support/kb';
 import type { SelectOption } from '@/types/app';
-import type { DepartmentOption, UploadLimits } from '@/types/support';
+import type { DepartmentOption, ServiceOption, UploadLimits } from '@/types/support';
 import type { RouteFormDefinition } from '@/wayfinder';
 
 type OpenTicketFormProps = {
@@ -31,7 +32,7 @@ type OpenTicketFormProps = {
     /** Guests also give their name and email. */
     guest?: boolean;
     /** Signed-in clients may reference one of their services. */
-    showService?: boolean;
+    services?: ServiceOption[];
 };
 
 /** Department picker → ticket form, shared by the client area and the guest form. */
@@ -42,7 +43,7 @@ export function OpenTicketForm({
     priorities,
     limits,
     guest = false,
-    showService = false,
+    services = [],
 }: OpenTicketFormProps) {
     const [department, setDepartment] = useState<string>(
         selected ?? (departments.length === 1 ? departments[0].value : ''),
@@ -210,22 +211,11 @@ export function OpenTicketForm({
                                         </SelectContent>
                                     </Select>
                                 </Field>
-                                {showService && (
-                                    <Field
-                                        htmlFor="service_id"
-                                        label="Related service number"
-                                        optional
-                                        hint="Shown on your services page."
-                                        error={errors.service_id}
-                                    >
-                                        <Input
-                                            id="service_id"
-                                            name="service_id"
-                                            inputMode="numeric"
-                                            aria-describedby="service_id-description"
-                                        />
-                                    </Field>
-                                )}
+                                <ServicePicker
+                                    services={services}
+                                    error={errors.service_id}
+                                    hint="Pick the service this is about, if any."
+                                />
                                 <Field
                                     htmlFor="body"
                                     label="Message"

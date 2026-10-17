@@ -4,6 +4,8 @@ namespace App\Modules\Support\Http\Requests;
 
 use App\Modules\Support\Enums\TicketPriority;
 use App\Modules\Support\Enums\TicketStatus;
+use App\Modules\Support\Models\Ticket;
+use App\Modules\Support\Rules\ServiceOfClient;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -50,11 +52,25 @@ class UpdateTicketRequest extends FormRequest
             'tags.*' => ['string', 'max:40'],
             'is_pinned' => ['sometimes', 'boolean'],
             'prevent_client_close' => ['sometimes', 'boolean'],
-            'service_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            'service_id' => ['sometimes', 'nullable', 'integer', 'min:1', new ServiceOfClient($this->clientIdAfterUpdate())],
             'client_id' => ['sometimes', 'nullable', 'integer', Rule::exists('clients', 'id')],
             'version' => ['nullable', 'integer'],
             'force' => ['nullable', 'boolean'],
         ];
+    }
+
+    /**
+     * The client the ticket will belong to after this update (related services must be theirs).
+     */
+    private function clientIdAfterUpdate(): ?int
+    {
+        if ($this->has('client_id')) {
+            return $this->filled('client_id') ? $this->integer('client_id') : null;
+        }
+
+        $ticket = $this->route('ticket');
+
+        return $ticket instanceof Ticket ? $ticket->client_id : null;
     }
 
     /**
@@ -71,10 +87,8 @@ class UpdateTicketRequest extends FormRequest
             }
         }
 
-        foreach (['department_id'] as $key) {
-            if (array_key_exists($key, $data)) {
-                $changes[$key] = (int) $data[$key];
-            }
+        if (array_key_exists('department_id', $data)) {
+            $changes['department_id'] = (int) $data['department_id'];
         }
 
         foreach (['assigned_to', 'service_id', 'client_id'] as $key) {

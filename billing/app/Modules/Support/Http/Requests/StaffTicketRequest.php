@@ -5,6 +5,7 @@ namespace App\Modules\Support\Http\Requests;
 use App\Modules\Support\Enums\TicketPriority;
 use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Http\Requests\Concerns\ValidatesAttachments;
+use App\Modules\Support\Rules\ServiceOfClient;
 use App\Modules\Support\Services\TicketAccess;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -37,7 +38,7 @@ class StaffTicketRequest extends FormRequest
             'body' => ['required', 'string', 'max:65000'],
             'priority' => ['required', Rule::enum(TicketPriority::class)],
             'status' => ['nullable', Rule::enum(TicketStatus::class)],
-            'service_id' => ['nullable', 'integer', 'min:1'],
+            'service_id' => ['nullable', 'integer', 'min:1', new ServiceOfClient($this->filled('client_id') ? $this->integer('client_id') : null)],
             'cc' => ['nullable', 'array', 'max:10'],
             'cc.*' => ['email', 'max:255'],
             ...$this->attachmentRules(staff: true),

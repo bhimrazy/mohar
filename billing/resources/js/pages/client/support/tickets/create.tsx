@@ -4,9 +4,14 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { OpenTicketForm } from '@/components/support/open-ticket-form';
 import type { SelectOption } from '@/types/app';
-import type { DepartmentOption, UploadLimits } from '@/types/support';
+import type {
+    DepartmentOption,
+    ServiceOption,
+    UploadLimits,
+} from '@/types/support';
 
 type Props = {
+    services: ServiceOption[];
     departments: DepartmentOption[];
     selected: string | null;
     priorities: SelectOption[];
@@ -14,6 +19,7 @@ type Props = {
 };
 
 export default function ClientOpenTicket({
+    services,
     departments,
     selected,
     priorities,
@@ -37,7 +43,7 @@ export default function ClientOpenTicket({
                     selected={selected}
                     priorities={priorities}
                     limits={limits}
-                    showService
+                    services={services}
                 />
             </Page>
         </>

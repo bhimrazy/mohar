@@ -5,6 +5,7 @@ namespace App\Modules\Support\Http\Requests;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Support\Enums\TicketPriority;
 use App\Modules\Support\Http\Requests\Concerns\ValidatesAttachments;
+use App\Modules\Support\Rules\ServiceOfClient;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -38,7 +39,9 @@ class CustomerTicketRequest extends FormRequest
             'subject' => ['required', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:65000'],
             'priority' => ['nullable', Rule::enum(TicketPriority::class)],
-            'service_id' => ['nullable', 'integer', 'min:1'],
+            'service_id' => $guest
+                ? ['prohibited']
+                : ['nullable', 'integer', 'min:1', new ServiceOfClient(app(ClientContext::class)->isResolved() ? app(ClientContext::class)->id() : null)],
             'name' => [$guest ? 'required' : 'nullable', 'string', 'max:255'],
             'email' => [$guest ? 'required' : 'nullable', 'email', 'max:255'],
             /** Honeypot: real people leave it empty. */

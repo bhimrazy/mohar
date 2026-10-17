@@ -58,9 +58,11 @@ test('account users need the support permission', function () {
 test('clients open tickets with a related service id and attachments', function () {
     [$user, $client] = actingAsClient();
     $department = Department::factory()->clientsOnly()->create();
+    fakeServiceDirectory([$client->id => [42]]);
 
     $this->get(route('client.support.tickets.create'))
-        ->assertInertia(fn (Assert $page) => $page->component('client/support/tickets/create')->has('departments', 1)->has('limits.extensions'));
+        ->assertInertia(fn (Assert $page) => $page->component('client/support/tickets/create')->has('departments', 1)->has('limits.extensions')
+            ->where('services.0.id', 42));
 
     $this->post(route('client.support.tickets.store'), [
         'department_id' => $department->id,
@@ -131,4 +133,34 @@ test('client urls of merged tickets redirect to the target', function () {
 
     $this->get(route('client.support.tickets.show', $newer->number))->assertRedirect(route('client.support.tickets.show', $older->number));
     expect($user->id)->toBeInt();
+});
+
+test('clients cannot link services of other clients to a ticket', function () {
+    [, $client] = actingAsClient();
+    $department = Department::factory()->create();
+    $other = Client::factory()->create();
+    fakeServiceDirectory([$client->id => [42], $other->id => [987654]]);
+    $payload = ['department_id' => $department->id, 'subject' => 'Help', 'body' => 'Body'];
+
+    $this->post(route('client.support.tickets.store'), [...$payload, 'service_id' => 987654])->assertSessionHasErrors('service_id');
+    expect(Ticket::query()->count())->toBe(0);
+
+    $this->post(route('client.support.tickets.store'), [...$payload, 'service_id' => 42])->assertRedirect();
+    expect(Ticket::query()->sole()->service_id)->toBe(42);
+});
+
+test('without a services module no related service can be linked and the picker is empty', function () {
+    actingAsClient();
+    $department = Department::factory()->create();
+
+    $this->get(route('client.support.tickets.create'))->assertInertia(fn (Assert $page) => $page->where('services', []));
+    $this->post(route('client.support.tickets.store'), ['department_id' => $department->id, 'subject' => 'x', 'body' => 'y', 'service_id' => 1])
+        ->assertSessionHasErrors('service_id');
+});
+
+test('guests cannot send a related service', function () {
+    $department = Department::factory()->create();
+
+    $this->post(route('support.tickets.store'), ['department_id' => $department->id, 'name' => 'G', 'email' => 'g@example.com', 'subject' => 'x', 'body' => 'y', 'service_id' => 1])
+        ->assertSessionHasErrors('service_id');
 });

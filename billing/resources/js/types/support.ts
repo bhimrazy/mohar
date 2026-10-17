@@ -76,3 +76,10 @@ export type DepartmentOption = {
     label: string;
     description?: string | null;
 };
+
+/** From the Services module's ClientServiceDirectory (empty when not installed). */
+export type ServiceOption = {
+    id: number;
+    label: string;
+    status: string;
+};

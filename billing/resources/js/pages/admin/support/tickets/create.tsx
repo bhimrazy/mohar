@@ -14,12 +14,14 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { ServicePicker } from '@/components/support/service-picker';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import type { SelectOption } from '@/types/app';
-import type { UploadLimits } from '@/types/support';
+import type { ServiceOption, UploadLimits } from '@/types/support';
 
 type Props = {
+    services: ServiceOption[];
     departments: SelectOption[];
     priorities: SelectOption[];
     statuses: SelectOption[];
@@ -37,6 +39,7 @@ export default function CreateTicket({
     priorities,
     statuses,
     client,
+    services,
     limits,
 }: Props) {
     return (
@@ -219,18 +222,10 @@ export default function CreateTicket({
                                             </SelectContent>
                                         </Select>
                                     </Field>
-                                    <Field
-                                        htmlFor="service_id"
-                                        label="Related service ID"
-                                        optional
+                                    <ServicePicker
+                                        services={services}
                                         error={errors.service_id}
-                                    >
-                                        <Input
-                                            id="service_id"
-                                            name="service_id"
-                                            inputMode="numeric"
-                                        />
-                                    </Field>
+                                    />
                                     <Field
                                         htmlFor="attachments"
                                         label="Attachments"
