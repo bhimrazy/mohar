@@ -147,6 +147,29 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'icon' => 'Globe',
         ], 'domains.domains.view', 61);
 
+        $dashboard->todo('admin', 'domains.expiring', fn (?User $user): array => [
+            'label' => 'Domains expiring in 30 days',
+            'count' => Domain::query()->expiringWithin(30)->count(),
+            'href' => route('admin.domains.index', ['expiring' => 30]),
+            'tone' => 'warning',
+        ], 'domains.domains.view', 60);
+
+        $dashboard->todo('admin', 'domains.attention', fn (?User $user): array => [
+            'label' => 'Domains with failed or unverified registrar actions',
+            'count' => Domain::query()->needingAttention()->count(),
+            'href' => route('admin.domains.index', ['attention' => 1]),
+            'tone' => 'danger',
+        ], 'domains.domains.view', 61);
+
+        $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
+            'label' => 'Domains to renew',
+            'count' => Domain::query()->where('client_id', $client->id)
+                ->where(fn ($query) => $query->expiringWithin(30)->orWhere(fn ($query) => $query->withStatus([DomainStatus::Grace, DomainStatus::Redemption])))
+                ->count(),
+            'href' => route('client.domains.index'),
+            'tone' => 'warning',
+        ], null, 30);
+
         $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): array => [
             'label' => 'Domains expiring soon',
             'value' => Domain::query()->where('client_id', $client->id)->expiringWithin(30)->count(),
@@ -197,6 +220,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.suggestion_tlds', 'Extensions used for suggestions', 'string', 'Comma-separated.'),
             new SettingDefinition('domains.suggestion_limit', 'Maximum suggestions', 'integer', rules: ['min:0', 'max:50']),
             new SettingDefinition('domains.lookup_rate_limit', 'Lookups per minute per IP', 'integer', rules: ['min:1', 'max:600']),
+            new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
             new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
     }

@@ -30,7 +30,12 @@ test('clients see only their own domains', function () {
     $this->get(route('client.domains.show', $foreign->id))->assertNotFound();
     $this->put(route('client.domains.nameservers', $foreign->id), ['nameservers' => ['ns1.evil.com', 'ns2.evil.com']])->assertNotFound();
     $this->post(route('client.domains.epp', $foreign->id))->assertNotFound();
-    expect($this->registrar->calls)->toBe([]);
+    $this->put(route('client.domains.lock', $foreign->id), ['enabled' => false])->assertNotFound();
+    $this->put(route('client.domains.auto-renew', $foreign->id), ['enabled' => false])->assertNotFound();
+    $this->put(route('client.domains.contacts', $foreign->id), ['contacts' => ['registrant' => ['first_name' => 'E', 'last_name' => 'Vil', 'email' => 'e@vil.test']]])->assertNotFound();
+    $this->put(route('client.domains.transfer', $foreign->id), ['epp_code' => 'X'])->assertNotFound();
+    expect($this->registrar->calls)->toBe([])
+        ->and($foreign->fresh()->auto_renew)->toBeTrue();
 });
 
 test('the detail page shows management options for the registrar capabilities', function () {

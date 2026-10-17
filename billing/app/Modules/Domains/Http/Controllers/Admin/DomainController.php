@@ -13,6 +13,7 @@ use App\Modules\Domains\Http\Resources\DomainResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\RenewalInvoices;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -34,6 +35,7 @@ class DomainController extends Controller
                 : $query->where('registrar_key', $request->string('registrar')->toString()))
             ->when($request->filled('tld'), fn (Builder $query) => $query->where('tld', Tld::normaliseExtension($request->string('tld')->toString())))
             ->when($request->integer('expiring') > 0, fn (Builder $query) => $query->expiringWithin(min(3650, $request->integer('expiring'))))
+            ->when($request->boolean('attention'), fn (Builder $query) => $query->needingAttention())
             ->when($request->integer('client') > 0, fn (Builder $query) => $query->where('client_id', $request->integer('client')))
             ->orderBy($request->integer('expiring') > 0 ? 'expiry_date' : 'id', $request->integer('expiring') > 0 ? 'asc' : 'desc')
             ->orderByDesc('id')
@@ -42,7 +44,7 @@ class DomainController extends Controller
 
         return Inertia::render('admin/domains/index', [
             'domains' => DomainResource::collection($domains),
-            'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client']),
+            'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client', 'attention']),
             'statuses' => DomainStatus::values(),
             'registrars' => $registrars->keys(),
             'tlds' => Tld::query()->ordered()->pluck('extension'),
@@ -58,6 +60,12 @@ class DomainController extends Controller
             'domain' => new DomainResource($domain),
             'contacts' => $this->contacts($domain),
             'capabilities' => $registrars->capabilitiesOf($domain->registrar_key),
+            'registrar' => $domain->registrar_key === null || ! $registrars->has($domain->registrar_key) ? null : [
+                'key' => $domain->registrar_key,
+                'name' => $registrars->driver($domain->registrar_key)->name(),
+                'active' => $registrars->isActive($domain->registrar_key),
+            ],
+            'billingAvailable' => app(RenewalInvoices::class)->available(),
             'registrars' => $registrars->keys(),
             'statuses' => DomainStatus::values(),
             'allowedStatuses' => array_map(fn (DomainStatus $status): string => $status->value, $domain->status->allowedTransitions()),
@@ -71,12 +79,12 @@ class DomainController extends Controller
                     'staff' => $entry->staff?->name,
                     'created_at' => $entry->created_at?->toIso8601String(),
                 ]),
-            'reminders' => $domain->reminders()->latest('id')->limit(20)->get(['id', 'expiry_date', 'offset_days', 'sent_at'])
+            'reminders' => $domain->reminders()->latest('id')->limit(20)->get(['id', 'expiry_date', 'offset_days', 'dispatched_at'])
                 ->map(fn ($reminder): array => [
                     'id' => $reminder->id,
                     'expiry_date' => $reminder->expiry_date->toDateString(),
                     'offset_days' => $reminder->offset_days,
-                    'sent_at' => $reminder->sent_at->toIso8601String(),
+                    'dispatched_at' => $reminder->dispatched_at->toIso8601String(),
                 ]),
             'invoices' => $domain->invoices()->latest('id')->limit(20)->get(['id', 'invoice_id', 'kind', 'period_start', 'years', 'status'])
                 ->map(fn ($invoice): array => [...$invoice->only(['id', 'invoice_id', 'kind', 'years', 'status']), 'period_start' => $invoice->period_start->toDateString()]),

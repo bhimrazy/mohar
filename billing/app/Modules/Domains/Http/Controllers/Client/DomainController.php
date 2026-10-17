@@ -4,6 +4,8 @@ namespace App\Modules\Domains\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Domains\Actions\IssueRenewalNow;
 use App\Modules\Domains\Actions\ResubmitTransfer;
 use App\Modules\Domains\Actions\RetrieveEppCode;
 use App\Modules\Domains\Actions\SetAutoRenew;
@@ -15,6 +17,7 @@ use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\DomainActionNotAllowed;
 use App\Modules\Domains\Http\Requests\ContactsRequest;
 use App\Modules\Domains\Http\Requests\NameserversRequest;
+use App\Modules\Domains\Http\Requests\RenewNowRequest;
 use App\Modules\Domains\Http\Requests\ToggleRequest;
 use App\Modules\Domains\Http\Requests\TransferCodeRequest;
 use App\Modules\Domains\Http\Resources\DomainResource;
@@ -23,6 +26,7 @@ use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainPricingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -72,6 +76,8 @@ class DomainController extends Controller
             'canManage' => $model->status->allowsClientActions(),
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),
+            'canRenewNow' => $model->status->allowsClientActions() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
+                && ! ($model->isFree() && $model->linked_service_status === 'active'),
         ]);
     }
 
@@ -117,6 +123,16 @@ class DomainController extends Controller
         $resubmit->handle($this->domain($domain), $request->string('epp_code')->toString());
 
         return $this->done(__('Transfer resubmitted. We will let you know when it completes.'), $domain);
+    }
+
+    public function renew(RenewNowRequest $request, int $domain, IssueRenewalNow $renew): RedirectResponse
+    {
+        $invoice = $renew->handle($this->domain($domain), 'client', $request->filled('years') ? $request->integer('years') : null);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Renewal invoice :number created. Pay it to renew your domain.', ['number' => $invoice->number])]);
+
+        return Route::has('client.invoices.show')
+            ? to_route('client.invoices.show', $invoice->invoiceId)
+            : to_route('client.domains.show', $domain);
     }
 
     private function domain(int $id): Domain

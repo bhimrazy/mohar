@@ -93,3 +93,15 @@ test('every checked permission and tunable setting is registered', function () {
 
     expect(array_diff($defaults, $registered))->toBe([]);
 });
+
+test('needs-attention todos count expiring and failed domains', function () {
+    $staff = actingAsStaff(['domains.domains.view']);
+    Domain::factory()->expiring('2026-11-01')->create(['tld_id' => $this->com->id]);
+    Domain::factory()->pending()->create(['tld_id' => $this->com->id, 'last_error' => 'Rejected']);
+    Domain::factory()->create(['tld_id' => $this->com->id, 'needs_review' => true]);
+
+    $todos = collect(app(Dashboard::class)->resolveTodos('admin', $staff))->keyBy('key');
+
+    expect($todos['domains.expiring']['count'])->toBe(1)
+        ->and($todos['domains.attention']['count'])->toBe(2);
+});
