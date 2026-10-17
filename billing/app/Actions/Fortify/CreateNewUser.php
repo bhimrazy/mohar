@@ -29,17 +29,19 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        [$user, $client] = DB::transaction(function () use ($input): array {
+        $email = Str::lower($input['email']);
+
+        [$user, $client] = DB::transaction(function () use ($input, $email): array {
             $user = User::create([
                 'name' => $input['name'],
-                'email' => $input['email'],
+                'email' => $email,
                 'password' => $input['password'],
             ]);
 
             $client = Client::query()->create([
                 'first_name' => Str::before($input['name'], ' '),
                 'last_name' => Str::contains($input['name'], ' ') ? Str::after($input['name'], ' ') : '',
-                'email' => $input['email'],
+                'email' => $email,
                 'currency' => Currency::default()->code,
                 'status' => 'active',
             ]);

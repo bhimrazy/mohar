@@ -3,6 +3,7 @@
 use App\Events\Core\ClientRegistered;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Support\Facades\Event;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -40,16 +41,43 @@ test('staff can search clients', function () {
             ->where('clients.data.0.last_name', 'Lovelace'));
 });
 
-test('client search is case-insensitive on every database', function () {
+test('client search is case-insensitive on every database', function (string $term) {
     actingAsStaff(['core.clients.view']);
-    Client::factory()->create(['first_name' => 'Ada', 'last_name' => 'Lovelace', 'email' => 'Ada@Example.com']);
-    Client::factory()->count(2)->create(['first_name' => 'Someone', 'last_name' => 'Else']);
+    $clientAttributes = fn (string $first, string $last, ?string $company, string $email): array => [
+        'first_name' => $first, 'last_name' => $last, 'company_name' => $company, 'email' => $email,
+    ];
+    $match = Client::factory()->create($clientAttributes('Augusta', 'Lovelace', 'Analytical Engines', 'countess@example.com'));
+    Client::factory()->create($clientAttributes('Charles', 'Babbage', null, 'charles@example.net'));
+    Client::factory()->create($clientAttributes('Grace', 'Hopper', 'Navy Labs', 'grace@example.org'));
 
-    $this->get(route('admin.clients.index', ['search' => 'lOVELACE']))
-        ->assertInertia(fn (Assert $page) => $page->has('clients.data', 1));
+    $this->get(route('admin.clients.index', ['search' => $term]))
+        ->assertInertia(fn (Assert $page) => $page
+            ->has('clients.data', 1)
+            ->where('clients.data.0.id', $match->id));
+})->with([
+    'first name' => 'aUGUSTA',
+    'last name' => 'lOVELACE',
+    'company name' => 'analytical ENGINES',
+    'email' => 'COUNTESS@EXAMPLE',
+]);
 
-    $this->get(route('admin.clients.index', ['search' => 'ada@example']))
-        ->assertInertia(fn (Assert $page) => $page->has('clients.data', 1));
+test('client and contact emails are stored lowercase', function () {
+    actingAsStaff(['core.clients.*']);
+
+    $this->post(route('admin.clients.store'), [
+        'first_name' => 'Grace',
+        'last_name' => 'Hopper',
+        'email' => 'Grace.Hopper@Example.COM',
+        'currency' => 'USD',
+        'status' => 'active',
+        'tax_exempt' => false,
+    ])->assertRedirect();
+
+    $client = Client::query()->sole();
+    expect($client->email)->toBe('grace.hopper@example.com');
+
+    $contact = Contact::factory()->for($client)->create(['email' => 'Billing@Example.COM']);
+    expect($contact->refresh()->email)->toBe('billing@example.com');
 });
 
 test('staff can create a client', function () {

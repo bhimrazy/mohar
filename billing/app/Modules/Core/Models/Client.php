@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 /**
  * @property int $id
@@ -55,6 +56,16 @@ class Client extends Model
     protected function casts(): array
     {
         return ['tax_exempt' => 'boolean'];
+    }
+
+    /**
+     * Emails are stored lowercase: unique indexes and equality lookups are case-sensitive on PostgreSQL.
+     *
+     * @return Attribute<string, string>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => Str::lower($value));
     }
 
     /**
