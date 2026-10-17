@@ -13,7 +13,8 @@ final readonly class ProductSummary
      * @param  int|null  $suspendAfterDays  per-product override of services.suspend_after_days (null = global setting)
      * @param  int|null  $terminateAfterDays  per-product override of services.terminate_after_days
      * @param  int|null  $recurringCycleLimit  stop billing after N cycles (null = unlimited)
-     * @param  int|null  $termMonths  fixed-term length (null = open-ended)
+     * @param  int|null  $termDays  fixed-term length in days (null = open-ended)
+     * @param  bool  $freeDomainRecurring  true = the free domain stays free on renewals; false = first registration only
      * @param  list<string>|null  $allowedGateways  gateway keys allowed for this product (null = all enabled gateways)
      */
     public function __construct(
@@ -37,10 +38,11 @@ final readonly class ProductSummary
         public bool $freeDomain = false,
         public array $freeDomainTlds = [],
         public array $freeDomainCycles = [],
+        public bool $freeDomainRecurring = false,
         public ?int $suspendAfterDays = null,
         public ?int $terminateAfterDays = null,
         public ?int $recurringCycleLimit = null,
-        public ?int $termMonths = null,
+        public ?int $termDays = null,
         public ?string $slug = null,
         public ?array $allowedGateways = null,
     ) {}
