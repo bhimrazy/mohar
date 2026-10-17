@@ -36,8 +36,10 @@ test('a product is in use by any non-deleted service regardless of status', func
 });
 
 test('config option values are found in service selections', function () {
-    Service::factory()->create(['config_options' => ['selections' => [7 => 70, 8 => 3]]]);
-    Service::factory()->create(['config_options' => ['selections' => [9 => 90]]])->delete();
+    Service::factory()->create()->syncConfigOptions([7 => 70, 8 => 3]);
+    $deleted = Service::factory()->create();
+    $deleted->syncConfigOptions([9 => 90]);
+    $deleted->delete();
 
     $usage = app(CatalogUsage::class);
 

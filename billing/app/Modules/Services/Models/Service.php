@@ -41,6 +41,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int $recurring_amount
  * @property int|null $promotion_id
  * @property int|null $promotion_cycles_remaining
+ * @property int $renewal_discount
  * @property CarbonImmutable $registration_date
  * @property int|null $billing_anchor_day
  * @property CarbonImmutable|null $next_due_date
@@ -72,7 +73,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 #[Fillable([
     'client_id', 'product_id', 'product_name', 'order_id', 'status', 'cycle', 'currency', 'quantity', 'domain',
     'server_id', 'username', 'password', 'dedicated_ip', 'assigned_ips', 'first_payment_amount', 'recurring_amount',
-    'promotion_id', 'promotion_cycles_remaining', 'registration_date', 'billing_anchor_day', 'next_due_date',
+    'promotion_id', 'promotion_cycles_remaining', 'renewal_discount', 'registration_date', 'billing_anchor_day', 'next_due_date',
     'next_invoice_date', 'renewals_invoiced', 'recurring_cycles_limit', 'activated_at', 'suspended_at',
     'suspension_reason', 'suspend_exempt_until', 'suspend_days_override', 'terminate_days_override', 'do_not_renew',
     'terminate_at_period_end', 'termination_date', 'payment_gateway', 'config_options', 'custom_fields',
@@ -104,6 +105,7 @@ class Service extends Model
             'terminate_at_period_end' => 'boolean',
             'first_payment_amount' => 'integer',
             'recurring_amount' => 'integer',
+            'renewal_discount' => 'integer',
         ];
     }
 
@@ -129,6 +131,37 @@ class Service extends Model
     public function addons(): HasMany
     {
         return $this->hasMany(ServiceAddon::class);
+    }
+
+    /**
+     * @return HasMany<ServiceConfigOption, $this>
+     */
+    public function configOptionSelections(): HasMany
+    {
+        return $this->hasMany(ServiceConfigOption::class);
+    }
+
+    /**
+     * Store config option selections (option id => value id or quantity) in the json snapshot and the
+     * normalized table.
+     *
+     * @param  array<int|string, int|string>  $selections
+     */
+    public function syncConfigOptions(array $selections): void
+    {
+        $normalized = [];
+
+        foreach ($selections as $optionId => $valueId) {
+            $normalized[(int) $optionId] = (int) $valueId;
+        }
+
+        $this->update(['config_options' => [...($this->config_options ?? []), 'selections' => $normalized]]);
+        $this->configOptionSelections()->delete();
+        $this->configOptionSelections()->createMany(array_map(
+            fn (int $optionId, int $valueId): array => ['option_id' => $optionId, 'value_id' => $valueId],
+            array_keys($normalized),
+            $normalized,
+        ));
     }
 
     /**

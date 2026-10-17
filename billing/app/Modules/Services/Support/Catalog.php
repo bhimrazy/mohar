@@ -5,6 +5,7 @@ namespace App\Modules\Services\Support;
 use App\Contracts\Catalog\PriceBook;
 use App\Data\Catalog\ProductSummary;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Str;
 
 /**
  * Access to the Catalog module through its PriceBook contract. Degrades gracefully when no
@@ -29,6 +30,62 @@ class Catalog
         }
 
         return $this->products[$productId];
+    }
+
+    /**
+     * Custom field values (stored by field id) keyed by the field's module key for drivers.
+     *
+     * @param  array<int|string, mixed>  $values
+     * @return array<string, mixed>
+     */
+    public function customFieldsByModuleKey(int $productId, array $values): array
+    {
+        $byKey = [];
+
+        foreach ($this->customFields($productId) as $field) {
+            if (array_key_exists($field['id'], $values)) {
+                $byKey[$this->moduleKey($field)] = $values[$field['id']];
+            }
+        }
+
+        return $byKey;
+    }
+
+    /**
+     * Values of password-type custom fields (never logged).
+     *
+     * @param  array<int|string, mixed>  $values
+     * @return list<string>
+     */
+    public function secretCustomFieldValues(int $productId, array $values): array
+    {
+        $secrets = [];
+
+        foreach ($this->customFields($productId) as $field) {
+            if ($field['type'] === 'password' && isset($values[$field['id']]) && is_scalar($values[$field['id']])) {
+                $secrets[] = (string) $values[$field['id']];
+            }
+        }
+
+        return $secrets;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function customFields(int $productId): array
+    {
+        return $this->priceBook()?->customFieldsFor($productId) ?? [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $field
+     */
+    private function moduleKey(array $field): string
+    {
+        $key = $field['module_key'] ?? null;
+
+        return is_string($key) && $key !== '' ? $key : Str::slug((string) $field['name'], '_');
     }
 
     /**

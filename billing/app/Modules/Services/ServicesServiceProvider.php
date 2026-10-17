@@ -4,6 +4,8 @@ namespace App\Modules\Services;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Services\CatalogUsage;
+use App\Contracts\Services\ClientServiceDirectory;
+use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
@@ -31,7 +33,9 @@ use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
+use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
+use App\Modules\Services\Services\RegistryProvisioningDrivers;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -42,6 +46,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 
 class ServicesServiceProvider extends ModuleServiceProvider
@@ -63,6 +68,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $this->app->singleton(LogDriver::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
         $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
+        $this->app->bind(ProvisioningDrivers::class, RegistryProvisioningDrivers::class);
+        $this->app->bind(ClientServiceDirectory::class, EloquentClientServiceDirectory::class);
     }
 
     protected function bootModule(): void
@@ -70,6 +77,9 @@ class ServicesServiceProvider extends ModuleServiceProvider
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
+
+        // Driver commands run on the "provisioning" queue; the dev runner must consume it too.
+        DevCommands::artisan('queue:listen --queue=provisioning,default --tries=1 --timeout=0', 'queue');
 
         $this->registerAutomation();
         $this->registerNavigation();
@@ -82,7 +92,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int => app(GenerateRenewals::class)->handle($today));
+        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => app(GenerateRenewals::class)->handle($today));
         $automation->task('services.cancellations', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ProcessCancellations::class)->handle($today));
         $automation->task('services.upgrade-expiry', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ExpireUnpaidChanges::class)->handle($today));
         $automation->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today): int => app(SuspendOverdueServices::class)->handle($today));
@@ -239,7 +249,6 @@ class ServicesServiceProvider extends ModuleServiceProvider
             new SettingDefinition('services.upgrades.unpaid_expiry_days', 'Days before an unpaid upgrade expires', 'integer', rules: $integer),
             new SettingDefinition('services.upgrades.charge_setup_fee', 'Charge setup fees on upgrades', 'boolean'),
             new SettingDefinition('services.module.max_attempts', 'Attempts for retryable module actions', 'integer', rules: ['integer', 'min:1', 'max:10']),
-            new SettingDefinition('services.module.sync_timeout_seconds', 'Timeout for staff-triggered module actions (seconds)', 'integer', rules: ['integer', 'min:5', 'max:300']),
             new SettingDefinition('services.module.lock_wait_seconds', 'Seconds a module action waits for another action on the same service', 'integer', rules: ['integer', 'min:1', 'max:120']),
             new SettingDefinition('services.module_log.retention_days', 'Module log retention (days)', 'integer', rules: ['integer', 'min:1', 'max:3650']),
             new SettingDefinition('services.random_usernames', 'Generate random usernames instead of using the domain', 'boolean'),

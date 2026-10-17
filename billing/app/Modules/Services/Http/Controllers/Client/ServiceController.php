@@ -65,7 +65,8 @@ class ServiceController extends Controller
             'usage' => $model->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
             'cancellation' => $model->openCancellationRequest?->only(['id', 'type', 'process_after']),
             'cancellationTypes' => array_map(fn (CancellationType $type): array => ['value' => $type->value, 'label' => $type->label()], CancellationType::cases()),
-            'changeOptions' => fn (): array => $presenter->changeOptions($model, CarbonImmutable::today()),
+            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, CarbonImmutable::today())),
+            'creditOnDowngrade' => $settings->creditOnDowngrade(),
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver->supports(DriverMetadata::CHANGE_PASSWORD) && $model->username !== null,

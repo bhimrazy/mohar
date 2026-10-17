@@ -6,6 +6,7 @@ use App\Contracts\Services\ServiceRegistry;
 use App\Data\Services\AddonDraft;
 use App\Data\Services\ProvisionResult;
 use App\Data\Services\ServiceDraft;
+use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\InvalidStatusTransition;
@@ -13,7 +14,9 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\CommandOutcome;
+use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -26,17 +29,19 @@ use InvalidArgumentException;
  */
 class EloquentServiceRegistry implements ServiceRegistry
 {
-    public function __construct(private ModuleCommandDispatcher $commands, private Catalog $catalog) {}
+    public function __construct(private ModuleCommandDispatcher $commands, private Catalog $catalog, private ServiceSettings $settings) {}
 
     public function createPending(ServiceDraft $draft): int
     {
         $today = CarbonImmutable::today();
         $recurring = $draft->cycle->isRecurring();
 
+        $product = $this->catalog->product($draft->productId);
+
         $service = Service::query()->create([
             'client_id' => $draft->clientId,
             'product_id' => $draft->productId,
-            'product_name' => $this->catalog->product($draft->productId)->name ?? "Product #{$draft->productId}",
+            'product_name' => $product->name ?? "Product #{$draft->productId}",
             'order_id' => $draft->orderId,
             'status' => ServiceStatus::Pending,
             'cycle' => $draft->cycle,
@@ -45,13 +50,16 @@ class EloquentServiceRegistry implements ServiceRegistry
             'first_payment_amount' => $draft->firstPaymentAmount,
             'recurring_amount' => $draft->recurringAmount,
             'promotion_id' => $draft->promotionId,
+            'promotion_cycles_remaining' => $draft->renewalDiscount > 0 ? $draft->promotionCyclesRemaining : null,
+            'renewal_discount' => $draft->renewalDiscount,
+            'recurring_cycles_limit' => $product->recurringCycleLimit ?? 0,
             'registration_date' => $today,
             'billing_anchor_day' => $recurring ? $draft->nextDueDate->day : null,
             'next_due_date' => $recurring ? $today : null,
             'next_invoice_date' => $recurring ? $draft->nextDueDate : null,
-            'config_options' => ['selections' => $draft->configOptions],
             'custom_fields' => $draft->customFields,
         ]);
+        $service->syncConfigOptions($draft->configOptions);
 
         return $service->id;
     }
@@ -104,7 +112,7 @@ class EloquentServiceRegistry implements ServiceRegistry
             throw new InvalidArgumentException("Pending services can only become cancelled or fraud, not [{$status}].");
         }
 
-        DB::transaction(function () use ($serviceId, $target): void {
+        Cache::lock(ExecuteModuleCommand::lockKey($serviceId), $this->settings->lockTtlSeconds())->block($this->settings->lockWaitSeconds(), fn () => DB::transaction(function () use ($serviceId, $target): void {
             /** @var Service $service */
             $service = Service::query()->lockForUpdate()->findOrFail($serviceId);
             if ($service->status !== ServiceStatus::Pending) {
@@ -114,6 +122,6 @@ class EloquentServiceRegistry implements ServiceRegistry
             $service->update(['status' => $target, 'do_not_renew' => true]);
 
             $service->addons()->where('status', ServiceStatus::Pending->value)->update(['status' => $target->value]);
-        });
+        }));
     }
 }

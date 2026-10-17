@@ -67,6 +67,7 @@ return new class extends Migration
             $table->bigInteger('recurring_amount')->default(0);
             $table->unsignedBigInteger('promotion_id')->nullable();
             $table->unsignedInteger('promotion_cycles_remaining')->nullable();
+            $table->bigInteger('renewal_discount')->default(0);
             $table->date('registration_date');
             $table->unsignedTinyInteger('billing_anchor_day')->nullable();
             $table->date('next_due_date')->nullable()->index();
@@ -90,6 +91,15 @@ return new class extends Migration
             $table->timestamps();
             $table->softDeletes();
             $table->index(['status', 'next_due_date']);
+        });
+
+        Schema::create('service_config_options', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('service_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('option_id');
+            $table->unsignedBigInteger('value_id');
+            $table->unique(['service_id', 'option_id']);
+            $table->index(['option_id', 'value_id']);
         });
 
         Schema::create('service_addons', function (Blueprint $table) {
@@ -174,6 +184,7 @@ return new class extends Migration
             $table->string('initiator', 50);
             $table->unsignedInteger('attempt')->default(1);
             $table->boolean('success');
+            $table->string('status', 20)->default('succeeded')->index();
             $table->text('error')->nullable();
             $table->json('request')->nullable();
             $table->json('response')->nullable();
@@ -186,6 +197,7 @@ return new class extends Migration
             $table->string('subject_type', 30);
             $table->unsignedBigInteger('subject_id');
             $table->string('command', 50);
+            $table->string('kind', 20)->default('failure');
             $table->text('args')->nullable();
             $table->text('last_error')->nullable();
             $table->unsignedInteger('attempts')->default(0);
@@ -215,6 +227,7 @@ return new class extends Migration
         Schema::dropIfExists('service_changes');
         Schema::dropIfExists('service_invoices');
         Schema::dropIfExists('service_addons');
+        Schema::dropIfExists('service_config_options');
         Schema::dropIfExists('services');
         Schema::dropIfExists('server_group_server');
         Schema::dropIfExists('servers');

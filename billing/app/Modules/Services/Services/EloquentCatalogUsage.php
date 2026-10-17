@@ -6,11 +6,11 @@ use App\Contracts\Services\CatalogUsage;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
-use Illuminate\Database\Eloquent\Builder;
+use App\Modules\Services\Models\ServiceConfigOption;
 
 /**
  * Catalog usage over the services tables (soft-deleted services are ignored).
- * Config option selections live in services.config_options as {"selections": {optionId: valueId}}.
+ * Config option selections are read from the normalized service_config_options table.
  */
 class EloquentCatalogUsage implements CatalogUsage
 {
@@ -37,11 +37,10 @@ class EloquentCatalogUsage implements CatalogUsage
 
     public function configOptionValueInUse(int $optionId, int $valueId): bool
     {
-        $path = "config_options->selections->{$optionId}";
-
-        return Service::query()
-            ->whereNotNull('config_options')
-            ->where(fn (Builder $query) => $query->whereJsonContains($path, $valueId)->orWhereJsonContains($path, (string) $valueId))
+        return ServiceConfigOption::query()
+            ->where('option_id', $optionId)
+            ->where('value_id', $valueId)
+            ->whereIn('service_id', Service::query()->select('id'))
             ->exists();
     }
 

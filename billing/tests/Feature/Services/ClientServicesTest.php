@@ -59,9 +59,12 @@ test('the detail page shows status, due date, upgrade previews and actions', fun
             ->missing('service.password')
             ->where('can.cancel', true)
             ->where('can.changePassword', true)
-            ->where('changeOptions.available', true)
-            ->where('changeOptions.options.0.product_name', 'Business')
-            ->where('changeOptions.options.0.amount_due', fn ($amount) => $amount > 0));
+            ->where('creditOnDowngrade', false)
+            ->missing('changeOptions')
+            ->loadDeferredProps(fn (Assert $reload) => $reload
+                ->where('changeOptions.available', true)
+                ->where('changeOptions.options.0.product_name', 'Business')
+                ->where('changeOptions.options.0.amount_due', fn ($amount) => $amount > 0)));
 });
 
 test('clients request cancellation once', function () {
