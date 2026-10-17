@@ -5,6 +5,9 @@ namespace App\Providers;
 use App\Models\User;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
+use App\Support\Permissions\PermissionRegistry;
+use App\Support\Search\GlobalSearch;
+use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
@@ -25,6 +28,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(Navigation::class);
         $this->app->singleton(Dashboard::class);
+        $this->app->singleton(PermissionRegistry::class);
+        $this->app->singleton(SettingsRegistry::class);
+        $this->app->singleton(GlobalSearch::class);
     }
 
     /**

@@ -13,6 +13,8 @@ use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
+use App\Support\Permissions\PermissionRegistry;
+use App\Support\Search\GlobalSearch;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -43,6 +45,16 @@ class CoreServiceProvider extends ModuleServiceProvider
             'href' => route('admin.clients.index'),
             'icon' => 'Users',
         ], 'core.clients.view', 50);
+
+        $this->app->make(PermissionRegistry::class)->register('Clients', [
+            'core.clients.view' => 'View clients',
+            'core.clients.manage' => 'Create and edit clients',
+        ]);
+
+        $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()
+            ->search($term)->limit(5)->get()
+            ->map(fn (Client $client): array => ['title' => $client->display_name, 'subtitle' => $client->email, 'href' => route('admin.clients.show', $client)])
+            ->all()), 'core.clients.view');
 
         $this->app->make(MergeFieldRegistry::class)->register('client', function (int $id): array {
             $client = Client::query()->findOrFail($id);

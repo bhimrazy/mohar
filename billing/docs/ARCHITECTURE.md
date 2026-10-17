@@ -110,6 +110,14 @@ app(Navigation::class)->add('admin-client', new NavItem('Invoices', 'admin.billi
 app(Dashboard::class)->card('admin', 'billing.overdue', fn ($user) => ['label' => ..., 'value' => ..., 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
 ```
 Icon names must exist in `resources/js/lib/nav-icons.ts` (add one line if needed).
+
+**Permissions, settings, search** — also in `bootModule()` (all registries live in `app/Support`):
+```php
+app(PermissionRegistry::class)->register('Billing', ['billing.invoices.view' => 'View invoices', 'billing.invoices.manage' => 'Manage invoices']);
+app(SettingsRegistry::class)->section('billing', 'Billing', [new SettingDefinition('billing.invoice_prefix', 'Invoice prefix'), ...], 'billing.settings.manage');
+app(GlobalSearch::class)->provider('Invoices', fn (string $term) => [...['title','subtitle','href']], 'billing.invoices.view');
+```
+Every permission you check must be registered; every tunable setting must be registered with a definition.
 Groups: General, Clients, Orders, Billing, Services, Domains, Support, Marketing, Reports, Setup.
 
 **Merge fields** — register `app(MergeFieldRegistry::class)->register('invoice', fn (int $id) => [...])`
