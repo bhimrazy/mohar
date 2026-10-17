@@ -81,7 +81,8 @@ export default function TicketsIndex({
     const [selected, setSelected] = useState<number[]>([]);
     const [assignee, setAssignee] = useState<string>('');
     const ids = tickets.data.map((ticket) => ticket.id as number);
-    const allSelected = ids.length > 0 && ids.every((id) => selected.includes(id));
+    const allSelected =
+        ids.length > 0 && ids.every((id) => selected.includes(id));
     const toggle = (id: number) =>
         setSelected((current) =>
             current.includes(id)
@@ -119,7 +120,9 @@ export default function TicketsIndex({
                       cell: (ticket: TicketListItem) => (
                           <Checkbox
                               checked={selected.includes(ticket.id as number)}
-                              onCheckedChange={() => toggle(ticket.id as number)}
+                              onCheckedChange={() =>
+                                  toggle(ticket.id as number)
+                              }
                               aria-label={`Select ticket #${ticket.number}`}
                           />
                       ),
@@ -190,13 +193,20 @@ export default function TicketsIndex({
             key: 'last_reply',
             header: 'Last reply',
             align: 'right',
-            cell: (ticket) => <DateTime value={ticket.last_reply_at} relative />,
+            cell: (ticket) => (
+                <DateTime value={ticket.last_reply_at} relative />
+            ),
         },
     ];
 
-    const hasFilters = ['search', 'status', 'department', 'priority', 'client', 'tag'].some(
-        (key) => filters[key],
-    );
+    const hasFilters = [
+        'search',
+        'status',
+        'department',
+        'priority',
+        'client',
+        'tag',
+    ].some((key) => filters[key]);
 
     return (
         <>
@@ -212,7 +222,9 @@ export default function TicketsIndex({
                                 <Button asChild>
                                     <Link
                                         href={TicketController.create({
-                                            query: client ? { client: client.id } : {},
+                                            query: client
+                                                ? { client: client.id }
+                                                : {},
                                         })}
                                     >
                                         <Plus />
@@ -235,7 +247,10 @@ export default function TicketsIndex({
                             <Link
                                 key={view.value}
                                 href={hrefWith({
-                                    view: view.value === 'all' ? null : view.value,
+                                    view:
+                                        view.value === 'all'
+                                            ? null
+                                            : view.value,
                                     page: null,
                                     status: null,
                                 })}
@@ -256,12 +271,33 @@ export default function TicketsIndex({
 
                 <FilterBar
                     searchPlaceholder="Search number, subject, email…"
-                    filterKeys={['status', 'department', 'priority', 'client', 'tag']}
+                    filterKeys={[
+                        'status',
+                        'department',
+                        'priority',
+                        'client',
+                        'tag',
+                    ]}
                     filters={
                         <>
-                            <FilterSelect name="status" label="Status" allLabel="All statuses" options={statuses} />
-                            <FilterSelect name="department" label="Department" allLabel="All departments" options={departments} />
-                            <FilterSelect name="priority" label="Priority" allLabel="All priorities" options={priorities} />
+                            <FilterSelect
+                                name="status"
+                                label="Status"
+                                allLabel="All statuses"
+                                options={statuses}
+                            />
+                            <FilterSelect
+                                name="department"
+                                label="Department"
+                                allLabel="All departments"
+                                options={departments}
+                            />
+                            <FilterSelect
+                                name="priority"
+                                label="Priority"
+                                allLabel="All priorities"
+                                options={priorities}
+                            />
                             {client && (
                                 <Button
                                     variant="outline"
@@ -269,7 +305,8 @@ export default function TicketsIndex({
                                     onClick={() => apply({ client: null })}
                                     aria-label="Remove client filter"
                                 >
-                                    {client.company_name ?? `${client.first_name} ${client.last_name}`}
+                                    {client.company_name ??
+                                        `${client.first_name} ${client.last_name}`}
                                     <X />
                                 </Button>
                             )}
@@ -283,21 +320,36 @@ export default function TicketsIndex({
                             {selected.length} selected
                         </span>
                         <Select value={assignee} onValueChange={setAssignee}>
-                            <SelectTrigger className="w-44" aria-label="Assign to">
+                            <SelectTrigger
+                                className="w-44"
+                                aria-label="Assign to"
+                            >
                                 <SelectValue placeholder="Assign to…" />
                             </SelectTrigger>
                             <SelectContent>
                                 {staff.map((member) => (
-                                    <SelectItem key={member.value} value={member.value}>
+                                    <SelectItem
+                                        key={member.value}
+                                        value={member.value}
+                                    >
                                         {member.label}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
-                        <Button size="sm" variant="outline" disabled={!assignee} onClick={() => bulk('assign')}>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={!assignee}
+                            onClick={() => bulk('assign')}
+                        >
                             Assign
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => bulk('close')}>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => bulk('close')}
+                        >
                             Close tickets
                         </Button>
                         {can.delete && (
@@ -321,11 +373,17 @@ export default function TicketsIndex({
                     columns={columns}
                     rows={tickets.data}
                     getRowKey={(ticket) => ticket.number}
-                    rowHref={(ticket) => TicketController.show(ticket.id as number)}
+                    rowHref={(ticket) =>
+                        TicketController.show(ticket.id as number)
+                    }
                     empty={
                         <EmptyState
                             icon={LifeBuoy}
-                            title={hasFilters ? 'No tickets match these filters' : 'No tickets here'}
+                            title={
+                                hasFilters
+                                    ? 'No tickets match these filters'
+                                    : 'No tickets here'
+                            }
                             description={
                                 hasFilters
                                     ? 'Try another status or department, or clear the filters.'
@@ -333,7 +391,9 @@ export default function TicketsIndex({
                             }
                         />
                     }
-                    footer={<Pagination paginator={tickets} itemLabel="tickets" />}
+                    footer={
+                        <Pagination paginator={tickets} itemLabel="tickets" />
+                    }
                 />
             </Page>
         </>
@@ -363,13 +423,23 @@ function SignatureDialog({ signature }: { signature: string | null }) {
                             <DialogHeader>
                                 <DialogTitle>Reply signature</DialogTitle>
                                 <DialogDescription>
-                                    Added below every reply you send. Markdown is supported.
+                                    Added below every reply you send. Markdown
+                                    is supported.
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-2">
                                 <Label htmlFor="signature">Signature</Label>
-                                <Textarea id="signature" name="signature" rows={4} defaultValue={signature ?? ''} />
-                                {errors.signature && <p className="text-sm text-destructive">{errors.signature}</p>}
+                                <Textarea
+                                    id="signature"
+                                    name="signature"
+                                    rows={4}
+                                    defaultValue={signature ?? ''}
+                                />
+                                {errors.signature && (
+                                    <p className="text-sm text-destructive">
+                                        {errors.signature}
+                                    </p>
+                                )}
                             </div>
                             <DialogFooter>
                                 <Button type="submit" disabled={processing}>

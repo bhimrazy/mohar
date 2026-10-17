@@ -249,8 +249,8 @@ function CannedReplyPicker({
                 <DialogHeader>
                     <DialogTitle>Insert canned reply</DialogTitle>
                     <DialogDescription>
-                        Tokens like {'{{ requester.first_name }}'} are filled
-                        in when the reply is sent.
+                        Tokens like {'{{ requester.first_name }}'} are filled in
+                        when the reply is sent.
                     </DialogDescription>
                 </DialogHeader>
                 <Input

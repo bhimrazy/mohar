@@ -65,7 +65,10 @@ export function TicketThread({
                             <Avatar className="size-7">
                                 <AvatarFallback className="text-xs">
                                     {isNote ? (
-                                        <Lock className="size-3.5" aria-hidden />
+                                        <Lock
+                                            className="size-3.5"
+                                            aria-hidden
+                                        />
                                     ) : (
                                         getInitials(message.author_name)
                                     )}

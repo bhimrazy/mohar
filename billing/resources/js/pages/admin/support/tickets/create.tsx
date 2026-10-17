@@ -23,11 +23,22 @@ type Props = {
     departments: SelectOption[];
     priorities: SelectOption[];
     statuses: SelectOption[];
-    client: { id: number; display_name: string; name: string; email: string } | null;
+    client: {
+        id: number;
+        display_name: string;
+        name: string;
+        email: string;
+    } | null;
     limits: UploadLimits;
 };
 
-export default function CreateTicket({ departments, priorities, statuses, client, limits }: Props) {
+export default function CreateTicket({
+    departments,
+    priorities,
+    statuses,
+    client,
+    limits,
+}: Props) {
     return (
         <>
             <Head title="Open ticket" />
@@ -35,77 +46,209 @@ export default function CreateTicket({ departments, priorities, statuses, client
                 <PageHeader
                     back={{ href: TicketController.index(), label: 'Tickets' }}
                     title="Open ticket"
-                    description={client ? `On behalf of ${client.display_name}.` : 'Start a conversation with a client or any email address.'}
+                    description={
+                        client
+                            ? `On behalf of ${client.display_name}.`
+                            : 'Start a conversation with a client or any email address.'
+                    }
                 />
-                <Form {...TicketController.store.form()} className="flex flex-col gap-6">
+                <Form
+                    {...TicketController.store.form()}
+                    className="flex flex-col gap-6"
+                >
                     {({ errors, processing }) => (
                         <>
-                            {client && <input type="hidden" name="client_id" value={client.id} />}
+                            {client && (
+                                <input
+                                    type="hidden"
+                                    name="client_id"
+                                    value={client.id}
+                                />
+                            )}
                             <SectionCard title="Recipient">
                                 <div className="grid gap-6 sm:grid-cols-2">
-                                    <Field htmlFor="requester_name" label="Name" error={errors.requester_name}>
-                                        <Input id="requester_name" name="requester_name" defaultValue={client?.name} required aria-invalid={!!errors.requester_name} />
+                                    <Field
+                                        htmlFor="requester_name"
+                                        label="Name"
+                                        error={errors.requester_name}
+                                    >
+                                        <Input
+                                            id="requester_name"
+                                            name="requester_name"
+                                            defaultValue={client?.name}
+                                            required
+                                            aria-invalid={
+                                                !!errors.requester_name
+                                            }
+                                        />
                                     </Field>
-                                    <Field htmlFor="requester_email" label="Email" error={errors.requester_email}>
-                                        <Input id="requester_email" name="requester_email" type="email" defaultValue={client?.email} required aria-invalid={!!errors.requester_email} />
+                                    <Field
+                                        htmlFor="requester_email"
+                                        label="Email"
+                                        error={errors.requester_email}
+                                    >
+                                        <Input
+                                            id="requester_email"
+                                            name="requester_email"
+                                            type="email"
+                                            defaultValue={client?.email}
+                                            required
+                                            aria-invalid={
+                                                !!errors.requester_email
+                                            }
+                                        />
                                     </Field>
                                 </div>
                             </SectionCard>
                             <SectionCard title="Message">
                                 <div className="grid gap-6 sm:grid-cols-2">
-                                    <Field htmlFor="department_id" label="Department" error={errors.department_id}>
-                                        <Select name="department_id" defaultValue={departments[0]?.value}>
-                                            <SelectTrigger id="department_id" className="w-full">
+                                    <Field
+                                        htmlFor="department_id"
+                                        label="Department"
+                                        error={errors.department_id}
+                                    >
+                                        <Select
+                                            name="department_id"
+                                            defaultValue={departments[0]?.value}
+                                        >
+                                            <SelectTrigger
+                                                id="department_id"
+                                                className="w-full"
+                                            >
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {departments.map((department) => (
-                                                    <SelectItem key={department.value} value={department.value}>
-                                                        {department.label}
-                                                    </SelectItem>
-                                                ))}
+                                                {departments.map(
+                                                    (department) => (
+                                                        <SelectItem
+                                                            key={
+                                                                department.value
+                                                            }
+                                                            value={
+                                                                department.value
+                                                            }
+                                                        >
+                                                            {department.label}
+                                                        </SelectItem>
+                                                    ),
+                                                )}
                                             </SelectContent>
                                         </Select>
                                     </Field>
-                                    <Field htmlFor="priority" label="Priority" error={errors.priority}>
-                                        <Select name="priority" defaultValue="medium">
-                                            <SelectTrigger id="priority" className="w-full">
+                                    <Field
+                                        htmlFor="priority"
+                                        label="Priority"
+                                        error={errors.priority}
+                                    >
+                                        <Select
+                                            name="priority"
+                                            defaultValue="medium"
+                                        >
+                                            <SelectTrigger
+                                                id="priority"
+                                                className="w-full"
+                                            >
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {priorities.map((priority) => (
-                                                    <SelectItem key={priority.value} value={priority.value}>
+                                                    <SelectItem
+                                                        key={priority.value}
+                                                        value={priority.value}
+                                                    >
                                                         {priority.label}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                     </Field>
-                                    <Field htmlFor="subject" label="Subject" error={errors.subject} className="sm:col-span-2">
-                                        <Input id="subject" name="subject" required maxLength={255} aria-invalid={!!errors.subject} />
+                                    <Field
+                                        htmlFor="subject"
+                                        label="Subject"
+                                        error={errors.subject}
+                                        className="sm:col-span-2"
+                                    >
+                                        <Input
+                                            id="subject"
+                                            name="subject"
+                                            required
+                                            maxLength={255}
+                                            aria-invalid={!!errors.subject}
+                                        />
                                     </Field>
-                                    <Field htmlFor="body" label="Message" hint="Markdown and tokens like {{ requester.first_name }} are supported." error={errors.body} className="sm:col-span-2">
-                                        <Textarea id="body" name="body" rows={8} required aria-invalid={!!errors.body} aria-describedby="body-description" />
+                                    <Field
+                                        htmlFor="body"
+                                        label="Message"
+                                        hint="Markdown and tokens like {{ requester.first_name }} are supported."
+                                        error={errors.body}
+                                        className="sm:col-span-2"
+                                    >
+                                        <Textarea
+                                            id="body"
+                                            name="body"
+                                            rows={8}
+                                            required
+                                            aria-invalid={!!errors.body}
+                                            aria-describedby="body-description"
+                                        />
                                     </Field>
-                                    <Field htmlFor="status" label="Status after sending" error={errors.status}>
-                                        <Select name="status" defaultValue="answered">
-                                            <SelectTrigger id="status" className="w-full">
+                                    <Field
+                                        htmlFor="status"
+                                        label="Status after sending"
+                                        error={errors.status}
+                                    >
+                                        <Select
+                                            name="status"
+                                            defaultValue="answered"
+                                        >
+                                            <SelectTrigger
+                                                id="status"
+                                                className="w-full"
+                                            >
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {statuses.map((status) => (
-                                                    <SelectItem key={status.value} value={status.value}>
+                                                    <SelectItem
+                                                        key={status.value}
+                                                        value={status.value}
+                                                    >
                                                         {status.label}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                     </Field>
-                                    <Field htmlFor="service_id" label="Related service ID" optional error={errors.service_id}>
-                                        <Input id="service_id" name="service_id" inputMode="numeric" />
+                                    <Field
+                                        htmlFor="service_id"
+                                        label="Related service ID"
+                                        optional
+                                        error={errors.service_id}
+                                    >
+                                        <Input
+                                            id="service_id"
+                                            name="service_id"
+                                            inputMode="numeric"
+                                        />
                                     </Field>
-                                    <Field htmlFor="attachments" label="Attachments" optional hint={`Up to ${limits.max_files} files, ${limits.max_mb} MB each.`} error={errors.attachments ?? errors['attachments.0']} className="sm:col-span-2">
-                                        <Input id="attachments" name="attachments[]" type="file" multiple className="h-auto py-1.5" />
+                                    <Field
+                                        htmlFor="attachments"
+                                        label="Attachments"
+                                        optional
+                                        hint={`Up to ${limits.max_files} files, ${limits.max_mb} MB each.`}
+                                        error={
+                                            errors.attachments ??
+                                            errors['attachments.0']
+                                        }
+                                        className="sm:col-span-2"
+                                    >
+                                        <Input
+                                            id="attachments"
+                                            name="attachments[]"
+                                            type="file"
+                                            multiple
+                                            className="h-auto py-1.5"
+                                        />
                                     </Field>
                                 </div>
                             </SectionCard>

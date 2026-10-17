@@ -13,18 +13,66 @@ import { PriorityBadge } from '@/components/support/priority-badge';
 import { Button } from '@/components/ui/button';
 import type { LaravelPaginated } from '@/types/app';
 
-type Incident = { id: number; title: string; type: string; affected: string | null; priority: string; status: string; starts_at: string; ends_at: string | null };
+type Incident = {
+    id: number;
+    title: string;
+    type: string;
+    affected: string | null;
+    priority: string;
+    status: string;
+    starts_at: string;
+    ends_at: string | null;
+};
 
 const columns: DataTableColumn<Incident>[] = [
-    { key: 'title', header: 'Incident', primary: true, cell: (incident) => incident.title },
-    { key: 'affected', header: 'Affected', cell: (incident) => incident.affected ?? <span className="text-muted-foreground">—</span> },
-    { key: 'status', header: 'Status', cell: (incident) => <StatusBadge status={incident.status} /> },
-    { key: 'priority', header: 'Priority', cell: (incident) => <PriorityBadge priority={incident.priority} /> },
-    { key: 'starts', header: 'Started', align: 'right', cell: (incident) => <DateTime value={incident.starts_at} format="datetime" /> },
-    { key: 'ends', header: 'Ended', align: 'right', hideOnMobile: true, cell: (incident) => <DateTime value={incident.ends_at} format="datetime" /> },
+    {
+        key: 'title',
+        header: 'Incident',
+        primary: true,
+        cell: (incident) => incident.title,
+    },
+    {
+        key: 'affected',
+        header: 'Affected',
+        cell: (incident) =>
+            incident.affected ?? (
+                <span className="text-muted-foreground">—</span>
+            ),
+    },
+    {
+        key: 'status',
+        header: 'Status',
+        cell: (incident) => <StatusBadge status={incident.status} />,
+    },
+    {
+        key: 'priority',
+        header: 'Priority',
+        cell: (incident) => <PriorityBadge priority={incident.priority} />,
+    },
+    {
+        key: 'starts',
+        header: 'Started',
+        align: 'right',
+        cell: (incident) => (
+            <DateTime value={incident.starts_at} format="datetime" />
+        ),
+    },
+    {
+        key: 'ends',
+        header: 'Ended',
+        align: 'right',
+        hideOnMobile: true,
+        cell: (incident) => (
+            <DateTime value={incident.ends_at} format="datetime" />
+        ),
+    },
 ];
 
-export default function NetworkIndex({ incidents }: { incidents: LaravelPaginated<Incident> }) {
+export default function NetworkIndex({
+    incidents,
+}: {
+    incidents: LaravelPaginated<Incident>;
+}) {
     return (
         <>
             <Head title="Network status" />
@@ -46,9 +94,22 @@ export default function NetworkIndex({ incidents }: { incidents: LaravelPaginate
                     columns={columns}
                     rows={incidents.data}
                     getRowKey={(incident) => incident.id}
-                    rowHref={(incident) => NetworkIncidentController.edit(incident.id)}
-                    empty={<EmptyState icon={Activity} title="No incidents" description="Report outages and planned maintenance here so clients know what is going on." />}
-                    footer={<Pagination paginator={incidents} itemLabel="incidents" />}
+                    rowHref={(incident) =>
+                        NetworkIncidentController.edit(incident.id)
+                    }
+                    empty={
+                        <EmptyState
+                            icon={Activity}
+                            title="No incidents"
+                            description="Report outages and planned maintenance here so clients know what is going on."
+                        />
+                    }
+                    footer={
+                        <Pagination
+                            paginator={incidents}
+                            itemLabel="incidents"
+                        />
+                    }
                 />
             </Page>
         </>

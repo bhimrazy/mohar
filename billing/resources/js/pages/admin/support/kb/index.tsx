@@ -37,7 +37,14 @@ type Article = {
     updated_at: string | null;
 };
 
-type Category = { id: number; name: string; slug: string; parent_id: number | null; is_hidden: boolean; articles_count: number };
+type Category = {
+    id: number;
+    name: string;
+    slug: string;
+    parent_id: number | null;
+    is_hidden: boolean;
+    articles_count: number;
+};
 
 const columns: DataTableColumn<Article>[] = [
     {
@@ -46,33 +53,83 @@ const columns: DataTableColumn<Article>[] = [
         primary: true,
         cell: (article) => (
             <span className="flex items-center gap-2">
-                {article.is_private && <Lock className="size-3.5 shrink-0 text-muted-foreground" aria-label="Login required" />}
+                {article.is_private && (
+                    <Lock
+                        className="size-3.5 shrink-0 text-muted-foreground"
+                        aria-label="Login required"
+                    />
+                )}
                 <span className="truncate">{article.title}</span>
             </span>
         ),
     },
-    { key: 'categories', header: 'Categories', cell: (article) => article.categories.join(', ') || <span className="text-muted-foreground">—</span> },
-    { key: 'status', header: 'Status', cell: (article) => <StatusBadge status={article.is_published ? 'published' : 'draft'} /> },
-    { key: 'views', header: 'Views', align: 'right', cell: (article) => <span className="tabular-nums">{article.views.toLocaleString()}</span> },
+    {
+        key: 'categories',
+        header: 'Categories',
+        cell: (article) =>
+            article.categories.join(', ') || (
+                <span className="text-muted-foreground">—</span>
+            ),
+    },
+    {
+        key: 'status',
+        header: 'Status',
+        cell: (article) => (
+            <StatusBadge
+                status={article.is_published ? 'published' : 'draft'}
+            />
+        ),
+    },
+    {
+        key: 'views',
+        header: 'Views',
+        align: 'right',
+        cell: (article) => (
+            <span className="tabular-nums">
+                {article.views.toLocaleString()}
+            </span>
+        ),
+    },
     {
         key: 'helpful',
         header: 'Helpful',
         align: 'right',
         hideOnMobile: true,
         cell: (article) => (
-            <span className="inline-flex items-center gap-1 tabular-nums text-muted-foreground">
+            <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
                 <ThumbsUp className="size-3.5" aria-hidden />
                 {article.votes_up} / {article.votes_up + article.votes_down}
             </span>
         ),
     },
-    { key: 'updated', header: 'Updated', align: 'right', hideOnMobile: true, cell: (article) => <DateTime value={article.updated_at} relative /> },
+    {
+        key: 'updated',
+        header: 'Updated',
+        align: 'right',
+        hideOnMobile: true,
+        cell: (article) => <DateTime value={article.updated_at} relative />,
+    },
 ];
 
-export default function KnowledgeBaseIndex({ articles, categories, filters }: { articles: LaravelPaginated<Article>; categories: Category[]; filters: Record<string, string> }) {
-    const options = categories.map((category) => ({ value: String(category.id), label: category.name }));
-    const topLevel = categories.filter((category) => category.parent_id === null);
-    const filtered = Boolean(filters.search || filters.category || filters.state);
+export default function KnowledgeBaseIndex({
+    articles,
+    categories,
+    filters,
+}: {
+    articles: LaravelPaginated<Article>;
+    categories: Category[];
+    filters: Record<string, string>;
+}) {
+    const options = categories.map((category) => ({
+        value: String(category.id),
+        label: category.name,
+    }));
+    const topLevel = categories.filter(
+        (category) => category.parent_id === null,
+    );
+    const filtered = Boolean(
+        filters.search || filters.category || filters.state,
+    );
 
     return (
         <>
@@ -97,8 +154,24 @@ export default function KnowledgeBaseIndex({ articles, categories, filters }: { 
                             filterKeys={['category', 'state']}
                             filters={
                                 <>
-                                    <FilterSelect name="category" label="Category" allLabel="All categories" options={options} />
-                                    <FilterSelect name="state" label="Status" allLabel="All statuses" options={[{ value: 'published', label: 'Published' }, { value: 'draft', label: 'Draft' }]} />
+                                    <FilterSelect
+                                        name="category"
+                                        label="Category"
+                                        allLabel="All categories"
+                                        options={options}
+                                    />
+                                    <FilterSelect
+                                        name="state"
+                                        label="Status"
+                                        allLabel="All statuses"
+                                        options={[
+                                            {
+                                                value: 'published',
+                                                label: 'Published',
+                                            },
+                                            { value: 'draft', label: 'Draft' },
+                                        ]}
+                                    />
                                 </>
                             }
                         />
@@ -107,44 +180,111 @@ export default function KnowledgeBaseIndex({ articles, categories, filters }: { 
                             columns={columns}
                             rows={articles.data}
                             getRowKey={(article) => article.id}
-                            rowHref={(article) => KbArticleController.edit(article.id)}
-                            empty={<EmptyState icon={BookOpen} title={filtered ? 'No articles match these filters' : 'No articles yet'} description={filtered ? 'Try another search.' : 'Write answers to common questions so clients can help themselves.'} />}
-                            footer={<Pagination paginator={articles} itemLabel="articles" />}
+                            rowHref={(article) =>
+                                KbArticleController.edit(article.id)
+                            }
+                            empty={
+                                <EmptyState
+                                    icon={BookOpen}
+                                    title={
+                                        filtered
+                                            ? 'No articles match these filters'
+                                            : 'No articles yet'
+                                    }
+                                    description={
+                                        filtered
+                                            ? 'Try another search.'
+                                            : 'Write answers to common questions so clients can help themselves.'
+                                    }
+                                />
+                            }
+                            footer={
+                                <Pagination
+                                    paginator={articles}
+                                    itemLabel="articles"
+                                />
+                            }
                         />
                     </div>
-                    <SectionCard title="Categories" description="One level of sub-categories.">
+                    <SectionCard
+                        title="Categories"
+                        description="One level of sub-categories."
+                    >
                         <ul className="mb-4 grid gap-1">
                             {topLevel.map((category) => (
-                                <CategoryRow key={category.id} category={category}>
-                                    {categories.filter((child) => child.parent_id === category.id).map((child) => (
-                                        <CategoryRow key={child.id} category={child} nested />
-                                    ))}
+                                <CategoryRow
+                                    key={category.id}
+                                    category={category}
+                                >
+                                    {categories
+                                        .filter(
+                                            (child) =>
+                                                child.parent_id === category.id,
+                                        )
+                                        .map((child) => (
+                                            <CategoryRow
+                                                key={child.id}
+                                                category={child}
+                                                nested
+                                            />
+                                        ))}
                                 </CategoryRow>
                             ))}
-                            {categories.length === 0 && <li className="text-sm text-muted-foreground">No categories yet.</li>}
+                            {categories.length === 0 && (
+                                <li className="text-sm text-muted-foreground">
+                                    No categories yet.
+                                </li>
+                            )}
                         </ul>
-                        <Form {...KbCategoryController.store.form()} resetOnSuccess options={{ preserveScroll: true }} className="grid gap-2">
+                        <Form
+                            {...KbCategoryController.store.form()}
+                            resetOnSuccess
+                            options={{ preserveScroll: true }}
+                            className="grid gap-2"
+                        >
                             {({ processing, errors }) => (
                                 <>
-                                    <Input name="name" placeholder="New category name" aria-label="New category name" required aria-invalid={!!errors.name} />
+                                    <Input
+                                        name="name"
+                                        placeholder="New category name"
+                                        aria-label="New category name"
+                                        required
+                                        aria-invalid={!!errors.name}
+                                    />
                                     <div className="flex gap-2">
                                         <Select name="parent_id">
-                                            <SelectTrigger className="w-full" aria-label="Parent category">
+                                            <SelectTrigger
+                                                className="w-full"
+                                                aria-label="Parent category"
+                                            >
                                                 <SelectValue placeholder="Top level" />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {topLevel.map((category) => (
-                                                    <SelectItem key={category.id} value={String(category.id)}>
+                                                    <SelectItem
+                                                        key={category.id}
+                                                        value={String(
+                                                            category.id,
+                                                        )}
+                                                    >
                                                         Inside {category.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        <Button type="submit" variant="outline" disabled={processing}>
+                                        <Button
+                                            type="submit"
+                                            variant="outline"
+                                            disabled={processing}
+                                        >
                                             Add category
                                         </Button>
                                     </div>
-                                    {(errors.name || errors.parent_id) && <p className="text-sm text-destructive">{errors.name ?? errors.parent_id}</p>}
+                                    {(errors.name || errors.parent_id) && (
+                                        <p className="text-sm text-destructive">
+                                            {errors.name ?? errors.parent_id}
+                                        </p>
+                                    )}
                                 </>
                             )}
                         </Form>
@@ -155,18 +295,40 @@ export default function KnowledgeBaseIndex({ articles, categories, filters }: { 
     );
 }
 
-function CategoryRow({ category, nested = false, children }: { category: Category; nested?: boolean; children?: React.ReactNode }) {
+function CategoryRow({
+    category,
+    nested = false,
+    children,
+}: {
+    category: Category;
+    nested?: boolean;
+    children?: React.ReactNode;
+}) {
     return (
         <li>
-            <div className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/50 ${nested ? 'ml-4' : ''}`}>
+            <div
+                className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 text-sm hover:bg-muted/50 ${nested ? 'ml-4' : ''}`}
+            >
                 <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate">{category.name}</span>
-                    {category.is_hidden && <EyeOff className="size-3.5 text-muted-foreground" aria-label="Hidden" />}
-                    <span className="text-xs text-muted-foreground tabular-nums">{category.articles_count}</span>
+                    {category.is_hidden && (
+                        <EyeOff
+                            className="size-3.5 text-muted-foreground"
+                            aria-label="Hidden"
+                        />
+                    )}
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                        {category.articles_count}
+                    </span>
                 </span>
                 <ConfirmDialog
                     trigger={
-                        <Button variant="ghost" size="icon" className="size-7" aria-label={`Delete category ${category.name}`}>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            aria-label={`Delete category ${category.name}`}
+                        >
                             <X className="size-3.5" />
                         </Button>
                     }

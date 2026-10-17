@@ -7,9 +7,17 @@ import { create as openTicket } from '@/routes/support/tickets';
 
 const LINKS = [
     { title: 'Knowledge base', href: kb.url(), prefix: '/knowledgebase' },
-    { title: 'Announcements', href: announcements.url(), prefix: '/announcements' },
+    {
+        title: 'Announcements',
+        href: announcements.url(),
+        prefix: '/announcements',
+    },
     { title: 'Network status', href: network.url(), prefix: '/network-status' },
-    { title: 'Contact support', href: openTicket.url(), prefix: '/support/tickets' },
+    {
+        title: 'Contact support',
+        href: openTicket.url(),
+        prefix: '/support/tickets',
+    },
 ];
 
 /**
@@ -20,7 +28,10 @@ export function PublicSupportNav() {
     const { url } = usePage();
 
     return (
-        <nav aria-label="Support" className="-mx-1 flex gap-1 overflow-x-auto border-b pb-px">
+        <nav
+            aria-label="Support"
+            className="-mx-1 flex gap-1 overflow-x-auto border-b pb-px"
+        >
             {LINKS.map((link) => {
                 const active = url.startsWith(link.prefix);
 

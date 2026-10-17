@@ -21,8 +21,17 @@ type DepartmentRow = {
 };
 
 const columns: DataTableColumn<DepartmentRow>[] = [
-    { key: 'name', header: 'Department', primary: true, cell: (row) => row.name },
-    { key: 'email', header: 'Email', cell: (row) => <span className="font-mono text-xs">{row.email}</span> },
+    {
+        key: 'name',
+        header: 'Department',
+        primary: true,
+        cell: (row) => row.name,
+    },
+    {
+        key: 'email',
+        header: 'Email',
+        cell: (row) => <span className="font-mono text-xs">{row.email}</span>,
+    },
     {
         key: 'visibility',
         header: 'Visibility',
@@ -30,16 +39,34 @@ const columns: DataTableColumn<DepartmentRow>[] = [
             row.is_hidden ? (
                 <StatusBadge status="hidden" label="Hidden" />
             ) : row.clients_only ? (
-                <StatusBadge status="clients-only" label="Clients only" tone="info" />
+                <StatusBadge
+                    status="clients-only"
+                    label="Clients only"
+                    tone="info"
+                />
             ) : (
                 <StatusBadge status="public" label="Public" tone="success" />
             ),
     },
-    { key: 'staff', header: 'Staff', align: 'right', cell: (row) => row.staff_count },
-    { key: 'tickets', header: 'Tickets', align: 'right', cell: (row) => row.tickets_count },
+    {
+        key: 'staff',
+        header: 'Staff',
+        align: 'right',
+        cell: (row) => row.staff_count,
+    },
+    {
+        key: 'tickets',
+        header: 'Tickets',
+        align: 'right',
+        cell: (row) => row.tickets_count,
+    },
 ];
 
-export default function DepartmentsIndex({ departments }: { departments: DepartmentRow[] }) {
+export default function DepartmentsIndex({
+    departments,
+}: {
+    departments: DepartmentRow[];
+}) {
     return (
         <>
             <Head title="Departments" />
