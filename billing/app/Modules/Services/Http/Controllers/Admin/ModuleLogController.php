@@ -56,6 +56,7 @@ class ModuleLogController extends Controller
                     'service_id' => $item->subject_id,
                     'service_label' => $item->service?->label(),
                     'command' => $item->command,
+                    'kind' => $item->kind,
                     'last_error' => $item->last_error,
                     'attempts' => $item->attempts,
                     'status' => $item->status->value,
@@ -79,6 +80,8 @@ class ModuleLogController extends Controller
         if (! $outcome->succeededNow()) {
             throw ValidationException::withMessages(['action' => __('Retry failed: :error', ['error' => $outcome->message])]);
         }
+
+        $item->refresh()->update(['resolved_by' => $request->user()?->id]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':command succeeded for :label.', ['command' => $command->label(), 'label' => $item->service->label()])]);
 

@@ -3,6 +3,7 @@
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillableType;
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -67,7 +68,7 @@ test('global search finds services by domain and username', function () {
         ->and(collect($byUsername)->firstWhere('group', 'Services')['results'])->toHaveCount(1);
 });
 
-test('the detail page exposes commands and hides credentials until requested with permission', function () {
+test('the detail page exposes commands but never the password', function () {
     actingAsStaff(['services.services.view', 'services.services.credentials']);
     $service = Service::factory()->onServer()->create(['password' => 'Visible-Pass1']);
 
@@ -78,16 +79,38 @@ test('the detail page exposes commands and hides credentials until requested wit
             ->missing('service.password')
             ->missing('credentials')
             ->where('commands.0.value', 'suspend')
-            ->where('can.credentials', true)
-            ->reloadOnly('credentials', fn (Assert $reload) => $reload->where('credentials.password', 'Visible-Pass1')));
+            ->where('can.credentials', true));
 });
 
-test('credentials stay hidden without the reveal permission', function () {
-    actingAsStaff(['services.services.view']);
+test('revealing credentials is a POST that is audited and never cached', function () {
+    $staff = actingAsStaff(['services.services.view', 'services.services.credentials']);
+    $service = Service::factory()->onServer()->create(['password' => 'Visible-Pass1']);
+
+    $this->post(route('admin.services.services.credentials', $service))
+        ->assertOk()
+        ->assertJson(['username' => $service->username, 'password' => 'Visible-Pass1'])
+        ->assertHeader('Cache-Control', 'no-store, private');
+
+    $audit = ActivityLog::query()->where('description', 'Service credentials revealed')->sole();
+    expect($audit)->client_id->toBe($service->client_id)->subject_id->toBe($service->id)
+        ->and($audit->properties['staff_id'])->toBe($staff->id);
+    $this->get(route('admin.services.services.credentials', $service))->assertMethodNotAllowed();
+});
+
+test('credentials cannot be revealed without the reveal permission', function () {
+    actingAsStaff(['services.services.view', 'services.services.manage']);
     $service = Service::factory()->onServer()->create();
 
-    $this->get(route('admin.services.services.show', $service))
-        ->assertInertia(fn (Assert $page) => $page->reloadOnly('credentials', fn (Assert $reload) => $reload->where('credentials', null)));
+    $this->post(route('admin.services.services.credentials', $service))->assertForbidden();
+    $this->assertDatabaseMissing('activity_log', ['description' => 'Service credentials revealed']);
+});
+
+test('the inline module log needs the module log permission', function () {
+    actingAsStaff(['services.services.view']);
+    $service = Service::factory()->onServer()->create();
+    RunModuleCommand::dispatch($service->id, 'suspend', ['reason' => 'overdue']);
+
+    $this->get(route('admin.services.services.show', $service))->assertInertia(fn (Assert $page) => $page->has('moduleLog', 0));
 });
 
 test('staff run module commands and see failures inline', function () {

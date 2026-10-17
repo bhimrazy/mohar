@@ -30,6 +30,7 @@ Route::adminArea(function (): void {
         Route::prefix('{service}')->whereNumber('service')->name('services.')->group(function (): void {
             Route::get('/', [ServiceController::class, 'show'])->name('show');
             Route::get('edit', [ServiceController::class, 'edit'])->name('edit');
+            Route::post('credentials', [ServiceController::class, 'credentials'])->name('credentials');
             Route::put('/', [ServiceController::class, 'update'])->name('update');
             Route::delete('/', [ServiceController::class, 'destroy'])->name('destroy');
             Route::post('commands', [ServiceActionController::class, 'command'])->name('command');

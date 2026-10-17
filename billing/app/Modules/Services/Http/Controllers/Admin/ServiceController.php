@@ -5,6 +5,7 @@ namespace App\Modules\Services\Http\Controllers\Admin;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Actions\UpdateService;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Requests\ServiceRequest;
@@ -15,6 +16,7 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -94,15 +96,14 @@ class ServiceController extends Controller
                 'created_at' => $change->created_at?->toIso8601String(),
             ]),
             'cancellation' => $service->openCancellationRequest?->only(['id', 'type', 'reason', 'process_after']),
-            'moduleLog' => ModuleCommandResource::collection($service->moduleCommands()->orderByDesc('id')->limit(15)->get()),
+            'moduleLog' => $user?->hasPermission('services.module_log.view')
+                ? ModuleCommandResource::collection($service->moduleCommands()->orderByDesc('id')->limit(15)->get())
+                : [],
             'usage' => $service->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
             'driver' => $presenter->driver($service)->toArray(),
             'commands' => $presenter->commands($service),
             'statusTargets' => $presenter->statusTargets($service),
-            'changeOptions' => fn (): array => $presenter->changeOptions($service, $today),
-            'credentials' => Inertia::optional(fn (): ?array => $user?->hasPermission('services.services.credentials')
-                ? ['username' => $service->username, 'password' => $service->password]
-                : null),
+            'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($service, $today)),
             'can' => [
                 'manage' => $user?->hasPermission('services.services.manage') ?? false,
                 'provision' => $user?->hasPermission('services.services.provision') ?? false,
@@ -110,6 +111,21 @@ class ServiceController extends Controller
                 'moduleLog' => $user?->hasPermission('services.module_log.view') ?? false,
             ],
         ]);
+    }
+
+    /**
+     * Reveal the service password. POST (never cached or kept in history state), permission-gated
+     * and written to the activity log.
+     */
+    public function credentials(Request $request, Service $service, ActivityLogger $activity): JsonResponse
+    {
+        $this->authorize('services.services.credentials');
+
+        $activity->log('Service credentials revealed', $service, $service->client_id, ['staff_id' => $request->user()?->id]);
+
+        return response()
+            ->json(['username' => $service->username, 'password' => $service->password])
+            ->header('Cache-Control', 'no-store, private');
     }
 
     public function edit(Service $service): Response

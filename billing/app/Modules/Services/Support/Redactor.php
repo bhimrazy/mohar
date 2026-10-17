@@ -18,12 +18,11 @@ class Redactor
      */
     public function redact(array $payload, array $secrets = []): array
     {
-        $secrets = array_values(array_filter($secrets, fn (string $secret): bool => strlen($secret) >= 3));
-
+        $variants = $this->variants($secrets);
         $redacted = [];
 
         foreach ($payload as $key => $value) {
-            if (is_string($key) && preg_match(self::SENSITIVE_KEYS, $key) === 1 && $value !== null && ! is_array($value)) {
+            if (is_string($key) && preg_match(self::SENSITIVE_KEYS, $key) === 1 && $value !== null) {
                 $redacted[$key] = self::MASK;
 
                 continue;
@@ -31,7 +30,7 @@ class Redactor
 
             $redacted[$key] = match (true) {
                 is_array($value) => $this->redact($value, $secrets),
-                is_string($value) => $this->maskValues($value, $secrets),
+                is_string($value) => $variants === [] ? $value : str_replace($variants, self::MASK, $value),
                 default => $value,
             };
         }
@@ -44,6 +43,33 @@ class Redactor
      */
     public function maskValues(string $value, array $secrets): string
     {
+        $secrets = $this->variants($secrets);
+
         return $secrets === [] ? $value : str_replace($secrets, self::MASK, $value);
+    }
+
+    /**
+     * Each secret plus the encoded forms it commonly appears in (URL-encoded, base64, Basic auth),
+     * longest first so a longer encoding is masked before a substring of it.
+     *
+     * @param  list<string>  $secrets
+     * @return list<string>
+     */
+    private function variants(array $secrets): array
+    {
+        $variants = [];
+
+        foreach ($secrets as $secret) {
+            if (strlen($secret) < 3) {
+                continue;
+            }
+
+            array_push($variants, $secret, urlencode($secret), rawurlencode($secret), base64_encode($secret), rtrim(base64_encode($secret), '='));
+        }
+
+        $variants = array_values(array_unique(array_filter($variants, fn (string $variant): bool => strlen($variant) >= 3)));
+        usort($variants, fn (string $a, string $b): int => strlen($b) <=> strlen($a));
+
+        return $variants;
     }
 }

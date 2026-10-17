@@ -11,6 +11,7 @@ use App\Modules\Services\Http\Requests\ServerRequest;
 use App\Modules\Services\Http\Resources\ServerResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
+use App\Modules\Services\Support\Redactor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
@@ -58,7 +59,7 @@ class ServerController extends Controller
         $this->authorize('services.servers.manage');
 
         return Inertia::render('admin/services/servers/form', [
-            'server' => new ServerResource($server->loadCount(['services as active_accounts_count'])),
+            'server' => new ServerResource(Server::query()->withActiveAccounts()->findOrFail($server->id)),
             ...$this->formOptions($drivers),
         ]);
     }
@@ -86,19 +87,21 @@ class ServerController extends Controller
         return to_route('admin.services.servers.index');
     }
 
-    public function test(Server $server, DriverRegistry $drivers): RedirectResponse
+    public function test(Server $server, DriverRegistry $drivers, Redactor $redactor): RedirectResponse
     {
         $this->authorize('services.servers.manage');
 
         try {
             $result = $drivers->get($server->driver)->testConnection($server);
         } catch (Throwable $exception) {
-            report($exception);
+            report(new \RuntimeException($redactor->maskValues($exception->getMessage(), $server->secrets())));
             $result = null;
         }
 
         if ($result === null || ! $result->success) {
-            throw ValidationException::withMessages(['server' => __('Connection to :host failed: :error', ['host' => $server->hostname, 'error' => $result->message ?? __('unexpected error')])]);
+            $error = $redactor->maskValues((string) ($result->message ?? __('unexpected error')), $server->secrets());
+
+            throw ValidationException::withMessages(['server' => __('Connection to :host failed: :error', ['host' => $server->hostname, 'error' => $error])]);
         }
 
         Inertia::flash('toast', ['type' => 'success', 'message' => $result->message ?? __('Connection succeeded.')]);
