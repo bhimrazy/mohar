@@ -25,3 +25,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Admin: client list/search/filter, create, view, edit. Client area: dashboard, account details, account switcher.
 - Registration creates an owned client account.
 - Seeders: currencies (USD/EUR/GBP), roles, `admin@example.com` / `demo@example.com` (password: `password`).
+
+### Domains
+
+- TLD catalog with per-term register/transfer/renew prices per currency and client-group slab (no silent currency
+  conversion), grace/redemption periods and fees, renew windows, EPP requirement and registrar assignment.
+- `DomainPricing` (`price`, `terms`, `split` for multi-level TLDs such as `.co.uk`, renewal terms within the
+  10-year registry horizon) and `DomainRegistry` (`createPending`, `process`, `cancelPending`) implementations.
+- Domain lifecycle state machine (pending → active → grace → redemption → expired, transfers, cancellations) with
+  activity log and events; IDN/punycode-safe name normalisation and validation; one live record per name.
+- Registrar driver contract, driver registry and deterministic `log` demo registrar; every call goes through a
+  gateway that checks capabilities and writes a redacted `registrar_command_log`.
+- Queued register/transfer/renew jobs with retries; timeouts never re-register; renewals are never repeated.
+- Automation: renewal invoicing (idempotent per cycle), grace/redemption invoice swap and expiry cancellation,
+  ICANN-style reminders with per-client digest, registrar and transfer sync (hourly `domains:sync`), log pruning.
+- Admin: domain list (status/registrar/TLD/expiry/client filters) and detail (dates, amounts, forced status,
+  registrar commands, nameservers, lock, EPP, contacts, command log, move, delete), TLD pricing grid, registrars.
+- Client area: my domains, domain management (nameservers, auto-renew, lock, EPP code, contacts, transfer retry).
+- Public domain search with availability, suggestions and prices; JSON lookup endpoint (rate limited, cached).
+- Navigation, dashboard cards, permissions, settings, global search and `domain` merge fields; demo seeder.

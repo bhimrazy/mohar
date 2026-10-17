@@ -103,7 +103,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                     </Button>
                 }
             >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                     {registrar.schema.map((field) => {
                         const id = `${registrar.key}-${field.key}`;
                         const error = errors[`settings.${field.key}`];
@@ -130,6 +130,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                         }
                                     >
                                         <SelectTrigger
+                                            className="w-full"
                                             id={id}
                                             aria-describedby={`${id}-description`}
                                         >

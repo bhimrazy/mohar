@@ -61,7 +61,7 @@ export function NameserversForm({
                     </Button>
                 }
             >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                     {form.data.nameservers.map((value, index) => {
                         const id = `nameserver-${index}`;
                         const error = errors[`nameservers.${index}`];

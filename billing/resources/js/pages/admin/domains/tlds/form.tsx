@@ -191,7 +191,7 @@ function SettingsForm({
     return (
         <form onSubmit={submit} className="flex flex-col gap-4">
             <SectionCard title="Extension">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                     {text('extension', 'Extension', 'e.g. .com or .co.uk')}
                     <Field
                         htmlFor="registrar_key"
@@ -205,7 +205,10 @@ function SettingsForm({
                                 form.setData('registrar_key', value)
                             }
                         >
-                            <SelectTrigger id="registrar_key">
+                            <SelectTrigger
+                                className="w-full"
+                                id="registrar_key"
+                            >
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -233,7 +236,7 @@ function SettingsForm({
                                 form.setData('badge', value)
                             }
                         >
-                            <SelectTrigger id="badge">
+                            <SelectTrigger className="w-full" id="badge">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -254,7 +257,7 @@ function SettingsForm({
                 title="Expiry"
                 description={`Fees are charged in ${defaultCurrency} and converted at invoice time.`}
             >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                     {text(
                         'grace_days',
                         'Grace period (days)',

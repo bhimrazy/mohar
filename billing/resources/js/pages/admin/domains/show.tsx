@@ -57,6 +57,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { formatDate } from '@/lib/date';
 import { fromMinor, toMinor } from '@/lib/money';
 import { expiryHint } from '@/types/domains';
 import type { Domain, DomainContacts } from '@/types/domains';
@@ -249,7 +250,7 @@ function DetailsForm({
                     </Button>
                 }
             >
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid items-start gap-4 sm:grid-cols-2">
                     {dateField('registration_date', 'Registered', true)}
                     {dateField('expiry_date', 'Expiry date', true)}
                     {dateField('next_due_date', 'Next due date')}
@@ -283,6 +284,7 @@ function DetailsForm({
                             }
                         >
                             <SelectTrigger
+                                className="w-full"
                                 id="registrar_key"
                                 aria-describedby="registrar_key-description"
                             >
@@ -444,7 +446,7 @@ function ForceStatusDialog({
                                 form.setData('status', value)
                             }
                         >
-                            <SelectTrigger id="force-status">
+                            <SelectTrigger className="w-full" id="force-status">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -735,7 +737,7 @@ export default function DomainShow({
                         value={<DateTime value={domain.next_due_date} />}
                         hint={
                             domain.next_invoice_date
-                                ? `Invoice on ${domain.next_invoice_date}`
+                                ? `Invoice on ${formatDate(domain.next_invoice_date)}`
                                 : undefined
                         }
                     />
@@ -883,7 +885,9 @@ export default function DomainShow({
                                         action={DomainActionController.lock(
                                             domain.id,
                                         )}
-                                        disabled={isPending}
+                                        disabled={domain.status.startsWith(
+                                            'pending',
+                                        )}
                                     />
                                 ) : (
                                     <DescriptionList
@@ -907,7 +911,9 @@ export default function DomainShow({
                                         )}
                                         domainName={domain.name_unicode}
                                         audience="staff"
-                                        disabled={isPending}
+                                        disabled={domain.status.startsWith(
+                                            'pending',
+                                        )}
                                     />
                                 )}
                                 <DescriptionList

@@ -103,7 +103,7 @@ export function ContactsForm({
                     </TabsList>
                     {CONTACT_ROLES.map((role) => (
                         <TabsContent key={role} value={role}>
-                            <div className="grid gap-4 sm:grid-cols-2">
+                            <div className="grid items-start gap-4 sm:grid-cols-2">
                                 {FIELDS.map((field) => {
                                     const id = `contact-${role}-${field.key}`;
                                     const error =
