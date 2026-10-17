@@ -129,6 +129,8 @@ return new class extends Migration
             $table->timestamp('cancelled_at')->nullable();
             $table->timestamps();
             $table->index(['type', 'billable_id']);
+            // PostgreSQL does not index foreign keys automatically.
+            $table->index('invoice_id');
         });
 
         Schema::create('invoice_adjustments', function (Blueprint $table) {
@@ -144,6 +146,7 @@ return new class extends Migration
             $table->unsignedBigInteger('transaction_id')->nullable()->index();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
+            $table->index('invoice_id');
         });
 
         Schema::create('payment_batches', function (Blueprint $table) {
@@ -192,6 +195,10 @@ return new class extends Migration
             $table->unique(['gateway', 'gateway_txn_id', 'type']);
             $table->index(['client_id', 'occurred_at']);
             $table->index(['type', 'occurred_at']);
+            $table->index('invoice_id');
+            $table->index('parent_transaction_id');
+            $table->index('payment_batch_id');
+            $table->index('pay_method_id');
         });
 
         Schema::create('payment_attempts', function (Blueprint $table) {
@@ -218,6 +225,8 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['gateway', 'provider_txn_id']);
             $table->index(['status', 'last_lookup_at']);
+            $table->index('invoice_id');
+            $table->index('client_id');
         });
 
         Schema::create('credit_ledger', function (Blueprint $table) {
@@ -233,6 +242,8 @@ return new class extends Migration
             $table->foreignId('staff_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
             $table->index(['client_id', 'currency', 'id']);
+            $table->index('invoice_id');
+            $table->index('transaction_id');
         });
 
         Schema::create('gateway_log', function (Blueprint $table) {
@@ -277,6 +288,7 @@ return new class extends Migration
             $table->foreignId('invoice_id')->nullable()->constrained()->nullOnDelete();
             $table->timestamps();
             $table->index(['stage', 'valid_until']);
+            $table->index('client_id');
         });
 
         Schema::create('quote_items', function (Blueprint $table) {
@@ -291,6 +303,7 @@ return new class extends Migration
             $table->unsignedBigInteger('product_id')->nullable();
             $table->unsignedInteger('sort_order')->default(0);
             $table->timestamps();
+            $table->index('quote_id');
         });
     }
 

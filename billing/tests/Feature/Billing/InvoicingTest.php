@@ -16,6 +16,7 @@ use App\Modules\Billing\Exceptions\ImmutableInvoiceException;
 use App\Modules\Billing\Models\BillingSequence;
 use App\Modules\Billing\Models\Invoice;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
 require_once __DIR__.'/helpers.php';
@@ -174,4 +175,42 @@ test('a cancelled invoice can be reopened', function () {
 
 test('the invoicer reports missing invoices as null', function () {
     expect(app(Invoicer::class)->status(999_999))->toBeNull();
+});
+
+test('a publish that rolls back leaves no gap in the numbering', function () {
+    $client = billingClient();
+    $first = issueInvoice($client, status: 'draft');
+    $second = issueInvoice($client, status: 'draft');
+
+    try {
+        DB::transaction(function () use ($first) {
+            app(PublishInvoice::class)->handle($first);
+
+            throw new RuntimeException('crash after numbering');
+        });
+    } catch (RuntimeException) {
+    }
+
+    app(PublishInvoice::class)->handle($second);
+
+    expect($first->fresh()->number)->toBeNull()->and($second->fresh()->number)->toBe('1');
+});
+
+test('the number sequence row is locked for update while publishing', function () {
+    $queries = [];
+    DB::listen(function ($query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+    $draft = issueInvoice(billingClient(), status: 'draft');
+
+    app(PublishInvoice::class)->handle($draft);
+
+    $grammarLocks = DB::connection()->getDriverName() !== 'sqlite';
+    $sequenceQueries = array_values(array_filter($queries, fn (string $sql) => str_contains($sql, 'billing_sequences') && str_starts_with(strtolower($sql), 'select')));
+
+    expect($sequenceQueries)->not->toBeEmpty();
+
+    if ($grammarLocks) {
+        expect($sequenceQueries[0])->toContain('for update');
+    }
 });

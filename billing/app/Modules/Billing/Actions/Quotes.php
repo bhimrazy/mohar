@@ -150,17 +150,24 @@ class Quotes
                 throw new BillingException(__('This quote has already been converted to an invoice.'));
             }
 
+            // Quantity and unit price carry over; a discount becomes its own negative line so it stays visible.
+            $lines = [];
+
+            foreach ($quote->items as $item) {
+                $lines[] = new InvoiceLineData($item->description, $item->unit_amount, $item->quantity, $item->taxable, BillableType::Manual);
+                $discount = $item->amount - $item->unit_amount * $item->quantity;
+
+                if ($discount !== 0) {
+                    $lines[] = new InvoiceLineData(__('Discount :percent% — :line', ['percent' => rtrim(rtrim((string) $item->discount_percent, '0'), '.'), 'line' => mb_substr($item->description, 0, 150)]), $discount, 1, $item->taxable, BillableType::Manual);
+                }
+            }
+
             $invoice = $this->issue->handle(new InvoiceDraft(
                 clientId: $quote->client_id,
                 currency: $quote->currency,
-                lines: array_values($quote->items->map(fn (QuoteItem $item): InvoiceLineData => new InvoiceLineData(
-                    description: $item->description,
-                    unitAmount: (float) $item->discount_percent > 0 ? $item->amount : $item->unit_amount,
-                    quantity: (float) $item->discount_percent > 0 ? 1 : $item->quantity,
-                    taxable: $item->taxable,
-                    billableType: BillableType::Manual,
-                ))->all()),
+                lines: $lines,
                 notes: $quote->customer_notes,
+                reason: 'manual',
             ), 'quote');
 
             $quote->update(['invoice_id' => $invoice->id, 'stage' => QuoteStage::Accepted, 'accepted_at' => $quote->accepted_at ?? now()]);

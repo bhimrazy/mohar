@@ -117,7 +117,12 @@ test('quotes are created, sent and converted once', function () {
     $this->post(route('admin.billing.quotes.convert', $quote))->assertRedirect();
     $this->post(route('admin.billing.quotes.convert', $quote))->assertSessionHasErrors('billing');
 
-    expect(Invoice::query()->where('client_id', $client->id)->count())->toBe(1);
+    $invoice = Invoice::query()->where('client_id', $client->id)->sole();
+    expect($invoice->total)->toBe(18_000)
+        ->and($invoice->items()->orderBy('sort_order')->get(['quantity', 'unit_amount', 'amount'])->toArray())->toBe([
+            ['quantity' => 2, 'unit_amount' => 10_000, 'amount' => 20_000],
+            ['quantity' => 1, 'unit_amount' => -2_000, 'amount' => -2_000],
+        ]);
     $this->get(route('admin.billing.quotes.show', $quote))->assertInertia(fn (Assert $page) => $page->component('admin/billing/quotes/show')->where('quote.invoice_id', $quote->fresh()->invoice_id));
 });
 
