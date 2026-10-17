@@ -52,7 +52,9 @@ const columns: DataTableColumn<Domain>[] = [
                 </span>
             ) : (
                 <span className="text-muted-foreground">
-                    After registration
+                    {domain.type === 'transfer'
+                        ? 'After the transfer'
+                        : 'After registration'}
                 </span>
             ),
     },

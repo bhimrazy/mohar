@@ -64,6 +64,7 @@ export type Domain = {
     contact_change_pending: boolean;
     transfer_lock_until: string | null;
     last_error?: string | null;
+    needs_review?: boolean;
     last_synced_at?: string | null;
     last_sync_status?: string | null;
     linked_service_id?: number | null;

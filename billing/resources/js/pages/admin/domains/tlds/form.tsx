@@ -1,5 +1,4 @@
 import { Head, useForm } from '@inertiajs/react';
-import { useState } from 'react';
 import type { FormEvent } from 'react';
 import TldController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/TldController';
 import { Field } from '@/components/app/field';
@@ -18,15 +17,9 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
-import { fromMinor, toMinor } from '@/lib/money';
+import { TldPricingGrid } from '@/components/domains/tld-pricing-grid';
+import type { PriceRow } from '@/components/domains/tld-pricing-grid';
+import { fromMinor, parseMoneyInput } from '@/lib/money';
 
 type Tld = {
     id: number;
@@ -52,16 +45,6 @@ type Tld = {
     is_active: boolean;
 };
 
-type PriceRow = {
-    id: number;
-    currency: string;
-    client_group_id: number | null;
-    years: number;
-    register: number | null;
-    transfer: number | null;
-    renew: number | null;
-};
-
 type Props = {
     tld: Tld | null;
     prices: PriceRow[];
@@ -73,18 +56,8 @@ type Props = {
     canManage: boolean;
 };
 
-const BASE = 'base';
-const ACTIONS = ['register', 'transfer', 'renew'] as const;
-type GridRow = {
-    years: number;
-    register: string;
-    transfer: string;
-    renew: string;
-};
-
 const decimal = (amount: number | null) =>
     amount === null ? '' : fromMinor(amount).toFixed(2);
-const minor = (value: string) => (value.trim() === '' ? null : toMinor(value));
 
 function SettingsForm({
     tld,
@@ -130,8 +103,15 @@ function SettingsForm({
             max_years: Number(data.max_years),
             grace_days: Number(data.grace_days),
             redemption_days: Number(data.redemption_days),
-            grace_fee: toMinor(data.grace_fee || '0'),
-            redemption_fee: toMinor(data.redemption_fee || '0'),
+            grace_fee:
+                data.grace_fee.trim() === ''
+                    ? 0
+                    : (parseMoneyInput(data.grace_fee) ?? data.grace_fee),
+            redemption_fee:
+                data.redemption_fee.trim() === ''
+                    ? 0
+                    : (parseMoneyInput(data.redemption_fee) ??
+                      data.redemption_fee),
             renew_window_days: data.renew_window_days
                 ? Number(data.renew_window_days)
                 : null,
@@ -314,247 +294,6 @@ function SettingsForm({
     );
 }
 
-function PricingGrid({
-    tld,
-    prices,
-    currencies,
-    groups,
-    canManage,
-}: { tld: Tld } & Pick<
-    Props,
-    'prices' | 'currencies' | 'groups' | 'canManage'
->) {
-    const [currency, setCurrency] = useState(currencies[0] ?? 'USD');
-    const [group, setGroup] = useState<string>(BASE);
-    const groupId = group === BASE ? null : Number(group);
-
-    const rowsFor = (
-        selectedCurrency: string,
-        selectedGroup: number | null,
-    ): GridRow[] =>
-        Array.from(
-            { length: tld.max_years - tld.min_years + 1 },
-            (_, index) => {
-                const years = tld.min_years + index;
-                const existing = prices.find(
-                    (price) =>
-                        price.currency === selectedCurrency &&
-                        price.client_group_id === selectedGroup &&
-                        price.years === years,
-                );
-
-                return {
-                    years,
-                    register: decimal(existing?.register ?? null),
-                    transfer: decimal(existing?.transfer ?? null),
-                    renew: decimal(existing?.renew ?? null),
-                };
-            },
-        );
-
-    const form = useForm({ rows: rowsFor(currency, groupId) });
-
-    const select = (nextCurrency: string, nextGroup: string) => {
-        setCurrency(nextCurrency);
-        setGroup(nextGroup);
-        const rows = rowsFor(
-            nextCurrency,
-            nextGroup === BASE ? null : Number(nextGroup),
-        );
-        form.setDefaults({ rows });
-        form.setData('rows', rows);
-        form.clearErrors();
-    };
-
-    const setCell = (
-        index: number,
-        action: (typeof ACTIONS)[number],
-        value: string,
-    ) =>
-        form.setData(
-            'rows',
-            form.data.rows.map((row, i) =>
-                i === index ? { ...row, [action]: value } : row,
-            ),
-        );
-
-    const fillFromFirstYear = () => {
-        const first = form.data.rows[0];
-        form.setData(
-            'rows',
-            form.data.rows.map((row, index) =>
-                index === 0
-                    ? row
-                    : {
-                          years: row.years,
-                          register: first.register
-                              ? (
-                                    (Number(first.register) * row.years) /
-                                    first.years
-                                ).toFixed(2)
-                              : '',
-                          transfer: '',
-                          renew: first.renew
-                              ? (
-                                    (Number(first.renew) * row.years) /
-                                    first.years
-                                ).toFixed(2)
-                              : '',
-                      },
-            ),
-        );
-    };
-
-    const submit = (event: FormEvent) => {
-        event.preventDefault();
-        form.transform((data) => ({
-            currency,
-            client_group_id: groupId,
-            prices: data.rows.map((row) => ({
-                years: row.years,
-                register: minor(row.register),
-                transfer: minor(row.transfer),
-                renew: minor(row.renew),
-            })),
-        }));
-        form.submit(TldController.prices(tld.id), { preserveScroll: true });
-    };
-
-    const errors = form.errors as Record<string, string | undefined>;
-
-    return (
-        <form onSubmit={submit}>
-            <SectionCard
-                title="Prices"
-                description="Leave a cell empty when the term isn't offered. Client-group slabs override the base price; transfers sell the lowest term only."
-                flush
-                footer={
-                    canManage && (
-                        <>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={fillFromFirstYear}
-                            >
-                                Fill years from 1-year price
-                            </Button>
-                            <Button
-                                type="submit"
-                                disabled={form.processing || !form.isDirty}
-                            >
-                                {form.processing && <Spinner />}
-                                Save prices
-                            </Button>
-                        </>
-                    )
-                }
-            >
-                <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:px-6">
-                    <Select
-                        value={currency}
-                        onValueChange={(value) => select(value, group)}
-                    >
-                        <SelectTrigger
-                            className="sm:w-40"
-                            aria-label="Currency"
-                        >
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {currencies.map((code) => (
-                                <SelectItem key={code} value={code}>
-                                    {code}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Select
-                        value={group}
-                        onValueChange={(value) => select(currency, value)}
-                    >
-                        <SelectTrigger
-                            className="sm:w-56"
-                            aria-label="Client group"
-                        >
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value={BASE}>
-                                Base price (all clients)
-                            </SelectItem>
-                            {groups.map((item) => (
-                                <SelectItem
-                                    key={item.id}
-                                    value={String(item.id)}
-                                >
-                                    {item.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="overflow-x-auto">
-                    <Table>
-                        <TableHeader className="bg-muted/40">
-                            <TableRow className="hover:bg-transparent">
-                                <TableHead className="h-9 pl-4 text-xs sm:pl-6">
-                                    Term
-                                </TableHead>
-                                {ACTIONS.map((action) => (
-                                    <TableHead
-                                        key={action}
-                                        className="h-9 text-right text-xs capitalize"
-                                    >
-                                        {action} ({currency})
-                                    </TableHead>
-                                ))}
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {form.data.rows.map((row, index) => (
-                                <TableRow key={row.years}>
-                                    <TableCell className="pl-4 font-medium sm:pl-6">
-                                        {row.years} year
-                                        {row.years === 1 ? '' : 's'}
-                                    </TableCell>
-                                    {ACTIONS.map((action) => {
-                                        const error =
-                                            errors[`prices.${index}.${action}`];
-
-                                        return (
-                                            <TableCell
-                                                key={action}
-                                                className="py-1.5 last:pr-4 sm:last:pr-6"
-                                            >
-                                                <Input
-                                                    aria-label={`${action} price for ${row.years} year${row.years === 1 ? '' : 's'}`}
-                                                    inputMode="decimal"
-                                                    className="ml-auto w-28 text-right tabular-nums"
-                                                    value={row[action]}
-                                                    disabled={!canManage}
-                                                    aria-invalid={!!error}
-                                                    placeholder="—"
-                                                    onChange={(event) =>
-                                                        setCell(
-                                                            index,
-                                                            action,
-                                                            event.target.value,
-                                                        )
-                                                    }
-                                                />
-                                            </TableCell>
-                                        );
-                                    })}
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            </SectionCard>
-        </form>
-    );
-}
-
 export default function TldForm(props: Props) {
     const { tld } = props;
 
@@ -574,7 +313,7 @@ export default function TldForm(props: Props) {
                     canManage={props.canManage}
                 />
                 {tld && (
-                    <PricingGrid
+                    <TldPricingGrid
                         key={`${tld.id}-${tld.min_years}-${tld.max_years}`}
                         tld={tld}
                         prices={props.prices}

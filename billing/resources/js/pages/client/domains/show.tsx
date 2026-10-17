@@ -14,6 +14,7 @@ import { ActionErrors } from '@/components/domains/action-errors';
 import { ContactsForm } from '@/components/domains/contacts-form';
 import { EppCode } from '@/components/domains/epp-code';
 import { NameserversForm } from '@/components/domains/nameservers-form';
+import { RenewNow } from '@/components/domains/renew-now';
 import { SettingSwitch } from '@/components/domains/setting-switch';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ type Props = {
     canManage: boolean;
     canResubmitTransfer: boolean;
     renewalTerms: { years: number; price: number }[];
+    canRenewNow: boolean;
 };
 
 const PENDING_COPY: Partial<Record<Domain['status'], string>> = {
@@ -40,7 +42,7 @@ const PENDING_COPY: Partial<Record<Domain['status'], string>> = {
         'Your transfer is in progress. Approve it if your current registrar emails you; it can take up to 7 days.',
     grace: 'This domain has expired but can still be renewed at the normal price for a short time.',
     redemption:
-        'This domain has expired. It can still be restored for a fee — contact us to recover it.',
+        'This domain has expired. It can still be restored for a fee — renew it now to keep it.',
     expired: 'This domain has expired and can no longer be managed here.',
 };
 
@@ -101,6 +103,7 @@ export default function MyDomain({
     canManage,
     canResubmitTransfer,
     renewalTerms,
+    canRenewNow,
 }: Props) {
     const supports = (capability: string) => capabilities.includes(capability);
     const notice = PENDING_COPY[domain.status];
@@ -129,7 +132,14 @@ export default function MyDomain({
                 <ActionErrors />
 
                 {notice && (
-                    <Alert>
+                    <Alert
+                        variant={
+                            domain.status === 'redemption' ||
+                            domain.status === 'expired'
+                                ? 'destructive'
+                                : 'default'
+                        }
+                    >
                         <Info />
                         <AlertTitle>
                             {domain.status === 'grace' ||
@@ -138,7 +148,20 @@ export default function MyDomain({
                                 ? 'Renewal needed'
                                 : 'In progress'}
                         </AlertTitle>
-                        <AlertDescription>{notice}</AlertDescription>
+                        <AlertDescription>
+                            {notice}
+                            {canRenewNow &&
+                                renewalTerms.length > 0 &&
+                                (domain.status === 'grace' ||
+                                    domain.status === 'redemption') && (
+                                    <a
+                                        href="#renew"
+                                        className="mt-1 block font-medium underline"
+                                    >
+                                        Renew now
+                                    </a>
+                                )}
+                        </AlertDescription>
                     </Alert>
                 )}
 
@@ -188,19 +211,13 @@ export default function MyDomain({
                         hint={`every ${domain.period_years === 1 ? 'year' : `${domain.period_years} years`}`}
                     />
                     <StatCard
-                        label="Transfer lock"
+                        label="Auto-renew"
                         icon={ShieldCheck}
-                        value={
-                            domain.registrar_lock === null
-                                ? '—'
-                                : domain.registrar_lock
-                                  ? 'Locked'
-                                  : 'Unlocked'
-                        }
+                        value={domain.auto_renew ? 'On' : 'Off'}
                         hint={
-                            domain.registrar_lock
-                                ? 'Protected from transfers'
-                                : undefined
+                            domain.auto_renew
+                                ? 'Renewal invoice before expiry'
+                                : 'Renew manually before expiry'
                         }
                     />
                 </div>
@@ -264,6 +281,14 @@ export default function MyDomain({
                             </SectionCard>
                         )}
 
+                        {canRenewNow && renewalTerms.length > 0 && (
+                            <RenewNow
+                                domainId={domain.id}
+                                currency={domain.currency}
+                                terms={renewalTerms}
+                            />
+                        )}
+
                         <SectionCard title="Details">
                             <DescriptionList
                                 columns={1}
@@ -289,38 +314,6 @@ export default function MyDomain({
                                         value: domain.id_protection
                                             ? 'Included'
                                             : 'Not included',
-                                    },
-                                    {
-                                        label: 'Renewal options',
-                                        value: renewalTerms.length ? (
-                                            <ul className="grid gap-1">
-                                                {renewalTerms
-                                                    .slice(0, 3)
-                                                    .map((term) => (
-                                                        <li
-                                                            key={term.years}
-                                                            className="flex justify-between gap-4"
-                                                        >
-                                                            <span>
-                                                                {term.years}{' '}
-                                                                year
-                                                                {term.years ===
-                                                                1
-                                                                    ? ''
-                                                                    : 's'}
-                                                            </span>
-                                                            <Money
-                                                                amount={
-                                                                    term.price
-                                                                }
-                                                                currency={
-                                                                    domain.currency
-                                                                }
-                                                            />
-                                                        </li>
-                                                    ))}
-                                            </ul>
-                                        ) : null,
                                     },
                                 ]}
                             />
