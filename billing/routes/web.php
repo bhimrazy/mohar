@@ -12,6 +12,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 if (app()->isLocal()) {
     // Design-system showcase (resources/js/pages/dev/components.tsx), used for visual review and screenshots.
     Route::inertia('dev/components', 'dev/components')->middleware('auth')->name('dev.components');
+
+    // Design-direction previews with sample data (docs/design/DIRECTIONS.md); switch themes in the header.
+    Route::inertia('dev/dashboard-preview', 'dev/dashboard-preview')->middleware('auth')->name('dev.dashboard-preview');
+    Route::inertia('dev/invoice-preview', 'dev/invoice-preview')->middleware('auth')->name('dev.invoice-preview');
+    Route::inertia('dev/client-preview', 'dev/client-preview')->middleware('auth')->name('dev.client-preview');
 }
 
 require __DIR__.'/settings.php';
