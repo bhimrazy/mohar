@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Support\Demo;
 
+use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Data\Billing\InvoiceDraft;
@@ -15,9 +16,10 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * LOCAL DEMO ONLY: a cache-backed invoicer and a flat demo tax rate until the Billing module is merged.
+ * LOCAL DEMO ONLY: a cache-backed invoicer, a flat demo tax rate and two gateways until the Billing module
+ * is merged.
  */
-class DemoBilling implements Invoicer, TaxCalculator
+class DemoBilling implements GatewayDirectory, Invoicer, TaxCalculator
 {
     /** @var array<string, array{name: string, rate: float}> */
     private const RATES = [
@@ -25,6 +27,14 @@ class DemoBilling implements Invoicer, TaxCalculator
         'GB' => ['name' => 'VAT', 'rate' => 20.0],
         'DE' => ['name' => 'VAT', 'rate' => 19.0],
     ];
+
+    public function available(string $currency): array
+    {
+        return [
+            ['key' => 'bank_transfer', 'label' => 'Bank transfer'],
+            ['key' => 'sandbox_card', 'label' => 'Card'],
+        ];
+    }
 
     public function issue(InvoiceDraft $draft): InvoiceResult
     {

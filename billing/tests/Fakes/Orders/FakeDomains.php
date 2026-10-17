@@ -26,11 +26,20 @@ class FakeDomains implements DomainPricing, DomainRegistry
 
     private int $nextId = 500;
 
-    public function price(string $tld, string $action, int $years, string $currency): ?int
+    /** @var list<?int> client ids passed to price() */
+    public array $pricedFor = [];
+
+    public function price(string $tld, string $action, int $years, string $currency, ?int $clientId = null): ?int
     {
+        $this->pricedFor[] = $clientId;
         $price = $this->tlds[$tld][$action] ?? null;
 
         return $price === null ? null : $price * $years;
+    }
+
+    public function terms(string $tld, string $action, string $currency): array
+    {
+        return ($this->tlds[$tld][$action] ?? null) === null ? [] : [1, 2, 3, 5, 10];
     }
 
     public function split(string $domain): ?array

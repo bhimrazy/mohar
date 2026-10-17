@@ -34,9 +34,18 @@ class FakePriceBook implements PriceBook
     /** @var list<int> */
     public array $reserved = [];
 
+    /** @var list<int> */
+    public array $released = [];
+
+    /** @var list<?int> client ids passed to quote() */
+    public array $quotedFor = [];
+
     /**
      * @param  array<string, array{0: int, 1: int}>  $pricing  cycle => [recurring, setup]
      * @param  'order'|'payment'|'accept'|'manual'  $autoSetup
+     * @param  list<string>|null  $allowedGateways
+     * @param  list<string>  $freeDomainTlds
+     * @param  list<string>  $freeDomainCycles
      */
     public function addProduct(
         int $id,
@@ -47,8 +56,17 @@ class FakePriceBook implements PriceBook
         ?int $stock = null,
         bool $taxable = true,
         bool $active = true,
+        ?array $allowedGateways = null,
+        bool $freeDomain = false,
+        array $freeDomainTlds = [],
+        array $freeDomainCycles = [],
+        bool $freeDomainRecurring = false,
     ): self {
-        $this->products[$id] = new ProductSummary($id, $name, 'Hosting', 'shared_hosting', 'demo', null, [], $autoSetup, null, $requiresDomain, $taxable, $stock, $active);
+        $this->products[$id] = new ProductSummary(
+            $id, $name, 'Hosting', 'shared_hosting', 'demo', null, [], $autoSetup, null, $requiresDomain, $taxable, $stock, $active,
+            freeDomain: $freeDomain, freeDomainTlds: $freeDomainTlds, freeDomainCycles: $freeDomainCycles, freeDomainRecurring: $freeDomainRecurring,
+            slug: 'product-'.$id, allowedGateways: $allowedGateways,
+        );
         $this->prices[$id] = $pricing;
 
         return $this;
@@ -79,6 +97,7 @@ class FakePriceBook implements PriceBook
 
     public function quote(ProductSelection $selection): ?PriceQuote
     {
+        $this->quotedFor[] = $selection->clientId;
         $price = $this->prices[$selection->productId][$selection->cycle->value] ?? null;
 
         if ($price === null) {
@@ -168,12 +187,35 @@ class FakePriceBook implements PriceBook
             return false;
         }
 
-        $this->products[$productId] = new ProductSummary(
-            $product->id, $product->name, $product->groupName, $product->type, $product->provisioningDriver, $product->serverGroupId,
-            $product->driverConfig, $product->autoSetup, $product->welcomeEmail, $product->requiresDomain, $product->taxable, $product->stock - 1, $product->active,
-        );
+        $this->setStock($product, $product->stock - 1);
         $this->reserved[] = $productId;
 
         return true;
+    }
+
+    public function releaseStock(int $productId, int $quantity = 1): void
+    {
+        $product = $this->products[$productId] ?? null;
+        $this->released[] = $productId;
+
+        if ($product?->stock !== null) {
+            $this->setStock($product, $product->stock + $quantity);
+        }
+    }
+
+    public function productBySlug(string $slug): ?ProductSummary
+    {
+        foreach ($this->products as $product) {
+            if ($product->slug === $slug) {
+                return $product;
+            }
+        }
+
+        return null;
+    }
+
+    private function setStock(ProductSummary $product, int $stock): void
+    {
+        $this->products[$product->id] = new ProductSummary(...[...get_object_vars($product), 'stock' => $stock]);
     }
 }

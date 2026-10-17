@@ -87,6 +87,12 @@ class FakeBilling implements Invoicer, TaxCalculator
 
     public function lastDraft(): InvoiceDraft
     {
-        return $this->issued[array_key_last($this->issued)];
+        $last = end($this->issued);
+
+        if ($last === false) {
+            throw new \RuntimeException('No invoice has been issued.');
+        }
+
+        return $last;
     }
 }

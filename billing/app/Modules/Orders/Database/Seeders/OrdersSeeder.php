@@ -23,17 +23,20 @@ use Illuminate\Validation\ValidationException;
  * Demo promotions and orders.
  *
  * Orders are placed through PlaceOrder, so services, domains and invoices are created through the
- * sibling contracts (the local demo bindings until Catalog/Services/Domains/Billing are merged).
- * Assumes catalog product ids 1 (Starter Hosting), 2 (Business Hosting), 4 (Cloud VPS S) and
- * addon id 1 (backups) as in the demo catalog; orders whose products don't exist are skipped.
+ * sibling contracts. Products are looked up by the Catalog seeder's slugs (starter, pro, business,
+ * vps-s, vps-m); orders whose products don't exist are skipped.
  */
 class OrdersSeeder extends Seeder
 {
     public function run(): void
     {
+        if (! app()->bound(PriceBook::class)) {
+            return;
+        }
+
         $this->seedPromotions();
 
-        if (app()->bound(PriceBook::class) && Order::query()->doesntExist()) {
+        if (Order::query()->doesntExist()) {
             $this->seedOrders();
         }
     }
@@ -43,8 +46,8 @@ class OrdersSeeder extends Seeder
         $promotions = [
             'WELCOME25' => ['type' => PromotionType::Percent, 'value' => '25.00', 'recurring' => true, 'recur_count' => 3, 'new_clients_only' => true, 'once_per_client' => true, 'admin_notes' => 'New customer offer: 25% off the first 3 renewals too.'],
             'SAVE10' => ['type' => PromotionType::Fixed, 'value' => '10.00', 'min_cart_amount' => 5000, 'max_uses' => 500],
-            'FREESETUP' => ['type' => PromotionType::FreeSetup, 'value' => '0.00', 'applies_to' => ['product_ids' => [4, 5]]],
-            'VPSYEAR' => ['type' => PromotionType::Percent, 'value' => '15.00', 'cycles' => ['annually'], 'applies_to' => ['product_ids' => [4, 5]], 'expires_on' => now()->addMonths(2)->toDateString()],
+            'FREESETUP' => ['type' => PromotionType::FreeSetup, 'value' => '0.00', 'applies_to' => ['product_ids' => $this->productIds(['vps-s', 'vps-m'])]],
+            'VPSYEAR' => ['type' => PromotionType::Percent, 'value' => '15.00', 'cycles' => ['annually'], 'applies_to' => ['product_ids' => $this->productIds(['vps-s', 'vps-m'])], 'expires_on' => now()->addMonths(2)->toDateString()],
             'SUMMER' => ['type' => PromotionType::Percent, 'value' => '20.00', 'expired_at' => now()->subMonth(), 'expires_on' => now()->subMonth()->toDateString()],
         ];
 
@@ -62,13 +65,16 @@ class OrdersSeeder extends Seeder
             return;
         }
 
+        $pro = $this->productIds(['pro'])[0] ?? 0;
+        $backups = array_column(app(PriceBook::class)->addonsFor($pro, $demo->currency), 'id')[0] ?? null;
+
         $orders = [
-            [$demo, [$this->product(2, 'annually', 'demolabs.com', 'register', [1])], 'SAVE10', 'accept', 20],
-            [$demo, [$this->product(4, 'monthly')], null, null, 2],
-            [$others[0] ?? $demo, [$this->product(1, 'monthly', 'northwind.test', 'existing')], 'WELCOME25', null, 0],
-            [$others[1] ?? $demo, [$this->product(4, 'monthly')], 'FREESETUP', 'accept', 6],
-            [$others[2] ?? $demo, [$this->product(1, 'monthly', 'cheap-pills.test', 'existing')], null, 'fraud', 1],
-            [$others[3] ?? $demo, [$this->product(2, 'monthly', 'globex.test', 'existing')], null, 'cancel', 12],
+            [$demo, [$this->product('pro', 'annually', 'demolabs.com', 'register', $backups === null ? [] : [$backups])], 'SAVE10', 'accept', 20],
+            [$demo, [$this->product('vps-s', 'monthly')], null, null, 2],
+            [$others[0] ?? $demo, [$this->product('starter', 'monthly', 'northwind.test', 'existing')], 'WELCOME25', null, 0],
+            [$others[1] ?? $demo, [$this->product('vps-s', 'monthly')], 'FREESETUP', 'accept', 6],
+            [$others[2] ?? $demo, [$this->product('starter', 'monthly', 'cheap-pills.test', 'existing')], null, 'fraud', 1],
+            [$others[3] ?? $demo, [$this->product('business', 'monthly', 'globex.test', 'existing')], null, 'cancel', 12],
         ];
 
         foreach ($orders as [$client, $items, $promotion, $then, $daysAgo]) {
@@ -103,16 +109,25 @@ class OrdersSeeder extends Seeder
     /**
      * @param  list<int>  $addonIds
      */
-    private function product(int $productId, string $cycle, ?string $domain = null, string $mode = 'existing', array $addonIds = []): CartItem
+    private function product(string $slug, string $cycle, ?string $domain = null, string $mode = 'existing', array $addonIds = []): CartItem
     {
         return new CartItem(
             key: CartItem::newKey(),
             kind: CartItemKind::Product,
-            productId: $productId,
+            productId: $this->productIds([$slug])[0] ?? 0,
             cycle: BillingCycle::from($cycle),
             domainMode: $domain === null ? null : $mode,
             domainName: $domain,
             addonIds: $addonIds,
         );
+    }
+
+    /**
+     * @param  list<string>  $slugs
+     * @return list<int>
+     */
+    private function productIds(array $slugs): array
+    {
+        return array_values(array_filter(array_map(fn (string $slug): ?int => app(PriceBook::class)->productBySlug($slug)?->id, $slugs)));
     }
 }

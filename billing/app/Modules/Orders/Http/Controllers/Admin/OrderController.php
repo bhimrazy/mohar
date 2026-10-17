@@ -7,6 +7,7 @@ use App\Contracts\Catalog\PriceBook;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Actions\CancelOrder;
 use App\Modules\Orders\Actions\DeleteOrder;
@@ -66,7 +67,7 @@ class OrderController extends Controller
             'filters' => $request->only(['search', 'status', 'client', 'gateway', 'fraud', 'from', 'to']),
             'statuses' => OrderStatus::values(),
             'fraud_decisions' => array_column(FraudDecision::cases(), 'value'),
-            'gateways' => collect($gateways->all())->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
+            'gateways' => collect($gateways->all(Currency::default()->code))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
             'client' => $request->filled('client') ? Client::query()->find($request->integer('client'))?->only(['id', 'display_name']) : null,
             'can' => [
                 'create' => $request->user()?->can('orders.orders.create') ?? false,
@@ -126,7 +127,7 @@ class OrderController extends Controller
             'clients' => Client::query()->where('status', 'active')->orderBy('first_name')->orderBy('id')->limit(200)->get()
                 ->map(fn (Client $client): array => ['value' => (string) $client->id, 'label' => "{$client->display_name} ({$client->email})"]),
             'groups' => $client === null ? [] : $priceBook->storefront($client->currency),
-            'gateways' => collect($gateways->all())->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
+            'gateways' => collect($gateways->all($client->currency ?? Currency::default()->code))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
         ]);
     }
 

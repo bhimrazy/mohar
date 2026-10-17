@@ -146,7 +146,7 @@ class PlaceOrder
         }
 
         $productIds = array_values(array_unique(array_filter(array_map(fn ($item): ?int => $item->productId, $data->items))));
-        $allowed = $this->gateways->forProducts($productIds);
+        $allowed = $this->gateways->forProducts($productIds, $data->client->currency ?? $data->currency);
 
         if ($allowed === []) {
             throw ValidationException::withMessages([
@@ -287,7 +287,7 @@ class PlaceOrder
                     orderId: $order->id,
                     domain: $line->domain,
                     configOptions: $item->item->configOptions,
-                    customFields: $this->customFieldsByName($product->id, $item->item->customFields),
+                    customFields: $item->item->customFields,
                     promotionId: $recurringPromo ? $promotion->id : null,
                 ));
 
@@ -332,24 +332,6 @@ class PlaceOrder
         }
 
         return $ids;
-    }
-
-    /**
-     * ServiceDraft takes custom fields keyed by name (string keys); the cart keys them by field id.
-     *
-     * @param  array<int, string>  $values
-     * @return array<string, mixed>
-     */
-    private function customFieldsByName(int $productId, array $values): array
-    {
-        $names = array_column($this->priceBook->customFieldsFor($productId), 'name', 'id');
-        $byName = [];
-
-        foreach ($values as $fieldId => $value) {
-            $byName[$names[$fieldId] ?? "field_{$fieldId}"] = $value;
-        }
-
-        return $byName;
     }
 
     /**

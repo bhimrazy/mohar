@@ -60,7 +60,7 @@ class CheckoutController extends Controller
 
         return Inertia::render('public/checkout/index', [
             'cart' => $priced->toArray(),
-            'gateways' => collect($gateways->forProducts($priced->productIds()))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
+            'gateways' => collect($gateways->forProducts($priced->productIds(), $priced->currency))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
             'account' => $client === null ? null : ['name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency],
             'staff_without_client' => $request->user() !== null && $client === null,
             'require_tos' => (bool) $this->settings->get('orders.require_tos', true),

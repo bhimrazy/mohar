@@ -246,17 +246,16 @@ it('rolls the whole order back when stock runs out while reserving', function ()
 });
 
 it('blocks checkout when the products share no payment gateway', function () {
-    app()->instance(CheckoutGateways::class, new class(app(Settings::class)) extends CheckoutGateways
-    {
-        public function allowedForProduct(int $productId): ?array
-        {
-            return [1 => ['card'], 2 => ['paypal']][$productId] ?? null;
-        }
-    });
-    $this->fakes->catalog->addProduct(1)->addProduct(2, 'VPS');
+    $this->fakes->catalog->addProduct(1, allowedGateways: ['card'])->addProduct(2, 'VPS', allowedGateways: ['paypal']);
 
     app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1), OrdersFakes::productItem(2)], gateway: 'card'));
 })->throws(ValidationException::class, 'The products in your cart cannot be paid with the same payment method. Order them separately.');
+
+it('offers only the gateways every product allows', function () {
+    $this->fakes->catalog->addProduct(1, allowedGateways: ['card', 'paypal'])->addProduct(2, 'VPS', allowedGateways: ['paypal', 'bank_transfer']);
+
+    expect(app(CheckoutGateways::class)->forProducts([1, 2], 'USD'))->toBe(['paypal' => 'PayPal']);
+});
 
 it('refuses a gateway that is not offered', function () {
     $this->fakes->catalog->addProduct(1);

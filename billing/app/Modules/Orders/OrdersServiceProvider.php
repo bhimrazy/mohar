@@ -2,11 +2,9 @@
 
 namespace App\Modules\Orders;
 
+use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
-use App\Contracts\Catalog\PriceBook;
-use App\Contracts\Domains\DomainPricing;
-use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoicePaid;
@@ -27,8 +25,6 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Support\Demo\DemoBilling;
-use App\Modules\Orders\Support\Demo\DemoCatalog;
-use App\Modules\Orders\Support\Demo\DemoDomains;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
@@ -47,20 +43,6 @@ use Illuminate\Support\Facades\Event;
 
 class OrdersServiceProvider extends ModuleServiceProvider
 {
-    /**
-     * Local-only stand-ins for sibling contracts, bound only while the real module is absent.
-     *
-     * @var array<class-string, class-string>
-     */
-    private const DEMO_BINDINGS = [
-        PriceBook::class => DemoCatalog::class,
-        DomainPricing::class => DemoDomains::class,
-        DomainRegistry::class => DemoDomains::class,
-        ServiceRegistry::class => DemoServices::class,
-        Invoicer::class => DemoBilling::class,
-        TaxCalculator::class => DemoBilling::class,
-    ];
-
     public function moduleKey(): string
     {
         return 'orders';
@@ -90,8 +72,9 @@ class OrdersServiceProvider extends ModuleServiceProvider
     }
 
     /**
-     * Demo catalog/billing for local development and screenshots before sibling modules are merged.
-     * Runs at boot so every module's register() has had the chance to bind the real implementation.
+     * Local-only stand-ins for modules that are not merged yet. Services and Billing contracts have no Core
+     * default, so an unbound ServiceRegistry/Invoicer means the module is absent; once it is merged, its own
+     * bindings win and these are never registered.
      */
     private function bindDemoContracts(): void
     {
@@ -99,10 +82,15 @@ class OrdersServiceProvider extends ModuleServiceProvider
             return;
         }
 
-        foreach (self::DEMO_BINDINGS as $contract => $demo) {
-            if (! $this->app->bound($contract)) {
-                $this->app->singleton($demo);
-                $this->app->singleton($contract, $demo);
+        if (! $this->app->bound(ServiceRegistry::class)) {
+            $this->app->singleton(ServiceRegistry::class, DemoServices::class);
+        }
+
+        if (! $this->app->bound(Invoicer::class)) {
+            $this->app->singleton(DemoBilling::class);
+
+            foreach ([Invoicer::class, TaxCalculator::class, GatewayDirectory::class] as $contract) {
+                $this->app->singleton($contract, DemoBilling::class);
             }
         }
     }

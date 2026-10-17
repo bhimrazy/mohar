@@ -40,16 +40,6 @@ return [
     /** Create the order invoice without emailing it (the confirmation mail still goes out). */
     'suppress_invoice_email_on_order' => false,
 
-    /**
-     * Payment gateways offered on the order form (key => label). Billing owns gateway configuration;
-     * until it exposes a contract, the order form offers this list.
-     */
-    'gateways' => [
-        'bank_transfer' => 'Bank transfer',
-        'card' => 'Credit or debit card',
-        'paypal' => 'PayPal',
-    ],
-
     /** Referral code cookie set from ?ref=CODE on public pages. */
     'referral_cookie' => 'orders_ref',
     'referral_cookie_days' => 90,

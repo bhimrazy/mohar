@@ -32,7 +32,7 @@ class OrderResource extends JsonResource
             'total' => $this->total,
             'promotion_code' => $this->promotion_code,
             'payment_gateway' => $this->payment_gateway,
-            'payment_gateway_label' => $this->payment_gateway === null ? null : (app(CheckoutGateways::class)->all()[$this->payment_gateway] ?? $this->payment_gateway),
+            'payment_gateway_label' => app(CheckoutGateways::class)->label($this->payment_gateway, $this->currency),
             'invoice_id' => $this->invoice_id,
             'notes' => $this->notes,
             'created_at' => $this->created_at?->toIso8601String(),

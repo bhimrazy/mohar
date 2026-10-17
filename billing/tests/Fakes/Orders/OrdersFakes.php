@@ -2,11 +2,14 @@
 
 namespace Tests\Fakes\Orders;
 
+use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
+use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ServiceRegistry;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
@@ -26,6 +29,9 @@ final class OrdersFakes
         public FakeDomains $domains = new FakeDomains,
         public FakeServiceRegistry $services = new FakeServiceRegistry,
         public FakeBilling $billing = new FakeBilling,
+        public FakeGateways $gateways = new FakeGateways,
+        public FakeInvoiceQueries $invoices = new FakeInvoiceQueries,
+        public FakeClientServices $clientServices = new FakeClientServices,
     ) {}
 
     public static function bind(): self
@@ -38,6 +44,9 @@ final class OrdersFakes
         $app->instance(ServiceRegistry::class, $fakes->services);
         $app->instance(Invoicer::class, $fakes->billing);
         $app->instance(TaxCalculator::class, $fakes->billing);
+        $app->instance(GatewayDirectory::class, $fakes->gateways);
+        $app->instance(InvoiceQueries::class, $fakes->invoices);
+        $app->instance(ClientServiceDirectory::class, $fakes->clientServices);
 
         return $fakes;
     }
