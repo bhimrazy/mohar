@@ -15,6 +15,6 @@ class ServerGroupFactory extends Factory
 
     public function definition(): array
     {
-        return ['name' => fake()->words(2, true).' servers', 'fill_type' => FillType::LeastFull];
+        return ['name' => ucfirst(fake()->word()).' servers', 'fill_type' => FillType::LeastFull];
     }
 }

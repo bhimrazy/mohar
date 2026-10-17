@@ -198,7 +198,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             ->map(fn (Service $service): array => [
                 'title' => $service->label(),
                 'subtitle' => trim(($service->product_name ?? '').($service->username ? " · {$service->username}" : '').' · '.$service->status->value, ' ·'),
-                'href' => route('admin.services.show', $service),
+                'href' => route('admin.services.services.show', $service),
             ])->all()), 'services.services.view');
 
         $this->app->make(MergeFieldRegistry::class)->register('service', function (int $id): array {

@@ -78,7 +78,7 @@ class ExecuteModuleCommand
         }
 
         $product = $this->catalog->product($service->product_id);
-        $driverKey = $product?->provisioningDriver ?? $service->server?->driver ?? 'none';
+        $driverKey = $product->provisioningDriver ?? $service->server->driver ?? 'none';
         $started = hrtime(true);
 
         try {
@@ -88,7 +88,7 @@ class ExecuteModuleCommand
                 $service,
                 $server,
                 ['id' => $service->client->id, 'name' => $service->client->display_name, 'email' => $service->client->email],
-                $product?->driverConfig ?? [],
+                $product->driverConfig ?? [],
                 $service->config_options ?? [],
                 $service->custom_fields ?? [],
             );

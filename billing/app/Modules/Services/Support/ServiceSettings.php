@@ -21,7 +21,7 @@ class ServiceSettings
 
     public function maxLeadDays(): int
     {
-        return max(array_map(fn (BillingCycle $cycle): int => $this->leadDays($cycle), BillingCycle::recurring()));
+        return array_reduce(BillingCycle::recurring(), fn (int $max, BillingCycle $cycle): int => max($max, $this->leadDays($cycle)), 0);
     }
 
     public function continuousRenewals(): bool
