@@ -2,16 +2,16 @@
 
 namespace App\Modules\Platform\Actions\Currencies;
 
+use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class SaveCurrency
 {
-    public function __construct(private ActivityLogger $activity) {}
+    public function __construct(private ActivityLogger $activity, private InvoiceQueries $invoices) {}
 
     /**
      * @param  array{code: string, name: string, prefix: ?string, suffix: ?string, decimals: int, format: string, exchange_rate: string|float|int}  $data
@@ -55,10 +55,12 @@ class SaveCurrency
             return;
         }
 
-        foreach ((array) config('platform.currency_lock_tables', []) as $table) {
-            if (Schema::hasTable($table) && DB::table($table)->exists()) {
-                throw ValidationException::withMessages(['currency' => __('The default currency cannot change once invoices or transactions exist.')]);
-            }
+        // Changing the default rebases every rate, so any invoice, quote or transaction in any currency locks it.
+        $locked = Currency::query()->orderBy('code')->pluck('code')
+            ->contains(fn (string $code): bool => $this->invoices->hasDocumentsInCurrency($code));
+
+        if ($locked) {
+            throw ValidationException::withMessages(['currency' => __('The default currency cannot change once invoices or transactions exist.')]);
         }
 
         DB::transaction(function () use ($currency): void {

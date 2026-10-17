@@ -1,10 +1,8 @@
 <?php
 
+use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('converting between currencies uses both rates and rounds half up', function () {
@@ -96,13 +94,18 @@ test('the default currency cannot change once invoices exist (422)', function ()
     actingAsStaff(['core.currencies.manage']);
     Currency::factory()->create();
     $eur = Currency::factory()->euro()->create();
+    $this->app->instance(InvoiceQueries::class, new class implements InvoiceQueries
+    {
+        public function hasPayments(int $invoiceId): bool
+        {
+            return false;
+        }
 
-    config(['platform.currency_lock_tables' => ['platform_test_invoices']]);
-    Schema::create('platform_test_invoices', function (Blueprint $table) {
-        $table->id();
-        $table->string('number');
+        public function hasDocumentsInCurrency(string $currency): bool
+        {
+            return $currency === 'USD';
+        }
     });
-    DB::table('platform_test_invoices')->insert(['number' => 'INV-1']);
 
     $this->postJson(route('admin.platform.currencies.default', $eur))->assertUnprocessable()->assertJsonValidationErrors('currency');
     expect($eur->fresh()->is_default)->toBeFalse();
