@@ -10,28 +10,28 @@
     "license": "MIT",
     "require": {
         "php": "^8.4",
-        "barryvdh/laravel-dompdf": "^3.1",
-        "inertiajs/inertia-laravel": "^3.0",
-        "laravel/chisel": "^0.1.0",
-        "laravel/fortify": "^1.37.2",
-        "laravel/framework": "^13.17",
-        "laravel/tinker": "^3.0",
-        "laravel/wayfinder": "^0.1.14",
-        "league/flysystem-aws-s3-v3": "^3.0"
+        "barryvdh/laravel-dompdf": "3.1.2",
+        "inertiajs/inertia-laravel": "3.5.1",
+        "laravel/chisel": "0.1.1",
+        "laravel/fortify": "1.41.0",
+        "laravel/framework": "13.34.0",
+        "laravel/tinker": "3.0.2",
+        "laravel/wayfinder": "0.1.21",
+        "league/flysystem-aws-s3-v3": "3.35.3"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.24",
-        "larastan/larastan": "^3.9",
-        "laravel/boost": "^2.2",
-        "laravel/pail": "^1.2.5",
-        "laravel/pao": "^1.0.6",
-        "laravel/pint": "^1.27",
-        "laravel/sail": "^1.53",
-        "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.9.3",
-        "pestphp/pest": "^5.3",
-        "pestphp/pest-plugin-drift": "^5.0",
-        "pestphp/pest-plugin-laravel": "^5.0"
+        "fakerphp/faker": "1.24.1",
+        "larastan/larastan": "3.13.0",
+        "laravel/boost": "2.10.3",
+        "laravel/pail": "1.2.7",
+        "laravel/pao": "1.1.5",
+        "laravel/pint": "1.32.1",
+        "laravel/sail": "1.69.0",
+        "mockery/mockery": "1.6.15",
+        "nunomaduro/collision": "8.9.5",
+        "pestphp/pest": "5.3.0",
+        "pestphp/pest-plugin-drift": "5.0.0",
+        "pestphp/pest-plugin-laravel": "5.0.1"
     },
     "autoload": {
         "psr-4": {
@@ -64,14 +64,23 @@
         "lint:check": [
             "pint --parallel --test"
         ],
+        "deps:check": [
+            "@composer validate --no-check-publish",
+            "@composer audit --locked",
+            "npm audit --audit-level=high --package-lock-only",
+            "node scripts/check-dependency-age.mjs"
+        ],
         "ci": [
             "Composer\\Config::disableProcessTimeout",
             "@putenv XDEBUG_MODE=off",
             "@php artisan config:clear --ansi",
+            "@php artisan view:clear --ansi",
+            "@deps:check",
             "@lint:check",
             "@php artisan wayfinder:generate --with-form --ansi",
             "npm run check",
             "npm run types:check",
+            "npm test",
             "@types:check",
             "@php vendor/bin/pest --parallel",
             "@test:pgsql",
@@ -128,12 +137,28 @@
         "allow-plugins": {
             "pestphp/pest-plugin": true,
             "php-http/discovery": true
+        },
+        "policy": {
+            "advisories": {
+                "block": true,
+                "audit": "fail"
+            },
+            "malware": {
+                "block": true,
+                "block-scope": "all",
+                "audit": "fail"
+            },
+            "abandoned": {
+                "block": false,
+                "audit": "report"
+            }
         }
     },
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts-descriptions": {
         "ci": "Run every CI gate locally, including migrate:fresh --seed + tests on PostgreSQL (needs `docker compose up -d`).",
-        "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing)."
+        "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing).",
+        "deps:check": "Lockfiles in sync, composer/npm audits, and the ≥7-day dependency cooldown for changes since develop (needs network)."
     }
 }

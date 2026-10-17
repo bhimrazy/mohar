@@ -2,7 +2,8 @@
 services:
     rustfs:
         # S3-compatible object storage for attachments, invoice PDFs and exports (the "objects" disk).
-        image: rustfs/rustfs:1.0.0
+        # Pinned by digest (multi-arch index of rustfs/rustfs:1.0.0, pushed 2026-09-16).
+        image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
         ports:
             - '127.0.0.1:${RUSTFS_PORT:-9000}:9000'
             - '127.0.0.1:${RUSTFS_CONSOLE_PORT:-9001}:9001'
@@ -26,7 +27,7 @@ services:
         # Production-parity database. The app defaults to SQLite; switch with the DB_* block in .env.example.
         # Credentials come from .env (DB_DATABASE / DB_USERNAME / DB_PASSWORD / DB_PORT), defaulting to billing.
         # Pinned by digest (multi-arch index of postgres:18.6-alpine, pushed 2026-09-21). Keep identical to the
-        # tests-pgsql service image in .github/workflows/ci.yml (the CI lint job fails on drift).
+        # `ci` job's services.postgres image in .github/workflows/ci.yml (CI fails on drift).
         image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         ports:
             - '127.0.0.1:${DB_PORT:-5432}:5432'
