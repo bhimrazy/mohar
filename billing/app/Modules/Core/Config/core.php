@@ -5,4 +5,5 @@ return [
     'company_email' => 'billing@example.com',
     'default_country' => 'US',
     'date_format' => 'Y-m-d',
+    'automation_time' => '03:00',
 ];

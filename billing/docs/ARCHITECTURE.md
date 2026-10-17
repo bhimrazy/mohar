@@ -46,13 +46,13 @@ loads only Core + Billing.
 
 ### Contracts (implementer → consumers)
 
-| Contract | Implemented by | Used by |
-|---|---|---|
-| `Billing\Invoicer`, `Billing\TaxCalculator`, `Billing\CreditLedger` | Billing | Orders, Services, Domains, Affiliates |
-| `Catalog\PriceBook` | Catalog | Orders, Services |
-| `Services\ServiceRegistry` | Services | Orders |
-| `Domains\DomainRegistry`, `Domains\DomainPricing` | Domains | Orders |
-| `Notifications\MergeFieldRegistry` | Core (in-memory) | every module registers resolvers; Notifications reads |
+| Contract                                                            | Implemented by   | Used by                                               |
+| ------------------------------------------------------------------- | ---------------- | ----------------------------------------------------- |
+| `Billing\Invoicer`, `Billing\TaxCalculator`, `Billing\CreditLedger` | Billing          | Orders, Services, Domains, Affiliates                 |
+| `Catalog\PriceBook`                                                 | Catalog          | Orders, Services                                      |
+| `Services\ServiceRegistry`                                          | Services         | Orders                                                |
+| `Domains\DomainRegistry`, `Domains\DomainPricing`                   | Domains          | Orders                                                |
+| `Notifications\MergeFieldRegistry`                                  | Core (in-memory) | every module registers resolvers; Notifications reads |
 
 ### Billing flow (the backbone)
 
@@ -76,7 +76,16 @@ Daily scheduler: Services/Domains create renewal invoices via Invoicer (idempote
 Display formatting is the frontend's job (`formatMoney`).
 
 **Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors
-(`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance()` (no month overflow).
+(`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
+original day-of-month as an anchor on recurring items to avoid drift. Query `date` columns with
+`whereDate()` (Eloquent stores date casts as `Y-m-d H:i:s`; exact matches break across databases).
+
+**Automation** — daily jobs are tasks in the central pipeline, never ad-hoc scheduler entries:
+`app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today) => $count)`.
+Stages run in order RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
+TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
+idempotent for its run date (recorded in `automation_runs`). Renewal invoicing must call
+`Invoicer::hasInvoiceForPeriod()` before issuing.
 
 **Statuses** — PHP backed enums in the module (`Enums/InvoiceStatus.php`, TitleCase cases, snake values);
 state changes happen in Actions/Services, not controllers, and dispatch the matching event.
@@ -95,6 +104,7 @@ in admin controllers or `->can('...')` route middleware. Client area: inject `Cl
 scope queries to `$context->id()` — never trust ids from the request without scoping (IDOR tests required).
 
 **Routes** — in `routes/web.php` of the module:
+
 ```php
 Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(...));   // /admin/billing/..., admin.billing.*
 Route::clientArea(fn () => Route::prefix('invoices')->name('invoices.')->group(...)); // /client/invoices/..., client.invoices.*
@@ -103,20 +113,24 @@ Route::clientArea(fn () => Route::prefix('invoices')->name('invoices.')->group(.
 ```
 
 **Navigation & dashboard** — register in `bootModule()`:
+
 ```php
 app(Navigation::class)->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*'));
 app(Navigation::class)->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10));
 app(Navigation::class)->add('admin-client', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', order: 10, permission: 'billing.invoices.view')); // link on client profile (?client=ID)
 app(Dashboard::class)->card('admin', 'billing.overdue', fn ($user) => ['label' => ..., 'value' => ..., 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
 ```
+
 Icon names must exist in `resources/js/lib/nav-icons.ts` (add one line if needed).
 
 **Permissions, settings, search** — also in `bootModule()` (all registries live in `app/Support`):
+
 ```php
 app(PermissionRegistry::class)->register('Billing', ['billing.invoices.view' => 'View invoices', 'billing.invoices.manage' => 'Manage invoices']);
 app(SettingsRegistry::class)->section('billing', 'Billing', [new SettingDefinition('billing.invoice_prefix', 'Invoice prefix'), ...], 'billing.settings.manage');
 app(GlobalSearch::class)->provider('Invoices', fn (string $term) => [...['title','subtitle','href']], 'billing.invoices.view');
 ```
+
 Every permission you check must be registered; every tunable setting must be registered with a definition.
 Groups: General, Clients, Orders, Billing, Services, Domains, Support, Marketing, Reports, Setup.
 

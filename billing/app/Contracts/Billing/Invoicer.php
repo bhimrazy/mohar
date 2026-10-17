@@ -5,6 +5,7 @@ namespace App\Contracts\Billing;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceResult;
 use App\Enums\BillableType;
+use Carbon\CarbonImmutable;
 
 /**
  * Implemented by the Billing module. The only way other modules create invoices.
@@ -26,6 +27,12 @@ interface Invoicer
      * Whether an unpaid or draft invoice already contains a line for this billable item.
      */
     public function hasOpenInvoiceFor(BillableType $type, int $billableId): bool;
+
+    /**
+     * Whether any non-cancelled invoice already bills this item for the period starting on $periodStart.
+     * Renewal generators MUST check this before issuing (prevents double invoicing on re-runs).
+     */
+    public function hasInvoiceForPeriod(BillableType $type, int $billableId, CarbonImmutable $periodStart): bool;
 
     /**
      * Status of an invoice: draft|unpaid|paid|cancelled|refunded|collections, or null if missing.

@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [Unreleased]
 
 ### Platform foundation
+
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
 - Modular monolith: auto-discovered `app/Modules/*` with conventions for config, migrations, routes, views,
@@ -18,6 +19,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
 
 ### Core
+
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,
   roles with wildcard permissions, currencies, settings store, activity log.
 - Admin: client list/search/filter, create, view, edit. Client area: dashboard, account details, account switcher.

@@ -38,13 +38,24 @@ enum BillingCycle: string
     }
 
     /**
-     * Advance a date by one cycle, keeping month-end anchoring sane (Jan 31 -> Feb 28).
+     * Advance a date by whole cycles without month overflow, re-anchored to $anchorDay.
+     *
+     * Store the service's original day-of-month as its anchor so short months don't cause drift:
+     * Jan 31 -> Feb 28 -> Mar 31 (anchor 31), instead of Jan 31 -> Feb 28 -> Mar 28.
+     *
+     * @param  int|null  $anchorDay  1-31; defaults to the day of $date
      */
-    public function advance(CarbonInterface $date, int $cycles = 1): CarbonImmutable
+    public function advance(CarbonInterface $date, int $cycles = 1, ?int $anchorDay = null): CarbonImmutable
     {
         $date = CarbonImmutable::instance($date);
 
-        return $this->isRecurring() ? $date->addMonthsNoOverflow($this->months() * $cycles) : $date;
+        if (! $this->isRecurring()) {
+            return $date;
+        }
+
+        $target = $date->startOfMonth()->addMonths($this->months() * $cycles);
+
+        return $target->setDay(min($anchorDay ?? $date->day, $target->daysInMonth));
     }
 
     /**

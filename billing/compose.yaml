@@ -1,22 +1,26 @@
 # Local infrastructure. Start with: docker compose up -d
 services:
-  rustfs:
-    # S3-compatible object storage for attachments, invoice PDFs and exports (the "objects" disk).
-    image: rustfs/rustfs:1.0.0
-    ports:
-      - "${RUSTFS_PORT:-9000}:9000"
-      - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
-    environment:
-      RUSTFS_ACCESS_KEY: "${OBJECTS_ACCESS_KEY:-billing}"
-      RUSTFS_SECRET_KEY: "${OBJECTS_SECRET_KEY:-billing-secret}"
-      RUSTFS_CONSOLE_ENABLE: "true"
-    volumes:
-      - rustfs-data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    rustfs:
+        # S3-compatible object storage for attachments, invoice PDFs and exports (the "objects" disk).
+        image: rustfs/rustfs:1.0.0
+        ports:
+            - '${RUSTFS_PORT:-9000}:9000'
+            - '${RUSTFS_CONSOLE_PORT:-9001}:9001'
+        environment:
+            RUSTFS_ACCESS_KEY: '${OBJECTS_ACCESS_KEY:-billing}'
+            RUSTFS_SECRET_KEY: '${OBJECTS_SECRET_KEY:-billing-secret}'
+            RUSTFS_CONSOLE_ENABLE: 'true'
+        volumes:
+            - rustfs-data:/data
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'curl -fsS http://localhost:9000/health || exit 1',
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
 volumes:
-  rustfs-data:
+    rustfs-data:

@@ -31,3 +31,12 @@ test('billing cycles advance without month overflow', function () {
         ->and(BillingCycle::Annually->advance($jan31)->toDateString())->toBe('2027-01-31')
         ->and(BillingCycle::OneTime->isRecurring())->toBeFalse();
 });
+
+test('anchored cycles do not drift after short months', function () {
+    $feb = BillingCycle::Monthly->advance(CarbonImmutable::parse('2026-01-31'));
+    $mar = BillingCycle::Monthly->advance($feb, anchorDay: 31);
+
+    expect($feb->toDateString())->toBe('2026-02-28')
+        ->and($mar->toDateString())->toBe('2026-03-31')
+        ->and(BillingCycle::Quarterly->advance(CarbonImmutable::parse('2026-11-30'), anchorDay: 30)->toDateString())->toBe('2027-02-28');
+});

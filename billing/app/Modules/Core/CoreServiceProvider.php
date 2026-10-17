@@ -15,6 +15,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use Illuminate\Console\Scheduling\Schedule;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -29,6 +30,14 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+    }
+
+    protected function schedule(Schedule $schedule): void
+    {
+        $schedule->command('automation:run')
+            ->dailyAt((string) config('core.automation_time', '03:00'))
+            ->withoutOverlapping()
+            ->onOneServer();
     }
 
     protected function bootModule(): void
