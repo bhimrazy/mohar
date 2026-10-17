@@ -30,3 +30,10 @@ other modules (Notifications) must react to.
 
 Module fakes implementing `PriceBook` / `DomainPricing` must add the new methods when merging develop. Each
 owning module implements and binds the real contract in its PR fix round.
+
+## Addendum (2026-10-17, from Catalog review)
+
+- `ProductSummary::$termMonths` → `$termDays` (the spec stores fixed terms in days); `$freeDomainRecurring` added.
+- Stock release on `OrderCancelled` / `OrderMarkedFraud` is owned by Catalog's listener (idempotent per order);
+  Orders must not call `PriceBook::releaseStock()` for those events — it is for other callers (e.g. manual order edits).
+- Provisioning driver configuration (incl. fields drivers mark `secret`) is encrypted at rest by its owner.

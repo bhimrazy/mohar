@@ -13,4 +13,9 @@ class NullInvoiceQueries implements InvoiceQueries
     {
         return false;
     }
+
+    public function hasDocumentsInCurrency(string $currency): bool
+    {
+        return false;
+    }
 }
