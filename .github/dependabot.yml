@@ -1,10 +1,13 @@
 # Supply-chain rule: only adopt versions published at least 14 days ago (cooldown below).
+# Not covered: the `services:` image in .github/workflows/ci.yml — CI asserts it equals compose.yaml,
+# so bump it by hand in the same PR as Dependabot's compose.yaml update.
 version: 2
 updates:
     - package-ecosystem: github-actions
       directories:
           - /
           - /.github/actions/*
+      target-branch: develop
       schedule:
           interval: weekly
       cooldown:
@@ -16,6 +19,7 @@ updates:
 
     - package-ecosystem: docker-compose
       directory: /billing
+      target-branch: develop
       schedule:
           interval: weekly
       cooldown:
@@ -23,6 +27,7 @@ updates:
 
     - package-ecosystem: composer
       directory: /billing
+      target-branch: develop
       schedule:
           interval: weekly
       cooldown:
@@ -31,6 +36,7 @@ updates:
 
     - package-ecosystem: npm
       directory: /billing
+      target-branch: develop
       schedule:
           interval: weekly
       cooldown:
