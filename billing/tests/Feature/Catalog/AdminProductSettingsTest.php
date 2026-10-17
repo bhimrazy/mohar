@@ -63,8 +63,8 @@ describe('pricing', function () {
             priceRow('eur', 'monthly', 100),
         ]])->assertSessionHasErrors([
             'prices.0.amount' => 'Prices can\'t be negative.',
-            'prices.1.amount' => 'Enter the price as a whole number of minor units (cents).',
-            'prices.2.amount',
+            'prices.1.amount' => 'Enter a valid price, such as 12.50.',
+            'prices.2.amount' => 'Enter a price, or turn this cycle off.',
             'prices.3.currency' => 'This currency is not configured.',
         ]);
     });

@@ -3,14 +3,18 @@ import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import ProductSettingsController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ProductSettingsController';
 import { EmptyState } from '@/components/app/empty-state';
+import { FormActions } from '@/components/app/form-actions';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
 import {
+    hasSetupFees,
     matrixErrors,
     matrixFromRows,
     PricingMatrix,
     rowsFromMatrix,
 } from '@/components/catalog/pricing-matrix';
+import type { SubmittedPriceRow } from '@/components/catalog/pricing-matrix';
+import { SetupFeeToggle } from '@/components/catalog/setup-fee-toggle';
 import type {
     CurrencyOption,
     CycleOption,
@@ -41,8 +45,9 @@ export function PricingTab({
         [rows, currencies, cycles],
     );
     const [matrix, setMatrix] = useState(initial);
-    const form = useForm({ prices: rowsFromMatrix(initial) });
-    const [submitted, setSubmitted] = useState(rowsFromMatrix(initial));
+    const [showSetup, setShowSetup] = useState(() => hasSetupFees(rows));
+    const [submitted, setSubmitted] = useState<SubmittedPriceRow[]>([]);
+    const form = useForm<{ prices: SubmittedPriceRow[] }>({ prices: [] });
     const errors = form.errors as Record<string, string | undefined>;
 
     if (paymentType === 'free') {
@@ -67,25 +72,25 @@ export function PricingTab({
     };
 
     return (
-        <form onSubmit={submit}>
+        <form onSubmit={submit} className="flex flex-col gap-4">
             <SectionCard
                 title="Pricing"
-                description="Turn on each cycle you sell in each currency. A cycle without a price in the client's currency is not offered to them (no automatic conversion). Price changes never affect existing services."
-                flush
-                footer={
-                    canManage && (
-                        <Button type="submit" disabled={form.processing}>
-                            {form.processing && <Spinner />}
-                            Save prices
-                        </Button>
-                    )
+                description="Turn on each cycle you sell in each currency. Clients only see cycles priced in their currency; there is no automatic conversion. Price changes never affect existing services."
+                actions={
+                    <SetupFeeToggle
+                        id="product-setup-fees"
+                        checked={showSetup}
+                        onCheckedChange={setShowSetup}
+                    />
                 }
+                flush
             >
                 <PricingMatrix
                     value={matrix}
                     onChange={setMatrix}
                     currencies={currencies}
                     cycles={cycles}
+                    showSetupFee={showSetup}
                     disabled={!canManage}
                     cellErrors={matrixErrors(errors, submitted)}
                     idPrefix="product-price"
@@ -96,6 +101,14 @@ export function PricingTab({
                     </div>
                 )}
             </SectionCard>
+            {canManage && (
+                <FormActions sticky>
+                    <Button type="submit" disabled={form.processing}>
+                        {form.processing && <Spinner />}
+                        Save prices
+                    </Button>
+                </FormActions>
+            )}
         </form>
     );
 }

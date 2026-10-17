@@ -16,11 +16,14 @@ import {
     pairsFromObject,
 } from '@/components/catalog/key-value-editor';
 import {
+    hasSetupFees,
     matrixErrors,
     matrixFromRows,
     PricingMatrix,
     rowsFromMatrix,
 } from '@/components/catalog/pricing-matrix';
+import type { SubmittedPriceRow } from '@/components/catalog/pricing-matrix';
+import { SetupFeeToggle } from '@/components/catalog/setup-fee-toggle';
 import { SelectInput } from '@/components/catalog/select-input';
 import { SwitchRow } from '@/components/catalog/switch-row';
 import type {
@@ -118,13 +121,14 @@ export default function AddonForm({
     const errors = form.errors as Record<string, string | undefined>;
     const cycles = cyclesByPaymentType[data.payment_type] ?? [];
     const cycleValues = cycles.map((cycle) => cycle.value);
-    const pricedRows = (value: typeof matrix) =>
-        rowsFromMatrix(value).filter((row) => cycleValues.includes(row.cycle));
-    const [submitted, setSubmitted] = useState(pricedRows(initialMatrix));
+    const [showSetup, setShowSetup] = useState(() =>
+        hasSetupFees(addon?.prices ?? []),
+    );
+    const [submitted, setSubmitted] = useState<SubmittedPriceRow[]>([]);
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
-        const prices = pricedRows(matrix);
+        const prices = rowsFromMatrix(matrix, cycleValues);
         setSubmitted(prices);
         form.transform((current) => ({ ...current, prices }));
         form.submit(
@@ -284,6 +288,15 @@ export default function AddonForm({
                             <SectionCard
                                 title="Pricing"
                                 description="On purchase the addon uses the parent's billing cycle when priced for it, otherwise its shortest offered cycle."
+                                actions={
+                                    cycles.length > 0 && (
+                                        <SetupFeeToggle
+                                            id="addon-setup-fees"
+                                            checked={showSetup}
+                                            onCheckedChange={setShowSetup}
+                                        />
+                                    )
+                                }
                                 flush
                             >
                                 {cycles.length === 0 ? (
@@ -296,6 +309,7 @@ export default function AddonForm({
                                         onChange={setMatrix}
                                         currencies={currencies}
                                         cycles={cycles}
+                                        showSetupFee={showSetup}
                                         disabled={!canManage}
                                         cellErrors={matrixErrors(
                                             errors,

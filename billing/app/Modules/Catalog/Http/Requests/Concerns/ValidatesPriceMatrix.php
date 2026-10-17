@@ -35,12 +35,19 @@ trait ValidatesPriceMatrix
      */
     protected function priceMatrixMessages(string $key = 'prices'): array
     {
+        $setupFee = __('Enter a valid setup fee, such as 5.00, or leave it empty.');
+
         return [
             "{$key}.*.cycle.in" => __('This billing cycle can\'t be priced for the selected payment type.'),
-            "{$key}.*.amount.integer" => __('Enter the price as a whole number of minor units (cents).'),
-            "{$key}.*.amount.min" => __('Prices can\'t be negative.'),
-            "{$key}.*.setup_fee.min" => __('Setup fees can\'t be negative.'),
             "{$key}.*.currency.exists" => __('This currency is not configured.'),
+            "{$key}.*.amount.required" => __('Enter a price, or turn this cycle off.'),
+            "{$key}.*.amount.integer" => __('Enter a valid price, such as 12.50.'),
+            "{$key}.*.amount.min" => __('Prices can\'t be negative.'),
+            "{$key}.*.amount.max" => __('This price is too large.'),
+            "{$key}.*.setup_fee.required" => $setupFee,
+            "{$key}.*.setup_fee.integer" => $setupFee,
+            "{$key}.*.setup_fee.min" => __('Setup fees can\'t be negative.'),
+            "{$key}.*.setup_fee.max" => __('This setup fee is too large.'),
         ];
     }
 

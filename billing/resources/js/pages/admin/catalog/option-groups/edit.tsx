@@ -16,11 +16,14 @@ import { StatusBadge } from '@/components/app/status-badge';
 import InputError from '@/components/input-error';
 import { CheckboxList } from '@/components/catalog/checkbox-list';
 import {
+    hasSetupFees,
     matrixErrors,
     matrixFromRows,
     PricingMatrix,
     rowsFromMatrix,
 } from '@/components/catalog/pricing-matrix';
+import type { SubmittedPriceRow } from '@/components/catalog/pricing-matrix';
+import { SetupFeeToggle } from '@/components/catalog/setup-fee-toggle';
 import { SelectInput } from '@/components/catalog/select-input';
 import { SwitchRow } from '@/components/catalog/switch-row';
 import type {
@@ -271,6 +274,9 @@ export default function EditOptionGroup({
                                         currencies[0]?.code ??
                                         'USD'
                                     }
+                                    possiblePrices={
+                                        currencies.length * cycles.length
+                                    }
                                     canManage={canManage}
                                     onEdit={(value) =>
                                         setValueDialog({ option, value })
@@ -350,12 +356,14 @@ export default function EditOptionGroup({
 function ValuesTable({
     option,
     currency,
+    possiblePrices,
     canManage,
     onEdit,
     onDelete,
 }: {
     option: Option;
     currency: string;
+    possiblePrices: number;
     canManage: boolean;
     onEdit: (value: OptionValue) => void;
     onDelete: (value: OptionValue) => void;
@@ -407,8 +415,7 @@ function ValuesTable({
                                 ) : (
                                     'No driver value'
                                 )}{' '}
-                                · {priced} {priced === 1 ? 'price' : 'prices'}{' '}
-                                set
+                                · {priced} of {possiblePrices} prices set
                             </div>
                         </div>
                         <div className="text-right text-sm">
@@ -779,14 +786,17 @@ function ValueDialog({
         [value, currencies, cycles],
     );
     const [matrix, setMatrix] = useState(initial);
-    const [submitted, setSubmitted] = useState(rowsFromMatrix(initial));
+    const [submitted, setSubmitted] = useState<SubmittedPriceRow[]>([]);
+    const [showSetup, setShowSetup] = useState(() =>
+        hasSetupFees(value?.prices ?? []),
+    );
     const single = ['yes_no', 'quantity'].includes(option.type);
     const form = useForm({
         label: value?.label ?? '',
         module_value: value?.module_value ?? '',
         is_hidden: value?.is_hidden ?? false,
         sort_order: (value?.sort_order ?? 0).toString(),
-        prices: rowsFromMatrix(initial),
+        prices: [] as SubmittedPriceRow[],
     });
     const errors = form.errors as Record<string, string | undefined>;
 
@@ -874,8 +884,16 @@ function ValueDialog({
                             />
                         )}
                     </div>
+                    <div className="-mb-3 flex justify-end">
+                        <SetupFeeToggle
+                            id="value-setup-fees"
+                            checked={showSetup}
+                            onCheckedChange={setShowSetup}
+                        />
+                    </div>
                     <div className="overflow-hidden rounded-lg border">
                         <PricingMatrix
+                            showSetupFee={showSetup}
                             value={matrix}
                             onChange={setMatrix}
                             currencies={currencies}
