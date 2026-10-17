@@ -155,7 +155,7 @@ backoff; automation registered in the provider's `schedule()` with `->withoutOve
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 9xxxxx).
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx).
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
 ## Testing (Pest)
