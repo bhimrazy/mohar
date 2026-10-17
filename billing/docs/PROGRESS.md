@@ -25,3 +25,9 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 ### 2026-10-17
 
 - Foundation, Core module, RustFS object storage, engineering docs (ARCHITECTURE, ADR 0001–0005).
+- PM research of the product category → 10 module specs with acceptance criteria.
+- Kernel hardening from PM findings: anchored billing cycles, period-aware invoice guard, central automation pipeline.
+- Design system + shared components ([light](screenshots/01-design-system-showcase.png), [dark](screenshots/01-design-system-showcase-dark.png)).
+- Wave 1 started: 7 senior engineers + DevOps in parallel worktrees.
+
+![Design system showcase](screenshots/01-design-system-showcase.png)
