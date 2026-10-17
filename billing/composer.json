@@ -9,7 +9,7 @@
     ],
     "license": "MIT",
     "require": {
-        "php": "^8.3",
+        "php": "^8.4",
         "barryvdh/laravel-dompdf": "^3.1",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/chisel": "^0.1.0",
@@ -89,14 +89,9 @@
         "test:pgsql": [
             "Composer\\Config::disableProcessTimeout",
             "@putenv XDEBUG_MODE=off",
-            "@putenv DB_CONNECTION=pgsql",
-            "@putenv DB_HOST=127.0.0.1",
-            "@putenv DB_PORT=5432",
-            "@putenv DB_DATABASE=billing_test",
-            "@putenv DB_USERNAME=billing",
-            "@putenv DB_PASSWORD=billing",
             "@php artisan config:clear --ansi",
-            "@php vendor/bin/pest --parallel"
+            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" artisan migrate:fresh --seed --force --no-interaction",
+            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" vendor/bin/pest --parallel"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -138,7 +133,7 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts-descriptions": {
-        "ci": "Run every CI gate locally (needs `docker compose up -d` for the PostgreSQL suite).",
-        "test:pgsql": "Run the test suite against the compose PostgreSQL (billing_test database)."
+        "ci": "Run every CI gate locally, including migrate:fresh --seed + tests on PostgreSQL (needs `docker compose up -d`).",
+        "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing)."
     }
 }
