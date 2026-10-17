@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Catalog\PriceBook;
 use App\Enums\BillingCycle;
 use App\Modules\Catalog\Enums\AutoSetup;
 use App\Modules\Catalog\Models\ConfigOptionGroup;
@@ -222,4 +223,54 @@ it('duplicates a product as a hidden copy with prices and relations', function (
         ->and($copy->configOptionGroups()->pluck('config_option_groups.id')->all())->toBe([$group->id])
         ->and($copy->upgradeTargets()->pluck('products.id')->all())->toBe([$target->id])
         ->and($copy->customFields()->first()?->options)->toBe(['a', 'b']);
+});
+
+it('keeps stock reserved by checkouts when staff save the details form', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $product = Product::factory()->stock(5)->create();
+    $loadedStock = $product->stock_quantity;
+
+    app(PriceBook::class)->reserveStock($product->id);
+    app(PriceBook::class)->reserveStock($product->id);
+    app(PriceBook::class)->reserveStock($product->id);
+
+    $this->put(route('admin.catalog.products.update', $product), productPayload($product->group, [
+        'name' => 'Typo fixed', 'slug' => $product->slug, 'stock_enabled' => true, 'stock_quantity' => $loadedStock,
+    ]))->assertSessionHasNoErrors();
+
+    expect($product->fresh())->name->toBe('Typo fixed')->stock_quantity->toBe(2);
+});
+
+it('adjusts stock relative to the live quantity', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $product = Product::factory()->stock(5)->create();
+    app(PriceBook::class)->reserveStock($product->id);
+
+    $this->post(route('admin.catalog.products.stock.adjust', $product), ['adjustment' => 10, 'reason' => 'Delivery'])
+        ->assertRedirect(route('admin.catalog.products.edit', ['product' => $product, 'tab' => 'details']));
+    $this->post(route('admin.catalog.products.stock.adjust', $product), ['adjustment' => -4])->assertSessionHasNoErrors();
+
+    expect($product->fresh()->stock_quantity)->toBe(10);
+    $this->assertDatabaseHas('activity_log', ['description' => 'Product stock adjusted', 'subject_id' => $product->id]);
+});
+
+it('refuses to remove more stock than is left', function () {
+    actingAsStaff(['catalog.products.manage']);
+    $product = Product::factory()->stock(2)->create();
+
+    $this->post(route('admin.catalog.products.stock.adjust', $product), ['adjustment' => -3])
+        ->assertSessionHasErrors(['adjustment' => 'Only 2 in stock, so you can remove at most 2.']);
+    $this->post(route('admin.catalog.products.stock.adjust', $product), ['adjustment' => 0])
+        ->assertSessionHasErrors(['adjustment' => 'Enter a number other than 0.']);
+
+    expect($product->fresh()->stock_quantity)->toBe(2);
+});
+
+it('forbids stock adjustments without manage permission and for products without stock control', function () {
+    actingAsStaff(['catalog.products.view']);
+    $product = Product::factory()->stock(2)->create();
+    $this->post(route('admin.catalog.products.stock.adjust', $product), ['adjustment' => 1])->assertForbidden();
+
+    actingAsStaff(['catalog.products.manage']);
+    $this->post(route('admin.catalog.products.stock.adjust', Product::factory()->create()), ['adjustment' => 1])->assertNotFound();
 });

@@ -3,8 +3,10 @@
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Catalog\Actions\AdjustStock;
 use App\Modules\Catalog\Actions\SyncPrices;
 use App\Modules\Catalog\Actions\SyncProductRelations;
+use App\Modules\Catalog\Http\Requests\AdjustStockRequest;
 use App\Modules\Catalog\Http\Requests\ProductAddonsRequest;
 use App\Modules\Catalog\Http\Requests\ProductConfigOptionsRequest;
 use App\Modules\Catalog\Http\Requests\ProductPricingRequest;
@@ -52,6 +54,15 @@ class ProductSettingsController extends Controller
         $sync->provisioning($product, $request->provisioningData());
 
         return $this->saved($product, 'provisioning', __('Provisioning settings for :name saved.', ['name' => $product->name]));
+    }
+
+    public function stock(AdjustStockRequest $request, Product $product, AdjustStock $adjust): RedirectResponse
+    {
+        abort_unless($product->stock_enabled, 404);
+
+        $quantity = $adjust->handle($product, $request->integer('adjustment'), $request->string('reason')->toString() ?: null);
+
+        return $this->saved($product, 'details', __('Stock for :name is now :quantity.', ['name' => $product->name, 'quantity' => $quantity]));
     }
 
     private function saved(Product $product, string $tab, string $message): RedirectResponse

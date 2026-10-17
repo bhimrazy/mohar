@@ -20,6 +20,7 @@ Route::adminArea(fn () => Route::prefix('catalog')->name('catalog.')->group(func
     Route::put('products/{product}/config-options', [ProductSettingsController::class, 'configOptions'])->name('products.config-options.update');
     Route::put('products/{product}/addons', [ProductSettingsController::class, 'addons'])->name('products.addons.update');
     Route::put('products/{product}/upgrades', [ProductSettingsController::class, 'upgrades'])->name('products.upgrades.update');
+    Route::post('products/{product}/stock', [ProductSettingsController::class, 'stock'])->name('products.stock.adjust');
     Route::put('products/{product}/provisioning', [ProductSettingsController::class, 'provisioning'])->name('products.provisioning.update');
     Route::resource('products.fields', ProductCustomFieldController::class)->only(['store', 'update', 'destroy']);
 

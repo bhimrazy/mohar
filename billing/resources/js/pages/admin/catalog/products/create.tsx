@@ -34,6 +34,7 @@ export default function CreateProduct({ defaults, groups, enums }: Props) {
                     groups={groups}
                     enums={enums}
                     submitLabel="Create product"
+                    stockEditable
                     cancel={
                         <Button variant="outline" asChild>
                             <Link href={ProductController.index()}>Cancel</Link>

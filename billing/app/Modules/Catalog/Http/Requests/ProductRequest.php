@@ -67,7 +67,8 @@ class ProductRequest extends FormRequest
             'is_taxable' => ['boolean'],
             'requires_domain' => ['boolean'],
             'stock_enabled' => ['boolean'],
-            'stock_quantity' => ['required_if_accepted:stock_enabled', 'nullable', 'integer', 'min:0', 'max:1000000'],
+            // Live stock is only set on create; afterwards it changes through reservations and "Adjust stock".
+            'stock_quantity' => $product === null ? ['required_if_accepted:stock_enabled', 'nullable', 'integer', 'min:0', 'max:1000000'] : ['exclude'],
             'quantity_mode' => ['required', Rule::enum(QuantityMode::class)],
             'recurring_cycles_limit' => ['required', 'integer', 'min:0', 'max:1000'],
             'fixed_term_days' => ['required', 'integer', 'min:0', 'max:36500'],
@@ -130,7 +131,9 @@ class ProductRequest extends FormRequest
             $data[$flag] = $this->boolean($flag);
         }
 
-        $data['stock_quantity'] = (int) ($data['stock_quantity'] ?? 0);
+        if ($this->product() === null) {
+            $data['stock_quantity'] = (int) ($data['stock_quantity'] ?? 0);
+        }
         $data['free_domain_cycles'] = $data['free_domain_cycles'] ?? [];
         $data['free_domain_tlds'] = $data['free_domain_tlds'] ?? [];
 

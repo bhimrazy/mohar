@@ -15,6 +15,7 @@ import type {
 } from '@/components/catalog/product/details-form';
 import { PricingTab } from '@/components/catalog/product/pricing-tab';
 import { ProvisioningTab } from '@/components/catalog/product/provisioning-tab';
+import { StockCard } from '@/components/catalog/product/stock-card';
 import {
     AddonsTab,
     ConfigOptionsTab,
@@ -190,14 +191,23 @@ export default function EditProduct(props: Props) {
                     </div>
 
                     <TabsContent value="details" className="max-w-3xl">
-                        <ProductDetailsForm
-                            initial={product}
-                            action={ProductController.update(product)}
-                            groups={props.groups}
-                            enums={props.enums}
-                            submitLabel="Save changes"
-                            disabled={!canManage}
-                        />
+                        <div className="flex flex-col gap-6">
+                            {product.stock_enabled && (
+                                <StockCard
+                                    productId={product.id}
+                                    quantity={product.stock_quantity}
+                                    canManage={canManage}
+                                />
+                            )}
+                            <ProductDetailsForm
+                                initial={product}
+                                action={ProductController.update(product)}
+                                groups={props.groups}
+                                enums={props.enums}
+                                submitLabel="Save changes"
+                                disabled={!canManage}
+                            />
+                        </div>
                     </TabsContent>
 
                     <TabsContent value="pricing">

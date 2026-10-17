@@ -64,6 +64,8 @@ type DetailsFormProps = {
     submitLabel: string;
     disabled?: boolean;
     cancel?: ReactNode;
+    /** Initial stock can only be typed when creating; existing products use "Adjust stock". */
+    stockEditable?: boolean;
 };
 
 const str = (value: string | number | null | undefined) =>
@@ -78,6 +80,7 @@ export function ProductDetailsForm({
     submitLabel,
     disabled = false,
     cancel,
+    stockEditable = false,
 }: DetailsFormProps) {
     const form = useForm({
         product_group_id: str(initial.product_group_id),
@@ -347,6 +350,7 @@ export function ProductDetailsForm({
                         )}
                     </div>
                     {data.stock_enabled &&
+                        stockEditable &&
                         text('stock_quantity', 'Quantity in stock', {
                             type: 'number',
                         })}
