@@ -28,7 +28,7 @@ type Props = {
     cart: PricedCart;
     gateways: SelectOption[];
     account: { name: string; email: string; currency: string } | null;
-    staff_without_client: boolean;
+    blocked_reason: string | null;
     require_tos: boolean;
     tos_url: string | null;
     allow_notes: boolean;
@@ -56,7 +56,7 @@ export default function Checkout({
     cart,
     gateways,
     account,
-    staff_without_client: staffWithoutClient,
+    blocked_reason: blockedReason,
     require_tos: requireTos,
     tos_url: tosUrl,
     allow_notes: allowNotes,
@@ -80,7 +80,7 @@ export default function Checkout({
         password_confirmation: '',
     });
     const errors = form.errors as Record<string, string | undefined>;
-    const guest = account === null && !staffWithoutClient;
+    const guest = account === null && blockedReason === null;
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
@@ -174,10 +174,9 @@ export default function Checkout({
                             </div>
                         )}
 
-                        {staffWithoutClient && (
+                        {blockedReason && (
                             <p className="text-sm text-muted-foreground">
-                                You're signed in with a staff account. Place
-                                orders for clients from the admin area.
+                                {blockedReason}
                             </p>
                         )}
 
@@ -461,7 +460,7 @@ export default function Checkout({
                                     disabled={
                                         form.processing ||
                                         gateways.length === 0 ||
-                                        staffWithoutClient ||
+                                        blockedReason !== null ||
                                         (guest && mode === 'login')
                                     }
                                 >

@@ -151,6 +151,55 @@ it('does not treat a tax change from the new address as a price change', functio
     expect(Order::query()->sole()->total)->toBe(1200);
 });
 
+/**
+ * A login attached to $client as a non-owner with the given client-area permissions.
+ *
+ * @param  list<string>  $areas
+ */
+function ordersContactFor(Client $client, array $areas): User
+{
+    $contact = User::factory()->create();
+    $client->users()->attach($contact, ['is_owner' => false, 'permissions' => json_encode($areas)]);
+
+    return $contact;
+}
+
+it('refuses checkout and credit for a contact without billing access', function () {
+    Currency::factory()->create();
+    $client = Client::factory()->create();
+    $this->actingAs(ordersContactFor($client, ['support']));
+    $cart = OrdersFakes::cartFor(null, [OrdersFakes::productItem(1)]);
+
+    $this->withSession([CartManager::SESSION_TOKEN => $cart->token])
+        ->post(route('store.checkout.store'), checkoutPayload(['apply_credit' => true]))
+        ->assertSessionHasErrors(['cart' => 'Your login cannot place orders for this account. Ask the account owner for billing access.']);
+
+    expect(Order::query()->count())->toBe(0)
+        ->and($this->fakes->billing->issued)->toBe([])
+        ->and(Cart::query()->whereKey($cart->id)->exists())->toBeTrue()
+        ->and(Cart::query()->where('client_id', $client->id)->exists())->toBeFalse();
+});
+
+it('lets a contact with billing access order for the account', function () {
+    Currency::factory()->create();
+    $client = Client::factory()->create();
+    $this->actingAs(ordersContactFor($client, ['billing']));
+    OrdersFakes::cartFor($client, [OrdersFakes::productItem(1)]);
+
+    $this->post(route('store.checkout.store'), checkoutPayload())->assertSessionHasNoErrors();
+
+    expect(Order::query()->sole()->client_id)->toBe($client->id);
+});
+
+it('hides the account orders from a contact without billing access', function () {
+    Currency::factory()->create();
+    $client = Client::factory()->create();
+    $order = Order::factory()->for($client)->create();
+    $this->actingAs(ordersContactFor($client, ['support']));
+
+    $this->get(route('store.checkout.complete', $order))->assertNotFound();
+});
+
 it('refuses checkout for staff without a client account', function () {
     Currency::factory()->create();
     actingAsStaff();

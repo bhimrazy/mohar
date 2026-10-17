@@ -62,7 +62,9 @@ class CheckoutController extends Controller
             'cart' => $priced->toArray(),
             'gateways' => collect($gateways->forProducts($priced->productIds(), $priced->currency))->map(fn (string $label, string $key): array => ['value' => $key, 'label' => $label])->values(),
             'account' => $client === null ? null : ['name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency],
-            'staff_without_client' => $request->user() !== null && $client === null,
+            'blocked_reason' => $request->user() === null || $client !== null ? null : ($request->user()->is_staff
+                ? __("You're signed in with a staff account. Place orders for clients from the admin area.")
+                : __('Your login cannot place orders for this account. Ask the account owner for billing access.')),
             'require_tos' => (bool) $this->settings->get('orders.require_tos', true),
             'tos_url' => $this->settings->get('orders.tos_url') ?: null,
             'allow_notes' => (bool) $this->settings->get('orders.allow_checkout_notes', true),
@@ -80,7 +82,9 @@ class CheckoutController extends Controller
         $client = $this->customers->clientFor($request->user(), $request->session());
 
         if ($request->user() !== null && $client === null) {
-            return back()->withErrors(['cart' => __('Staff accounts cannot check out. Place orders for clients from the admin area.')]);
+            return back()->withErrors(['cart' => $request->user()?->is_staff
+                ? __('Staff accounts cannot check out. Place orders for clients from the admin area.')
+                : __('Your login cannot place orders for this account. Ask the account owner for billing access.')]);
         }
 
         if ($cart === null || $cart->isEmpty()) {
@@ -118,9 +122,8 @@ class CheckoutController extends Controller
 
     public function complete(Request $request, Order $order, InvoiceLinks $links): Response
     {
-        $client = $this->customers->clientFor($request->user(), $request->session());
         $ownsOrder = $request->session()->get(self::SESSION_LAST_ORDER) === $order->number
-            || ($client !== null && $request->user()?->clients()->whereKey($order->client_id)->exists());
+            || $this->customers->canOrderFor($request->user(), $order->client_id);
         abort_unless($ownsOrder, 404);
 
         return Inertia::render('public/checkout/complete', [
