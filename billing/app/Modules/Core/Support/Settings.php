@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Crypt;
  * Keys are namespaced by module, e.g. "billing.invoice_prefix" (defaults in Config/billing.php).
  *
  * Settings registered as secret (SettingDefinition::$secret) are stored encrypted at rest
- * ("enc:v1:" + Crypt::encryptString(json)). The cache only ever holds the ciphertext; values are
+ * ("enc:v1:" + Crypt::encryptString({"key", "value"}), so ciphertext is bound to its key). The cache only ever holds the ciphertext; values are
  * decrypted in get(), so plaintext secrets never reach the database, the cache store or all().
  */
 class Settings
@@ -32,7 +32,10 @@ class Settings
             return config($key, $default);
         }
 
-        return self::isEncrypted($values[$key]) ? $this->decrypt($values[$key], $default) : $values[$key];
+        // Only registered secrets are ever decrypted, and only with a payload bound to this key.
+        return $this->registry->isSecret($key) && self::isEncrypted($values[$key])
+            ? $this->decrypt($key, $values[$key], $default)
+            : $values[$key];
     }
 
     public function set(string $key, mixed $value): void
@@ -93,18 +96,27 @@ class Settings
             return $value;
         }
 
-        return self::ENCRYPTED_PREFIX.Crypt::encryptString((string) json_encode($value));
+        return self::ENCRYPTED_PREFIX.Crypt::encryptString((string) json_encode(['key' => $key, 'value' => $value]));
     }
 
-    private function decrypt(string $value, mixed $default): mixed
+    private function decrypt(string $key, string $value, mixed $default): mixed
     {
         try {
-            return json_decode(Crypt::decryptString(substr($value, strlen(self::ENCRYPTED_PREFIX))), true);
+            $payload = json_decode(Crypt::decryptString(substr($value, strlen(self::ENCRYPTED_PREFIX))), true);
         } catch (DecryptException $exception) {
             // Unreadable with the current APP_KEY (e.g. rotated without APP_PREVIOUS_KEYS): treat as unset.
             report($exception);
 
             return $default;
         }
+
+        // Ciphertext copied from another setting decrypts but belongs to a different key: refuse it.
+        if (! is_array($payload) || ($payload['key'] ?? null) !== $key) {
+            report(new DecryptException("Encrypted setting [{$key}] does not belong to this key."));
+
+            return $default;
+        }
+
+        return $payload['value'] ?? $default;
     }
 }
