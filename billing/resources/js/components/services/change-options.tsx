@@ -1,38 +1,76 @@
 import { useForm } from '@inertiajs/react';
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
-import InputError from '@/components/input-error';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DateTime } from '@/components/app/date';
 import { Money } from '@/components/app/money';
+import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import type { RouteAction } from '@/types/app';
 import { cycleLabel } from '@/types/services';
 import type { ChangeOption, ChangeOptions } from '@/types/services';
 
 type ChangeOptionsPickerProps = {
-    options: ChangeOptions;
+    /** Undefined while the deferred prop loads. */
+    options: ChangeOptions | undefined;
     action: RouteAction;
     currentProduct: string | null;
-    /** Copy for the submit button. */
-    submitLabel?: string;
+    /** Whether a downgrade difference becomes account credit (services.upgrades.credit_on_downgrade). */
+    creditOnDowngrade: boolean;
+    /** Staff wording ("the client") instead of the client's ("you"). */
+    staff?: boolean;
 };
 
 const keyOf = (option: ChangeOption) => `${option.product_id}:${option.cycle}`;
 
+function submitLabel(option: ChangeOption | undefined, staff: boolean): string {
+    if (!option) {
+        return staff ? 'Order change' : 'Change plan';
+    }
+
+    if (option.amount_due > 0) {
+        const amount = formatMoney(option.amount_due, option.currency);
+
+        return staff
+            ? `Invoice ${amount} for upgrade`
+            : `Pay ${amount} and upgrade`;
+    }
+
+    return option.amount_due < 0 ? 'Downgrade now' : 'Change plan now';
+}
+
 /**
  * Upgrade/downgrade targets with the server-computed prorated price. The UI never
- * recalculates amounts; it only shows what the backend quoted.
+ * recalculates amounts; it only shows what the backend quoted. Changes that apply
+ * immediately (no payment) ask for confirmation and say what happens to the difference.
  */
 export function ChangeOptionsPicker({
     options,
     action,
     currentProduct,
-    submitLabel = 'Change plan',
+    creditOnDowngrade,
+    staff = false,
 }: ChangeOptionsPickerProps) {
     const [selected, setSelected] = useState<string | null>(null);
+    const [confirming, setConfirming] = useState(false);
     const form = useForm({ product_id: 0, cycle: '' });
+
+    if (!options) {
+        return (
+            <div
+                className="grid gap-2"
+                aria-busy="true"
+                aria-label="Loading plans"
+            >
+                <Skeleton className="h-16 w-full" />
+                <Skeleton className="h-16 w-full" />
+            </div>
+        );
+    }
 
     if (!options.available) {
         return (
@@ -41,14 +79,15 @@ export function ChangeOptionsPicker({
     }
 
     const choice = options.options.find((option) => keyOf(option) === selected);
-
-    const submit = () => {
-        if (!choice) {
-            return;
-        }
-
-        form.submit(action, { preserveScroll: true });
-    };
+    const submit = () =>
+        form.submit(action, {
+            preserveScroll: true,
+            onSuccess: () => setSelected(null),
+        });
+    const difference = choice
+        ? formatMoney(-choice.amount_due, choice.currency)
+        : '';
+    const who = staff ? 'The client gets' : "You'll get";
 
     return (
         <div className="space-y-4">
@@ -121,13 +160,23 @@ export function ChangeOptionsPicker({
                                             now
                                         </>
                                     ) : option.amount_due < 0 ? (
-                                        <>
-                                            <Money
-                                                amount={-option.amount_due}
-                                                currency={option.currency}
-                                            />{' '}
-                                            difference
-                                        </>
+                                        creditOnDowngrade ? (
+                                            <>
+                                                <Money
+                                                    amount={-option.amount_due}
+                                                    currency={option.currency}
+                                                />{' '}
+                                                credit
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Money
+                                                    amount={-option.amount_due}
+                                                    currency={option.currency}
+                                                />{' '}
+                                                not refunded
+                                            </>
+                                        )
                                     ) : (
                                         'No charge'
                                     )}
@@ -155,11 +204,45 @@ export function ChangeOptionsPicker({
             <InputError message={form.errors.product_id ?? form.errors.cycle} />
 
             <div className="flex justify-end">
-                <Button onClick={submit} disabled={!choice || form.processing}>
+                <Button
+                    onClick={() =>
+                        choice && choice.amount_due <= 0
+                            ? setConfirming(true)
+                            : submit()
+                    }
+                    disabled={!choice || form.processing}
+                    variant={
+                        choice && choice.amount_due < 0 ? 'outline' : 'default'
+                    }
+                >
                     {form.processing && <Spinner />}
-                    {submitLabel}
+                    {submitLabel(choice, staff)}
                 </Button>
             </div>
+
+            <ConfirmDialog
+                open={confirming}
+                onOpenChange={setConfirming}
+                title={
+                    choice
+                        ? `Change to ${choice.product_name} now?`
+                        : 'Change plan now?'
+                }
+                description={
+                    choice && choice.amount_due < 0
+                        ? creditOnDowngrade
+                            ? `The change applies immediately. ${who} ${difference} account credit for the unused days.`
+                            : `The change applies immediately. The remaining ${difference} for the unused days is not refunded.`
+                        : 'The change applies immediately at no charge.'
+                }
+                confirmLabel={
+                    choice && choice.amount_due < 0
+                        ? 'Downgrade now'
+                        : 'Change plan now'
+                }
+                destructive={false}
+                onConfirm={submit}
+            />
         </div>
     );
 }

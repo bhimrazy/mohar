@@ -28,6 +28,7 @@ import { Textarea } from '@/components/ui/textarea';
 import ServiceActionController from '@/actions/App/Modules/Services/Http/Controllers/Client/ServiceActionController';
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Client/ServiceController';
 import type { SelectOption } from '@/types/app';
+import { formatDate } from '@/lib/date';
 import { cycleLabel } from '@/types/services';
 import type {
     AddonRow,
@@ -42,7 +43,8 @@ type Props = {
     usage: UsageData;
     cancellation: { id: number; type: string; process_after: string } | null;
     cancellationTypes: SelectOption[];
-    changeOptions: ChangeOptions;
+    changeOptions?: ChangeOptions;
+    creditOnDowngrade: boolean;
     can: { cancel: boolean; changePassword: boolean };
 };
 
@@ -53,6 +55,7 @@ export default function ClientServiceShow({
     cancellation,
     cancellationTypes,
     changeOptions,
+    creditOnDowngrade,
     can,
 }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
@@ -202,6 +205,7 @@ export default function ClientServiceShow({
                                         service.id,
                                     )}
                                     currentProduct={service.product_name}
+                                    creditOnDowngrade={creditOnDowngrade}
                                 />
                             </SectionCard>
                         )}
@@ -348,7 +352,11 @@ export default function ClientServiceShow({
                 open={cancelOpen}
                 onOpenChange={setCancelOpen}
                 title={`Cancel ${name}?`}
-                description="Renewals stop right away. At the end of the billing period your account and its files are removed."
+                description={
+                    cancelForm.data.type === 'immediate'
+                        ? 'Your account and its files are removed right away. This can’t be undone.'
+                        : `Renewals stop right away. On ${service.next_due_date ? formatDate(service.next_due_date) : 'the last day you paid for'} your account and its files are removed.`
+                }
                 submitLabel="Request cancellation"
                 destructive
                 processing={cancelForm.processing}

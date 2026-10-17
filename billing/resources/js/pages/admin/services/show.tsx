@@ -1,4 +1,11 @@
-import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import {
+    Head,
+    Link,
+    router,
+    useForm,
+    useHttp,
+    usePage,
+} from '@inertiajs/react';
 import {
     CalendarClock,
     Eye,
@@ -100,8 +107,8 @@ type Props = {
     driver: { key: string; name: string; requires_server: boolean };
     commands: SelectOption[];
     statusTargets: SelectOption[];
-    changeOptions: ChangeOptions;
-    credentials?: { username: string | null; password: string | null } | null;
+    changeOptions?: ChangeOptions;
+    creditOnDowngrade: boolean;
     can: {
         manage: boolean;
         provision: boolean;
@@ -159,13 +166,16 @@ export default function ServiceShow({
     commands,
     statusTargets,
     changeOptions,
-    credentials,
+    creditOnDowngrade,
     can,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
     const [dialog, setDialog] = useState<DialogName>(null);
-    const [revealing, setRevealing] = useState(false);
     const [shown, setShown] = useState(false);
+    const reveal = useHttp<
+        Record<string, never>,
+        { username: string | null; password: string | null }
+    >();
     const commandForm = useForm({ command: '', reason: '', password: '' });
     const statusForm = useForm({ status: '', note: '' });
     const cancelForm = useForm({ type: 'end_of_period', reason: '' });
@@ -207,20 +217,17 @@ export default function ServiceShow({
         });
 
     const revealCredentials = () => {
-        if (credentials || shown) {
+        if (shown || reveal.response) {
             setShown(!shown);
 
             return;
         }
 
-        setRevealing(true);
-        router.reload({
-            only: ['credentials'],
-            onSuccess: () => setShown(true),
-            onFinish: () => setRevealing(false),
-        });
+        void reveal
+            .post(ServiceController.credentials(service.id).url)
+            .then(() => setShown(true));
     };
-    const visiblePassword = shown ? credentials?.password : null;
+    const visiblePassword = shown ? reveal.response?.password : null;
 
     const name = service.domain ?? service.label;
 
@@ -558,7 +565,7 @@ export default function ServiceShow({
                                         variant="ghost"
                                         size="sm"
                                         onClick={revealCredentials}
-                                        disabled={revealing}
+                                        disabled={reveal.processing}
                                     >
                                         {shown ? <EyeOff /> : <Eye />}
                                         {shown
@@ -748,7 +755,8 @@ export default function ServiceShow({
                                             service.id,
                                         )}
                                         currentProduct={service.product_name}
-                                        submitLabel="Order change"
+                                        creditOnDowngrade={creditOnDowngrade}
+                                        staff
                                     />
                                 ) : (
                                     <p className="text-sm text-muted-foreground">
@@ -819,7 +827,13 @@ export default function ServiceShow({
                                     </Button>
                                 )}
                             </div>
-                            <ModuleLogTable entries={moduleLog} />
+                            {can.moduleLog ? (
+                                <ModuleLogTable entries={moduleLog} />
+                            ) : (
+                                <p className="text-sm text-muted-foreground">
+                                    You need permission to view the module log.
+                                </p>
+                            )}
                         </section>
                     </div>
 

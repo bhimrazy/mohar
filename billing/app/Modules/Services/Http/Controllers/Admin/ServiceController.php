@@ -14,6 +14,7 @@ use App\Modules\Services\Http\Resources\ServiceResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
+use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -54,7 +55,7 @@ class ServiceController extends Controller
         ]);
     }
 
-    public function show(Request $request, Service $service, ServicePresenter $presenter): Response
+    public function show(Request $request, Service $service, ServicePresenter $presenter, ServiceSettings $settings): Response
     {
         $this->authorize('services.services.view');
 
@@ -104,6 +105,7 @@ class ServiceController extends Controller
             'commands' => $presenter->commands($service),
             'statusTargets' => $presenter->statusTargets($service),
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($service, $today)),
+            'creditOnDowngrade' => $settings->creditOnDowngrade(),
             'can' => [
                 'manage' => $user?->hasPermission('services.services.manage') ?? false,
                 'provision' => $user?->hasPermission('services.services.provision') ?? false,
