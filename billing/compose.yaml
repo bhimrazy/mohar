@@ -1,11 +1,11 @@
-# Local infrastructure. Start with: docker compose up -d
+# Local infrastructure. Start with: docker compose up -d   (docs/devops/LOCAL_SETUP.md)
 services:
     rustfs:
         # S3-compatible object storage for attachments, invoice PDFs and exports (the "objects" disk).
         image: rustfs/rustfs:1.0.0
         ports:
-            - '${RUSTFS_PORT:-9000}:9000'
-            - '${RUSTFS_CONSOLE_PORT:-9001}:9001'
+            - '127.0.0.1:${RUSTFS_PORT:-9000}:9000'
+            - '127.0.0.1:${RUSTFS_CONSOLE_PORT:-9001}:9001'
         environment:
             RUSTFS_ACCESS_KEY: '${OBJECTS_ACCESS_KEY:-billing}'
             RUSTFS_SECRET_KEY: '${OBJECTS_SECRET_KEY:-billing-secret}'
@@ -22,5 +22,40 @@ services:
             timeout: 5s
             retries: 5
 
+    postgres:
+        # Production-parity database. The app defaults to SQLite; switch with the DB_* block in .env.example.
+        # Credentials come from .env (DB_DATABASE / DB_USERNAME / DB_PASSWORD / DB_PORT), defaulting to billing.
+        # Pinned by digest (multi-arch index of postgres:18.6-alpine, pushed 2026-09-21). Keep identical to the
+        # tests-pgsql service image in .github/workflows/ci.yml (the CI lint job fails on drift).
+        image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        ports:
+            - '127.0.0.1:${DB_PORT:-5432}:5432'
+        environment:
+            POSTGRES_DB: '${DB_DATABASE:-billing}'
+            POSTGRES_USER: '${DB_USERNAME:-billing}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-billing}'
+        volumes:
+            # PostgreSQL 18+ images keep data under /var/lib/postgresql/<major>/docker; mount the parent.
+            - postgres-data:/var/lib/postgresql
+        configs:
+            - source: postgres-init
+              target: /docker-entrypoint-initdb.d/10-create-test-database.sql
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+configs:
+    postgres-init:
+        # Runs once, when the volume is first initialised: a separate database for the test suite.
+        content: |
+            CREATE DATABASE billing_test;
+
 volumes:
     rustfs-data:
+    postgres-data:

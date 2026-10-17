@@ -3,11 +3,13 @@
 namespace App\Modules\Core;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Services\CatalogUsage;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
+use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -32,6 +34,9 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+
+        // Fallback bindings for optional modules; the owning module re-binds the real implementation.
+        $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);
     }
 
     protected function schedule(Schedule $schedule): void

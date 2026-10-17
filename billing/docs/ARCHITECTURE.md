@@ -121,7 +121,11 @@ Route::clientArea(fn () => Route::prefix('invoices')->name('invoices.')->group(.
 app(Navigation::class)->add('admin', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', 'Billing', 10, 'billing.invoices.view', 'admin.billing.invoices.*'));
 app(Navigation::class)->add('client', new NavItem('Invoices', 'client.invoices.index', 'Receipt', 'Billing', 10));
 app(Navigation::class)->add('admin-client', new NavItem('Invoices', 'admin.billing.invoices.index', 'FileText', order: 10, permission: 'billing.invoices.view')); // link on client profile (?client=ID)
+app(Navigation::class)->add('admin-create', new NavItem('New invoice', 'admin.billing.invoices.create', 'FileText', permission: 'billing.invoices.manage')); // quick-create menu
+// Sidebar count badge (cheap indexed count): new NavItem(..., badge: fn ($user) => Ticket::awaitingStaff()->count())
 app(Dashboard::class)->card('admin', 'billing.overdue', fn ($user) => ['label' => ..., 'value' => ..., 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
+app(Dashboard::class)->widget('admin', 'billing.income', 'chart', fn ($user) => [...], 'billing.invoices.view', size: 'md', deferred: true); // list|chart widgets
+app(Dashboard::class)->todo('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue invoices', 'count' => 3, 'href' => ..., 'tone' => 'danger'], 'billing.invoices.view'); // "Needs attention"
 ```
 
 Icon names must exist in `resources/js/lib/nav-icons.ts` (add one line if needed).
@@ -158,6 +162,18 @@ indexes on foreign keys and status/date columns used by automation. Migration fi
 Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx).
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
+PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):
+
+1. User search: `whereLike($column, "%{$term}%")` (case-insensitive), never raw `like`.
+2. `sum()`/`avg()` return strings on PostgreSQL — cast `(int)` before `Money`.
+3. Never hardcode ids in tests or links; sequences are not reset between tests.
+4. `orderBy(...)->orderBy('id')` wherever order matters.
+5. Strict `GROUP BY`; no SQLite-only functions (`strftime`, `ifnull`, `julianday`); no backticks.
+6. Validate string lengths against column sizes (PostgreSQL rejects overlong values).
+7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
+8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
+9. Booleans as `where('flag', true)`; no explicit ids in seeders.
+
 ## Testing (Pest)
 
 - Feature tests per behaviour in `tests/Feature/<Module>/`; unit tests for pure calculation (proration, tax).
@@ -174,6 +190,7 @@ Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PH
 vendor/bin/pint --parallel                       # format
 vendor/bin/phpstan analyse --memory-limit=1G     # Larastan level 7, zero errors, no ignores/baselines
 php artisan test --compact                       # all tests green (whole suite, not just yours)
+composer test:pgsql                              # same suite on PostgreSQL (docker compose up -d postgres)
 php artisan wayfinder:generate --with-form && npx tsc --noEmit && npm run check
 npm run build                                    # pages compile
 ```
