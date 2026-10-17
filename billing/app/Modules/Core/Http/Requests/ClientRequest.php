@@ -14,6 +14,13 @@ class ClientRequest extends FormRequest
         return $this->user()?->hasPermission($this->route('client') === null ? 'core.clients.create' : 'core.clients.update') ?? false;
     }
 
+    private function isClosed(): bool
+    {
+        $client = $this->route('client');
+
+        return $client instanceof Client && $client->status === 'closed';
+    }
+
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
@@ -35,7 +42,8 @@ class ClientRequest extends FormRequest
             'tax_exempt' => ['boolean'],
             'currency' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
             'client_group_id' => ['nullable', Rule::exists('client_groups', 'id')],
-            'status' => ['required', Rule::in(Client::STATUSES)],
+            // Closed (and merged) clients keep their status; lifecycle changes use the close/reopen actions.
+            'status' => $this->isClosed() ? ['prohibited'] : ['required', Rule::in(Client::EDITABLE_STATUSES)],
             'notes' => ['nullable', 'string', 'max:5000'],
         ];
     }

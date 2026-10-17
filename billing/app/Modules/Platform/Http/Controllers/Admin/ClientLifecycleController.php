@@ -37,11 +37,13 @@ class ClientLifecycleController extends Controller
     {
         $this->authorize('core.clients.merge');
 
-        $target = Client::query()->find($request->integer('target_id'));
+        $target = $request->filled('target_id') ? Client::query()->find($request->integer('target_id')) : null;
+        $problem = $merge->problem($client, $target);
 
         return response()->json([
             'target' => $target ? ['id' => $target->id, 'name' => $target->display_name, 'currency' => $target->currency, 'status' => $target->status] : null,
-            'counts' => $merge->preview($client),
+            'problem' => $problem,
+            'items' => $target && ! $client->is($target) ? $merge->preview($client, $target) : [],
         ]);
     }
 
@@ -49,7 +51,10 @@ class ClientLifecycleController extends Controller
     {
         $this->authorize('core.clients.merge');
 
-        $data = $request->validate(['target_id' => ['required', 'integer', 'exists:clients,id']]);
+        $data = $request->validate([
+            'target_id' => ['required', 'integer', 'exists:clients,id'],
+            'confirmation' => ['required', 'string', 'in:MERGE'],
+        ], ['confirmation.in' => __('Type MERGE to confirm.')]);
         $target = Client::query()->whereKey((int) $data['target_id'])->firstOrFail();
 
         $merge->handle($client, $target);

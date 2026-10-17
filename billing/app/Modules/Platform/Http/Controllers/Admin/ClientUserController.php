@@ -8,6 +8,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Http\Requests\ClientUserRequest;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class ClientUserController extends Controller
@@ -48,6 +49,19 @@ class ClientUserController extends Controller
 
         $logins->remove($client, $user);
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':email no longer has access to this account.', ['email' => $user->email])]);
+
+        return to_route('admin.clients.show', $client);
+    }
+
+    public function resetTwoFactor(Request $request, Client $client, User $user, ManageClientLogins $logins): RedirectResponse
+    {
+        $this->authorize('core.users.reset_2fa');
+        $this->ensureAttached($client, $user);
+        $actor = $request->user();
+        abort_if($actor === null, 401);
+
+        $logins->resetTwoFactor($client, $user, $actor);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Two-factor authentication reset for :email.', ['email' => $user->email])]);
 
         return to_route('admin.clients.show', $client);
     }

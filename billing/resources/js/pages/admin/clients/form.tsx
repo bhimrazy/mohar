@@ -248,23 +248,41 @@ export default function ClientForm({
                                         client={client}
                                         optional
                                     />
-                                    <Field
-                                        htmlFor="status"
-                                        label="Status"
-                                        error={errors.status}
-                                    >
-                                        <SelectField
-                                            id="status"
-                                            name="status"
-                                            defaultValue={
-                                                client?.status ?? 'active'
-                                            }
-                                            options={statuses.map((status) => ({
-                                                value: status,
-                                                label: statusLabel(status),
-                                            }))}
-                                        />
-                                    </Field>
+                                    {client?.status === 'closed' ? (
+                                        <Field
+                                            htmlFor="status-closed"
+                                            label="Status"
+                                            hint="Reopen the client from its profile to change the status."
+                                        >
+                                            <Input
+                                                id="status-closed"
+                                                value={statusLabel('closed')}
+                                                disabled
+                                            />
+                                        </Field>
+                                    ) : (
+                                        <Field
+                                            htmlFor="status"
+                                            label="Status"
+                                            error={errors.status}
+                                        >
+                                            <SelectField
+                                                id="status"
+                                                name="status"
+                                                defaultValue={
+                                                    client?.status ?? 'active'
+                                                }
+                                                options={statuses.map(
+                                                    (status) => ({
+                                                        value: status,
+                                                        label: statusLabel(
+                                                            status,
+                                                        ),
+                                                    }),
+                                                )}
+                                            />
+                                        </Field>
+                                    )}
                                     <SwitchField
                                         id="tax_exempt"
                                         name="tax_exempt"

@@ -55,6 +55,9 @@ class Client extends Model
 
     public const STATUSES = ['active', 'inactive', 'closed'];
 
+    /** Statuses the profile form may set; closing and reopening go through their own audited actions. */
+    public const EDITABLE_STATUSES = ['active', 'inactive'];
+
     protected function casts(): array
     {
         return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime'];

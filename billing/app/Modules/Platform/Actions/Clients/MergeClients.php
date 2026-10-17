@@ -2,102 +2,93 @@
 
 namespace App\Modules\Platform\Actions\Clients;
 
+use App\Events\Core\ClientMerged;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
+use App\Support\Clients\ClientMergeRegistry;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Merge a source client into a target in one transaction: every row owned by the source
- * (any table with a client_id column, across modules) moves to the target, source users
- * become non-owner users of the target, and the source is closed as a tombstone.
+ * Merge a source client into a target (spec §11).
+ *
+ * Core moves only the rows it owns (contacts, logins), closes the source as a tombstone and dispatches
+ * ClientMerged inside the transaction; every other module re-points and reconciles its own tables in a
+ * synchronous listener, so any failure rolls the whole merge back. Modules can veto a merge (e.g. both
+ * clients are affiliates with ledger entries) through ClientMergeRegistry.
  */
 class MergeClients
 {
-    public function __construct(private ActivityLogger $activity) {}
+    public function __construct(private ActivityLogger $activity, private ClientMergeRegistry $participants) {}
 
     /**
-     * Row counts that would move, per table.
-     *
-     * @return array<string, int>
+     * Why the merge is not allowed, or null.
      */
-    public function preview(Client $source): array
+    public function problem(Client $source, ?Client $target): ?string
     {
-        $counts = [];
+        $problem = match (true) {
+            $target === null => __('No client with that ID.'),
+            $source->is($target) => __('Choose a different client to merge into.'),
+            $source->merged_into_client_id !== null || $target->merged_into_client_id !== null => __('Merged clients cannot be merged again.'),
+            $source->status === 'closed' => __('Reopen this client before merging it.'),
+            $target->status === 'closed' => __('Reopen the target client before merging into it.'),
+            $source->currency !== $target->currency => __('Both clients must use the same currency (:source vs :target).', ['source' => $source->currency, 'target' => $target->currency]),
+            default => $this->participants->blockers($source->id, $target->id)[0] ?? null,
+        };
 
-        foreach ($this->tables() as $table) {
-            $count = DB::table($table)->where('client_id', $source->id)->count();
-
-            if ($count > 0) {
-                $counts[$table] = $count;
-            }
-        }
-
-        $counts['client_user'] = DB::table('client_user')->where('client_id', $source->id)->count();
-
-        return array_filter($counts);
+        return is_string($problem) ? $problem : null;
     }
 
     /**
-     * @return array<string, int> moved rows per table
+     * What would move, per participant (Core's contacts and logins plus every module's records).
      *
+     * @return list<array{key: string, label: string, count: int, blocking: string|null}>
+     */
+    public function preview(Client $source, Client $target): array
+    {
+        return $this->participants->preview($source->id, $target->id);
+    }
+
+    /**
      * @throws ValidationException
      */
-    public function handle(Client $source, Client $target): array
+    public function handle(Client $source, Client $target): void
     {
-        $this->validate($source, $target);
+        DB::transaction(function () use ($source, $target): void {
+            // Lock both rows (in id order) so concurrent A→B / B→A merges cannot cross.
+            $locked = Client::query()->whereKey([$source->id, $target->id])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $source = $locked->get($source->id) ?? $source;
+            $target = $locked->get($target->id);
 
-        $moved = DB::transaction(function () use ($source, $target): array {
-            $moved = [];
+            $problem = $this->problem($source, $target);
 
-            foreach ($this->tables() as $table) {
-                $count = DB::table($table)->where('client_id', $source->id)->update(['client_id' => $target->id]);
-
-                if ($count > 0) {
-                    $moved[$table] = $count;
-                }
+            if ($problem !== null || $target === null) {
+                throw ValidationException::withMessages(['target_id' => $problem ?? __('No client with that ID.')]);
             }
 
-            $moved['client_user'] = $this->moveUsers($source, $target);
+            DB::table('contacts')->where('client_id', $source->id)->update(['client_id' => $target->id, 'updated_at' => now()]);
+            $logins = $this->moveLogins($source, $target);
 
             $source->forceFill(['status' => 'closed', 'closed_at' => now(), 'merged_into_client_id' => $target->id])->save();
 
-            return array_filter($moved);
+            $this->activity->log('Another client was merged into this client', $target, $target->id, ['source_id' => $source->id, 'logins_added' => $logins], 'client.merged');
+            $this->activity->log('Client merged into another client', $source, $source->id, ['target_id' => $target->id], 'client.merged');
+
+            ClientMerged::dispatch($source->id, $target->id);
         });
-
-        $this->activity->log("Client #{$source->id} merged into #{$target->id}", $target, $target->id, ['source_id' => $source->id, 'moved' => $moved], 'client.merged');
-        $this->activity->log("Client merged into #{$target->id}", $source, $source->id, ['target_id' => $target->id], 'client.merged');
-
-        return $moved;
     }
 
     /**
-     * @throws ValidationException
+     * Source logins become non-owner users of the target (the former owner keeps full access).
      */
-    private function validate(Client $source, Client $target): void
-    {
-        $error = match (true) {
-            $source->is($target) => __('Choose a different client to merge into.'),
-            $source->merged_into_client_id !== null || $target->merged_into_client_id !== null => __('Merged clients cannot be merged again.'),
-            $target->status === 'closed' => __('Reopen the target client before merging into it.'),
-            $source->currency !== $target->currency => __('Both clients must use the same currency (:source vs :target).', ['source' => $source->currency, 'target' => $target->currency]),
-            default => null,
-        };
-
-        if ($error !== null) {
-            throw ValidationException::withMessages(['target_id' => $error]);
-        }
-    }
-
-    private function moveUsers(Client $source, Client $target): int
+    private function moveLogins(Client $source, Client $target): int
     {
         $moved = 0;
-        $existing = DB::table('client_user')->where('client_id', $target->id)->pluck('user_id')->all();
+        $existing = DB::table('client_user')->where('client_id', $target->id)->pluck('user_id')->map(fn (mixed $id): int => (int) $id)->all();
 
-        foreach (DB::table('client_user')->where('client_id', $source->id)->get() as $row) {
-            if (! in_array($row->user_id, $existing, true)) {
+        foreach (DB::table('client_user')->where('client_id', $source->id)->orderBy('id')->get() as $row) {
+            if (! in_array((int) $row->user_id, $existing, true)) {
                 $target->users()->attach($row->user_id, [
                     'is_owner' => false,
                     'permissions' => json_encode($row->is_owner ? ClientContext::AREAS : (json_decode((string) $row->permissions, true) ?: [])),
@@ -109,20 +100,5 @@ class MergeClients
         DB::table('client_user')->where('client_id', $source->id)->delete();
 
         return $moved;
-    }
-
-    /**
-     * Tables (from every module) holding client-owned rows.
-     *
-     * @return list<string>
-     */
-    private function tables(): array
-    {
-        $excluded = (array) config('platform.merge_excluded_tables', []);
-
-        return array_values(array_filter(
-            array_map(fn (array $table): string => $table['name'], Schema::getTables()),
-            fn (string $table): bool => ! in_array($table, $excluded, true) && Schema::hasColumn($table, 'client_id'),
-        ));
     }
 }

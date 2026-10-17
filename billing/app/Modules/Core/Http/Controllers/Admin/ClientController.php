@@ -88,16 +88,18 @@ class ClientController extends Controller
                     'last_login_at' => $login->last_login_at?->toIso8601String(),
                 ]),
             'links' => $navigation->clientLinks($client->id, $user),
-            'activity' => ActivityLog::query()->where('client_id', $client->id)->with(['user:id,name', 'impersonator:id,name'])->latest('id')->limit(15)->get()
-                ->map(fn (ActivityLog $entry): array => [
-                    'id' => $entry->id,
-                    'description' => $entry->description,
-                    'event' => $entry->event,
-                    'actor' => $entry->user?->name,
-                    'impersonator' => $entry->impersonator?->name,
-                    'ip_address' => $entry->ip_address,
-                    'created_at' => $entry->created_at?->toIso8601String(),
-                ]),
+            // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.
+            'activity' => $can('core.activity_log.view')
+                ? ActivityLog::query()->where('client_id', $client->id)->with(['user:id,name', 'impersonator:id,name'])->latest('id')->limit(15)->get()
+                    ->map(fn (ActivityLog $entry): array => [
+                        'id' => $entry->id,
+                        'description' => $entry->description,
+                        'event' => $entry->event,
+                        'actor' => $entry->user?->name,
+                        'impersonator' => $entry->impersonator?->name,
+                        'created_at' => $entry->created_at?->toIso8601String(),
+                    ])
+                : null,
             'areas' => ClientContext::AREAS,
             'emailTypes' => Contact::EMAIL_TYPES,
             'can' => [
@@ -115,6 +117,7 @@ class ClientController extends Controller
     public function edit(Client $client): Response
     {
         $this->authorize('core.clients.update');
+        abort_if($client->merged_into_client_id !== null, 404);
 
         return Inertia::render('admin/clients/form', [
             'client' => new ClientResource($client),
@@ -124,6 +127,8 @@ class ClientController extends Controller
 
     public function update(ClientRequest $request, Client $client): RedirectResponse
     {
+        abort_if($client->merged_into_client_id !== null, 404);
+
         $original = $client->only(array_keys($request->validated()));
         $client->update($request->validated());
         $changes = array_keys($client->getChanges());
@@ -147,7 +152,7 @@ class ClientController extends Controller
         return [
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'groups' => ClientGroup::query()->orderBy('name')->get(['id', 'name']),
-            'statuses' => Client::STATUSES,
+            'statuses' => Client::EDITABLE_STATUSES,
             'defaultCountry' => (string) app(Settings::class)->get('core.default_country', 'US'),
         ];
     }

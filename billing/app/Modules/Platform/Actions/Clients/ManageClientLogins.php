@@ -2,9 +2,11 @@
 
 namespace App\Modules\Platform\Actions\Clients;
 
+use App\Events\Core\TwoFactorReset;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Platform\Notifications\SecurityNotice;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
@@ -51,7 +53,7 @@ class ManageClientLogins
             Password::broker()->sendResetLink(['email' => $email]);
         }
 
-        $this->activity->log("Login {$email} added to the account", $user, $client->id, ['permissions' => $permissions, 'new_login' => $created], 'client.user_added');
+        $this->activity->log('Login added to the account', $user, $client->id, ['email' => $email, 'permissions' => $permissions, 'new_login' => $created], 'client.user_added');
 
         return $user;
     }
@@ -62,7 +64,7 @@ class ManageClientLogins
     public function updatePermissions(Client $client, User $user, array $permissions): void
     {
         $client->users()->updateExistingPivot($user->id, ['permissions' => json_encode($permissions)]);
-        $this->activity->log("Permissions changed for {$user->email}", $user, $client->id, ['permissions' => $permissions], 'client.user_permissions_changed');
+        $this->activity->log('Login permissions changed', $user, $client->id, ['email' => $user->email, 'permissions' => $permissions], 'client.user_permissions_changed');
     }
 
     /**
@@ -79,7 +81,27 @@ class ManageClientLogins
             $client->users()->updateExistingPivot($user->id, ['is_owner' => true]);
         });
 
-        $this->activity->log("Account ownership transferred to {$user->email}", $user, $client->id, event: 'client.owner_transferred');
+        $this->activity->log('Account ownership transferred', $user, $client->id, ['email' => $user->email], 'client.owner_transferred');
+    }
+
+    /**
+     * Clear a client login's two-factor authentication (e.g. lost device) and tell them by email.
+     *
+     * @throws ValidationException
+     */
+    public function resetTwoFactor(Client $client, User $user, User $actor): void
+    {
+        if ($user->is_staff) {
+            throw ValidationException::withMessages(['user' => __('Staff two-factor authentication is reset from the staff page.')]);
+        }
+
+        $user->forceFill(['two_factor_secret' => null, 'two_factor_recovery_codes' => null, 'two_factor_confirmed_at' => null])->save();
+
+        $this->activity->log('Two-factor authentication reset for a client login', $user, $client->id, ['email' => $user->email], 'client.user_two_factor_reset');
+        $user->notify(new SecurityNotice(__('Your two-factor authentication was reset'), [
+            __('Our team reset two-factor authentication on your account. Set it up again from your security settings.'),
+        ]));
+        TwoFactorReset::dispatch($user->id, $actor->id);
     }
 
     /**
@@ -94,6 +116,6 @@ class ManageClientLogins
         }
 
         $client->users()->detach($user->id);
-        $this->activity->log("Login {$user->email} removed from the account", $user, $client->id, event: 'client.user_removed');
+        $this->activity->log('Login removed from the account', $user, $client->id, ['email' => $user->email], 'client.user_removed');
     }
 }
