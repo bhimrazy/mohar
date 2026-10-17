@@ -88,18 +88,25 @@ class RenewalInvoices
      * Issue the renewal invoice for the domain's current cycle (period starting next_due_date),
      * optionally with a grace/redemption fee line converted from the default currency.
      *
+     * A zero-total invoice is paid immediately by Billing, so InvoicePaid may reach HandleInvoicePaid before
+     * this method records the invoice; the tracking row is therefore created idempotently and a row the
+     * listener already marked paid is never downgraded.
+     *
      * @param  'renewal'|'grace'|'redemption'  $kind
      * @param  int  $feeInDefaultCurrency  minor units in the system default currency
+     * @param  int|null  $years  term to bill (default: the domain's renewal period)
+     * @param  int|null  $amount  renewal amount for the term (default: the locked recurring amount)
      */
-    public function issue(Domain $domain, string $kind = 'renewal', int $feeInDefaultCurrency = 0): InvoiceResult
+    public function issue(Domain $domain, string $kind = 'renewal', int $feeInDefaultCurrency = 0, ?int $years = null, ?int $amount = null): InvoiceResult
     {
+        $years ??= $domain->period_years;
         $periodStart = $domain->next_due_date;
-        $periodEnd = $periodStart->addYearsNoOverflow($domain->period_years);
-        $years = $domain->period_years === 1 ? '1 year' : "{$domain->period_years} years";
+        $periodEnd = $periodStart->addYearsNoOverflow($years);
+        $term = $years === 1 ? '1 year' : "{$years} years";
 
         $lines = [new InvoiceLineData(
-            description: "Domain renewal - {$domain->name_unicode} ({$years}, {$periodStart->toDateString()} to {$periodEnd->toDateString()})",
-            unitAmount: $domain->recurring_amount,
+            description: "Domain renewal - {$domain->name_unicode} ({$term}, {$periodStart->toDateString()} to {$periodEnd->toDateString()})",
+            unitAmount: $amount ?? $domain->recurring_amount,
             billableType: BillableType::Domain,
             billableId: $domain->id,
             periodStart: $periodStart,
@@ -123,14 +130,14 @@ class RenewalInvoices
             paymentGateway: $domain->gateway_key,
         ));
 
-        DomainInvoice::query()->create([
-            'domain_id' => $domain->id,
-            'invoice_id' => $result->invoiceId,
-            'kind' => $kind,
-            'period_start' => $periodStart,
-            'years' => $domain->period_years,
-            'status' => $result->status === 'paid' ? 'paid' : 'open',
-        ]);
+        $record = DomainInvoice::query()->firstOrCreate(
+            ['domain_id' => $domain->id, 'invoice_id' => $result->invoiceId],
+            ['kind' => $kind, 'period_start' => $periodStart, 'years' => $years, 'status' => 'open'],
+        );
+
+        if (! $record->wasRecentlyCreated && $record->kind !== $kind) {
+            $record->update(['kind' => $kind]);
+        }
 
         return $result;
     }

@@ -36,8 +36,6 @@ class IssueRenewalInvoices
             ->withStatus(DomainStatus::Active)
             ->where('auto_renew', true)
             ->whereDate('next_invoice_date', '<=', $today)
-            ->orderBy('next_invoice_date')
-            ->orderBy('id')
             ->chunkById(200, function ($domains) use ($invoicer, &$issued): void {
                 foreach ($domains as $domain) {
                     if ($invoicer->hasInvoiceForPeriod(BillableType::Domain, $domain->id, $domain->next_due_date)) {

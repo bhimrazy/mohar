@@ -20,6 +20,7 @@ class MirrorLinkedServiceState
     {
         $attributes = match (true) {
             $event instanceof ServiceRenewed => ['linked_service_status' => 'active', 'linked_service_due_date' => CarbonImmutable::parse($event->nextDueDate)],
+            $event instanceof ServiceActivated && $event->nextDueDate !== null => ['linked_service_status' => 'active', 'linked_service_due_date' => CarbonImmutable::parse($event->nextDueDate)],
             $event instanceof ServiceSuspended => ['linked_service_status' => 'suspended'],
             $event instanceof ServiceTerminated => ['linked_service_status' => 'terminated'],
             default => ['linked_service_status' => 'active'],

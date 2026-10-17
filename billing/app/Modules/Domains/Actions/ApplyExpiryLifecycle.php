@@ -9,11 +9,13 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RenewalInvoices;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Date-based expiry transitions (spec §3, §4.5): active → grace → redemption → expired, with the grace/
  * redemption invoice swap (cancel + replacement with fee) and cancellation of the renewal invoice at
- * expiry. The redemption window follows the grace window. Only ever moves forward, so re-runs are no-ops.
+ * expiry. The redemption window follows the grace window. Only ever moves forward, so re-runs are no-ops;
+ * the transition and the invoice swap commit together, so a failed swap is retried on the next run.
  */
 class ApplyExpiryLifecycle
 {
@@ -37,7 +39,6 @@ class ApplyExpiryLifecycle
             ->withStatus([DomainStatus::Active, DomainStatus::Grace, DomainStatus::Redemption])
             ->whereNotNull('expiry_date')
             ->whereDate('expiry_date', '<', $today)
-            ->orderBy('id')
             ->chunkById(200, function ($domains) use ($today, $enabled, &$changed): void {
                 foreach ($domains as $domain) {
                     $target = $this->targetStatus($domain, $today, $enabled);
@@ -46,8 +47,10 @@ class ApplyExpiryLifecycle
                         continue;
                     }
 
-                    $this->states->transition($domain, $target, "Expired on {$domain->expiry_date?->toDateString()}");
-                    $this->swapInvoices($domain, $target);
+                    DB::transaction(function () use ($domain, $target): void {
+                        $this->states->transition($domain, $target, "Expired on {$domain->expiry_date?->toDateString()}");
+                        $this->swapInvoices($domain, $target);
+                    });
                     $changed++;
                 }
             });

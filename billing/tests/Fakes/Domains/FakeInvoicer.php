@@ -9,6 +9,7 @@ use App\Data\Billing\InvoiceResult;
 use App\Enums\BillableType;
 use App\Events\Billing\InvoicePaid;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * In-memory Invoicer for Domains tests (Billing is a sibling module).
@@ -35,9 +36,15 @@ class FakeInvoicer implements Invoicer
     {
         $id = ++$this->nextId;
         $total = array_sum(array_map(fn (InvoiceLineData $line): int => $line->total(), $draft->lines));
-        $this->invoices[$id] = ['draft' => $draft, 'status' => $draft->status];
+        $status = $total === 0 && $draft->status === 'unpaid' ? 'paid' : $draft->status;
+        $this->invoices[$id] = ['draft' => $draft, 'status' => $status];
 
-        return new InvoiceResult($id, 'INV-'.$id, $draft->status, $draft->currency, $total, 0, $total);
+        if ($status === 'paid') {
+            // Contract: a zero-total unpaid invoice is paid immediately and InvoicePaid is dispatched (after commit).
+            DB::afterCommit(fn () => event(new InvoicePaid($id, $draft->clientId, $draft->lines)));
+        }
+
+        return new InvoiceResult($id, 'INV-'.$id, $status, $draft->currency, $total, 0, $total);
     }
 
     public function cancel(int $invoiceId): void
@@ -86,8 +93,8 @@ class FakeInvoicer implements Invoicer
      */
     public function pay(int $invoiceId): void
     {
-        $this->invoices[$invoiceId]['status'] = 'paid';
         $draft = $this->invoices[$invoiceId]['draft'];
+        $this->invoices[$invoiceId] = ['draft' => $draft, 'status' => 'paid'];
         event(new InvoicePaid($invoiceId, $draft->clientId, $draft->lines));
     }
 
