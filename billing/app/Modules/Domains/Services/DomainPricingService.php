@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Services;
 
 use App\Contracts\Domains\DomainPricing;
+use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
@@ -27,10 +28,23 @@ class DomainPricingService implements DomainPricing
     /** @var array<int, Collection<int, TldPrice>> */
     private array $prices = [];
 
+    /** @var array<int, int|null> */
+    private array $groups = [];
+
+    /**
+     * Contract entry point: the client's group tier applies when $clientId is given.
+     *
+     * @param  'register'|'transfer'|'renew'  $action
+     */
+    public function price(string $tld, string $action, int $years, string $currency, ?int $clientId = null): ?int
+    {
+        return $this->priceForGroup($tld, $action, $years, $currency, $this->groupOf($clientId));
+    }
+
     /**
      * @param  'register'|'transfer'|'renew'  $action
      */
-    public function price(string $tld, string $action, int $years, string $currency, ?int $clientGroupId = null): ?int
+    public function priceForGroup(string $tld, string $action, int $years, string $currency, ?int $clientGroupId = null): ?int
     {
         $model = $this->tld($tld);
 
@@ -68,37 +82,6 @@ class DomainPricingService implements DomainPricing
         }
 
         return $action === 'transfer' ? array_slice($terms, 0, 1) : $terms;
-    }
-
-    /**
-     * Price table for one TLD in a currency: one row per offered term.
-     *
-     * @return list<array{years: int, register: int|null, transfer: int|null, renew: int|null}>
-     */
-    public function priceTable(string $tld, string $currency, ?int $clientGroupId = null): array
-    {
-        $model = $this->tld($tld);
-
-        if ($model === null) {
-            return [];
-        }
-
-        $rows = [];
-
-        for ($years = $model->min_years; $years <= $model->max_years; $years++) {
-            $row = [
-                'years' => $years,
-                'register' => $this->price($tld, 'register', $years, $currency, $clientGroupId),
-                'transfer' => $this->price($tld, 'transfer', $years, $currency, $clientGroupId),
-                'renew' => $this->price($tld, 'renew', $years, $currency, $clientGroupId),
-            ];
-
-            if ($row['register'] !== null || $row['transfer'] !== null || $row['renew'] !== null) {
-                $rows[] = $row;
-            }
-        }
-
-        return $rows;
     }
 
     /**
@@ -167,6 +150,18 @@ class DomainPricingService implements DomainPricing
         $this->tlds ??= Tld::query()->active()->get()->keyBy('extension')->all();
 
         return $this->tlds[Tld::normaliseExtension($extension)] ?? null;
+    }
+
+    /**
+     * Client group of a client, memoised for the request.
+     */
+    public function groupOf(?int $clientId): ?int
+    {
+        if ($clientId === null) {
+            return null;
+        }
+
+        return $this->groups[$clientId] ??= Client::query()->whereKey($clientId)->value('client_group_id');
     }
 
     /**

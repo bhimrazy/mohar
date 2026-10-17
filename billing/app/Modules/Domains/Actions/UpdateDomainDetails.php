@@ -37,7 +37,7 @@ class UpdateDomainDetails
             }
 
             if ($recalculateRecurring) {
-                $price = $this->pricing->price($domain->tld, 'renew', $domain->period_years, $domain->currency, $domain->client->client_group_id);
+                $price = $this->pricing->price($domain->tld, 'renew', $domain->period_years, $domain->currency, $domain->client_id);
 
                 if ($price !== null) {
                     $domain->recurring_amount = $price;

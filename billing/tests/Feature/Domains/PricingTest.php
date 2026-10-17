@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\Domains\DomainPricing;
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\Tld;
@@ -18,9 +19,14 @@ test('client group members get their slab price and others the base price', func
     $group = ClientGroup::query()->create(['name' => 'Resellers']);
     TldPrice::query()->create(['tld_id' => $this->com->id, 'currency' => 'USD', 'client_group_id' => $group->id, 'years' => 1, 'register' => 900, 'renew' => 1000]);
 
-    expect($this->pricing->price('.com', 'register', 1, 'USD', $group->id))->toBe(900)
+    $member = Client::factory()->create(['client_group_id' => $group->id]);
+    $other = Client::factory()->create();
+
+    expect($this->pricing->price('.com', 'register', 1, 'USD', $member->id))->toBe(900)
+        ->and($this->pricing->price('.com', 'register', 1, 'USD', $other->id))->toBe(1200)
         ->and($this->pricing->price('.com', 'register', 1, 'USD'))->toBe(1200)
-        ->and($this->pricing->price('com', 'register', 2, 'USD', $group->id))->toBe(2400);
+        ->and($this->pricing->price('com', 'register', 2, 'USD', $member->id))->toBe(2400)
+        ->and($this->pricing->terms('.com', 'register', 'USD'))->toBe(range(1, 10));
 });
 
 test('a currency without price rows is not sellable', function () {
