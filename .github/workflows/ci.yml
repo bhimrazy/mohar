@@ -171,6 +171,9 @@ jobs:
 
             - name: Vitest
               if: steps.changes.outputs.code == 'true'
+              # Vitest boots through vite.config.ts; laravel-vite-plugin refuses its dev-server mode on CI otherwise.
+              env:
+                  LARAVEL_BYPASS_ENV_CHECK: '1'
               run: npm test
 
             - name: Cache PHPStan results
