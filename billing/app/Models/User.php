@@ -56,6 +56,19 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     ];
 
     /**
+     * Changing the password records when and clears a pending forced change (admin-set temporary password).
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $user): void {
+            if ($user->isDirty('password')) {
+                $user->password_changed_at = now();
+                $user->must_change_password = false;
+            }
+        });
+    }
+
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>

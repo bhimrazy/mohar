@@ -28,7 +28,7 @@ class StaffController extends Controller
             ->where('is_staff', true)
             ->with('role:id,name')
             ->when($request->filled('search'), function ($query) use ($request): void {
-                $like = '%'.$request->string('search')->toString().'%';
+                $like = '%'.str_replace(['%', '\\'], '', $request->string('search')->toString()).'%';
                 $query->where(fn ($query) => $query->whereLike('name', $like)->orWhereLike('email', $like));
             })
             ->when($request->filled('status'), fn ($query) => $query->where('is_active', $request->string('status')->toString() === 'active'))

@@ -27,7 +27,7 @@ class ActivityLogController extends Controller
 
         $entries = ActivityLog::query()
             ->with(['user:id,name,email', 'impersonator:id,name', 'client:id,first_name,last_name,company_name'])
-            ->when($filters['search'] ?? null, fn ($query, string $term) => $query->whereLike('description', '%'.$term.'%'))
+            ->when($filters['search'] ?? null, fn ($query, string $term) => $query->whereLike('description', '%'.str_replace(['%', '\\'], '', $term).'%'))
             ->when($filters['event'] ?? null, fn ($query, string $event) => $query->where('event', $event))
             ->when($filters['user'] ?? null, fn ($query, $user) => $query->where('user_id', (int) $user))
             ->when($filters['client'] ?? null, fn ($query, $client) => $query->where('client_id', (int) $client))

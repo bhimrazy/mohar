@@ -52,3 +52,11 @@ test('each group returns at most five results', function () {
     $groups = collect($this->getJson(route('admin.platform.search', ['q' => 'item']))->json('groups'))->keyBy('group');
     expect($groups['Many']['results'])->toHaveCount(5);
 });
+
+test('LIKE wildcards in the search term cannot match everything', function () {
+    actingAsStaff();
+    Client::factory()->count(3)->create();
+
+    $this->getJson(route('admin.platform.search', ['q' => '%%']))->assertExactJson(['groups' => []]);
+    $this->getJson(route('admin.platform.search', ['q' => '%a%']))->assertOk();
+});

@@ -63,13 +63,6 @@ class PlatformServiceProvider extends ModuleServiceProvider
         Event::listen(Failed::class, [RecordAuthenticationActivity::class, 'failed']);
         Event::listen(Logout::class, [RecordAuthenticationActivity::class, 'logout']);
 
-        User::saving(function (User $user): void {
-            if ($user->isDirty('password')) {
-                $user->password_changed_at = now();
-                $user->must_change_password = false;
-            }
-        });
-
         $this->registerNavigation();
         $this->registerPermissions();
         $this->registerSettings();

@@ -206,3 +206,14 @@ test('signing in records last login time and ip', function () {
     expect($staff->fresh())->last_login_ip->toBe('203.0.113.9')->last_login_at->not->toBeNull();
     $this->assertDatabaseHas('activity_log', ['event' => 'auth.login', 'user_id' => $staff->id]);
 });
+
+test('a forced password change must pick a new password', function () {
+    $staff = User::factory()->staff(['core.clients.view'])->create();
+    $staff->forceFill(['must_change_password' => true])->save();
+    $this->actingAs($staff);
+
+    $this->put(route('user-password.update'), ['current_password' => 'password', 'password' => 'password', 'password_confirmation' => 'password'])
+        ->assertSessionHasErrors('password');
+
+    expect($staff->fresh()->must_change_password)->toBeTrue();
+});
