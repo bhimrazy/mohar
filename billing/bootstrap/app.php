@@ -25,8 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'client.area' => ResolveClientContext::class,
         ]);
 
+        // Global (not only "web") so 404s, auth redirects and error pages carry the headers too.
+        $middleware->append(SecurityHeaders::class);
+
         $middleware->web(append: [
-            SecurityHeaders::class,
             HandleAppearance::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,

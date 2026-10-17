@@ -25,3 +25,14 @@ test('HSTS is sent over HTTPS', function () {
 test('pages with a token in the URL never send a referrer', function () {
     $this->get(route('platform.invitations.show', 'some-token'))->assertHeader('Referrer-Policy', 'no-referrer');
 });
+
+test('security headers are sent on 404s and authentication redirects', function () {
+    $this->get('/definitely-not-a-page')->assertNotFound()
+        ->assertHeader('X-Frame-Options', 'DENY')
+        ->assertHeader('X-Content-Type-Options', 'nosniff');
+    expect($this->get('/definitely-not-a-page')->headers->get('Content-Security-Policy'))->toContain("frame-ancestors 'none'");
+
+    $this->get(route('admin.dashboard'))->assertRedirect(route('login'))
+        ->assertHeader('X-Frame-Options', 'DENY');
+    expect($this->get(route('admin.dashboard'))->headers->get('Content-Security-Policy'))->toContain("default-src 'self'");
+});
