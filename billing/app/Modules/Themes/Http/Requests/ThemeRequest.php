@@ -29,6 +29,9 @@ class ThemeRequest extends FormRequest
         ];
     }
 
+    /**
+     * @return list<\Closure(Validator): void>
+     */
     public function after(): array
     {
         return [

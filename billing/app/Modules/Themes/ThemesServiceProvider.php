@@ -2,6 +2,7 @@
 
 namespace App\Modules\Themes;
 
+use App\Contracts\Branding\BrandProvider;
 use App\Modules\Themes\Http\Middleware\ShareTheme;
 use App\Modules\Themes\Support\BrandAssets;
 use App\Modules\Themes\Support\ThemeManager;
@@ -13,7 +14,6 @@ use App\Support\Permissions\PermissionRegistry;
 use App\Support\Themes\ThemePreset;
 use App\Support\Themes\ThemeRegistry;
 use Illuminate\Contracts\Http\Kernel;
-use Illuminate\Foundation\Http\Kernel as HttpKernel;
 
 /**
  * Themes: built-in presets (Resources/presets/*.json → ThemeRegistry), per-area theme/density
@@ -32,6 +32,7 @@ class ThemesServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ThemeManager::class);
         $this->app->singleton(ThemeStylesheet::class);
         $this->app->singleton(BrandAssets::class);
+        $this->app->singleton(BrandProvider::class, fn ($app) => $app->make(BrandAssets::class));
     }
 
     protected function bootModule(): void
@@ -45,11 +46,7 @@ class ThemesServiceProvider extends ModuleServiceProvider
             $registry->register(ThemePreset::fromDocument($document, (string) filemtime($path)));
         }
 
-        $kernel = $this->app->make(Kernel::class);
-
-        if ($kernel instanceof HttpKernel) {
-            $kernel->appendMiddlewareToGroup('web', ShareTheme::class);
-        }
+        $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareTheme::class);
 
         $this->app->make(Navigation::class)->add('admin', new NavItem('Appearance', 'admin.settings.appearance', 'Palette', 'Setup', 80, 'themes.manage', 'admin.settings.[at]*'));
 

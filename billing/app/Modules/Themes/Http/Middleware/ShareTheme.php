@@ -33,12 +33,14 @@ class ShareTheme
         $theme = $this->themes->resolve($area, $user, $this->previewOverride($request));
         $density = $this->themes->density($area, $user);
         $brand = $this->brand->brand();
+        $uploadedFavicon = $this->brand->url('favicon');
         $canChoose = $area === 'admin' && $user?->is_staff && $this->themes->allowsUserChoice();
 
         View::share('themeStyle', $this->stylesheet->css($theme, $density));
-        View::share('brandFavicon', $brand['favicon']);
+        View::share('brandFavicon', $uploadedFavicon);
+        View::share('brandName', $brand->name);
 
-        Inertia::share('brand', $brand);
+        Inertia::share('brand', $brand->toArray());
         Inertia::share('theme', fn (): array => [
             'key' => $theme->key,
             'name' => $theme->name,

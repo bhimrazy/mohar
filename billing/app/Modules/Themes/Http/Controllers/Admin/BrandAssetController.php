@@ -25,6 +25,19 @@ class BrandAssetController extends Controller
         return back();
     }
 
+    /**
+     * Back to the shipped brand: removes every upload and the custom name/tagline.
+     */
+    public function reset(): RedirectResponse
+    {
+        $this->authorize('themes.manage');
+
+        $this->assets->reset();
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Brand reset to the default.')]);
+
+        return back();
+    }
+
     public function destroy(string $kind): RedirectResponse
     {
         $this->authorize('themes.manage');
@@ -45,8 +58,7 @@ class BrandAssetController extends Controller
 
         abort_if($path === null || ! $disk->exists($path), 404);
 
-        $types = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'ico' => 'image/x-icon'];
-        $type = $types[strtolower(pathinfo($path, PATHINFO_EXTENSION))] ?? abort(404);
+        $type = BrandAssets::mime($path) ?? abort(404);
 
         return response((string) $disk->get($path), 200, [
             'Content-Type' => $type,

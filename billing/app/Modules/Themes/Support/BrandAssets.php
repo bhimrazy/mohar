@@ -2,22 +2,98 @@
 
 namespace App\Modules\Themes\Support;
 
+use App\Contracts\Branding\BrandProvider;
+use App\Data\Branding\Brand;
 use App\Modules\Core\Support\Settings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Logo and favicon storage. Files live on the private "objects" disk (shared across app servers,
- * S3/RustFS in production) and are served by BrandAssetController::show with long-lived cache
- * headers; the URL carries a content hash so a new upload busts caches.
+ * The brand (BrandProvider): name and tagline from settings, logos/mark/favicon from uploads
+ * with the defaults in public/brand as fallback.
+ *
+ * Uploads live on the private "objects" disk (shared across app servers, S3/RustFS in
+ * production) and are served by BrandAssetController::show with long-lived cache headers;
+ * the URL carries the content hash so a new upload busts caches.
  */
-class BrandAssets
+class BrandAssets implements BrandProvider
 {
-    public const KINDS = ['logo-light', 'logo-dark', 'favicon'];
+    public const KINDS = ['logo-light', 'logo-dark', 'mark', 'favicon'];
 
     public const DISK = 'objects';
 
+    private const MIME = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp', 'ico' => 'image/x-icon', 'svg' => 'image/svg+xml'];
+
     public function __construct(private Settings $settings) {}
+
+    public function brand(): Brand
+    {
+        $name = $this->name();
+        $default = $name === $this->defaultName();
+        $logoLight = $this->url('logo-light') ?? ($default ? $this->defaultUrl('logo-light') : null);
+
+        return new Brand(
+            name: $name,
+            tagline: $this->tagline(),
+            logoLight: $logoLight,
+            logoDark: $this->url('logo-dark') ?? ($this->path('logo-light') ? $logoLight : ($default ? $this->defaultUrl('logo-dark') : null)),
+            mark: $this->url('mark') ?? $this->defaultUrl('mark'),
+            favicon: $this->url('favicon') ?? $this->defaultUrl('favicon'),
+            customised: ! $default || $this->tagline() !== $this->defaultTagline() || array_filter(array_map($this->path(...), self::KINDS)) !== [],
+        );
+    }
+
+    public function logoDataUri(bool $dark = false): ?string
+    {
+        foreach ($dark ? ['logo-dark', 'logo-light'] : ['logo-light'] as $kind) {
+            if ($path = $this->path($kind)) {
+                return $this->dataUri((string) Storage::disk(self::DISK)->get($path), $path);
+            }
+        }
+
+        $brand = $this->brand();
+
+        // A renamed brand without its own wordmark falls back to the mark.
+        if (($dark ? $brand->logoDark : $brand->logoLight) === null) {
+            if ($path = $this->path('mark')) {
+                return $this->dataUri((string) Storage::disk(self::DISK)->get($path), $path);
+            }
+
+            $kind = 'mark';
+        } else {
+            $kind = $dark ? 'logo-dark' : 'logo-light';
+        }
+
+        $file = public_path($this->defaultPath($kind));
+
+        return is_file($file) ? $this->dataUri((string) file_get_contents($file), $file) : null;
+    }
+
+    public function emailLogoUrl(): ?string
+    {
+        if ($this->path('logo-light') !== null) {
+            return $this->url('logo-light');
+        }
+
+        $default = (string) config('themes.defaults.logo-email');
+
+        return $this->name() === $this->defaultName() && $default !== '' && is_file(public_path($default)) ? asset($default) : null;
+    }
+
+    public function name(): string
+    {
+        // Only an explicitly saved name counts; otherwise the product name (config('app.name')).
+        $name = $this->settings->all()['core.company_name'] ?? null;
+
+        return is_string($name) && trim($name) !== '' ? $name : $this->defaultName();
+    }
+
+    public function tagline(): string
+    {
+        $tagline = $this->settings->get('themes.tagline');
+
+        return is_string($tagline) ? $tagline : $this->defaultTagline();
+    }
 
     public function store(string $kind, UploadedFile $file): string
     {
@@ -45,6 +121,18 @@ class BrandAssets
         $this->settings->set($this->settingKey($kind), null);
     }
 
+    /**
+     * Remove every upload and the custom name/tagline.
+     */
+    public function reset(): void
+    {
+        foreach (self::KINDS as $kind) {
+            $this->delete($kind);
+        }
+
+        $this->settings->setMany(['core.company_name' => null, 'themes.tagline' => null]);
+    }
+
     public function path(string $kind): ?string
     {
         $path = $this->settings->get($this->settingKey($kind));
@@ -56,24 +144,39 @@ class BrandAssets
     {
         $path = $this->path($kind);
 
-        if ($path === null) {
-            return null;
-        }
-
-        return route('branding.show', ['kind' => $kind, 'v' => pathinfo($path, PATHINFO_FILENAME)]);
+        return $path === null ? null : route('branding.show', ['kind' => $kind, 'v' => pathinfo($path, PATHINFO_FILENAME)]);
     }
 
-    /**
-     * @return array{name: string, logoLight: string|null, logoDark: string|null, favicon: string|null}
-     */
-    public function brand(): array
+    public static function mime(string $path): ?string
     {
-        return [
-            'name' => (string) $this->settings->get('core.company_name', config('app.name')),
-            'logoLight' => $this->url('logo-light'),
-            'logoDark' => $this->url('logo-dark'),
-            'favicon' => $this->url('favicon'),
-        ];
+        return self::MIME[strtolower(pathinfo($path, PATHINFO_EXTENSION))] ?? null;
+    }
+
+    private function defaultName(): string
+    {
+        return (string) config('app.name');
+    }
+
+    private function defaultTagline(): string
+    {
+        return (string) config('themes.tagline', '');
+    }
+
+    private function defaultPath(string $kind): string
+    {
+        return (string) config("themes.defaults.{$kind}");
+    }
+
+    private function defaultUrl(string $kind): string
+    {
+        return asset($this->defaultPath($kind));
+    }
+
+    private function dataUri(string $contents, string $path): ?string
+    {
+        $mime = self::mime($path);
+
+        return $mime === null ? null : "data:{$mime};base64,".base64_encode($contents);
     }
 
     private function settingKey(string $kind): string

@@ -51,14 +51,15 @@ class ThemeStylesheet
                 continue;
             }
 
-            match ($name) {
-                'font-sans' => $variables['--app-font-sans'] = ThemeSchema::FONTS[$value][2],
-                'font-mono' => $variables['--app-font-mono'] = ThemeSchema::FONTS[$value][2],
-                'font-display' => $variables['--app-font-display'] = ThemeSchema::FONTS[$value][2],
-                'font-numeric' => $variables['--app-font-numeric'] = ThemeSchema::FONTS[$value][2],
-                'font-features' => $variables['--font-features'] = ThemeSchema::FONT_FEATURES[$value],
-                default => $variables["--{$name}"] = (string) $value,
+            $css = match ($name) {
+                'font-sans', 'font-mono', 'font-display', 'font-numeric' => ThemeSchema::fontStack($value),
+                'font-features' => ThemeSchema::fontFeatures($value),
+                default => is_scalar($value) ? (string) $value : null,
             };
+
+            if ($css !== null) {
+                $variables[str_starts_with($name, 'font-') && $name !== 'font-features' ? '--app-'.$name : "--{$name}"] = $css;
+            }
         }
 
         return $variables;

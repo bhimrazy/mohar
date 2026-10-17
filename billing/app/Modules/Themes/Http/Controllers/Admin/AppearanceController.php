@@ -24,7 +24,8 @@ class AppearanceController extends Controller
 
         return Inertia::render('admin/settings/appearance', [
             'settings' => [
-                'company_name' => (string) $this->settings->get('core.company_name', config('app.name')),
+                'company_name' => $brand->name(),
+                'tagline' => $brand->tagline(),
                 'default_admin' => $this->themes->areaDefault('admin'),
                 'default_client' => $this->themes->areaDefault('client'),
                 'default_public' => $this->themes->areaDefault('public'),
@@ -38,7 +39,8 @@ class AppearanceController extends Controller
                 'swatches' => $this->swatches($theme['key']),
             ], $this->themes->options()),
             'densities' => ThemeManager::DENSITIES,
-            'brand' => $brand->brand(),
+            'brand' => $brand->brand()->toArray(),
+            'uploads' => array_combine(BrandAssets::KINDS, array_map(fn (string $kind): bool => $brand->path($kind) !== null, BrandAssets::KINDS)),
         ]);
     }
 
@@ -48,6 +50,7 @@ class AppearanceController extends Controller
 
         $this->settings->setMany([
             'core.company_name' => $data['company_name'],
+            'themes.tagline' => (string) ($data['tagline'] ?? ''),
             'themes.default_admin' => $data['default_admin'],
             'themes.default_client' => $data['default_client'],
             'themes.default_public' => $data['default_public'],
@@ -68,10 +71,10 @@ class AppearanceController extends Controller
     private function swatches(string $key): array
     {
         $tokens = $this->themes->find($key)?->tokens;
-        $pick = fn (string $mode): array => array_values(array_map(
+        $pick = fn (string $mode): array => array_map(
             fn (string $name): string => (string) ($tokens[$mode][$name] ?? '#000000'),
             ['background', 'sidebar', 'primary', 'chart-2', 'success', 'danger'],
-        ));
+        );
 
         return ['light' => $pick('light'), 'dark' => $pick('dark')];
     }

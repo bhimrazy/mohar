@@ -30,6 +30,9 @@ class ThemeImportRequest extends FormRequest
         return ['file' => ['required', File::types(['json', 'txt'])->max((int) ceil(ThemeSchema::MAX_DOCUMENT_BYTES / 1024))]];
     }
 
+    /**
+     * @return list<\Closure(Validator): void>
+     */
     public function after(): array
     {
         return [

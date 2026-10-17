@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 Route::adminArea(function (): void {
     Route::get('settings/appearance', [AppearanceController::class, 'edit'])->name('settings.appearance');
     Route::put('settings/appearance', [AppearanceController::class, 'update'])->name('settings.appearance.update');
+    Route::delete('settings/appearance/brand', [BrandAssetController::class, 'reset'])->name('settings.appearance.brand.reset');
     Route::post('settings/appearance/brand/{kind}', [BrandAssetController::class, 'store'])
         ->whereIn('kind', BrandAssets::KINDS)->name('settings.appearance.brand.store');
     Route::delete('settings/appearance/brand/{kind}', [BrandAssetController::class, 'destroy'])

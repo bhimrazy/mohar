@@ -195,7 +195,7 @@ final class ThemeSchema
     /**
      * Key pairs below WCAG AA, per mode. Assumes validate() passed.
      *
-     * @param  array{light: array<string, string>, dark: array<string, string>}  $tokens
+     * @param  array<mixed>  $tokens
      * @return list<array{mode: string, foreground: string, background: string, ratio: float, minimum: float}>
      */
     public static function contrastFailures(array $tokens): array
@@ -204,7 +204,15 @@ final class ThemeSchema
 
         foreach (['light', 'dark'] as $mode) {
             foreach (self::CONTRAST_PAIRS as [$foreground, $background, $minimum]) {
-                $ratio = Contrast::ratio($tokens[$mode][$foreground], $tokens[$mode][$background]);
+                $colors = is_array($tokens[$mode] ?? null) ? $tokens[$mode] : [];
+                $fg = $colors[$foreground] ?? null;
+                $bg = $colors[$background] ?? null;
+
+                if (! self::valid('color', $fg) || ! self::valid('color', $bg)) {
+                    continue;
+                }
+
+                $ratio = Contrast::ratio((string) $fg, (string) $bg);
 
                 if ($ratio + 1e-9 < $minimum) {
                     $failures[] = ['mode' => $mode, 'foreground' => $foreground, 'background' => $background, 'ratio' => round($ratio, 2), 'minimum' => $minimum];
@@ -242,6 +250,22 @@ final class ThemeSchema
                 && ($value === 'none' || preg_match('/^'.self::SHADOW_LAYER.'(?:,\s*'.self::SHADOW_LAYER.'){0,2}$/', $value) === 1),
             default => false,
         };
+    }
+
+    /**
+     * CSS font stack for an allow-listed font key.
+     */
+    public static function fontStack(mixed $key): ?string
+    {
+        return is_string($key) && isset(self::FONTS[$key]) ? self::FONTS[$key][2] : null;
+    }
+
+    /**
+     * CSS font-feature-settings for an allow-listed preset.
+     */
+    public static function fontFeatures(mixed $key): ?string
+    {
+        return is_string($key) && isset(self::FONT_FEATURES[$key]) ? self::FONT_FEATURES[$key] : null;
     }
 
     private static function message(string $type): string
