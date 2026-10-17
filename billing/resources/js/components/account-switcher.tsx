@@ -24,7 +24,9 @@ export function AccountSwitcher() {
         return null;
     }
 
-    const current = clientAccounts.find((account) => account.id === currentClientId) ?? clientAccounts[0];
+    const current =
+        clientAccounts.find((account) => account.id === currentClientId) ??
+        clientAccounts[0];
 
     return (
         <SidebarMenu>
@@ -42,10 +44,17 @@ export function AccountSwitcher() {
                         {clientAccounts.map((account) => (
                             <DropdownMenuItem
                                 key={account.id}
-                                onSelect={() => router.post(AccountController.switch.url(), { client_id: account.id })}
+                                onSelect={() =>
+                                    router.post(
+                                        AccountController.switch.url(),
+                                        { client_id: account.id },
+                                    )
+                                }
                             >
                                 <span className="truncate">{account.name}</span>
-                                {account.id === current.id && <Check className="ml-auto" />}
+                                {account.id === current.id && (
+                                    <Check className="ml-auto" />
+                                )}
                             </DropdownMenuItem>
                         ))}
                     </DropdownMenuContent>
