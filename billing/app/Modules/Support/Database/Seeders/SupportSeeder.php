@@ -269,7 +269,7 @@ class SupportSeeder extends Seeder
             $message->forceFill(['created_at' => $at, 'updated_at' => $at])->saveQuietly();
         }
 
-        $last = $messages->last()?->created_at ?? $start;
+        $last = $messages->last()->created_at ?? $start;
         $staffReplies = $messages->filter(fn (TicketMessage $message): bool => $message->isStaffReply());
         $clientReplies = $messages->filter(fn (TicketMessage $message): bool => $message->author_type->isCustomer());
 
