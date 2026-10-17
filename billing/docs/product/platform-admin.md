@@ -1,0 +1,177 @@
+# Platform Admin (Core) — Product Spec (v1)
+
+Status: draft for engineering · Owner: Core workstream · Refines FEATURE_MAP §0
+Clean-room: behaviour derived from public category docs (WHMCS, Blesta, FOSSBilling); naming/schemas are ours.
+
+## 1. Purpose & scope
+
+Cross-cutting administration: staff accounts, roles & permissions, staff 2FA and login security, client groups, currencies & exchange rates,
+the settings catalog, activity log, admin global search, login-as-client (impersonation), client close/merge, maintenance mode and staff tasks.
+
+## 2. Entities & key fields (extends existing Core migration)
+
+- `users` (staff when `is_staff`): add `first_name, last_name, is_active, language, timezone, ticket_signature, private_notes, two_factor_secret (encrypted), two_factor_recovery_codes (encrypted, hashed codes), two_factor_confirmed_at, password_changed_at, last_login_ip, invited_at`. **MUST**
+- `staff_invitations (id, email, role_id, token_hash, expires_at (7 days), accepted_at, invited_by)`. **MUST**
+- `roles` (existing `name, permissions json`): add `description, email_categories json (system|account|support), is_system`. **MUST**
+- `password_histories (user_id, password_hash, created_at)` — last `security.password_reuse_limit: 4`. **MUST**
+- `client_groups` (existing): add `exempt_from_suspension (bool), separate_invoices (bool)`. **MUST**
+- `currencies` (existing): add `decimals (0|2|3, default 2), format (1234.56|1,234.56|1.234,56|1 234,56), rate_updated_at, is_auto_rate`. **MUST** (existing table lacks decimals/format)
+- `clients`: add `merged_into_client_id (nullable), closed_at, email_preferences json, send_overdue_reminders, apply_late_fees`. **MUST**
+- `activity_log` (existing): add `actor_type (staff|user|system|api), impersonator_id (nullable), event (machine key), user_agent`. **MUST**
+- `staff_tasks (id, title, description, due_at, assigned_to, status (open|done|dismissed), related_type, related_id, source (manual|system), created_at)` — target for "manual action required" items from Domains/Services. **SHOULD**
+- `impersonation_sessions (id, staff_id, client_id, user_id, started_at, ended_at, ip)`. **MUST**
+
+## 3. Roles & permissions
+
+- Permission strings `module.area.action`; wildcards `*`, `module.*`, `module.area.*`. A staff user has exactly one role. **MUST**
+- Seeded roles: `Full Administrator` (`*`), `Billing`, `Support`, `Sales` (read clients/orders, accept orders, quotes). System roles editable but not deletable. **MUST**
+- At least one active staff with `*` must always exist (block demote/disable/delete of the last one). **MUST**
+- `view` grants list + detail; mutating actions are separate. Controllers authorise via Gates/Policies mapped 1:1 to the catalog. **MUST**
+- Note: the current seeder uses `core.clients.manage`, which is not in the catalog below — replace with explicit actions (no implicit "manage" alias). **MUST**
+
+### Permission catalog (v1)
+
+| Module        | Permissions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| core          | `core.clients.view` `core.clients.create` `core.clients.update` `core.clients.delete` `core.clients.close` `core.clients.merge` `core.clients.impersonate` `core.clients.export` `core.contacts.manage` `core.users.manage` `core.users.reset_2fa` `core.client_groups.manage` `core.currencies.manage` `core.settings.view` `core.settings.update` `core.staff.view` `core.staff.manage` `core.roles.manage` `core.activity_log.view` `core.automation.view` `core.automation.run` `core.tasks.manage` `core.maintenance.toggle` |
+| catalog       | `catalog.products.view` `catalog.products.manage` `catalog.addons.manage` `catalog.config_options.manage`                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| orders        | `orders.orders.view` `orders.orders.create` `orders.orders.accept` `orders.orders.cancel` `orders.orders.mark_fraud` `orders.orders.delete` `orders.promotions.manage` `orders.fraud.configure`                                                                                                                                                                                                                                                                                                                                   |
+| billing       | `billing.invoices.view` `billing.invoices.create` `billing.invoices.update` `billing.invoices.cancel` `billing.invoices.delete` `billing.invoices.send` `billing.payments.record` `billing.refunds.create` `billing.credit.manage` `billing.transactions.view` `billing.transactions.manage` `billing.quotes.view` `billing.quotes.manage` `billing.gateways.configure` `billing.tax.configure` `billing.income.view`                                                                                                             |
+| services      | `services.services.view` `services.services.update` `services.services.provision` (create/suspend/unsuspend/terminate/change package/password) `services.services.delete` `services.cancellations.manage` `services.servers.manage` `services.module_log.view`                                                                                                                                                                                                                                                                    |
+| domains       | `domains.domains.view` `domains.domains.update` `domains.domains.registrar_commands` `domains.domains.epp_view` `domains.domains.delete` `domains.tlds.manage` `domains.registrars.configure`                                                                                                                                                                                                                                                                                                                                     |
+| support       | `support.tickets.view` `support.tickets.access_all` `support.tickets.reply` `support.tickets.note` `support.tickets.assign` `support.tickets.update` `support.tickets.close` `support.tickets.merge` `support.tickets.merge_cross_client` `support.tickets.edit_messages` `support.tickets.delete` `support.departments.manage` `support.canned_replies.manage` `support.kb.manage` `support.announcements.manage` `support.network.manage` `support.spam.manage` `support.inbound_log.view`                                      |
+| notifications | `notifications.templates.view` `notifications.templates.manage` `notifications.email_log.view` `notifications.email.send` `notifications.webhooks.manage`                                                                                                                                                                                                                                                                                                                                                                         |
+| affiliates    | `affiliates.affiliates.view` `affiliates.affiliates.manage` `affiliates.commissions.manage` `affiliates.withdrawals.process` `affiliates.settings.configure`                                                                                                                                                                                                                                                                                                                                                                      |
+| reports       | `reports.dashboard.view` `reports.{report_key}.view` (one per report, see reports.md) `reports.exports.create`                                                                                                                                                                                                                                                                                                                                                                                                                    |
+
+- Dashboard widgets and global-search groups are filtered by these permissions. **MUST**
+
+## 4. Staff accounts & authentication
+
+- Create staff by invitation (email link, 7-day expiry, resend/cancel) or with a password set by an admin (forced change on first login). **MUST**
+- Email = login; unique among staff. Disable (`is_active=false`) instead of delete when the staff has history; disabled staff sessions & API tokens are revoked immediately. **MUST**
+- Password policy: `security.password_min_length: 12` (12–64), must contain a letter and a digit, reuse of last N blocked, breach-list check **COULD**. **MUST**
+- Lockout: `security.login_max_attempts: 5` per email+IP per `security.login_lockout_minutes: 15`; `security.login_ip_allowlist: []` exempt; after 10 failures for one account in 1 h emit `StaffLoginFailuresThreshold`. **MUST**
+- Sessions: `security.staff_idle_timeout_minutes: 120`; regenerate on login; logout-everywhere from profile. **MUST**
+- 2FA (TOTP, RFC 6238, 6 digits, 30 s, ±1 step) with 10 single-use recovery codes (stored hashed, regenerable). Uses the starter kit's Fortify 2FA. **MUST**
+- `security.staff_2fa_required: true` → staff without 2FA are forced to enrol after password login before any admin route. **MUST**
+- Staff with `core.users.reset_2fa` can reset a client user's 2FA; `core.staff.manage` can reset staff 2FA (not their own); all resets logged and the affected user is emailed. **MUST**
+- Staff API tokens (Sanctum) carry abilities ⊆ the staff role's permissions; revoked on role change. **SHOULD**
+
+## 5. Client groups
+
+- Fields: name, colour, discount_percent (0–100, applied by Billing to recurring/new invoice lines at invoice generation), exempt_from_suspension, separate_invoices. **MUST**
+- Domain pricing slabs reference groups (domains.md). Group with clients cannot be deleted. **MUST**
+
+## 6. Currencies & exchange rates
+
+- Exactly one default currency (rate fixed 1.000000, not editable). Default can only change while no invoices/transactions exist. **MUST**
+- `exchange_rate` = units of this currency per 1 default unit (decimal 16,6). Conversion: `target_minor = round_half_up(source_minor × rate_target/rate_source × 10^(dec_target − dec_source))`. **MUST**
+- Zero-decimal currencies (JPY, KRW, HUF in practice, …) use `decimals=0`. Formatting from prefix/suffix/format/decimals. **MUST**
+- `currency.auto_update_rates: false` daily from a pluggable rate provider (default ECB reference rates); `currency.auto_update_prices: false` regenerates non-default price rows after rate update (Catalog/Domains). **SHOULD**
+- A client's currency can change only while they have no invoices/transactions (else staff must use a forced flow with warning). **MUST**
+- Currency in use by clients/prices cannot be deleted. **MUST**
+
+## 7. Settings catalog
+
+Typed registry (`SettingDefinition: key, type, default, rules, is_secret, owner_module`), stored in `settings` (json), cached, invalidated on write; changes activity-logged with old/new (secrets masked). Owning modules define their keys; the admin UI groups by module. **MUST**
+
+| Group        | Keys (default)                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| company      | `company.name ("Hosting Co")`, `company.email`, `company.url`, `company.logo_url`, `company.address`, `company.tax_id`, `company.pay_to_text`                                                                                                                                                                                                                                                                                                                       |
+| system       | `system.url` (client area base URL), `system.timezone ("UTC")`, `system.records_per_page (25)`, `system.maintenance_mode (false)`, `system.maintenance_message`, `system.maintenance_redirect_url`, `system.allow_client_registration (true)`, `system.activity_log_retention_days (365)`                                                                                                                                                                           |
+| localization | `localization.default_language ("en")`, `localization.default_country ("US")`, `localization.admin_date_format ("Y-m-d")`, `localization.client_date_format ("Y-m-d")`, `localization.language_menu (true)`                                                                                                                                                                                                                                                         |
+| mail         | `mail.from_name`, `mail.from_email`, `mail.system_from_name`, `mail.system_from_email`, `mail.disabled (false)`, `mail.bcc ([])`, `mail.header_html`, `mail.footer_html`, `mail.css`, `mail.signature`                                                                                                                                                                                                                                                              |
+| billing      | `billing.invoice_number_format ("{NUMBER}")`, `billing.invoice_prefix ("")`, `billing.next_invoice_number (1)`, `billing.invoice_lead_days (14)`, `billing.payment_reminder_days_before (7)`, `billing.overdue_reminder_days ([1, 7, 14])`, `billing.late_fee_type ("percent")`, `billing.late_fee_amount (0)`, `billing.late_fee_after_days (7)`, `billing.auto_cancel_unpaid_after_days (0)`, `billing.capture_days_before_due (0)`, `billing.pdf_enabled (true)` |
+| services     | `services.suspend_enabled (true)`, `services.suspend_after_days (5)`, `services.unsuspend_on_payment (true)`, `services.terminate_enabled (false)`, `services.terminate_after_days (30)`                                                                                                                                                                                                                                                                            |
+| automation   | `automation.daily_run_time ("09:00")`, `automation.client_auto_inactive ("no_active_items")` (disabled                                                                                                                                                                                                                                                                                                                                                              | no_active_items), `automation.module_log_retention_days (30)` |
+| security     | `security.password_min_length (12)`, `security.password_reuse_limit (4)`, `security.login_max_attempts (5)`, `security.login_lockout_minutes (15)`, `security.login_ip_allowlist ([])`, `security.staff_2fa_required (true)`, `security.staff_idle_timeout_minutes (120)`, `security.email_verification (true)`, `security.captcha_provider ("none")`, `security.captcha_on_*` (checkout, register, login, ticket_submit, domain_lookup)                            |
+| others       | `orders.*`, `domains.*`, `support.*`, `notifications.*`, `webhooks.*`, `affiliates.*`, `reports.*` — see module specs                                                                                                                                                                                                                                                                                                                                               |
+
+- Maintenance mode blocks client area & checkout (503 page or redirect); staff, API and webhooks continue. **MUST**
+
+## 8. Activity log
+
+- Writes for: staff/user login success & failure, logout, impersonation start/end, settings change, role/permission change, staff create/disable, client create/update (diff)/close/merge/delete, financial actions (payments, refunds, credits, invoice cancel), provisioning & registrar commands, EPP retrieval, data export, 2FA changes. **MUST**
+- Entry: actor (type + id), impersonator_id, client_id, subject, event key, human description, properties (diff, redacted), IP, user agent. **MUST**
+- Retention: entries without client pruned after `system.activity_log_retention_days`; client entries kept until the client is deleted. Read-only (no edit/delete UI). **MUST**
+- Admin view: filter by date, actor, client, event, IP, text; client profile "log" tab. **MUST**
+
+## 9. Global admin search
+
+- `GET /admin/search?q=` (min 2 chars, 300 ms p95 target, rate-limited) returns up to 5 results per group: clients, contacts/users, services, domains, invoices, orders, tickets, transactions. **MUST**
+- Matching: integer → client id, invoice id/number, order number, service id; masked ticket number exact; email exact/prefix; domain/hostname prefix; name/company prefix; transaction reference exact; IP exact (clients' last login, orders). **MUST**
+- Results only for groups the staff can view; tickets limited to accessible departments. **MUST**
+- Keyboard shortcut & "see all" link to the group's filtered list. **SHOULD**
+
+## 10. Login as client (impersonation)
+
+- Staff with `core.clients.impersonate` starts a client-area session as the account owner (or a chosen user of that account) for that client account. **MUST**
+- Session flagged; persistent banner "Signed in as … — return to admin"; 60-minute cap; ends on return/logout. **MUST**
+- While impersonating: cannot change password, email, 2FA, security settings, or manage users; can place orders and open tickets (attributed "by staff X on behalf of"). **MUST**
+- All actions logged with `impersonator_id`; staff users cannot be impersonated. **MUST**
+
+## 11. Client close, reopen, delete, merge
+
+- Close (`core.clients.close`): status `closed`, `closed_at`; unpaid invoices → cancelled; services → cancelled **without** driver termination; domains auto-renew off; users can no longer select this account; emits existing `ClientClosed`. Optional checkbox "also run termination" **COULD**. **MUST**
+- Reopen: status → active; nothing else restored. **MUST**
+- Delete: only when the client has no invoices/transactions (otherwise close); removes users linked solely to that client when requested. **MUST**
+- Merge (`core.clients.merge`): source → target, same currency required (block otherwise); preview of counts; one DB transaction moves services, addons, domains, invoices, quotes, transactions, credit ledger, orders, tickets, contacts, files, notes, affiliate referrals; source users become non-owner users of the target; source becomes `closed` with `merged_into_client_id` (tombstone; old URLs redirect); if both are affiliates, block unless one affiliate has no ledger entries. Emits `ClientMerged`. **MUST**
+- Auto-inactive job: clients older than 2 days with no active/suspended services, domains or addons → `inactive` (setting). **SHOULD**
+
+## 12. Admin & client capabilities summary
+
+Admin: staff/roles/invitations, own profile (password, 2FA, signature, language, timezone), client groups, currencies (update rates now), settings, activity log, search, impersonation, close/merge/delete, maintenance toggle, staff tasks. Client area: own security settings (password, 2FA), account switcher for multi-account users. **MUST**
+
+## 13. Automation
+
+- `core:update-exchange-rates` daily (if enabled). **SHOULD** · `core:prune-activity-log` daily. **MUST** · `core:client-auto-inactive` daily. **SHOULD**
+- `core:expire-invitations` daily. **MUST** · Scheduler heartbeat written every minute (`automation.last_heartbeat_at`) for the dashboard. **MUST**
+
+## 14. Events emitted
+
+Existing: `ClientRegistered`, `ClientUpdated`, `ClientClosed`. New: `ClientReopened`, `ClientMerged(sourceId, targetId)`, `ClientDeleted`, `StaffInvited`, `StaffCreated`,
+`StaffDisabled`, `StaffLoggedIn`, `StaffLoginFailed`, `StaffLoginFailuresThreshold`, `StaffPasswordResetRequested`, `RoleUpdated`, `TwoFactorEnabled`, `TwoFactorReset`,
+`SettingsUpdated(keys)`, `ImpersonationStarted`, `ImpersonationEnded`, `ExchangeRatesUpdated`, `MaintenanceModeToggled`, `AutomationRunCompleted`, `StaffTaskCreated`.
+
+## 15. Edge cases & pitfalls
+
+- Removing the last full administrator locks everyone out — enforced.
+- Role changes must invalidate cached permissions and API token abilities at once.
+- Exchange-rate edits silently change prices if auto-update prices is on — show impact preview.
+- Changing a client's currency with existing invoices breaks credit/ledger math — blocked.
+- Impersonation used to change a client's email/password = account takeover vector — blocked actions.
+- Merging clients with different currencies or tax settings — currency mismatch blocks; tax profile of target wins (warn).
+- Closing a client doesn't stop servers — explicit warning; termination is a separate action.
+- Global search leaking tickets of departments the staff can't access.
+- Settings cache stale across workers — cache keyed with a version bumped on write.
+- Secret settings (API keys) must never be returned to the UI after save (write-only fields).
+
+## 16. Acceptance criteria
+
+1. Given a role with `support.*`, When the staff opens `/admin/invoices`, Then 403; `support.tickets.view` routes succeed.
+2. Given role `billing.invoices.*`, Then `billing.invoices.cancel` is allowed and `billing.refunds.create` is denied.
+3. Given only one active staff holds `*`, When an admin tries to disable them or change their role, Then 422.
+4. Given an invitation older than 7 days, When accepted, Then it fails and can be resent.
+5. Given `staff_2fa_required=true` and staff without 2FA, When they log in with a correct password, Then every admin route redirects to 2FA enrolment.
+6. Given a valid recovery code used once, When used again, Then login fails.
+7. Given 5 failed logins for one email+IP within 15 min, Then the 6th attempt is rejected even with the right password until the lockout ends.
+8. Given a password equal to one of the last 4, Then change fails.
+9. Given a disabled staff with an active session/token, Then their next request is 401.
+10. Given currencies USD (default, 2 dp) and JPY (0 dp, rate 150), When converting 10.00 USD, Then result is ¥1500 (minor 1500).
+11. Given invoices exist, When changing the default currency, Then 422.
+12. Given a setting is updated, Then the next read returns the new value in another worker and an activity entry shows old/new with secrets masked.
+13. Given maintenance mode, When a guest opens the client area, Then 503 page; an admin and the API still work.
+14. Given a search for an exact invoice number, Then the invoice is the first invoice result; staff without `billing.invoices.view` get no invoice group.
+15. Given a ticket in a department the staff can't access, Then it never appears in search results.
+16. Given impersonation, When the staff tries to change the client's password, Then 403; placing an order succeeds and is logged with impersonator_id.
+17. Given impersonation started 61 minutes ago, Then the session is ended and redirected to admin.
+18. Given closing a client with 2 unpaid invoices and 3 active services, Then invoices = cancelled, services = cancelled, no driver calls, `ClientClosed` emitted.
+19. Given a client with transactions, When delete is attempted, Then 422 suggesting close.
+20. Given merging clients with different currencies, Then 422; with the same currency, all related records move and the source becomes closed with `merged_into_client_id`.
+21. Given a client older than 2 days with no active items, When the auto-inactive job runs, Then status = inactive; a client with an active domain stays active.
+
+## 17. Out of scope for v1
+
+SSO (SAML/OIDC) for staff, WebAuthn/Duo/YubiKey, multi-company/brands, per-staff permission overrides, IP-restricted admin area, admin calendar/notes widgets,
+translation editor, theme settings UI, getting-started wizard, GDPR export/delete tooling beyond client export report, data-retention auto-deletion of clients.

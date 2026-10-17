@@ -14,5 +14,6 @@ final class InvoiceRefunded
         public int $amount,
         public string $currency,
         public bool $fullRefund,
+        public bool $reverseCommission = true,
     ) {}
 }
