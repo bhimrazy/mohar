@@ -895,18 +895,21 @@ export default function Configure({
                                 </li>
                             )}
                         </ul>
-                        {quote && quote.item.errors.length > 0 && (form.data.domain_name !== '' || !product.requires_domain) && (
-                            <div className="px-5 pb-3">
-                                {quote.item.errors.map((error) => (
-                                    <p
-                                        key={error}
-                                        className="text-sm text-destructive"
-                                    >
-                                        {error}
-                                    </p>
-                                ))}
-                            </div>
-                        )}
+                        {quote &&
+                            quote.item.errors.length > 0 &&
+                            (form.data.domain_name !== '' ||
+                                !product.requires_domain) && (
+                                <div className="px-5 pb-3">
+                                    {quote.item.errors.map((error) => (
+                                        <p
+                                            key={error}
+                                            className="text-sm text-destructive"
+                                        >
+                                            {error}
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
                         <Separator />
                         <div className="flex items-baseline justify-between gap-4 px-5 py-4">
                             <span className="font-medium">Due today</span>

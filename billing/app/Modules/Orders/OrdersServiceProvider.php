@@ -32,6 +32,7 @@ use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
@@ -108,7 +109,9 @@ class OrdersServiceProvider extends ModuleServiceProvider
     private function registerNavigation(): void
     {
         $navigation = $this->app->make(Navigation::class);
-        $navigation->add('admin', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', 'Orders', 10, 'orders.orders.view', 'admin.orders.*'));
+        $navigation->add('admin', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', 'Orders', 10, 'orders.orders.view', 'admin.orders.*',
+            badge: fn (?User $user): ?int => Order::query()->where('status', OrderStatus::Pending)->count() ?: null));
+        $navigation->add('admin-create', new NavItem('New order', 'admin.orders.create', 'ShoppingCart', order: 20, permission: 'orders.orders.create'));
         $navigation->add('admin', new NavItem('Promotions', 'admin.promotions.index', 'Percent', 'Orders', 20, 'orders.promotions.manage', 'admin.promotions.*'));
         $navigation->add('client', new NavItem('Order history', 'client.orders.index', 'Receipt', 'Orders', 10, null, 'client.orders.*'));
         $navigation->add('client', new NavItem('Store', 'store.index', 'ShoppingCart', 'Orders', 20));
@@ -127,6 +130,33 @@ class OrdersServiceProvider extends ModuleServiceProvider
             'href' => route('admin.orders.index', ['from' => $this->app->make(CompanyClock::class)->now()->toDateString()]),
             'icon' => 'TrendingUp',
         ], 'orders.orders.view', 15);
+
+        $dashboard->widget('admin', 'orders.recent', 'list', fn (?User $user): array => [
+            'title' => 'Recent orders',
+            'href' => route('admin.orders.index'),
+            'empty' => 'No orders yet.',
+            'items' => Order::query()->with('client')->orderByDesc('created_at')->orderByDesc('id')->limit(5)->get()
+                ->map(fn (Order $order): array => [
+                    'title' => "#{$order->number}",
+                    'subtitle' => $order->client->display_name,
+                    'href' => route('admin.orders.show', $order),
+                    'meta' => Money::of($order->total, $order->currency)->format(),
+                    'status' => $order->status->value,
+                ])->all(),
+        ], 'orders.orders.view', 30, 'md');
+
+        $dashboard->todo('admin', 'orders.pending', fn (?User $user): array => [
+            'label' => 'Orders awaiting review',
+            'count' => Order::query()->where('status', OrderStatus::Pending)->count(),
+            'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
+            'tone' => 'warning',
+        ], 'orders.orders.view', 10);
+        $dashboard->todo('admin', 'orders.fraud', fn (?User $user): array => [
+            'label' => 'Orders flagged as fraud',
+            'count' => Order::query()->where('status', OrderStatus::Fraud)->count(),
+            'href' => route('admin.orders.index', ['status' => OrderStatus::Fraud->value]),
+            'tone' => 'danger',
+        ], 'orders.orders.view', 11);
     }
 
     private function registerPermissionsAndSettings(): void

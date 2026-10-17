@@ -190,12 +190,12 @@ describe('cart', function () {
     });
 
     it('switches a guest cart to another currency', function () {
-        Currency::factory()->euro()->create();
+        Currency::factory()->inr()->create();
         $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
 
-        $this->put(route('store.currency'), ['currency' => 'EUR'])->assertRedirect();
+        $this->put(route('store.currency'), ['currency' => 'INR'])->assertRedirect();
 
-        expect(Cart::query()->sole()->currency)->toBe('EUR');
+        expect(Cart::query()->sole()->currency)->toBe('INR');
     });
 });
 
@@ -216,15 +216,15 @@ it('merges the guest cart into the client cart on login with guest items kept', 
 });
 
 it('prices a merged cart in the client currency', function () {
-    Currency::factory()->euro()->create();
-    $client = Client::factory()->create(['currency' => 'EUR']);
+    Currency::factory()->inr()->create();
+    $client = Client::factory()->create(['currency' => 'INR']);
     $user = User::factory()->create(['email' => $client->email]);
     $client->users()->attach($user, ['is_owner' => true]);
 
     $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
     $this->post(route('login'), ['email' => $user->email, 'password' => 'password']);
 
-    $this->get(route('store.cart'))->assertInertia(fn (Assert $page) => $page->where('cart.currency', 'EUR'));
+    $this->get(route('store.cart'))->assertInertia(fn (Assert $page) => $page->where('cart.currency', 'INR'));
 });
 
 it('prunes expired carts idempotently', function () {

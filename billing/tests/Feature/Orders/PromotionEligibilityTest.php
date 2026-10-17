@@ -133,20 +133,20 @@ it('accepts an owned required product when allowed', function () {
 });
 
 it('enforces the minimum cart amount converted to the cart currency', function () {
-    Currency::factory()->euro()->create(['exchange_rate' => 0.5]);
+    Currency::factory()->inr()->create(['exchange_rate' => 0.5]);
     $promotion = Promotion::factory()->create(['min_cart_amount' => 1500]);
 
     expect(pricePromotion($promotion->code)->promotionError)->toBe('Your cart total is below the minimum for this promotion code.')
-        ->and(app(CartPricer::class)->price([OrdersFakes::productItem(1)], 'EUR', $promotion->code)->promotionError)->toBeNull();
+        ->and(app(CartPricer::class)->price([OrdersFakes::productItem(1)], 'INR', $promotion->code)->promotionError)->toBeNull();
 });
 
 it('converts fixed amounts from the default currency at the current rate', function () {
-    Currency::factory()->euro()->create(['exchange_rate' => 0.9]);
-    $promotion = Promotion::factory()->fixed('5.00')->create();
+    Currency::factory()->inr()->create(['exchange_rate' => 84]);
+    $promotion = Promotion::factory()->fixed('0.10')->create();
 
-    $cart = app(CartPricer::class)->price([OrdersFakes::productItem(1)], 'EUR', $promotion->code);
+    $cart = app(CartPricer::class)->price([OrdersFakes::productItem(1)], 'INR', $promotion->code);
 
-    expect($cart->lines()[0]->discount)->toBe(450);
+    expect($cart->lines()[0]->discount)->toBe(840);
 });
 
 it('matches promotion codes case-insensitively', function () {

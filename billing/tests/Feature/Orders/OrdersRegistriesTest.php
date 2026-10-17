@@ -27,6 +27,32 @@ it('shows pending and today order cards to staff with order access', function ()
         ->and($cards['orders.today']['value'])->toBe(2);
 });
 
+it('lists recent orders and flags pending and fraud orders as to-dos', function () {
+    $user = actingAsStaff(['orders.orders.view']);
+    $recent = Order::factory()->create(['created_at' => now()]);
+    Order::factory()->create(['created_at' => now()->subDay()]);
+    Order::factory()->fraud()->create(['created_at' => now()->subDays(2)]);
+
+    $widget = collect(app(Dashboard::class)->resolveWidgets('admin', $user))->firstWhere('key', 'orders.recent');
+    $todos = collect(app(Dashboard::class)->resolveTodos('admin', $user))->keyBy('key');
+
+    expect($widget['type'])->toBe('list')
+        ->and($widget['items'])->toHaveCount(3)
+        ->and($widget['items'][0]['title'])->toBe("#{$recent->number}")
+        ->and($todos['orders.pending']['count'])->toBe(2)
+        ->and($todos['orders.fraud']['count'])->toBe(1);
+});
+
+it('shows the pending count on the Orders nav item and offers a quick-create action', function () {
+    $user = actingAsStaff(['orders.orders.view', 'orders.orders.create']);
+    Order::factory()->count(2)->create();
+
+    $orders = collect(app(Navigation::class)->forUser('admin', $user))->firstWhere('title', 'Orders')['items'][0];
+
+    expect($orders['badge'])->toBe(2)
+        ->and(app(Navigation::class)->quickActions($user))->toContain(['title' => 'New order', 'href' => route('admin.orders.create'), 'icon' => 'ShoppingCart']);
+});
+
 it('hides order cards from staff without order access', function () {
     $user = actingAsStaff(['support.*']);
 
