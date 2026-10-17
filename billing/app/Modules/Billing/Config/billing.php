@@ -6,6 +6,17 @@
 */
 
 return [
+    // Seller identity printed on invoices (snapshotted at issue). Seller state/country for GST: tax.home_*.
+    'seller' => [
+        'legal_name' => '',
+        'address' => '',
+        'gstin' => '',
+        'pan' => '',
+        'vat_number' => '',
+        'email' => '',
+        'phone' => '',
+    ],
+
     // Numbering (§3)
     'number_format' => '{NUMBER}',
     'number_padding' => 0,
@@ -55,6 +66,8 @@ return [
         // Seller location for intra/inter-state rules (India GST: CGST+SGST in the home state, IGST elsewhere).
         'home_country' => 'IN',
         'home_state' => 'MH',
+        // SAC printed per line on Indian tax invoices (998315: hosting and IT infrastructure provisioning).
+        'default_sac' => '998315',
     ],
     'vat' => [
         'enabled' => false,

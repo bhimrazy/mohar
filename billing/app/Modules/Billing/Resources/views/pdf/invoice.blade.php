@@ -1,18 +1,14 @@
 @extends('billing::pdf.layout')
 
-@php
-    $money = fn (int $amount) => \App\Support\Money::of($amount, $invoice->currency)->format();
-    $client = $invoice->client_snapshot ?? [];
-@endphp
-
-@section('title', __('Invoice :number', ['number' => $invoice->displayNumber()]))
+@section('title', $title.' '.$invoice->displayNumber())
 
 @section('content')
 <table class="header">
     <tr>
         <td>
-            <h1>{{ $invoice->number === null && $invoice->proforma_number !== null ? __('Proforma invoice') : __('Invoice') }} {{ $invoice->displayNumber() }}</h1>
-            <div class="muted">{{ __('Issued') }}: {{ $invoice->issue_date?->toDateString() ?? '—' }} · {{ __('Due') }}: {{ $invoice->due_date?->toDateString() ?? '—' }}</div>
+            <h1>{{ $title }}</h1>
+            <div style="font-size: 13px; font-weight: bold">{{ $invoice->displayNumber() }}</div>
+            <div class="muted">{{ __('Issued') }} {{ $date($invoice->issue_date) }} · {{ __('Due') }} {{ $date($invoice->due_date) }}</div>
             @if ($invoice->status->value === 'paid')
                 <div style="margin-top: 8px"><span class="stamp">{{ __('Paid') }}</span></div>
             @elseif (in_array($invoice->status->value, ['cancelled', 'refunded', 'collections'], true))
@@ -20,29 +16,53 @@
             @endif
         </td>
         <td class="right">
-            <strong>{{ $company['name'] }}</strong><br>
-            <span class="muted">{{ $company['email'] }}</span>
+            <strong>{{ $seller['legal_name'] ?? '' }}</strong><br>
+            @if (! empty($seller['address']))
+                {!! nl2br(e($seller['address'])) !!}<br>
+            @endif
+            @if (! empty($seller['email']))
+                <span class="muted">{{ $seller['email'] }}</span><br>
+            @endif
+            @if (! empty($seller['gstin']))
+                GSTIN: {{ $seller['gstin'] }}<br>
+            @endif
+            @if (! empty($seller['pan']))
+                PAN: {{ $seller['pan'] }}<br>
+            @endif
+            @if (! empty($seller['vat_number']))
+                {{ ($seller['country'] ?? null) === 'NP' ? 'PAN/VAT No.' : 'VAT No.' }}: {{ $seller['vat_number'] }}
+            @endif
         </td>
     </tr>
 </table>
 
 <table class="header">
     <tr>
-        <td>
-            <div class="muted">{{ __('Bill to') }}</div>
-            <strong>{{ $client['company'] ?? null ?: ($client['name'] ?? '') }}</strong><br>
-            @if (! empty($client['company']))
-                {{ $client['name'] ?? '' }}<br>
+        <td class="party">
+            <div class="label">{{ __('Bill to') }}</div>
+            <strong>{{ ($buyer['company'] ?? null) ?: ($buyer['name'] ?? '') }}</strong><br>
+            @if (! empty($buyer['company']))
+                {{ $buyer['name'] ?? '' }}<br>
             @endif
             @foreach (['address_1', 'address_2'] as $line)
-                @if (! empty($client[$line]))
-                    {{ $client[$line] }}<br>
+                @if (! empty($buyer[$line]))
+                    {{ $buyer[$line] }}<br>
                 @endif
             @endforeach
-            {{ trim(($client['city'] ?? '').' '.($client['state'] ?? '').' '.($client['postcode'] ?? '')) }}<br>
-            {{ $client['country'] ?? '' }}
-            @if (! empty($client['tax_id']))
-                <br>{{ __('Tax ID') }}: {{ $client['tax_id'] }}
+            {{ trim(($buyer['city'] ?? '').' '.($buyer['state'] ?? '').' '.($buyer['postcode'] ?? '')) }}<br>
+            {{ $buyer['country'] ?? '' }}
+            @if (! empty($buyer['tax_id']))
+                <br>{{ $buyerTaxLabel }}: {{ $buyer['tax_id'] }}
+            @endif
+        </td>
+        <td class="party right">
+            @if ($placeOfSupply)
+                <div class="label">{{ __('Place of supply') }}</div>
+                {{ $placeOfSupply }}<br>
+            @endif
+            @if ($invoice->payment_gateway)
+                <div class="label" style="margin-top: 6px">{{ __('Payment method') }}</div>
+                {{ $gatewayName($invoice->payment_gateway) }}
             @endif
         </td>
     </tr>
@@ -50,7 +70,18 @@
 
 <table class="lines">
     <thead>
-        <tr><th>{{ __('Description') }}</th><th class="right">{{ __('Qty') }}</th><th class="right">{{ __('Unit') }}</th><th class="right">{{ __('Amount') }}</th></tr>
+        <tr>
+            <th>{{ __('Description') }}</th>
+            @if ($showSac)
+                <th>{{ __('SAC') }}</th>
+            @endif
+            <th class="right">{{ __('Qty') }}</th>
+            <th class="right">{{ __('Unit price') }}</th>
+            @if ($invoice->tax1_amount + $invoice->tax2_amount > 0)
+                <th class="right">{{ __('Tax') }}</th>
+            @endif
+            <th class="right">{{ __('Amount') }}</th>
+        </tr>
     </thead>
     <tbody>
         @foreach ($invoice->items as $item)
@@ -58,11 +89,17 @@
                 <td>
                     {{ $item->description }}
                     @if ($item->period_start && $item->period_end)
-                        <br><span class="muted">{{ $item->period_start->toDateString() }} – {{ $item->period_end->toDateString() }}</span>
+                        <br><span class="muted">{{ $date($item->period_start) }} – {{ $date($item->period_end) }}</span>
                     @endif
                 </td>
+                @if ($showSac)
+                    <td>{{ $item->sac_code ?? '—' }}</td>
+                @endif
                 <td class="right">{{ $item->quantity }}</td>
                 <td class="right">{{ $money($item->unit_amount) }}</td>
+                @if ($invoice->tax1_amount + $invoice->tax2_amount > 0)
+                    <td class="right">{{ $money($item->tax_amount) }}</td>
+                @endif
                 <td class="right">{{ $money($item->amount) }}</td>
             </tr>
         @endforeach
@@ -70,18 +107,20 @@
 </table>
 
 <table class="totals">
-    <tr><td>{{ __('Subtotal') }}@if ($invoice->tax_inclusive) ({{ __('net') }})@endif</td><td class="right">{{ $money($invoice->subtotal) }}</td></tr>
-    @if ($invoice->tax1_amount !== 0 || $invoice->tax1_name)
-        <tr><td>{{ $invoice->tax1_name }} ({{ rtrim(rtrim($invoice->tax1_rate, '0'), '.') }}%)</td><td class="right">{{ $money($invoice->tax1_amount) }}</td></tr>
+    <tr><td>{{ $invoice->tax_inclusive ? __('Taxable value') : __('Subtotal') }}</td><td class="right">{{ $money($invoice->subtotal) }}</td></tr>
+    @if ($invoice->tax1_name)
+        <tr><td>{{ $invoice->tax1_name }} @ {{ rtrim(rtrim($invoice->tax1_rate, '0'), '.') }}%</td><td class="right">{{ $money($invoice->tax1_amount) }}</td></tr>
     @endif
-    @if ($invoice->tax2_amount !== 0 || $invoice->tax2_name)
-        <tr><td>{{ $invoice->tax2_name }} ({{ rtrim(rtrim($invoice->tax2_rate, '0'), '.') }}%)</td><td class="right">{{ $money($invoice->tax2_amount) }}</td></tr>
+    @if ($invoice->tax2_name)
+        <tr><td>{{ $invoice->tax2_name }} @ {{ rtrim(rtrim($invoice->tax2_rate, '0'), '.') }}%</td><td class="right">{{ $money($invoice->tax2_amount) }}</td></tr>
     @endif
     <tr class="grand"><td>{{ __('Total') }}</td><td class="right">{{ $money($invoice->total) }}</td></tr>
     @foreach ($invoice->adjustments as $adjustment)
-        <tr><td class="muted">{{ $adjustment->description ?? str_replace('_', ' ', $adjustment->reason->value) }}</td><td class="right">{{ $adjustment->kind->value === 'credit' ? '−' : '+' }}{{ $money($adjustment->amount) }}</td></tr>
+        <tr><td class="muted">{{ $adjustment->description ?? str_replace('_', ' ', $adjustment->reason->value) }}</td><td class="right">{{ $adjustment->kind->value === 'credit' ? '-' : '+' }}{{ $money($adjustment->amount) }}</td></tr>
     @endforeach
-    <tr><td>{{ __('Paid') }}</td><td class="right">−{{ $money($invoice->amount_paid) }}</td></tr>
+    @if ($invoice->amount_paid !== 0)
+        <tr><td>{{ __('Paid') }}</td><td class="right">-{{ $money($invoice->amount_paid) }}</td></tr>
+    @endif
     <tr class="grand"><td>{{ __('Balance due') }}</td><td class="right">{{ $money($invoice->balance) }}</td></tr>
 </table>
 
@@ -97,14 +136,14 @@
     <div class="section">
         <h2>{{ __('Transactions') }}</h2>
         <table class="lines">
-            <thead><tr><th>{{ __('Date') }}</th><th>{{ __('Gateway') }}</th><th>{{ __('Reference') }}</th><th class="right">{{ __('Amount') }}</th></tr></thead>
+            <thead><tr><th>{{ __('Date') }}</th><th>{{ __('Method') }}</th><th>{{ __('Reference') }}</th><th class="right">{{ __('Amount') }}</th></tr></thead>
             <tbody>
                 @foreach ($payments as $transaction)
                     <tr>
-                        <td>{{ $transaction->occurred_at->toDateString() }}</td>
-                        <td>{{ str_replace('_', ' ', $transaction->gateway) }}</td>
+                        <td>{{ $date($transaction->occurred_at) }}</td>
+                        <td>{{ $gatewayName($transaction->gateway) }}</td>
                         <td>{{ $transaction->gateway_txn_id ?? '—' }}</td>
-                        <td class="right">{{ $transaction->amount_out > 0 ? '−'.$money($transaction->amount_out) : $money($transaction->amount_in) }}</td>
+                        <td class="right">{{ $transaction->amount_out > 0 ? '-'.$money($transaction->amount_out) : $money($transaction->amount_in) }}</td>
                     </tr>
                 @endforeach
             </tbody>

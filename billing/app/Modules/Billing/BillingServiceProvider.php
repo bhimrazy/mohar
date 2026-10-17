@@ -310,6 +310,14 @@ class BillingServiceProvider extends ModuleServiceProvider
         $list = fn (string $key, string $label, ?string $help = null): SettingDefinition => new SettingDefinition('billing.'.$key, $label, 'string', $help, rules: ['regex:/^\s*\d+(\s*,\s*\d+)*\s*$/']);
 
         $this->app->make(SettingsRegistry::class)->section('billing', 'Billing', [
+            new SettingDefinition('billing.seller.legal_name', 'Seller legal name', help: 'Printed on invoices; defaults to the company name.', rules: ['max:200']),
+            new SettingDefinition('billing.seller.address', 'Seller address', 'text', rules: ['max:1000']),
+            new SettingDefinition('billing.seller.email', 'Seller billing email', 'email'),
+            new SettingDefinition('billing.seller.phone', 'Seller phone', rules: ['max:50']),
+            new SettingDefinition('billing.seller.gstin', 'Seller GSTIN (India)', rules: ['nullable', 'regex:/^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/']),
+            new SettingDefinition('billing.seller.pan', 'Seller PAN', rules: ['max:20']),
+            new SettingDefinition('billing.seller.vat_number', 'Seller VAT/PAN number (Nepal VAT or EU VAT ID)', rules: ['max:30']),
+            new SettingDefinition('billing.tax.default_sac', 'Default SAC code on invoice lines', help: '998315 = hosting and IT infrastructure provisioning', rules: ['max:10']),
             new SettingDefinition('billing.number_format', 'Invoice number format', help: 'Tokens: {NUMBER} {YEAR} {MONTH} {DAY}. Include {YEAR}/{MONTH} when numbers reset.', rules: ['max:40']),
             $int('number_padding', 'Number padding (digits)'),
             new SettingDefinition('billing.number_increment', 'Number increment', 'integer', rules: ['min:1']),

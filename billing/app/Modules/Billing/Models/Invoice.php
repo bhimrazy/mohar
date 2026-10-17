@@ -51,6 +51,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $balance
  * @property string|null $payment_gateway
  * @property array<string, mixed>|null $client_snapshot
+ * @property array<string, string|null>|null $seller_snapshot
  * @property string|null $notes
  * @property string|null $admin_notes
  * @property CarbonImmutable|null $last_capture_attempt_at
@@ -72,7 +73,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'client_id', 'number', 'proforma_number', 'status', 'kind', 'source', 'currency', 'issue_date', 'due_date',
     'paid_at', 'cancelled_at', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount', 'tax2_name',
     'tax2_rate', 'tax2_amount', 'tax_compound', 'tax_inclusive', 'tax_exempt_reason', 'total', 'amount_paid',
-    'credit_applied', 'adjustments_total', 'balance', 'payment_gateway', 'client_snapshot', 'notes', 'admin_notes',
+    'credit_applied', 'adjustments_total', 'balance', 'payment_gateway', 'client_snapshot', 'seller_snapshot', 'notes', 'admin_notes',
 ])]
 class Invoice extends Model
 {
@@ -109,6 +110,7 @@ class Invoice extends Model
             'tax_compound' => 'boolean',
             'tax_inclusive' => 'boolean',
             'client_snapshot' => 'array',
+            'seller_snapshot' => 'array',
             'reminder_log' => 'array',
             'last_capture_attempt_at' => 'datetime',
             'first_capture_failure_on' => 'date',

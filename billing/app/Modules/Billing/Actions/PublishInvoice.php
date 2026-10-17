@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Enums\BillableType;
 use App\Events\Billing\InvoiceCreated;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -9,6 +10,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\DocumentNumbers;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;
+use App\Modules\Billing\Services\SellerDetails;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
 use Carbon\CarbonImmutable;
@@ -25,6 +27,7 @@ class PublishInvoice
         private DocumentNumbers $numbers,
         private InvoiceSettlement $settlement,
         private BillingSettings $settings,
+        private SellerDetails $seller,
     ) {}
 
     public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null): Invoice
@@ -54,6 +57,13 @@ class PublishInvoice
                 $invoice->proforma_number = $this->numbers->next(DocumentNumbers::PROFORMA, $invoice->issue_date);
             } else {
                 $invoice->number = $this->numbers->next(DocumentNumbers::INVOICE, $invoice->issue_date);
+            }
+
+            $invoice->seller_snapshot = $this->seller->snapshot();
+            $sac = $this->settings->string('tax.default_sac');
+
+            if ($sac !== '') {
+                $invoice->items()->whereNull('sac_code')->where('type', '!=', BillableType::AddFunds)->update(['sac_code' => mb_substr($sac, 0, 10)]);
             }
 
             $invoice->status = InvoiceStatus::Unpaid;

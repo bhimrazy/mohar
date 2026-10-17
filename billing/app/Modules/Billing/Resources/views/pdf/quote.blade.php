@@ -1,6 +1,5 @@
 @extends('billing::pdf.layout')
 
-@php $money = fn (int $amount) => \App\Support\Money::of($amount, $quote->currency)->format(); @endphp
 
 @section('title', __('Quote :number', ['number' => $quote->displayNumber()]))
 

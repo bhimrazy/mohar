@@ -70,6 +70,16 @@ final class IndianStates
     }
 
     /**
+     * "Maharashtra (27)" — place-of-supply label for tax invoices.
+     */
+    public static function label(string $iso): string
+    {
+        $state = self::STATES[$iso] ?? null;
+
+        return $state === null ? $iso : "{$state[1]} ({$state[0]})";
+    }
+
+    /**
      * @return array<string, string> ISO code => name
      */
     public static function options(): array

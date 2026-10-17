@@ -28,6 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $period_start
  * @property CarbonImmutable|null $period_end
  * @property int $sort_order
+ * @property string|null $sac_code
  * @property string|null $period_guard
  * @property CarbonImmutable|null $cancelled_at
  * @property-read Invoice $invoice
@@ -35,7 +36,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[UseFactory(InvoiceItemFactory::class)]
 #[Fillable([
     'invoice_id', 'type', 'billable_id', 'description', 'quantity', 'unit_amount', 'amount', 'taxable', 'tax_amount',
-    'period_start', 'period_end', 'sort_order', 'period_guard', 'cancelled_at',
+    'period_start', 'period_end', 'sort_order', 'sac_code', 'period_guard', 'cancelled_at',
 ])]
 class InvoiceItem extends Model
 {

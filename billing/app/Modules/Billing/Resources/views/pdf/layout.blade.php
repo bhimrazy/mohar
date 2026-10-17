@@ -13,6 +13,9 @@
         .right { text-align: right; }
         table.lines { width: 100%; border-collapse: collapse; margin-top: 16px; }
         table.lines th { text-align: left; font-size: 10px; text-transform: uppercase; color: #6b7280; border-bottom: 1px solid #d1d5db; padding: 6px 4px; }
+        table.lines th.right, table.lines td.right { text-align: right; }
+        .label { color: #6b7280; font-size: 9px; text-transform: uppercase; letter-spacing: .04em; }
+        .party { width: 50%; vertical-align: top; }
         table.lines td { border-bottom: 1px solid #e5e7eb; padding: 6px 4px; vertical-align: top; }
         table.totals { width: 45%; margin-left: 55%; margin-top: 12px; border-collapse: collapse; }
         table.totals td { padding: 4px; }

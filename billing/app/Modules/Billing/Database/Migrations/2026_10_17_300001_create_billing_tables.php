@@ -94,6 +94,7 @@ return new class extends Migration
             $table->bigInteger('balance')->default(0);
             $table->string('payment_gateway', 50)->nullable();
             $table->json('client_snapshot')->nullable();
+            $table->json('seller_snapshot')->nullable();
             $table->text('notes')->nullable();
             $table->text('admin_notes')->nullable();
             $table->timestamp('last_capture_attempt_at')->nullable();
@@ -122,6 +123,7 @@ return new class extends Migration
             $table->date('period_start')->nullable();
             $table->date('period_end')->nullable();
             $table->unsignedInteger('sort_order')->default(0);
+            $table->string('sac_code', 10)->nullable();
             // Double-invoicing guard "type:billable_id:period_start", nulled when the line/invoice is cancelled.
             $table->string('period_guard', 120)->nullable()->unique();
             $table->timestamp('cancelled_at')->nullable();
