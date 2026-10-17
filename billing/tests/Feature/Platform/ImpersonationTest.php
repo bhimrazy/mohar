@@ -12,6 +12,7 @@ beforeEach(function () {
     Currency::factory()->create();
     $this->client = Client::factory()->withOwner()->create();
     $this->owner = $this->client->users()->sole();
+    confirmPassword();
 });
 
 /**
@@ -35,7 +36,7 @@ test('impersonation requires core.clients.impersonate', function () {
 });
 
 test('staff sign in as the account owner, see the banner, and actions are logged with impersonator_id', function () {
-    $staff = actingAsStaff(['core.clients.*']);
+    $staff = actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
 
     impersonate($this->client);
 
@@ -60,7 +61,7 @@ test('staff sign in as the account owner, see the banner, and actions are logged
 });
 
 test('while impersonating, password, email, 2FA and admin routes are blocked', function () {
-    actingAsStaff(['core.clients.*']);
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     impersonate($this->client);
 
     $this->put(route('user-password.update'), ['current_password' => 'password', 'password' => 'new-password-123', 'password_confirmation' => 'new-password-123'])->assertForbidden();
@@ -72,7 +73,7 @@ test('while impersonating, password, email, 2FA and admin routes are blocked', f
 });
 
 test('returning to admin ends the session and restores the staff login', function () {
-    $staff = actingAsStaff(['core.clients.*']);
+    $staff = actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     impersonate($this->client);
 
     $this->post(route('platform.impersonation.leave'))->assertRedirect(route('admin.clients.show', $this->client));
@@ -84,7 +85,7 @@ test('returning to admin ends the session and restores the staff login', functio
 });
 
 test('a session older than the time limit ends and returns to admin', function () {
-    $staff = actingAsStaff(['core.clients.*']);
+    $staff = actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     impersonate($this->client);
 
     $this->travel(61)->minutes();
@@ -95,7 +96,7 @@ test('a session older than the time limit ends and returns to admin', function (
 });
 
 test('staff logins cannot be impersonated', function () {
-    actingAsStaff(['core.clients.*']);
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     $staffLogin = User::factory()->staff()->create();
     $this->client->users()->attach($staffLogin);
 
@@ -103,20 +104,20 @@ test('staff logins cannot be impersonated', function () {
 });
 
 test('a chosen user must belong to the account', function () {
-    actingAsStaff(['core.clients.*']);
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     $stranger = User::factory()->create();
 
     $this->post(route('admin.platform.clients.impersonate', $this->client), ['user_id' => $stranger->id])->assertSessionHasErrors('user_id');
 });
 
 test('the signed link is single-use, staff-bound and tamper-proof', function () {
-    $staff = actingAsStaff(['core.clients.*']);
+    $staff = actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     $response = $this->post(route('admin.platform.clients.impersonate', $this->client), [], ['X-Inertia' => 'true']);
     $url = (string) $response->headers->get('X-Inertia-Location');
 
     $this->get($url.'x')->assertForbidden();
 
-    actingAsStaff(['core.clients.*']);
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     $this->get($url)->assertForbidden();
 
     $this->actingAs($staff);
@@ -127,7 +128,7 @@ test('the signed link is single-use, staff-bound and tamper-proof', function () 
 });
 
 test('the signed link expires', function () {
-    actingAsStaff(['core.clients.*']);
+    actingAsStaff(['core.clients.view', 'core.clients.impersonate']);
     $response = $this->post(route('admin.platform.clients.impersonate', $this->client), [], ['X-Inertia' => 'true']);
 
     $this->travel(5)->minutes();

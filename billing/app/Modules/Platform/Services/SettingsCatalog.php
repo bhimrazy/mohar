@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Services;
 
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
+use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Validation\Rule;
@@ -17,7 +18,17 @@ class SettingsCatalog
     /** Permission for sections registered without their own permission. */
     public const DEFAULT_PERMISSION = 'core.settings.update';
 
-    public function __construct(private SettingsRegistry $registry, private Settings $settings) {}
+    public function __construct(private SettingsRegistry $registry, private Settings $settings, private PermissionRegistry $permissions) {}
+
+    /**
+     * Sections guarded by a sensitive permission need a recent password confirmation to change.
+     */
+    public function requiresConfirmation(string $section): bool
+    {
+        $definition = $this->section($section);
+
+        return $definition !== null && $this->permissions->isSensitive($definition['permission'] ?? self::DEFAULT_PERMISSION);
+    }
 
     /**
      * @return array<string, array{title: string, permission: ?string, settings: list<SettingDefinition>}>

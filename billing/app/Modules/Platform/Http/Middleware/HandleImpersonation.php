@@ -2,6 +2,8 @@
 
 namespace App\Modules\Platform\Http\Middleware;
 
+use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Platform\Services\Impersonation;
 use Closure;
 use Illuminate\Http\Request;
@@ -40,19 +42,26 @@ class HandleImpersonation
         $session = $this->impersonation->current($request);
 
         if ($session === null || $session->user_id !== $request->user()?->getKey()) {
-            $request->session()->forget(Impersonation::SESSION_KEY);
+            $request->session()->forget([Impersonation::SESSION_KEY, ActivityLogger::IMPERSONATOR_SESSION_KEY, ClientContext::SESSION_KEY]);
 
             return $next($request);
         }
 
         if ($this->impersonation->expiresAt($session)->isPast()) {
             $clientId = $this->impersonation->end($request, 'expired');
-            Inertia::flash('toast', ['type' => 'info', 'message' => __('The client session ended after :minutes minutes.', ['minutes' => config('platform.impersonation_minutes', 60)])]);
+            Inertia::flash('toast', ['type' => 'info', 'message' => __('The client session ended after :minutes minutes.', ['minutes' => $this->impersonation->maxMinutes()])]);
 
             return redirect()->route('admin.clients.show', $clientId);
         }
 
         $name = (string) $request->route()?->getName();
+
+        if ($name === 'logout') {
+            // Signing out ends the impersonation instead of logging the customer out of their devices.
+            $clientId = $this->impersonation->end($request, 'logout');
+
+            return redirect()->route('admin.clients.show', $clientId);
+        }
 
         if ($name !== 'platform.impersonation.leave' && $this->blocked($name)) {
             abort(403, __('This action is not available while signed in as a client.'));

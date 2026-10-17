@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use LogicException;
 
 /**
  * @property int $id
@@ -32,6 +33,16 @@ class ActivityLog extends Model
     protected function casts(): array
     {
         return ['properties' => 'array'];
+    }
+
+    /**
+     * The activity log is append-only: entries are never edited or deleted through the model.
+     * (Retention pruning deletes with a query builder statement.)
+     */
+    protected static function booted(): void
+    {
+        static::updating(fn (): never => throw new LogicException('Activity log entries are immutable.'));
+        static::deleting(fn (): never => throw new LogicException('Activity log entries cannot be deleted individually.'));
     }
 
     /**

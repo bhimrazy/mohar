@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Actions\Staff;
 
+use App\Events\Core\StaffCreated;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Platform\Models\StaffInvitation;
@@ -42,7 +43,8 @@ class AcceptStaffInvitation
             return $user;
         });
 
-        $this->activity->log("Staff account created for {$user->email} from invitation", $user, event: 'staff.created', actor: $user);
+        $this->activity->log('Staff account created from an invitation', $user, properties: ['email' => $user->email], event: 'staff.created', actor: $user);
+        StaffCreated::dispatch($user->id);
 
         return $user;
     }

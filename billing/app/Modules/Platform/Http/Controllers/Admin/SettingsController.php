@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Platform\Actions\Settings\UpdateSettings;
+use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Http\Requests\SettingsRequest;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Http\RedirectResponse;
@@ -26,6 +27,10 @@ class SettingsController extends Controller
         }
 
         abort_unless(array_key_exists($section, $sections), $catalog->section($section) === null ? 404 : 403);
+
+        if ($catalog->canEdit($user, $section) && $catalog->requiresConfirmation($section) && ! RequireRecentPasswordConfirmation::recentlyConfirmed($request)) {
+            return redirect()->guest(route('password.confirm'));
+        }
 
         return Inertia::render('admin/platform/settings/edit', [
             'sections' => array_map(

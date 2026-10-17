@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Actions\Staff;
 
+use App\Events\Core\StaffCreated;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
@@ -32,7 +33,8 @@ class CreateStaff
             return $user;
         });
 
-        $this->activity->log("Staff account created for {$email}", $user, properties: ['role' => $role->name], event: 'staff.created');
+        $this->activity->log('Staff account created', $user, properties: ['email' => $email, 'role' => $role->name], event: 'staff.created');
+        StaffCreated::dispatch($user->id);
 
         return $user;
     }

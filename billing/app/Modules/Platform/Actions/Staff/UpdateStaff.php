@@ -2,11 +2,14 @@
 
 namespace App\Modules\Platform\Actions\Staff;
 
+use App\Events\Core\StaffDisabled;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Services\PermissionGuard;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -39,10 +42,13 @@ class UpdateStaff
         }
 
         $before = ['name' => $staff->name, 'email' => $staff->email, 'role' => $staff->role?->name, 'is_active' => $staff->is_active];
+        $oldEmail = $staff->email;
+        $newEmail = mb_strtolower(trim($data['email']));
+        $emailChanged = $oldEmail !== $newEmail;
 
         $staff->forceFill([
             'name' => $data['name'],
-            'email' => mb_strtolower(trim($data['email'])),
+            'email' => $newEmail,
             'role_id' => $role->id,
             'is_active' => $data['is_active'],
         ]);
@@ -51,7 +57,22 @@ class UpdateStaff
             $staff->forceFill(['remember_token' => Str::random(60)]);
         }
 
+        if ($emailChanged && ! $staff->is($actor)) {
+            // An admin-initiated change must be re-verified by the owner of the new address.
+            $staff->forceFill(['email_verified_at' => null]);
+        }
+
         $staff->save();
+
+        if ($emailChanged) {
+            Notification::route('mail', $oldEmail)->notify(new SecurityNotice(__('Your staff sign-in email was changed'), [
+                __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
+            ]));
+
+            if (! $staff->is($actor)) {
+                $staff->sendEmailVerificationNotification();
+            }
+        }
 
         if ($deactivating) {
             $this->revokeSessions($staff);
@@ -72,7 +93,11 @@ class UpdateStaff
                 $roleChanged => 'staff.role_changed',
                 default => 'staff.updated',
             };
-            $this->activity->log("Staff {$staff->email} updated", $staff, properties: ['diff' => $diff], event: $event);
+            $this->activity->log('Staff member updated', $staff, properties: ['diff' => $diff], event: $event);
+        }
+
+        if ($deactivating) {
+            StaffDisabled::dispatch($staff->id);
         }
 
         return $staff;

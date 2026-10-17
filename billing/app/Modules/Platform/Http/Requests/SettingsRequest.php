@@ -2,9 +2,11 @@
 
 namespace App\Modules\Platform\Http\Requests;
 
+use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\ValidationException;
 
 class SettingsRequest extends FormRequest
 {
@@ -13,6 +15,18 @@ class SettingsRequest extends FormRequest
         $user = $this->user();
 
         return $user !== null && $catalog->canEdit($user, (string) $this->route('section'));
+    }
+
+    /**
+     * Sensitive sections (security) need a recent password confirmation.
+     *
+     * @throws ValidationException
+     */
+    protected function passedValidation(): void
+    {
+        if (app(SettingsCatalog::class)->requiresConfirmation((string) $this->route('section')) && ! RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
+            throw ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);
+        }
     }
 
     /**

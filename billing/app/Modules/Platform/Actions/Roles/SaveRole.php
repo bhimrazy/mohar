@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Actions\Roles;
 
+use App\Events\Core\RoleUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
@@ -42,6 +43,7 @@ class SaveRole
             'added' => array_values(array_diff($permissions, $before)),
             'removed' => array_values(array_diff($before, $permissions)),
         ], event: $role->wasRecentlyCreated ? 'role.created' : 'role.updated');
+        RoleUpdated::dispatch($role->id);
 
         return $role;
     }

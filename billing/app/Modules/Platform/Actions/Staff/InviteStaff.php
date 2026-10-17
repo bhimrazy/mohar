@@ -2,9 +2,11 @@
 
 namespace App\Modules\Platform\Actions\Staff;
 
+use App\Events\Core\StaffInvited;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use App\Modules\Platform\Services\PermissionGuard;
@@ -13,7 +15,15 @@ use Illuminate\Support\Str;
 
 class InviteStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private Settings $settings) {}
+
+    /**
+     * Invitation validity from the "Staff invitation validity" setting (falls back to config).
+     */
+    public function expiryDays(): int
+    {
+        return max(1, (int) $this->settings->get('platform.invitation_expiry_days', 7));
+    }
 
     public function handle(User $actor, string $email, ?string $name, Role $role): StaffInvitation
     {
@@ -28,12 +38,13 @@ class InviteStaff
             'name' => $name,
             'role_id' => $role->id,
             'token_hash' => StaffInvitation::hashToken($token),
-            'expires_at' => now()->addDays((int) config('platform.invitation_expiry_days', 7)),
+            'expires_at' => now()->addDays($this->expiryDays()),
             'invited_by' => $actor->id,
         ]);
 
         $this->send($invitation, $token);
-        $this->activity->log("Staff invitation sent to {$email}", $invitation, properties: ['role' => $role->name], event: 'staff.invited');
+        $this->activity->log('Staff invitation sent', $invitation, properties: ['email' => $email, 'role' => $role->name], event: 'staff.invited');
+        StaffInvited::dispatch($invitation->id, $invitation->email, $role->id);
 
         return $invitation;
     }
@@ -48,11 +59,12 @@ class InviteStaff
         $token = Str::random(48);
         $invitation->update([
             'token_hash' => StaffInvitation::hashToken($token),
-            'expires_at' => now()->addDays((int) config('platform.invitation_expiry_days', 7)),
+            'expires_at' => now()->addDays($this->expiryDays()),
         ]);
 
         $this->send($invitation, $token);
-        $this->activity->log("Staff invitation resent to {$invitation->email}", $invitation, event: 'staff.invitation_resent');
+        $this->activity->log('Staff invitation resent', $invitation, properties: ['email' => $invitation->email], event: 'staff.invitation_resent');
+        StaffInvited::dispatch($invitation->id, $invitation->email, $invitation->role_id);
 
         return $invitation;
     }

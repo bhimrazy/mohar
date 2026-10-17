@@ -2,10 +2,13 @@
 
 namespace App\Modules\Platform\Services;
 
+use App\Events\Core\ImpersonationEnded;
+use App\Events\Core\ImpersonationStarted;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ImpersonationSession;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -28,7 +31,7 @@ class Impersonation
     /** True while the guard is being switched, so login listeners can ignore it. */
     private bool $switching = false;
 
-    public function __construct(private ActivityLogger $activity) {}
+    public function __construct(private ActivityLogger $activity, private Settings $settings) {}
 
     public function isSwitching(): bool
     {
@@ -76,14 +79,17 @@ class Impersonation
     public function enter(ImpersonationSession $session, Request $request): void
     {
         abort_unless($session->staff_id === $request->user()?->getKey() && $session->started_at === null, 403);
+        abort_if($session->user->is_staff || $session->client->status === 'closed', 403);
 
         $startedAt = now();
         $session->update(['started_at' => $startedAt]);
-        $this->activity->log("Signed in as {$session->user->email}", $session->client, $session->client_id, ['user_id' => $session->user_id], 'impersonation.started');
+        $this->activity->log('Signed in as a client login', $session->client, $session->client_id, ['user_id' => $session->user_id], 'impersonation.started');
 
         $this->switchTo($session->user);
 
         $request->session()->forget('auth.password_confirmed_at');
+        ImpersonationStarted::dispatch($session->id, $session->staff_id, $session->client_id, $session->user_id);
+
         $request->session()->put([
             self::SESSION_KEY => ['id' => $session->id, 'staff_id' => $session->staff_id, 'started_at' => $startedAt->getTimestamp()],
             ActivityLogger::IMPERSONATOR_SESSION_KEY => $session->staff_id,
@@ -105,7 +111,8 @@ class Impersonation
         }
 
         $session->update(['ended_at' => now(), 'end_reason' => $reason]);
-        $this->activity->log("Stopped signing in as {$session->user->email}", $session->client, $session->client_id, ['reason' => $reason], 'impersonation.ended', $session->staff);
+        $this->activity->log('Stopped signing in as a client login', $session->client, $session->client_id, ['reason' => $reason, 'user_id' => $session->user_id], 'impersonation.ended', $session->staff);
+        ImpersonationEnded::dispatch($session->id, $session->staff_id, $session->client_id, $reason);
 
         if ($session->staff->is_active) {
             $this->switchTo($session->staff);
@@ -140,6 +147,14 @@ class Impersonation
 
     public function expiresAt(ImpersonationSession $session): CarbonImmutable
     {
-        return ($session->started_at ?? CarbonImmutable::now())->addMinutes((int) config('platform.impersonation_minutes', 60));
+        return ($session->started_at ?? CarbonImmutable::now())->addMinutes($this->maxMinutes());
+    }
+
+    /**
+     * Session cap from the "Sign-in-as-client time limit" setting (falls back to config).
+     */
+    public function maxMinutes(): int
+    {
+        return max(1, (int) $this->settings->get('platform.impersonation_minutes', 60));
     }
 }

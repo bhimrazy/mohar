@@ -2,16 +2,36 @@
 
 namespace App\Modules\Platform\Actions\Settings;
 
+use App\Events\Core\SettingsUpdated;
+use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 
 class UpdateSettings
 {
     public const MASK = '••••••';
 
     public function __construct(private SettingsCatalog $catalog, private Settings $settings, private ActivityLogger $activity) {}
+
+    /**
+     * Security-policy changes are announced to every active full administrator.
+     *
+     * @param  list<string>  $keys
+     */
+    private function notifyFullAdministrators(string $title, array $keys): void
+    {
+        $admins = User::query()->where('is_staff', true)->where('is_active', true)->with('role')->get()
+            ->filter(fn (User $user): bool => $user->role !== null && in_array('*', $user->role->permissions, true));
+
+        Notification::send($admins, new SecurityNotice(__(':title settings were changed', ['title' => $title]), [
+            __(':actor changed: :keys.', ['actor' => request()->user()->name ?? __('Someone'), 'keys' => implode(', ', $keys)]),
+        ]));
+    }
 
     /**
      * Save changed values of one section; blank secret fields keep their stored value.
@@ -54,8 +74,16 @@ class UpdateSettings
         }
 
         if ($changes !== []) {
-            $this->settings->setMany($changes);
-            $this->activity->log("{$definitions['title']} settings updated", properties: ['diff' => $diff], event: 'settings.updated');
+            DB::transaction(function () use ($changes, $definitions, $diff): void {
+                $this->settings->setMany($changes);
+                $this->activity->log("{$definitions['title']} settings updated", properties: ['diff' => $diff], event: 'settings.updated');
+            });
+
+            SettingsUpdated::dispatch(array_keys($changes));
+
+            if ($this->catalog->requiresConfirmation($section)) {
+                $this->notifyFullAdministrators($definitions['title'], array_keys($changes));
+            }
         }
 
         return array_keys($changes);
