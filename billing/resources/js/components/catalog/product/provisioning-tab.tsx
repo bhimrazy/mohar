@@ -3,10 +3,9 @@ import type { FormEvent } from 'react';
 import ProductSettingsController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ProductSettingsController';
 import { Field } from '@/components/app/field';
 import { SectionCard } from '@/components/app/section-card';
-import {
-    KeyValueEditor,
-    pairsFromObject,
-} from '@/components/catalog/key-value-editor';
+import { DriverSettings } from '@/components/catalog/driver-settings';
+import type { ProvisioningDriver } from '@/components/catalog/driver-settings';
+import { pairsFromObject } from '@/components/catalog/key-value-editor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -16,17 +15,17 @@ type ProvisioningTabProps = {
     driver: string;
     serverGroupId: number | null;
     driverConfig: Record<string, unknown> | unknown[];
-    suggestions: string[];
+    drivers: ProvisioningDriver[];
     canManage: boolean;
 };
 
-/** Driver binding. Catalog only stores it; the Services module interprets it at provisioning time. */
+/** Driver binding. Catalog only stores it; the Services module runs the driver at provisioning time. */
 export function ProvisioningTab({
     productId,
     driver,
     serverGroupId,
     driverConfig,
-    suggestions,
+    drivers,
     canManage,
 }: ProvisioningTabProps) {
     const form = useForm({
@@ -44,45 +43,41 @@ export function ProvisioningTab({
     };
 
     return (
-        <form onSubmit={submit} className="flex flex-col gap-6">
+        <form onSubmit={submit}>
             <SectionCard
                 title="Provisioning"
-                description="Which module creates, suspends and terminates accounts for this product. Use “none” for products handled manually."
+                description="The driver that creates, suspends and terminates accounts for this product, and the settings it receives."
+                footer={
+                    canManage && (
+                        <Button type="submit" disabled={form.processing}>
+                            {form.processing && <Spinner />}
+                            Save provisioning
+                        </Button>
+                    )
+                }
             >
-                <div className="grid items-start gap-6 sm:grid-cols-2">
-                    <Field
-                        htmlFor="provisioning_driver"
-                        label="Driver key"
-                        hint="e.g. none, cpanel, proxmox"
-                        error={errors.provisioning_driver}
-                    >
-                        <Input
-                            id="provisioning_driver"
-                            list="provisioning-driver-suggestions"
-                            value={form.data.provisioning_driver}
-                            disabled={!canManage}
-                            onChange={(event) =>
-                                form.setData(
-                                    'provisioning_driver',
-                                    event.target.value,
-                                )
-                            }
-                            aria-invalid={!!errors.provisioning_driver}
-                            aria-describedby="provisioning_driver-description"
-                            className="font-mono"
-                        />
-                        <datalist id="provisioning-driver-suggestions">
-                            {suggestions.map((suggestion) => (
-                                <option key={suggestion} value={suggestion} />
-                            ))}
-                        </datalist>
-                    </Field>
+                <div className="grid gap-6">
+                    <DriverSettings
+                        idPrefix="product"
+                        drivers={drivers}
+                        driver={form.data.provisioning_driver}
+                        onDriverChange={(value) =>
+                            form.setData('provisioning_driver', value)
+                        }
+                        config={form.data.driver_config}
+                        onConfigChange={(pairs) =>
+                            form.setData('driver_config', pairs)
+                        }
+                        errors={errors}
+                        disabled={!canManage}
+                    />
                     <Field
                         htmlFor="server_group_id"
                         label="Server group ID"
                         optional
                         hint="Empty: the driver's default server is used."
                         error={errors.server_group_id}
+                        className="sm:max-w-xs"
                     >
                         <Input
                             id="server_group_id"
@@ -101,26 +96,6 @@ export function ProvisioningTab({
                         />
                     </Field>
                 </div>
-            </SectionCard>
-
-            <SectionCard
-                title="Driver settings"
-                description="Passed to the driver as-is, e.g. package = starter, disk_quota = 10240."
-                footer={
-                    canManage && (
-                        <Button type="submit" disabled={form.processing}>
-                            {form.processing && <Spinner />}
-                            Save provisioning
-                        </Button>
-                    )
-                }
-            >
-                <KeyValueEditor
-                    value={form.data.driver_config}
-                    onChange={(pairs) => form.setData('driver_config', pairs)}
-                    errors={errors}
-                    disabled={!canManage}
-                />
             </SectionCard>
         </form>
     );

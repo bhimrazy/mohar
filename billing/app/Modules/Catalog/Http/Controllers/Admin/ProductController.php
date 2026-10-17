@@ -3,6 +3,7 @@
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
 use App\Contracts\Services\CatalogUsage;
+use App\Contracts\Services\ProvisioningDrivers;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Catalog\Actions\DeleteProduct;
@@ -90,7 +91,7 @@ class ProductController extends Controller
         return to_route('admin.catalog.products.edit', ['product' => $product, 'tab' => $product->payment_type === PaymentType::Free ? 'details' : 'pricing']);
     }
 
-    public function edit(Request $request, Product $product, CatalogUsage $usage): Response
+    public function edit(Request $request, Product $product, CatalogUsage $usage, ProvisioningDrivers $drivers): Response
     {
         $this->authorize('catalog.products.view');
 
@@ -129,8 +130,7 @@ class ProductController extends Controller
                 ->get()
                 ->map(fn (Product $candidate): array => ['id' => $candidate->id, 'name' => $candidate->name, 'group' => $candidate->group->name, 'status' => $candidate->status()]),
             'upgradeTargetIds' => $product->upgradeTargets->modelKeys(),
-            'driverSuggestions' => Product::query()->distinct()->orderBy('provisioning_driver')->pluck('provisioning_driver')
-                ->merge(Addon::query()->distinct()->pluck('provisioning_driver'))->push('none')->unique()->sort()->values(),
+            'drivers' => $drivers->all(),
         ]);
     }
 

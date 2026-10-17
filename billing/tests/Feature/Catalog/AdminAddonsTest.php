@@ -6,6 +6,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Models\Currency;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Catalog\FakeCatalogUsage;
+use Tests\Fakes\Catalog\FakeProvisioningDrivers;
 
 beforeEach(function () {
     Currency::factory()->create();
@@ -65,6 +66,14 @@ it('creates an addon with prices, products and driver settings', function () {
     expect($addon->driver_config)->toBe(['retention' => '7'])
         ->and($addon->products()->pluck('products.id')->all())->toBe([$product->id])
         ->and($addon->prices()->first()?->amount)->toBe(300);
+});
+
+it('rejects drivers that are not installed when Services reports drivers', function () {
+    actingAsStaff(['catalog.addons.manage']);
+    FakeProvisioningDrivers::withLogDriver();
+
+    $this->post(route('admin.catalog.addons.store'), addonPayload(['provisioning_driver' => 'cpanel']))->assertSessionHasErrors('provisioning_driver');
+    $this->post(route('admin.catalog.addons.store'), addonPayload(['provisioning_driver' => 'log', 'driver_config' => [['key' => 'plan', 'value' => 'backup']]]))->assertSessionHasNoErrors();
 });
 
 it('rejects prices for cycles the addon payment type does not use', function () {

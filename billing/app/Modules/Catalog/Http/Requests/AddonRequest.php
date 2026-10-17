@@ -2,9 +2,11 @@
 
 namespace App\Modules\Catalog\Http\Requests;
 
+use App\Contracts\Services\ProvisioningDrivers;
 use App\Modules\Catalog\Enums\AddonKind;
 use App\Modules\Catalog\Enums\AutoSetup;
 use App\Modules\Catalog\Enums\PaymentType;
+use App\Modules\Catalog\Http\Requests\Concerns\ValidatesDriverBinding;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesPriceMatrix;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -13,7 +15,7 @@ use Illuminate\Validation\Validator;
 
 class AddonRequest extends FormRequest
 {
-    use ValidatesPriceMatrix;
+    use ValidatesDriverBinding, ValidatesPriceMatrix;
 
     public function authorize(): bool
     {
@@ -23,7 +25,7 @@ class AddonRequest extends FormRequest
     /**
      * @return array<string, ValidationRule|array<mixed>|string>
      */
-    public function rules(): array
+    public function rules(ProvisioningDrivers $drivers): array
     {
         $paymentType = PaymentType::tryFrom((string) $this->input('payment_type')) ?? PaymentType::Recurring;
 
@@ -42,10 +44,7 @@ class AddonRequest extends FormRequest
             'welcome_email_key' => ['nullable', 'string', 'max:100'],
             'weight' => ['nullable', 'integer', 'min:-10000', 'max:10000'],
             'auto_setup' => ['required', Rule::enum(AutoSetup::class)],
-            'provisioning_driver' => ['required', 'string', 'max:50', 'regex:/^[a-z0-9_-]+$/'],
-            'driver_config' => ['present', 'array', 'max:100'],
-            'driver_config.*.key' => ['required', 'string', 'max:100', 'distinct', 'regex:/^[A-Za-z0-9_.-]+$/'],
-            'driver_config.*.value' => ['nullable', 'string', 'max:2000'],
+            ...$this->driverRules($drivers),
             'product_ids' => ['present', 'array'],
             'product_ids.*' => ['integer', 'distinct', Rule::exists('products', 'id')->whereNull('deleted_at')],
             ...$this->priceMatrixRules($paymentType->cycles()),
@@ -59,16 +58,19 @@ class AddonRequest extends FormRequest
     {
         return [
             ...$this->priceMatrixMessages(),
-            'provisioning_driver.regex' => __('Use a lowercase driver key such as cpanel or none.'),
+            ...$this->driverMessages(),
         ];
     }
 
     /**
      * @return array<int, \Closure(Validator): void>
      */
-    public function after(): array
+    public function after(ProvisioningDrivers $drivers): array
     {
-        return [fn (Validator $validator) => $this->validateDistinctPriceRows($validator)];
+        return [
+            fn (Validator $validator) => $this->validateDistinctPriceRows($validator),
+            fn (Validator $validator) => $this->validateRequiredDriverFields($validator, $drivers),
+        ];
     }
 
     /**
@@ -82,13 +84,7 @@ class AddonRequest extends FormRequest
             $data[$flag] = $this->boolean($flag);
         }
 
-        $config = [];
-
-        foreach ((array) ($data['driver_config'] ?? []) as $row) {
-            $config[(string) $row['key']] = (string) ($row['value'] ?? '');
-        }
-
-        $data['driver_config'] = $config;
+        $data['driver_config'] = $this->driverConfig();
         $data['weight'] = (int) ($data['weight'] ?? 0);
         $data['product_ids'] = array_values(array_map('intval', $data['product_ids'] ?? []));
 

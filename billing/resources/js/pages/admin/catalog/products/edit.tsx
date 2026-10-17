@@ -6,6 +6,7 @@ import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { useQueryParams } from '@/components/app/use-query-params';
+import type { ProvisioningDriver } from '@/components/catalog/driver-settings';
 import { CustomFieldsTab } from '@/components/catalog/product/custom-fields-tab';
 import type { CustomField } from '@/components/catalog/product/custom-fields-tab';
 import { ProductDetailsForm } from '@/components/catalog/product/details-form';
@@ -75,7 +76,7 @@ type Props = {
     assignedAddonIds: number[];
     upgradeCandidates: ProductChoice[];
     upgradeTargetIds: number[];
-    driverSuggestions: string[];
+    drivers: ProvisioningDriver[];
 };
 
 const TABS = [
@@ -266,7 +267,7 @@ export default function EditProduct(props: Props) {
                             driver={product.provisioning_driver}
                             serverGroupId={product.server_group_id}
                             driverConfig={product.driver_config}
-                            suggestions={props.driverSuggestions}
+                            drivers={props.drivers}
                             canManage={canManage}
                         />
                     </TabsContent>

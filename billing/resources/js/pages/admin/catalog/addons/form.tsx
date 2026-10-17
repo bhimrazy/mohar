@@ -11,10 +11,9 @@ import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import InputError from '@/components/input-error';
 import { CheckboxList } from '@/components/catalog/checkbox-list';
-import {
-    KeyValueEditor,
-    pairsFromObject,
-} from '@/components/catalog/key-value-editor';
+import { DriverSettings } from '@/components/catalog/driver-settings';
+import type { ProvisioningDriver } from '@/components/catalog/driver-settings';
+import { pairsFromObject } from '@/components/catalog/key-value-editor';
 import {
     hasSetupFees,
     matrixErrors,
@@ -75,6 +74,7 @@ type Props = {
     cyclesByPaymentType: Record<string, CycleOption[]>;
     currencies: CurrencyOption[];
     products: ProductChoice[];
+    drivers: ProvisioningDriver[];
     canManage: boolean;
 };
 
@@ -86,6 +86,7 @@ export default function AddonForm({
     cyclesByPaymentType,
     currencies,
     products,
+    drivers,
     canManage,
 }: Props) {
     const allCycles = useMemo(
@@ -329,77 +330,60 @@ export default function AddonForm({
                                 title="Provisioning"
                                 description="Stored for the Services module, which runs the driver."
                             >
-                                <div className="grid items-start gap-6 sm:grid-cols-2">
-                                    <Field
-                                        htmlFor="provisioning_driver"
-                                        label="Driver key"
-                                        error={errors.provisioning_driver}
-                                    >
-                                        <Input
-                                            id="provisioning_driver"
-                                            value={data.provisioning_driver}
-                                            disabled={!canManage}
-                                            onChange={(event) =>
-                                                setData(
-                                                    'provisioning_driver',
-                                                    event.target.value,
-                                                )
-                                            }
-                                            className="font-mono"
-                                            aria-invalid={
-                                                !!errors.provisioning_driver
-                                            }
-                                            aria-describedby="provisioning_driver-description"
-                                        />
-                                    </Field>
-                                    <Field
-                                        htmlFor="auto_setup"
-                                        label="Auto-setup"
-                                        error={errors.auto_setup}
-                                    >
-                                        <SelectInput
-                                            id="auto_setup"
-                                            value={data.auto_setup}
-                                            onChange={(value) =>
-                                                setData('auto_setup', value)
-                                            }
-                                            options={autoSetups}
-                                            disabled={!canManage}
-                                        />
-                                    </Field>
-                                    <Field
-                                        htmlFor="welcome_email_key"
-                                        label="Welcome email template"
-                                        optional
-                                        error={errors.welcome_email_key}
-                                        className="sm:col-span-2"
-                                    >
-                                        <Input
-                                            id="welcome_email_key"
-                                            value={data.welcome_email_key}
-                                            disabled={!canManage}
-                                            onChange={(event) =>
-                                                setData(
-                                                    'welcome_email_key',
-                                                    event.target.value,
-                                                )
-                                            }
-                                            className="font-mono"
-                                            aria-describedby="welcome_email_key-description"
-                                        />
-                                    </Field>
-                                    <div className="grid gap-2 sm:col-span-2">
-                                        <span className="text-sm font-medium">
-                                            Driver settings
-                                        </span>
-                                        <KeyValueEditor
-                                            value={data.driver_config}
-                                            onChange={(pairs) =>
-                                                setData('driver_config', pairs)
-                                            }
-                                            errors={errors}
-                                            disabled={!canManage}
-                                        />
+                                <div className="grid gap-6">
+                                    <DriverSettings
+                                        idPrefix="addon"
+                                        drivers={drivers}
+                                        driver={data.provisioning_driver}
+                                        onDriverChange={(value) =>
+                                            setData(
+                                                'provisioning_driver',
+                                                value,
+                                            )
+                                        }
+                                        config={data.driver_config}
+                                        onConfigChange={(pairs) =>
+                                            setData('driver_config', pairs)
+                                        }
+                                        errors={errors}
+                                        disabled={!canManage}
+                                    />
+                                    <div className="grid items-start gap-6 sm:grid-cols-2">
+                                        <Field
+                                            htmlFor="auto_setup"
+                                            label="Auto-setup"
+                                            error={errors.auto_setup}
+                                        >
+                                            <SelectInput
+                                                id="auto_setup"
+                                                value={data.auto_setup}
+                                                onChange={(value) =>
+                                                    setData('auto_setup', value)
+                                                }
+                                                options={autoSetups}
+                                                disabled={!canManage}
+                                            />
+                                        </Field>
+                                        <Field
+                                            htmlFor="welcome_email_key"
+                                            label="Welcome email template"
+                                            optional
+                                            error={errors.welcome_email_key}
+                                        >
+                                            <Input
+                                                id="welcome_email_key"
+                                                value={data.welcome_email_key}
+                                                disabled={!canManage}
+                                                onChange={(event) =>
+                                                    setData(
+                                                        'welcome_email_key',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                className="font-mono"
+                                                aria-describedby="welcome_email_key-description"
+                                            />
+                                        </Field>
                                     </div>
                                 </div>
                             </SectionCard>

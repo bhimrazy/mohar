@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
+use App\Contracts\Services\ProvisioningDrivers;
 use App\Http\Controllers\Controller;
 use App\Modules\Catalog\Actions\DeleteAddon;
 use App\Modules\Catalog\Actions\SaveAddon;
@@ -130,6 +131,7 @@ class AddonController extends Controller
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->get(['code', 'name', 'prefix', 'is_default']),
             'products' => Product::query()->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
                 ->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'group' => $product->group->name, 'status' => $product->status()]),
+            'drivers' => app(ProvisioningDrivers::class)->all(),
             'canManage' => request()->user()?->hasPermission('catalog.addons.manage') ?? false,
         ];
     }

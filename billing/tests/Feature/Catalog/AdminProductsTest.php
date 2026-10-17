@@ -179,7 +179,7 @@ it('renders the edit page with every tab dataset', function () {
             ->has('customFields')
             ->has('addons')
             ->has('upgradeCandidates')
-            ->has('driverSuggestions'));
+            ->has('drivers'));
 });
 
 it('refuses to delete a product with services and asks to retire it', function () {

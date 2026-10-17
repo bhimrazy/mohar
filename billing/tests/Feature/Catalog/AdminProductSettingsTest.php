@@ -9,6 +9,8 @@ use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Core\Models\Currency;
+use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Catalog\FakeProvisioningDrivers;
 
 beforeEach(function () {
     Currency::factory()->create();
@@ -226,15 +228,40 @@ it('stores the provisioning binding as given', function () {
     $product = Product::factory()->create();
 
     $this->put(route('admin.catalog.products.provisioning.update', $product), [
-        'provisioning_driver' => 'cpanel',
+        'provisioning_driver' => 'log',
         'server_group_id' => 3,
         'driver_config' => [['key' => 'package', 'value' => 'starter'], ['key' => 'disk_quota', 'value' => '10240']],
     ])->assertRedirect(route('admin.catalog.products.edit', ['product' => $product, 'tab' => 'provisioning']));
 
     expect($product->fresh())
-        ->provisioning_driver->toBe('cpanel')
+        ->provisioning_driver->toBe('log')
         ->server_group_id->toBe(3)
         ->driver_config->toBe(['package' => 'starter', 'disk_quota' => '10240']);
+});
+
+it('only accepts installed drivers and their required settings when Services reports drivers', function () {
+    actingAsStaff(['catalog.products.manage']);
+    FakeProvisioningDrivers::withLogDriver();
+    $product = Product::factory()->create();
+
+    $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'cpanel', 'driver_config' => []])
+        ->assertSessionHasErrors(['provisioning_driver' => 'Choose an installed provisioning driver, or “none” for manual setup.']);
+    $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'log', 'driver_config' => []])
+        ->assertSessionHasErrors(['driver_settings.plan' => 'Enter Plan name.']);
+    $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'none', 'driver_config' => []])
+        ->assertSessionHasNoErrors();
+    $this->put(route('admin.catalog.products.provisioning.update', $product), ['provisioning_driver' => 'log', 'driver_config' => [['key' => 'plan', 'value' => 'starter']]])
+        ->assertSessionHasNoErrors();
+
+    expect($product->fresh()->driver_config)->toBe(['plan' => 'starter']);
+});
+
+it('offers the installed drivers on the edit page', function () {
+    actingAsStaff(['catalog.products.view']);
+    FakeProvisioningDrivers::withLogDriver();
+
+    $this->get(route('admin.catalog.products.edit', Product::factory()->create()))
+        ->assertInertia(fn (Assert $page) => $page->where('drivers.0.key', 'log')->where('drivers.0.config_fields.0.key', 'plan'));
 });
 
 it('validates the provisioning binding', function () {
@@ -242,7 +269,7 @@ it('validates the provisioning binding', function () {
     $product = Product::factory()->create();
 
     $this->put(route('admin.catalog.products.provisioning.update', $product), [
-        'provisioning_driver' => 'cPanel Pro',
+        'provisioning_driver' => 'Log Driver',
         'driver_config' => [['key' => 'a', 'value' => '1'], ['key' => 'a', 'value' => '2']],
     ])->assertSessionHasErrors(['provisioning_driver', 'driver_config.1.key' => 'Each setting name can only be used once.']);
 });
