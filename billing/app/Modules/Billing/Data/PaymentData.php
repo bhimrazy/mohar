@@ -7,6 +7,9 @@ use Carbon\CarbonImmutable;
 
 /**
  * A payment to record against an invoice. $amount is in the invoice currency (minor units).
+ *
+ * $fromGateway marks money a provider has already taken (capture, webhook, lookup): it is always recorded, but
+ * when the order's PaymentGuard refuses payment it is held as account credit instead of settling the invoice.
  */
 final readonly class PaymentData
 {
@@ -28,5 +31,6 @@ final readonly class PaymentData
         public ?float $exchangeRate = null,
         public ?int $paymentBatchId = null,
         public TransactionType $type = TransactionType::Payment,
+        public bool $fromGateway = false,
     ) {}
 }

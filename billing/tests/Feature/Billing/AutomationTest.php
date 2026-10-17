@@ -114,8 +114,12 @@ test('declined captures retry after 3 and 7 days and disable the card after 3 fa
     $card = PayMethod::factory()->withCard('4000000000000002')->create(['client_id' => $client->id]);
     $invoice = issueInvoice($client, [5_000], CarbonImmutable::parse('2026-05-02'));
 
-    foreach (['2026-05-01', '2026-05-02', '2026-05-03', '2026-05-04', '2026-05-05', '2026-05-07', '2026-05-08', '2026-05-12'] as $date) {
+    // date => attempts after that day's run: first try, retry 3 days later, then 7 days after the first failure.
+    $expected = ['2026-05-01' => 1, '2026-05-02' => 1, '2026-05-03' => 1, '2026-05-04' => 2, '2026-05-05' => 2, '2026-05-07' => 2, '2026-05-08' => 3, '2026-05-12' => 3];
+
+    foreach ($expected as $date => $attempts) {
         runAutomation($date, 'billing.auto_capture');
+        expect($invoice->fresh()->capture_attempts)->toBe($attempts, "after {$date}");
     }
 
     $attempts = $invoice->fresh()->capture_attempts;

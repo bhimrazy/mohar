@@ -73,11 +73,21 @@ class ManagePayMethods
     /**
      * Pay method used for automatic capture: the client's default, else the first usable one for the gateway.
      */
+    /**
+     * Pay method for automatic capture. An invoice assigned to a gateway is only ever charged through that gateway
+     * (never a bank-transfer invoice): its default method, else its first usable one. Unassigned invoices use the
+     * client's default capture method.
+     */
     public function forCapture(int $clientId, ?string $gateway): ?PayMethod
     {
-        $methods = PayMethod::query()->where('client_id', $clientId)->usable()->orderByDesc('is_default')->orderBy('id')->get()
-            ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE));
+        if ($gateway !== null && ! $this->gateways->supports($gateway, GatewayDriver::CAPTURE)) {
+            return null;
+        }
 
-        return $methods->firstWhere('is_default', true) ?? $methods->firstWhere('gateway', $gateway) ?? $methods->first();
+        $methods = PayMethod::query()->where('client_id', $clientId)->usable()->orderByDesc('is_default')->orderBy('id')->get()
+            ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))
+            ->when($gateway !== null, fn ($methods) => $methods->where('gateway', $gateway));
+
+        return $methods->firstWhere('is_default', true) ?? $methods->first();
     }
 }

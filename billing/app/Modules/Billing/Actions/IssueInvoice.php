@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
@@ -29,6 +30,7 @@ class IssueInvoice
         private ApplyCredit $applyCredit,
         private CreditLedgerService $credit,
         private BillingSettings $settings,
+        private PaymentGuard $guard,
     ) {}
 
     public function handle(InvoiceDraft $draft, string $source = 'manual'): Invoice
@@ -86,7 +88,8 @@ class IssueInvoice
                 $this->publish->handle($invoice, $draft->issueDate);
                 $invoice->refresh();
 
-                if ($invoice->kind === InvoiceKind::Standard && $invoice->balance > 0 && ($draft->applyCredit || $this->settings->bool('credit.auto_apply_on_generate'))) {
+                if ($invoice->kind === InvoiceKind::Standard && $invoice->balance > 0 && ($draft->applyCredit || $this->settings->bool('credit.auto_apply_on_generate'))
+                    && $this->guard->refusalReason($invoice->id) === null) {
                     $available = $this->credit->balance($invoice->client_id, $invoice->currency)->amount;
 
                     if ($available > 0) {

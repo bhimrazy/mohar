@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
 use App\Modules\Billing\Enums\TransactionStatus;
@@ -18,7 +19,10 @@ use Illuminate\Support\Facades\DB;
  */
 class MarkInvoicePaid
 {
-    public function __construct(private InvoiceSettlement $settlement) {}
+    public function __construct(
+        private InvoiceSettlement $settlement,
+        private PaymentGuard $guard,
+    ) {}
 
     public function handle(Invoice $invoice, ?int $userId = null, ?string $note = null): Invoice
     {
@@ -27,6 +31,10 @@ class MarkInvoicePaid
 
             if (! $invoice->status->isPayable() || $invoice->balance <= 0) {
                 throw new BillingException(__('Only unpaid invoices with a balance can be marked as paid.'));
+            }
+
+            if (($reason = $this->guard->refusalReason($invoice->id)) !== null) {
+                throw new BillingException($reason);
             }
 
             $transaction = Transaction::query()->create([

@@ -15,16 +15,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $currency
  * @property list<int> $invoice_ids
  * @property int $total
- * @property string $status pending|paid|failed
+ * @property string $status pending|processing|paid
  * @property string|null $gateway
+ * @property string|null $gateway_txn_id
+ * @property int|null $gateway_amount
+ * @property string|null $gateway_currency
+ * @property string|null $exchange_rate
+ * @property int $fee
  * @property-read Client $client
  */
-#[Fillable(['client_id', 'currency', 'invoice_ids', 'total', 'status', 'gateway'])]
+#[Fillable(['client_id', 'currency', 'invoice_ids', 'total', 'status', 'gateway', 'gateway_txn_id', 'gateway_amount', 'gateway_currency', 'exchange_rate', 'fee'])]
 class PaymentBatch extends Model
 {
     protected function casts(): array
     {
-        return ['invoice_ids' => 'array', 'total' => 'integer'];
+        return ['invoice_ids' => 'array', 'total' => 'integer', 'gateway_amount' => 'integer', 'exchange_rate' => 'decimal:6', 'fee' => 'integer'];
     }
 
     /**

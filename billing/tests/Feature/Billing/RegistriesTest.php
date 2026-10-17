@@ -44,7 +44,9 @@ test('every billing permission used by the module is registered', function () {
 test('every billing config default has a setting definition', function () {
     $keys = collect(app(SettingsRegistry::class)->sections()['billing']['settings'])->map(fn (SettingDefinition $definition) => $definition->key);
     $defaults = collect(Arr::dot(config('billing')))->keys()
-        ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
+        ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique()
+        // Deployment-only switch: staff must never be able to enable the sandbox at runtime.
+        ->reject(fn (string $key) => $key === 'billing.sandbox_enabled');
 
     expect($defaults->diff($keys)->values()->all())->toBe([]);
 });

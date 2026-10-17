@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Events\Billing\InvoicePartiallyPaid;
 use App\Events\Billing\PaymentReceived;
 use App\Modules\Billing\Data\PaymentData;
@@ -12,6 +13,7 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Support\Money;
@@ -27,6 +29,8 @@ class ApplyPayment
     public function __construct(
         private InvoiceSettlement $settlement,
         private CreditLedgerService $credit,
+        private PaymentGuard $guard,
+        private GatewayLogger $log,
     ) {}
 
     public function handle(Invoice $invoice, PaymentData $payment): Transaction
@@ -63,6 +67,12 @@ class ApplyPayment
             return $duplicate;
         }
 
+        $refusal = $invoice->status->isPayable() ? $this->guard->refusalReason($invoice->id) : null;
+
+        if ($refusal !== null && ! $payment->fromGateway) {
+            throw new BillingException($refusal);
+        }
+
         $transaction = Transaction::query()->create([
             'client_id' => $invoice->client_id,
             'invoice_id' => $invoice->id,
@@ -87,10 +97,18 @@ class ApplyPayment
 
         AfterCommit::dispatch(new PaymentReceived($transaction->id, $invoice->id, $invoice->client_id, $payment->amount, $invoice->currency, $payment->gateway));
 
-        if (! $invoice->status->isPayable()) {
-            // Closed invoice (paid/cancelled/refunded): keep the money as account credit and let staff decide.
-            $this->credit->post($invoice->client_id, Money::of($payment->amount, $invoice->currency), CreditReason::Overpayment, $invoice->id, $transaction->id, __('Payment received for closed invoice :number', ['number' => $invoice->displayNumber()]));
+        if (! $invoice->status->isPayable() || $refusal !== null) {
+            // Closed invoice, or payment refused for the order (fraud review): keep the money as account credit
+            // and let staff decide.
+            $description = $refusal !== null
+                ? __('Payment held for invoice :number: :reason', ['number' => $invoice->displayNumber(), 'reason' => $refusal])
+                : __('Payment received for closed invoice :number', ['number' => $invoice->displayNumber()]);
+            $this->credit->post($invoice->client_id, Money::of($payment->amount, $invoice->currency), CreditReason::Overpayment, $invoice->id, $transaction->id, mb_substr($description, 0, 255));
             $transaction->update(['refundable_remaining' => 0]);
+
+            if ($refusal !== null) {
+                $this->log->log($payment->gateway, 'callback', 'payment held for review', ['transaction' => $transaction->id, 'reason' => $refusal], $invoice->id);
+            }
 
             return $transaction;
         }

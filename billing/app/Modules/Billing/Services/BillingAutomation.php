@@ -88,7 +88,7 @@ class BillingAutomation
                     }
 
                     try {
-                        $this->capture->handle($invoice, $method->gateway, $method->token, $method);
+                        $this->capture->handle($invoice, $method->gateway, $method->token, $method, automated: true);
                         $attempts++;
                     } catch (BillingException $exception) {
                         report($exception);

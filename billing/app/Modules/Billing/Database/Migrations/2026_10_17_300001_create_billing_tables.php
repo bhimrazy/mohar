@@ -152,7 +152,15 @@ return new class extends Migration
             $table->bigInteger('total');
             $table->string('status', 20)->default('pending');
             $table->string('gateway', 50)->nullable();
+            // The provider's real charge id (allocation transactions reference the batch, not a mangled id).
+            $table->string('gateway_txn_id', 191)->nullable();
+            $table->bigInteger('gateway_amount')->nullable();
+            $table->char('gateway_currency', 3)->nullable();
+            $table->decimal('exchange_rate', 16, 6)->nullable();
+            $table->bigInteger('fee')->default(0);
             $table->timestamps();
+            $table->unique(['gateway', 'gateway_txn_id']);
+            $table->index('client_id');
         });
 
         Schema::create('transactions', function (Blueprint $table) {

@@ -31,7 +31,11 @@ class CaptureInvoice
         private PaymentGuard $guard,
     ) {}
 
-    public function handle(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod = null, ?int $userId = null): ChargeResult
+    /**
+     * @param  bool  $automated  scheduled auto-capture: only these attempts count towards the retry schedule and the
+     *                           pay method's failure limit, and send the "payment failed" notification
+     */
+    public function handle(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod = null, ?int $userId = null, bool $automated = false): ChargeResult
     {
         $lock = Cache::lock('billing.capture.'.$invoice->id, 60);
 
@@ -40,13 +44,13 @@ class CaptureInvoice
         }
 
         try {
-            return $this->capture($invoice, $gatewayKey, $token, $payMethod, $userId);
+            return $this->capture($invoice, $gatewayKey, $token, $payMethod, $userId, $automated);
         } finally {
             $lock->release();
         }
     }
 
-    private function capture(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod, ?int $userId): ChargeResult
+    private function capture(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod, ?int $userId, bool $automated): ChargeResult
     {
         $gateway = $this->charger->activeGateway($gatewayKey);
 
@@ -54,16 +58,18 @@ class CaptureInvoice
             throw new BillingException($reason);
         }
 
-        $invoice = DB::transaction(function () use ($invoice): Invoice {
+        $invoice = DB::transaction(function () use ($invoice, $automated): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
             if (! in_array($invoice->status, [InvoiceStatus::Unpaid, InvoiceStatus::Collections], true) || $invoice->balance <= 0) {
                 throw new BillingException(__('This invoice has nothing to pay.'));
             }
 
-            $invoice->last_capture_attempt_at = now();
-            $invoice->capture_attempts++;
-            $invoice->save();
+            if ($automated) {
+                $invoice->last_capture_attempt_at = now();
+                $invoice->capture_attempts++;
+                $invoice->save();
+            }
 
             return $invoice;
         });
@@ -84,6 +90,7 @@ class CaptureInvoice
                 gatewayAmount: $rate !== null ? $charge->amount : null,
                 gatewayCurrency: $rate !== null ? $charge->currency : null,
                 exchangeRate: $rate,
+                fromGateway: true,
             ));
             $payMethod?->forceFill(['failure_count' => 0])->save();
 
@@ -91,14 +98,18 @@ class CaptureInvoice
         }
 
         if ($result->isPending()) {
-            $invoice->update(['status' => InvoiceStatus::PaymentPending, 'payment_gateway' => $gateway->key]);
+            // Conditional: a fast settlement webhook may already have paid the invoice.
+            Invoice::query()->whereKey($invoice->id)->where('status', InvoiceStatus::Unpaid)
+                ->update(['status' => InvoiceStatus::PaymentPending, 'payment_gateway' => $gateway->key, 'updated_at' => now()]);
             PaymentPending::dispatch($invoice->id, $invoice->client_id, $gateway->key);
 
             return $result;
         }
 
-        $this->recordFailure($invoice, $payMethod);
-        PaymentFailed::dispatch($invoice->id, $invoice->client_id, $gateway->key, $result->declineReason ?? $result->status);
+        if ($automated) {
+            $this->recordFailure($invoice, $payMethod);
+            PaymentFailed::dispatch($invoice->id, $invoice->client_id, $gateway->key, $result->declineReason ?? $result->status);
+        }
 
         return $result;
     }

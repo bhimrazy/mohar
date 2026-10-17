@@ -102,6 +102,7 @@ class SettlePaymentAttempt
                 gatewayAmount: $converted ? $attempt->amount : null,
                 gatewayCurrency: $converted ? $attempt->currency : null,
                 exchangeRate: $converted && $attempt->fx_rate !== null ? (float) $attempt->fx_rate : null,
+                fromGateway: true,
             ));
             $attempt->transaction_id = $transaction->id;
         }

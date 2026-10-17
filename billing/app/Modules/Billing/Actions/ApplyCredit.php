@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Events\Billing\InvoiceModified;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
@@ -23,6 +24,7 @@ class ApplyCredit
     public function __construct(
         private InvoiceSettlement $settlement,
         private CreditLedgerService $credit,
+        private PaymentGuard $guard,
     ) {}
 
     public function handle(Invoice $invoice, int $amount, ?int $userId = null): Invoice
@@ -36,6 +38,10 @@ class ApplyCredit
 
             if (! $invoice->status->isPayable()) {
                 throw new BillingException(__('Credit can only be applied to unpaid invoices.'));
+            }
+
+            if (($reason = $this->guard->refusalReason($invoice->id)) !== null) {
+                throw new BillingException($reason);
             }
 
             if ($amount <= 0 || $amount > $invoice->balance) {

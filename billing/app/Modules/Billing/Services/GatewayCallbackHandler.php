@@ -116,6 +116,7 @@ class GatewayCallbackHandler
             gatewayAmount: $rate !== null ? $event->amount : null,
             gatewayCurrency: $rate !== null ? $event->currency : null,
             exchangeRate: $rate,
+            fromGateway: true,
         );
 
         if ($this->applyPayment->existing($data) !== null) {
