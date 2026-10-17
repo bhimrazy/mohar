@@ -25,15 +25,37 @@ class FakePriceBook implements PriceBook
     /** @var array<int, string> */
     public array $addonNames = [];
 
+    /** @var list<ProductSelection> */
+    public array $quotedSelections = [];
+
+    /** @var array<int, list<array{id: int, name: string, type: string, required: bool, options: list<string>, module_key?: string}>> */
+    public array $customFields = [];
+
     /**
      * @param  array<string, int>  $prices  cycle value => recurring amount
      * @param  array<string, mixed>  $driverConfig
      */
-    public function addProduct(int $id, string $name, array $prices = ['monthly' => 1000], string $driver = 'log', ?int $serverGroupId = null, string $autoSetup = 'payment', array $driverConfig = []): ProductSummary
-    {
+    public function addProduct(
+        int $id,
+        string $name,
+        array $prices = ['monthly' => 1000],
+        string $driver = 'log',
+        ?int $serverGroupId = null,
+        string $autoSetup = 'payment',
+        array $driverConfig = [],
+        ?int $suspendAfterDays = null,
+        ?int $terminateAfterDays = null,
+        ?int $recurringCycleLimit = null,
+    ): ProductSummary {
         $this->prices[$id] = $prices;
 
-        return $this->products[$id] = new ProductSummary($id, $name, 'Hosting', 'hosting', $driver, $serverGroupId, $driverConfig, $autoSetup, null, true, true, null, true);
+        return $this->products[$id] = new ProductSummary(
+            $id, $name, 'Hosting', 'hosting', $driver, $serverGroupId, $driverConfig, $autoSetup, null, true, true, null, true,
+            suspendAfterDays: $suspendAfterDays,
+            terminateAfterDays: $terminateAfterDays,
+            recurringCycleLimit: $recurringCycleLimit,
+            slug: 'product-'.$id,
+        );
     }
 
     public function allowUpgrade(int $from, int $to): void
@@ -48,6 +70,8 @@ class FakePriceBook implements PriceBook
 
     public function quote(ProductSelection $selection): ?PriceQuote
     {
+        $this->quotedSelections[] = $selection;
+
         $amount = $this->prices[$selection->productId][$selection->cycle->value] ?? null;
 
         return $amount === null ? null : new PriceQuote($selection->currency, $selection->cycle, $amount, 0);
@@ -99,11 +123,24 @@ class FakePriceBook implements PriceBook
 
     public function customFieldsFor(int $productId): array
     {
-        return [];
+        return $this->customFields[$productId] ?? [];
     }
 
     public function reserveStock(int $productId): bool
     {
         return true;
+    }
+
+    public function releaseStock(int $productId, int $quantity = 1): void {}
+
+    public function productBySlug(string $slug): ?ProductSummary
+    {
+        foreach ($this->products as $product) {
+            if ($product->slug === $slug) {
+                return $product;
+            }
+        }
+
+        return null;
     }
 }
