@@ -164,3 +164,8 @@ export function StatusBadge({
         </span>
     );
 }
+
+/** Tinted surface for banners and callouts, from the same tone palette as badges. */
+export function toneSurface(tone: StatusTone): string {
+    return TONE_CLASSES[tone];
+}

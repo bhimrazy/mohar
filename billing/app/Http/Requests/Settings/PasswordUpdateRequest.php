@@ -19,7 +19,8 @@ class PasswordUpdateRequest extends FormRequest
     {
         return [
             'current_password' => $this->currentPasswordRules(),
-            'password' => $this->passwordRules(),
+            // A forced change (admin-set temporary password) must actually change the password.
+            'password' => [...$this->passwordRules(), 'different:current_password'],
         ];
     }
 }
