@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform\Notifications;
 
+use App\Modules\Platform\Support\MailText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
@@ -32,7 +33,7 @@ class SecurityNotice extends Notification
         $message = (new MailMessage)->subject($this->subject);
 
         foreach ($this->lines as $line) {
-            $message->line($line);
+            $message->line(MailText::escape($line));
         }
 
         return $message->line(__('If you did not expect this change, contact your administrator immediately.'));
