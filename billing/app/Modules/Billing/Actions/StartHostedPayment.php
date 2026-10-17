@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\QrPayload;
@@ -28,6 +29,7 @@ class StartHostedPayment
         private GatewayCharger $charger,
         private CurrencyConverter $converter,
         private GatewayLogger $log,
+        private PaymentGuard $guard,
     ) {}
 
     /**
@@ -41,6 +43,10 @@ class StartHostedPayment
 
         if (! $invoice->status->isPayable() || $invoice->balance <= 0) {
             throw new BillingException(__('This invoice has nothing to pay.'));
+        }
+
+        if (($reason = $this->guard->refusalReason($invoice->id)) !== null) {
+            throw new BillingException($reason);
         }
 
         $balance = $invoice->balanceMoney();

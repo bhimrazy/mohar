@@ -2,11 +2,11 @@
 
 use App\Contracts\Billing\CreditLedger;
 use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\PaymentReversed;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\CreateAddFundsInvoice;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Events\PaymentReversed;
 use App\Modules\Billing\Models\ClientFlag;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;

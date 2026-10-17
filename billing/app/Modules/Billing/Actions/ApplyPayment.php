@@ -2,12 +2,12 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Events\Billing\InvoicePartiallyPaid;
 use App\Events\Billing\PaymentReceived;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionStatus;
-use App\Modules\Billing\Events\InvoicePartiallyPaid;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;

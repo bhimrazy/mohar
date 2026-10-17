@@ -2,12 +2,13 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\ChargeResult;
 use App\Events\Billing\PaymentFailed;
+use App\Events\Billing\PaymentPending;
+use App\Events\Billing\PayMethodDisabled;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Events\PaymentPending;
-use App\Modules\Billing\Events\PayMethodDisabled;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
@@ -27,6 +28,7 @@ class CaptureInvoice
         private GatewayCharger $charger,
         private ApplyPayment $applyPayment,
         private BillingSettings $settings,
+        private PaymentGuard $guard,
     ) {}
 
     public function handle(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod = null, ?int $userId = null): ChargeResult
@@ -47,6 +49,10 @@ class CaptureInvoice
     private function capture(Invoice $invoice, string $gatewayKey, string $token, ?PayMethod $payMethod, ?int $userId): ChargeResult
     {
         $gateway = $this->charger->activeGateway($gatewayKey);
+
+        if (($reason = $this->guard->refusalReason($invoice->id)) !== null) {
+            throw new BillingException($reason);
+        }
 
         $invoice = DB::transaction(function () use ($invoice): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);

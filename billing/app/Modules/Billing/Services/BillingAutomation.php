@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Orders\PaymentGuard;
 use App\Events\Billing\InvoiceOverdue;
 use App\Events\Billing\InvoicePaymentReminder;
 use App\Modules\Billing\Actions\ApplyLateFee;
@@ -31,6 +32,7 @@ class BillingAutomation
         private GatewayManager $gateways,
         private CancelInvoice $cancel,
         private Quotes $quotes,
+        private PaymentGuard $guard,
     ) {}
 
     /**
@@ -75,7 +77,7 @@ class BillingAutomation
             ->where(fn ($query) => $query->whereNull('last_capture_attempt_at')->orWhere('last_capture_attempt_at', '<', $today->startOfDay()))
             ->chunkById(200, function (Collection $invoices) use ($today, &$attempts): void {
                 foreach ($invoices as $invoice) {
-                    if (! $this->captureDue($invoice, $today)) {
+                    if (! $this->captureDue($invoice, $today) || $this->guard->refusalReason($invoice->id) !== null) {
                         continue;
                     }
 

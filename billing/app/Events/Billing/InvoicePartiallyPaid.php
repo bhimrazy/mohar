@@ -1,13 +1,11 @@
 <?php
 
-namespace App\Modules\Billing\Events;
+namespace App\Events\Billing;
 
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A payment reduced the balance of an invoice without settling it.
- *
- * Module-local until promoted to App\Events\Billing (shared kernel change requested from the CTO).
  */
 final class InvoicePartiallyPaid
 {

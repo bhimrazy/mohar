@@ -4,11 +4,11 @@ namespace App\Modules\Billing\Actions;
 
 use App\Enums\BillableType;
 use App\Events\Billing\InvoiceModified;
+use App\Events\Billing\LateFeeApplied;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Events\LateFeeApplied;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\InvoiceCalculator;
 use App\Modules\Billing\Services\InvoiceSettlement;

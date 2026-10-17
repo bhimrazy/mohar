@@ -1,7 +1,14 @@
 <?php
 
+use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Orders\PaymentGuard;
+use App\Modules\Billing\Actions\CaptureInvoice;
+use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Core\Models\Client;
 use App\Support\Automation\Automation;
@@ -121,4 +128,37 @@ test('the admin dashboard gets billing widgets and to-dos, the nav gets badges a
     $billingNav = collect(collect(app(Navigation::class)->forUser('admin', $staff))->firstWhere('title', 'Billing')['items']);
     expect($billingNav->firstWhere('title', 'Invoices')['badge'])->toBe(1)
         ->and(collect(app(Navigation::class)->quickActions($staff))->pluck('title')->all())->toContain('New invoice', 'New quote');
+});
+
+test('billing implements the gateway directory and invoice queries contracts', function () {
+    sandboxGateway();
+    Gateway::factory()->manual()->create();
+    $invoice = issueInvoice(billingClient(), [1_000]);
+    $untouched = issueInvoice(billingClient(['email' => 'second@example.com']), [1_000]);
+    payInvoice($invoice, 500);
+
+    expect(app(GatewayDirectory::class)->available('USD'))->toBe([['key' => 'sandbox_card', 'label' => 'Credit card']])
+        ->and(app(GatewayDirectory::class)->available('EUR'))->toBe([])
+        ->and(app(InvoiceQueries::class)->hasPayments($invoice->id))->toBeTrue()
+        ->and(app(InvoiceQueries::class)->hasPayments($untouched->id))->toBeFalse();
+});
+
+test('payments are refused when the order payment guard says so', function () {
+    sandboxGateway();
+    app()->instance(PaymentGuard::class, new class implements PaymentGuard
+    {
+        public function refusalReason(int $invoiceId): ?string
+        {
+            return 'This order is under fraud review.';
+        }
+    });
+    $client = billingClient();
+    $card = PayMethod::factory()->create(['client_id' => $client->id]);
+    $invoice = issueInvoice($client, [1_000], now()->toImmutable());
+
+    expect(fn () => app(CaptureInvoice::class)->handle($invoice, 'sandbox_card', $card->token, $card))
+        ->toThrow(BillingException::class, 'This order is under fraud review.');
+
+    $this->artisan('automation:run', ['--only' => 'billing.auto_capture'])->assertSuccessful();
+    expect($invoice->fresh()->capture_attempts)->toBe(0);
 });

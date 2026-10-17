@@ -2,11 +2,11 @@
 
 use App\Events\Billing\InvoiceOverdue;
 use App\Events\Billing\InvoicePaymentReminder;
+use App\Events\Billing\LateFeeApplied;
 use App\Events\Billing\PaymentFailed;
+use App\Events\Billing\PaymentPending;
+use App\Events\Billing\PayMethodDisabled;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Events\LateFeeApplied;
-use App\Modules\Billing\Events\PaymentPending;
-use App\Modules\Billing\Events\PayMethodDisabled;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use Carbon\CarbonImmutable;
