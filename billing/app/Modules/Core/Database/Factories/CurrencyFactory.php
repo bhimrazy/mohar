@@ -28,4 +28,14 @@ class CurrencyFactory extends Factory
     {
         return $this->state(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => 0.92, 'is_default' => false]);
     }
+
+    public function inr(): static
+    {
+        return $this->state(['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84, 'is_default' => false]);
+    }
+
+    public function npr(): static
+    {
+        return $this->state(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => 134.4, 'is_default' => false]);
+    }
 }

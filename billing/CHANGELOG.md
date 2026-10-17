@@ -44,3 +44,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Client area: my domains, domain management (nameservers, auto-renew, lock, EPP code, contacts, transfer retry).
 - Public domain search with availability, suggestions and prices; JSON lookup endpoint (rate limited, cached).
 - Navigation, dashboard cards, permissions, settings, global search and `domain` merge fields; demo seeder.
+### DevOps
+
+- PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
+  `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
+- CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was
+  ignored by GitHub): `lint` (postgres image drift check, Pint, vp check, tsc), `static` (Larastan),
+  `tests-sqlite`, `tests-pgsql` (migrate:fresh --seed + full suite on a PostgreSQL service), `build`; cached
+  Composer/npm, SHA-pinned actions, least-privilege permissions, superseded PR runs cancelled. Dependabot
+  (target `develop`, 14-day cooldown) for actions, compose, Composer and npm.
+- `composer ci` runs every CI gate locally, including `composer test:pgsql` (migrate:fresh --seed + suite on
+  PostgreSQL; `DB_*` overridable per worktree). `.nvmrc` pins Node 24.21.0; `composer.json` requires PHP ^8.4.
+  RustFS and PostgreSQL ports bind to 127.0.0.1. Local setup guide: `docs/devops/LOCAL_SETUP.md`.
+- `vite-plus` 0.3.0 → 0.3.3 (fixes the critical `tinypool` advisory GHSA-85c8-ppgw-ccpr; `npm audit` clean);
+  `vite` is now aliased to `@voidzero-dev/vite-plus-core@0.3.3` (dependency + override), as 0.3.3 requires.
+- Fixed: admin client search was case-sensitive on PostgreSQL (`whereLike` now renders `ilike`); client,
+  contact and new-user emails are stored lowercase.

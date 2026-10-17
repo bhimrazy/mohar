@@ -12,9 +12,10 @@ class CoreSeeder extends Seeder
 {
     public function run(): void
     {
+        // Primary currencies: USD (default), INR, NPR. Rates are demo values relative to USD; staff maintain real rates.
         Currency::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'exchange_rate' => 1, 'is_default' => true]);
-        Currency::query()->firstOrCreate(['code' => 'EUR'], ['name' => 'Euro', 'prefix' => '€', 'exchange_rate' => 0.92]);
-        Currency::query()->firstOrCreate(['code' => 'GBP'], ['name' => 'Pound Sterling', 'prefix' => '£', 'exchange_rate' => 0.79]);
+        Currency::query()->firstOrCreate(['code' => 'INR'], ['name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84]);
+        Currency::query()->firstOrCreate(['code' => 'NPR'], ['name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => 134.4]);
 
         $admin = Role::query()->firstOrCreate(['name' => 'Full Administrator'], ['permissions' => ['*']]);
         Role::query()->firstOrCreate(['name' => 'Billing'], ['permissions' => ['core.clients.*', 'billing.*', 'orders.*', 'reports.*']]);
