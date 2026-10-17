@@ -2,6 +2,7 @@
 
 use App\Contracts\Billing\CreditLedger;
 use App\Contracts\Billing\Invoicer;
+use App\Data\Billing\CallbackEvent;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\RefundRequest;
@@ -19,6 +20,7 @@ use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayCallbackHandler;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Money;
@@ -126,7 +128,7 @@ test('refund and chargeback webhooks are converted back to the invoice currency'
 test('unknown callback types are ignored, not booked as chargebacks', function () {
     $payment = payInvoice(issueInvoice(billingClient(), [1_000]), 1_000, 'ch_x', 'sandbox_card');
 
-    $outcome = app(App\Modules\Billing\Services\GatewayCallbackHandler::class)->process('sandbox_card', new App\Data\Billing\CallbackEvent('dispute.won', $payment->invoice_id, 'evt_1', 1_000, 'USD', 'ch_x'));
+    $outcome = app(GatewayCallbackHandler::class)->process('sandbox_card', new CallbackEvent('dispute.won', $payment->invoice_id, 'evt_1', 1_000, 'USD', 'ch_x'));
 
     expect($outcome)->toBe(['status' => 200, 'result' => 'ignored event type'])
         ->and(Transaction::query()->where('type', 'chargeback')->count())->toBe(0)

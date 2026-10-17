@@ -230,7 +230,7 @@ test('staff record manual income applied to invoices', function () {
 
 test('billing forms search clients without a size cap', function () {
     actingAsStaff(['billing.invoices.manage']);
-    billingClient(['first_name' => 'Zara', 'last_name' => 'Quinn']);
+    billingClient(['first_name' => 'Zara', 'last_name' => 'Quinn', 'company_name' => null]);
     Client::factory()->count(3)->create();
 
     $this->getJson(route('admin.billing.clients.search', ['q' => 'Quinn']))
