@@ -5,19 +5,15 @@
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 
-@import './themes/calm.css';
-@import './themes/operator.css';
-@import './themes/warm.css';
-@import './themes/slate.css';
-
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Theme tokens. Visual directions live in ./themes/<name>.css and are switched with
- * <html data-theme="<name>"> (see resources/js/lib/themes.ts). Every theme defines the
- * full token set below for light and dark; components only ever use the token utilities.
+ * Theme tokens. The active theme's values are generated at runtime by the Themes module
+ * (app/Modules/Themes → ThemeStylesheet) and injected as a <style> in the root view; the
+ * :root/.dark values below are only the fallback. `inline` makes utilities reference the
+ * raw variables, so a wrapper can re-theme its subtree (theme editor live preview).
  */
-@theme {
+@theme inline {
     --font-sans: var(--app-font-sans);
     --font-mono: var(--app-font-mono);
     --font-display: var(--app-font-display);
@@ -247,14 +243,14 @@
 
 /* Headings, stat values and other display text. */
 @utility font-display {
-    font-family: var(--font-display);
+    font-family: var(--app-font-display);
     font-weight: var(--heading-weight);
     letter-spacing: var(--heading-tracking);
 }
 
 /* Big numbers (KPIs, totals): theme numeric face + tabular figures. */
 @utility font-numeric {
-    font-family: var(--font-numeric);
+    font-family: var(--app-font-numeric);
     font-variant-numeric: tabular-nums;
 }
 

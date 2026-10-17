@@ -19,3 +19,31 @@ export type AuthLayoutProps = {
     title?: string;
     description?: string;
 };
+
+/** Company branding (Themes module → BrandAssets::brand()). */
+export type Brand = {
+    name: string;
+    logoLight: string | null;
+    logoDark: string | null;
+    favicon: string | null;
+};
+
+export type ThemeOption = {
+    key: string;
+    name: string;
+    description: string;
+    custom: boolean;
+};
+
+export type Density = 'theme' | 'compact' | 'comfortable' | 'spacious';
+
+/** The request's resolved theme (Themes module → ShareTheme middleware). */
+export type SharedTheme = {
+    key: string;
+    name: string;
+    area: 'admin' | 'client' | 'public';
+    density: Density;
+    canChoose: boolean;
+    preference: { theme: string | null; density: Density | null } | null;
+    options: ThemeOption[];
+};

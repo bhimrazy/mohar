@@ -1,4 +1,5 @@
 import type { Auth } from '@/types/auth';
+import type { Brand, SharedTheme } from '@/types/ui';
 import type {
     ClientAccount,
     QuickAction,
@@ -20,6 +21,8 @@ declare module '@inertiajs/core' {
             area: 'admin' | 'client';
             navigation: ServerNavGroup[];
             quickActions: QuickAction[];
+            brand: Brand;
+            theme: SharedTheme;
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
             [key: string]: unknown;

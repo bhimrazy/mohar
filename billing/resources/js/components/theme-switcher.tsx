@@ -1,3 +1,4 @@
+import { router, usePage } from '@inertiajs/react';
 import { Check, Monitor, Moon, Palette, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,9 +11,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useAppearance } from '@/hooks/use-appearance';
 import type { Appearance } from '@/hooks/use-appearance';
-import { useDesignTheme } from '@/hooks/use-theme';
-import { THEMES } from '@/lib/themes';
 import { cn } from '@/lib/utils';
+import { preference } from '@/routes/admin/appearance';
 
 const APPEARANCES: { value: Appearance; label: string; icon: typeof Sun }[] = [
     { value: 'light', label: 'Light', icon: Sun },
@@ -20,11 +20,34 @@ const APPEARANCES: { value: Appearance; label: string; icon: typeof Sun }[] = [
     { value: 'system', label: 'System', icon: Monitor },
 ];
 
-/** Design-direction + light/dark picker (dev showcase and previews). Persists in localStorage. */
+/**
+ * Theme + light/dark picker for staff. Saves the staff member's own admin theme
+ * (Settings → Appearance must allow it); on /dev previews it switches via ?theme= instead.
+ * Theme CSS is server-rendered, so a change reloads the page.
+ */
 export function ThemeSwitcher({ className }: { className?: string }) {
-    const { theme, updateTheme } = useDesignTheme();
+    const { theme } = usePage().props;
     const { appearance, updateAppearance } = useAppearance();
-    const current = THEMES.find((item) => item.id === theme) ?? THEMES[0];
+    const isPreview = window.location.pathname.startsWith('/dev/');
+
+    const choose = (key: string) => {
+        if (isPreview) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('theme', key);
+            window.location.assign(url.toString());
+
+            return;
+        }
+
+        router.put(
+            preference.url(),
+            { theme: key, density: theme.preference?.density ?? null },
+            {
+                preserveScroll: true,
+                onSuccess: () => window.location.reload(),
+            },
+        );
+    };
 
     return (
         <DropdownMenu>
@@ -36,36 +59,42 @@ export function ThemeSwitcher({ className }: { className?: string }) {
                     data-test="theme-switcher"
                 >
                     <Palette aria-hidden="true" />
-                    <span className="hidden sm:inline">{current.label}</span>
+                    <span className="hidden sm:inline">{theme.name}</span>
                     <span className="sr-only sm:hidden">Theme</span>
                 </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                    Design direction
-                </DropdownMenuLabel>
-                {THEMES.map((item) => (
-                    <DropdownMenuItem
-                        key={item.id}
-                        onSelect={() => updateTheme(item.id)}
-                        className="items-start"
-                    >
-                        <Check
-                            aria-hidden="true"
-                            className={cn(
-                                'mt-0.5',
-                                item.id !== theme && 'invisible',
-                            )}
-                        />
-                        <span className="grid gap-0.5">
-                            <span className="font-medium">{item.label}</span>
-                            <span className="text-xs text-muted-foreground">
-                                {item.description}
-                            </span>
-                        </span>
-                    </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
+                {theme.canChoose && theme.options.length > 0 && (
+                    <>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                            Theme
+                        </DropdownMenuLabel>
+                        {theme.options.map((item) => (
+                            <DropdownMenuItem
+                                key={item.key}
+                                onSelect={() => choose(item.key)}
+                                className="items-start"
+                            >
+                                <Check
+                                    aria-hidden="true"
+                                    className={cn(
+                                        'mt-0.5',
+                                        item.key !== theme.key && 'invisible',
+                                    )}
+                                />
+                                <span className="grid gap-0.5">
+                                    <span className="font-medium">
+                                        {item.name}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                        {item.description}
+                                    </span>
+                                </span>
+                            </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                    </>
+                )}
                 <div
                     className="grid grid-cols-3 gap-1 p-1"
                     role="group"
