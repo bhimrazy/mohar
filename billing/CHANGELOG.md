@@ -25,3 +25,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Admin: client list/search/filter, create, view, edit. Client area: dashboard, account details, account switcher.
 - Registration creates an owned client account.
 - Seeders: currencies (USD/EUR/GBP), roles, `admin@example.com` / `demo@example.com` (password: `password`).
+
+### DevOps
+
+- PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
+  `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
+- CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was
+  ignored by GitHub): `lint` (Pint, vp check, tsc), `static` (Larastan), `tests-sqlite`, `tests-pgsql`
+  (migrate + seed + full suite on a PostgreSQL service), `build`; cached Composer/npm, SHA-pinned actions,
+  least-privilege permissions, superseded runs cancelled. Dependabot for actions, compose, Composer and npm
+  with a 14-day cooldown.
+- `composer ci` runs every CI gate locally; `composer test:pgsql` runs the suite on the compose PostgreSQL.
+  `.nvmrc` pins Node 24.21.0. Local setup guide: `docs/devops/LOCAL_SETUP.md`.
+- Fixed: admin client search was case-sensitive on PostgreSQL (`whereLike` now renders `ilike`).
