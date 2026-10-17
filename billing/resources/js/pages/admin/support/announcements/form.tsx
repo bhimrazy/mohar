@@ -109,7 +109,7 @@ export default function AnnouncementForm({
                                 </div>
                             </SectionCard>
                             <SectionCard title="Publishing">
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     <div className="flex items-center justify-between gap-4 rounded-lg border p-3 sm:col-span-2">
                                         <div className="space-y-0.5">
                                             <label

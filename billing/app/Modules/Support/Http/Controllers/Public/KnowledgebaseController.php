@@ -144,7 +144,7 @@ class KnowledgebaseController extends Controller
         return array_values($query->get()->map(fn (KbArticle $article): array => [
             'title' => $article->title,
             'slug' => $article->slug,
-            'excerpt' => Str::of($article->body)->replaceMatches('/[#*_`>\[\]()]/', '')->squish()->limit(160)->toString(),
+            'excerpt' => Str::of(strip_tags(app(MarkdownRenderer::class)->render($article->body)))->replaceMatches('/\s+/', ' ')->squish()->limit(160)->toString(),
             'views' => $article->views,
             'is_private' => $article->is_private,
         ])->all());

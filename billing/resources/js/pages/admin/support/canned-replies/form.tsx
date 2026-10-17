@@ -55,7 +55,7 @@ export default function CannedReplyForm({
                     {({ errors, processing }) => (
                         <>
                             <SectionCard>
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     <Field
                                         htmlFor="name"
                                         label="Name"

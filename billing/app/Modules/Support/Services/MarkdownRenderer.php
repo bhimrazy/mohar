@@ -7,7 +7,7 @@ use League\CommonMark\Extension\ExternalLink\ExternalLinkExtension;
 
 /**
  * Renders user-supplied Markdown with raw HTML stripped and unsafe links removed (spec §4.2).
- * External links get rel="noopener nofollow noreferrer".
+ * External links get rel="noopener nofollow noreferrer"; single line breaks are kept (email-style replies).
  */
 class MarkdownRenderer
 {
@@ -17,6 +17,7 @@ class MarkdownRenderer
             'html_input' => 'strip',
             'allow_unsafe_links' => false,
             'max_nesting_level' => 20,
+            'renderer' => ['soft_break' => "<br />\n"],
             'external_link' => [
                 'internal_hosts' => [(string) parse_url((string) config('app.url'), PHP_URL_HOST)],
                 'open_in_new_window' => true,

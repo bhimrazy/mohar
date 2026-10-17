@@ -113,7 +113,7 @@ class SupportSeeder extends Seeder
         $articles = [
             [$start, 'Your first login', "After your order is activated you receive a welcome email.\n\n1. Open the client area.\n2. Sign in with your email address.\n3. Turn on two-factor authentication under **Security**.", ['login', 'account'], 320, false],
             [$start, 'Uploading your website', "Upload files with SFTP to the `public_html` folder.\n\n```\nHost: sftp.example.com\nPort: 22\n```", ['sftp', 'upload'], 210, false],
-            [$email, 'Create a mailbox', "Go to **Services → Email** and choose *Add mailbox*. Mailboxes include 10 GB of storage.", ['mailbox'], 145, false],
+            [$email, 'Create a mailbox', 'Go to **Services → Email** and choose *Add mailbox*. Mailboxes include 10 GB of storage.', ['mailbox'], 145, false],
             [$outlook, 'Set up Outlook', "Use IMAP with SSL:\n\n| Setting | Value |\n| --- | --- |\n| Incoming | mail.example.com:993 |\n| Outgoing | mail.example.com:465 |", ['outlook', 'imap'], 98, false],
             [$domains, 'Point your domain to us', "Set these nameservers at your registrar:\n\n- ns1.example.com\n- ns2.example.com\n\nChanges can take up to 24 hours.", ['dns', 'nameservers'], 260, false],
             [$domains, 'Add a DNS record', 'Open **Domains → DNS zone**, choose the record type and save. TTL defaults to 3600 seconds.', ['dns', 'records'], 77, false],
@@ -282,7 +282,12 @@ class SupportSeeder extends Seeder
             'closed_at' => $ticket->closed_at !== null ? $last : null,
         ])->saveQuietly();
 
-        TicketEvent::query()->where('ticket_id', $ticket->id)->update(['created_at' => $last]);
+        $events = TicketEvent::query()->where('ticket_id', $ticket->id)->orderBy('id')->get();
+        $eventStep = max(1, intdiv($hours * 60, max(1, $events->count())));
+
+        foreach ($events as $index => $event) {
+            $event->forceFill(['created_at' => $start->addMinutes($index * $eventStep)])->saveQuietly();
+        }
     }
 
     private function attachLog(Ticket $ticket): void

@@ -128,7 +128,7 @@ export default function DepartmentForm({
                                 </p>
                             )}
                             <SectionCard title="Details">
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     <Field
                                         htmlFor="name"
                                         label="Name"
@@ -305,7 +305,6 @@ export default function DepartmentForm({
                                 )}
                             </SectionCard>
                             <FormActions
-                                sticky
                                 status={
                                     department && (
                                         <ConfirmDialog

@@ -84,7 +84,7 @@ export function OpenTicketForm({
                                                 setDepartment(option.value)
                                             }
                                             className={cn(
-                                                'rounded-xl border p-4 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                                                'flex h-full flex-col items-start justify-start rounded-xl border p-4 text-left transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
                                                 active
                                                     ? 'border-foreground bg-muted/40'
                                                     : 'hover:bg-muted/40',
@@ -120,7 +120,7 @@ export function OpenTicketForm({
                                 </Button>
                             }
                         >
-                            <div className="grid gap-6 sm:grid-cols-2">
+                            <div className="grid items-start gap-6 sm:grid-cols-2">
                                 {guest && (
                                     <>
                                         <Field

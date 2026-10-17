@@ -66,7 +66,7 @@ export default function CreateTicket({
                                 />
                             )}
                             <SectionCard title="Recipient">
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     <Field
                                         htmlFor="requester_name"
                                         label="Name"
@@ -101,7 +101,7 @@ export default function CreateTicket({
                                 </div>
                             </SectionCard>
                             <SectionCard title="Message">
-                                <div className="grid gap-6 sm:grid-cols-2">
+                                <div className="grid items-start gap-6 sm:grid-cols-2">
                                     <Field
                                         htmlFor="department_id"
                                         label="Department"

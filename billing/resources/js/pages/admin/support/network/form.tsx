@@ -131,7 +131,7 @@ export default function IncidentForm({
                         {({ errors, processing }) => (
                             <>
                                 <SectionCard title="Incident">
-                                    <div className="grid gap-6 sm:grid-cols-2">
+                                    <div className="grid items-start gap-6 sm:grid-cols-2">
                                         <Field
                                             htmlFor="title"
                                             label="Title"

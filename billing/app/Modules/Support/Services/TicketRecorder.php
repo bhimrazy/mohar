@@ -3,6 +3,7 @@
 namespace App\Modules\Support\Services;
 
 use App\Modules\Support\Data\TicketAuthor;
+use App\Modules\Support\Enums\TicketStatus;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketEvent;
 
@@ -53,7 +54,7 @@ class TicketRecorder
             'opened' => "{$who} opened the ticket.",
             'reply' => "{$who} replied.",
             'note' => "{$who} added a note.",
-            'status' => "{$who} changed the status from {$event->from} to {$event->to}.",
+            'status' => "{$who} changed the status from {$this->statusLabel($event->from)} to {$this->statusLabel($event->to)}.",
             'priority' => "{$who} changed the priority from {$event->from} to {$event->to}.",
             'department' => "{$who} moved the ticket from {$event->from} to {$event->to}.",
             'assigned' => "{$who} assigned the ticket to {$event->to}.",
@@ -72,5 +73,10 @@ class TicketRecorder
             'pinned' => "{$who} ".($event->to === '1' ? 'pinned' : 'unpinned').' the ticket.',
             default => "{$who}: {$event->type}.",
         };
+    }
+
+    private function statusLabel(?string $status): string
+    {
+        return mb_strtolower(TicketStatus::tryFrom((string) $status)?->label() ?? (string) $status);
     }
 }
