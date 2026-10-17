@@ -29,9 +29,11 @@ class OrderController extends Controller
             ->paginate(15)
             ->withQueryString();
 
+        $invoiceUrls = $orders->getCollection()->mapWithKeys(fn (Order $order): array => [$order->id => $this->links->client($order->invoice_id)]);
+
         return Inertia::render('client/orders/index', [
             'orders' => OrderResource::collection($orders),
-            'invoice_urls' => $orders->getCollection()->mapWithKeys(fn (Order $order): array => [$order->id => $this->links->client($order->invoice_id)]),
+            'invoice_urls' => $invoiceUrls,
         ]);
     }
 

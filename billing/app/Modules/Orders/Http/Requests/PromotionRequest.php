@@ -56,6 +56,13 @@ class PromotionRequest extends FormRequest
         ];
     }
 
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('code'))) {
+            $this->merge(['code' => Promotion::normalizeCode($this->input('code'))]);
+        }
+    }
+
     /**
      * @return array<string, string>
      */

@@ -106,12 +106,12 @@ class CheckoutController extends Controller
             expectedTotal: $request->filled('expected_total') ? $request->integer('expected_total') : null,
         ));
 
+        $this->carts->clear($cart, $request);
+
         if ($placed->registeredUser !== null) {
             Auth::login($placed->registeredUser);
             $request->session()->regenerate();
         }
-
-        $this->carts->clear($cart, $request);
 
         return $this->redirectAfterCheckout($request, $placed->order);
     }

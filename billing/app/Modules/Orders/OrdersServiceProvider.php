@@ -40,7 +40,7 @@ use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Login;
-use Illuminate\Routing\Router;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Support\Facades\Event;
 
 class OrdersServiceProvider extends ModuleServiceProvider
@@ -73,7 +73,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->bindDemoContracts();
 
-        $this->app->make(Router::class)->pushMiddlewareToGroup('web', CaptureReferralAndPromo::class);
+        $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);
 
         Event::listen(Login::class, MergeCartOnLogin::class);
         Event::listen(ServiceActivated::class, TrackItemActivation::class);

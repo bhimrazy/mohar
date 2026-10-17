@@ -45,13 +45,21 @@ class AddProductToCart
             throw ValidationException::withMessages(['cycle' => __('Choose one of the available billing cycles.')]);
         }
 
+        $errors = [];
+        $configOptions = $this->configOptions($productId, $cart->currency, $input['config_options'] ?? [], $errors);
+        $customFields = $this->customFields($productId, $input['custom_fields'] ?? [], $errors);
+
+        if ($errors !== []) {
+            throw ValidationException::withMessages($errors);
+        }
+
         $item = new CartItem(
             key: $replaceKey ?? CartItem::newKey(),
             kind: CartItemKind::Product,
             productId: $productId,
             cycle: $cycle,
-            configOptions: $this->configOptions($productId, $cart->currency, $input['config_options'] ?? []),
-            customFields: $this->customFields($productId, $input['custom_fields'] ?? []),
+            configOptions: $configOptions,
+            customFields: $customFields,
             domainMode: $this->domainMode($input, $product->requiresDomain),
             domainName: ($name = trim((string) ($input['domain_name'] ?? ''))) === '' ? null : strtolower($name),
             eppCode: ($input['domain_mode'] ?? null) === 'transfer' ? $this->eppCode($input) : null,
@@ -81,12 +89,12 @@ class AddProductToCart
 
     /**
      * @param  array<int|string, mixed>  $input
+     * @param  array<string, string>  $errors  collects field errors
      * @return array<int, int>
      */
-    private function configOptions(int $productId, string $currency, array $input): array
+    private function configOptions(int $productId, string $currency, array $input, array &$errors): array
     {
         $selected = [];
-        $errors = [];
 
         foreach ($this->priceBook->configOptionsFor($productId, $currency) as $option) {
             $value = $input[$option['id']] ?? null;
@@ -122,21 +130,17 @@ class AddProductToCart
             $selected[$option['id']] = (int) $value;
         }
 
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
-        }
-
         return $selected;
     }
 
     /**
      * @param  array<int|string, mixed>  $input
+     * @param  array<string, string>  $errors  collects field errors
      * @return array<int, string>
      */
-    private function customFields(int $productId, array $input): array
+    private function customFields(int $productId, array $input, array &$errors): array
     {
         $values = [];
-        $errors = [];
 
         foreach ($this->priceBook->customFieldsFor($productId) as $field) {
             $value = trim((string) ($input[$field['id']] ?? ''));
@@ -150,10 +154,6 @@ class AddProductToCart
             } elseif ($value !== '') {
                 $values[$field['id']] = $value;
             }
-        }
-
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
         }
 
         return $values;

@@ -22,7 +22,6 @@ class AddProductRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'product_id' => ['required', 'integer', 'min:1'],
             'cycle' => ['required', 'string', 'max:20'],
             'config_options' => ['nullable', 'array'],
             'config_options.*' => ['nullable', 'integer', 'min:0', 'max:1000'],
@@ -45,10 +44,5 @@ class AddProductRequest extends FormRequest
         $validated = $this->validated();
 
         return [...$validated, 'product_id' => $productId];
-    }
-
-    protected function prepareForValidation(): void
-    {
-        $this->merge(['product_id' => $this->route('product')]);
     }
 }
