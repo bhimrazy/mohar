@@ -18,7 +18,11 @@ import type {
     PaymentOptions,
     Transaction,
 } from '@/components/billing/types';
-import { humanize, toDecimalInput } from '@/components/billing/types';
+import {
+    humanize,
+    normalizeMoney,
+    toDecimalInput,
+} from '@/components/billing/types';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,6 +58,9 @@ function ApplyCreditForm({
         <form
             onSubmit={(event) => {
                 event.preventDefault();
+                form.transform((data) => ({
+                    amount: normalizeMoney(data.amount),
+                }));
                 form.submit(applyCredit(invoice.id), { preserveScroll: true });
             }}
             className="grid gap-3"

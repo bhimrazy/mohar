@@ -110,6 +110,7 @@ function RefundDialog({
             submitLabel="Refund payment"
             destructive
             action={refund(transaction.id)}
+            moneyFields={['amount']}
             initial={{
                 amount: toDecimalInput(transaction.refundable_remaining),
                 mode: canRefundAtGateway ? 'gateway' : 'record_only',
@@ -750,6 +751,7 @@ export default function InvoiceShow({
                     description="Partial payments reduce the balance; anything above the balance becomes account credit."
                     submitLabel="Record payment"
                     action={recordPayment(invoice.id)}
+                    moneyFields={['amount', 'fee']}
                     initial={{
                         amount: toDecimalInput(invoice.balance),
                         gateway: invoice.payment_gateway ?? 'bank_transfer',
@@ -958,6 +960,7 @@ export default function InvoiceShow({
                     }
                     submitLabel="Apply credit"
                     action={applyCredit(invoice.id)}
+                    moneyFields={['amount']}
                     initial={{
                         amount: toDecimalInput(
                             Math.min(credit_available, invoice.balance),
@@ -992,6 +995,7 @@ export default function InvoiceShow({
                     description="The amount goes back to the client's credit balance and the invoice balance increases."
                     submitLabel="Remove credit"
                     action={removeCredit(invoice.id)}
+                    moneyFields={['amount']}
                     initial={{ amount: toDecimalInput(invoice.credit_applied) }}
                 >
                     {(form) => (

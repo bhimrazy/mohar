@@ -150,6 +150,7 @@ export default function TransactionsIndex({
                                 description="Income is applied to the listed invoice IDs in order; any remainder becomes account credit."
                                 submitLabel="Add transaction"
                                 action={store()}
+                                moneyFields={['amount', 'fee']}
                                 initial={{
                                     client_id: client ? String(client.id) : '',
                                     type: 'manual_income',

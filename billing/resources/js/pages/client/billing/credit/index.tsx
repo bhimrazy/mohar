@@ -12,7 +12,7 @@ import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
 import { StatCard } from '@/components/app/stat-card';
 import type { CreditEntry, Transaction } from '@/components/billing/types';
-import { humanize } from '@/components/billing/types';
+import { humanize, normalizeMoney } from '@/components/billing/types';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -132,6 +132,9 @@ export default function ClientCredit({
                                 className="grid gap-3"
                                 onSubmit={(event) => {
                                     event.preventDefault();
+                                    form.transform((data) => ({
+                                        amount: normalizeMoney(data.amount),
+                                    }));
                                     form.submit(addFunds());
                                 }}
                             >

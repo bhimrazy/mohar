@@ -14,6 +14,7 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
+import { withMoney } from './types';
 import type { RouteAction } from '@/types/app';
 
 export type DialogForm<T extends FormDataType<T>> = ReturnType<
@@ -32,6 +33,8 @@ type FormDialogProps<T extends FormDataType<T>> = {
     destructive?: boolean;
     /** Reshape the data right before submitting (e.g. parse a comma-separated list). */
     transform?: (data: T) => Record<string, FormDataConvertible>;
+    /** Fields holding typed amounts, canonicalised with parseMoneyInput() before submit. */
+    moneyFields?: string[];
     children: (form: DialogForm<T>) => ReactNode;
 };
 
@@ -50,6 +53,7 @@ export function FormDialog<T extends FormDataType<T>>({
     initial,
     destructive = false,
     transform,
+    moneyFields = [],
     children,
 }: FormDialogProps<T>) {
     const [internalOpen, setInternalOpen] = useState(false);
@@ -74,9 +78,14 @@ export function FormDialog<T extends FormDataType<T>>({
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
 
-        if (transform) {
-            form.transform(transform);
-        }
+        form.transform((data) => {
+            const normalized = withMoney(
+                data as Record<string, unknown>,
+                moneyFields,
+            ) as T;
+
+            return transform ? transform(normalized) : normalized;
+        });
 
         form.submit(action, {
             preserveScroll: true,

@@ -113,6 +113,7 @@ export default function CreditIndex({ client, entries, clients }: Props) {
                             description="Manual adjustments are logged with your name."
                             submitLabel="Save adjustment"
                             action={store()}
+                            moneyFields={['amount']}
                             initial={{
                                 client_id: client ? String(client.id) : '',
                                 direction: 'add',

@@ -1,3 +1,5 @@
+import { parseMoneyInput } from '@/lib/money';
+
 /**
  * Billing page props as sent by app/Modules/Billing/Http/Resources/*.
  * Money is always integer minor units + currency.
@@ -184,4 +186,36 @@ export function humanize(value: string): string {
 /** Minor units → "12.50" for prefilling decimal amount inputs. */
 export function toDecimalInput(amount: number): string {
     return (amount / 100).toFixed(2);
+}
+
+/**
+ * Canonicalise a typed amount with parseMoneyInput() ("1,299.1" → "1299.10", Indian grouping accepted).
+ * Invalid input is passed through unchanged so the server rejects it with a field error instead of a guess.
+ */
+export function normalizeMoney(input: string): string {
+    const minor = parseMoneyInput(input);
+
+    if (minor === null) {
+        return input.trim();
+    }
+
+    return `${minor < 0 ? '-' : ''}${(Math.abs(minor) / 100).toFixed(2)}`;
+}
+
+/** Normalise the given money fields of a form payload. */
+export function withMoney<T extends Record<string, unknown>>(
+    data: T,
+    keys: (keyof T)[],
+): T {
+    const copy = { ...data };
+
+    for (const key of keys) {
+        const value = copy[key];
+
+        if (typeof value === 'string' && value.trim() !== '') {
+            copy[key] = normalizeMoney(value) as T[keyof T];
+        }
+    }
+
+    return copy;
 }

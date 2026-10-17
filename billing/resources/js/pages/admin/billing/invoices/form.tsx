@@ -15,7 +15,7 @@ import type {
     GatewayOption,
     Invoice,
 } from '@/components/billing/types';
-import { toDecimalInput } from '@/components/billing/types';
+import { normalizeMoney, toDecimalInput } from '@/components/billing/types';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +79,7 @@ export default function InvoiceForm({
             items: data.items.map((item) => ({
                 ...item,
                 quantity: Number(item.quantity),
+                unit_amount: normalizeMoney(item.unit_amount),
             })),
         }));
         form.submit(invoice ? update(invoice.id) : store());
