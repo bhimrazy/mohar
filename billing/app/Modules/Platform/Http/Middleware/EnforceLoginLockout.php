@@ -20,9 +20,10 @@ class EnforceLoginLockout
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->isMethod('post') && $request->route()?->getName() === 'login.store') {
-            $email = (string) $request->input('email', '');
+        $email = $request->input('email');
 
+        // Non-string input (email[]=…) is left to Fortify's validation (422).
+        if ($request->isMethod('post') && $request->route()?->getName() === 'login.store' && is_string($email)) {
             if ($this->lockout->isLocked($email, (string) $request->ip())) {
                 throw ValidationException::withMessages([
                     'email' => __('Too many failed sign-in attempts. Try again in :minutes minutes.', [

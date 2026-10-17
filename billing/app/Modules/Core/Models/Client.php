@@ -4,6 +4,7 @@ namespace App\Modules\Core\Models;
 
 use App\Models\User;
 use App\Modules\Core\Database\Factories\ClientFactory;
+use App\Modules\Core\Support\Like;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -122,11 +123,11 @@ class Client extends Model
         }
 
         $query->where(function (Builder $query) use ($term): void {
-            $like = '%'.$term.'%';
-            $query->whereLike('first_name', $like)
-                ->orWhereLike('last_name', $like)
-                ->orWhereLike('company_name', $like)
-                ->orWhereLike('email', $like);
+            $like = Like::contains($term);
+
+            foreach (['first_name', 'last_name', 'company_name', 'email'] as $index => $column) {
+                Like::where($query, $column, $like, $index === 0 ? 'and' : 'or');
+            }
 
             if (ctype_digit($term)) {
                 $query->orWhere('id', (int) $term);

@@ -75,7 +75,7 @@ test('security settings need a recent password and notify every full administrat
     Event::fake([SettingsUpdated::class]);
     $otherAdmin = User::factory()->staff(['*'])->create();
     actingAsStaff(['core.settings.view', 'core.settings.security']);
-    $payload = ['security' => ['staff_2fa_required' => true, 'login_max_attempts' => 5, 'login_lockout_minutes' => 15, 'login_ip_allowlist' => ''], 'platform' => ['impersonation_minutes' => 15, 'invitation_expiry_days' => 3]];
+    $payload = ['security' => ['staff_2fa_required' => true, 'login_max_attempts' => 5, 'login_lockout_minutes' => 15, 'login_ip_allowlist' => ''], 'platform' => ['impersonation_minutes' => 15, 'invitation_expiry_days' => 3, 'activity_log_retention_days' => 365]];
 
     $this->get(route('admin.platform.settings.edit', ['section' => 'security']))->assertRedirect(route('password.confirm'));
     $this->put(route('admin.platform.settings.update', ['section' => 'security']), $payload)->assertSessionHasErrors('password_confirmation');
@@ -139,7 +139,7 @@ test('changing a colleague\'s email needs a recent password, notifies the old ad
     $this->put(route('admin.platform.staff.update', $agent), $payload)->assertRedirect();
 
     expect($agent->fresh())->email->toBe('new@example.com')->email_verified_at->toBeNull();
-    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === 'old@example.com');
+    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === ['old@example.com', 'new@example.com']);
 });
 
 test('a staff 2FA reset emails the affected staff member', function () {
@@ -150,7 +150,29 @@ test('a staff 2FA reset emails the affected staff member', function () {
 
     $this->post(route('admin.platform.staff.reset-two-factor', $agent))->assertRedirect();
 
-    Notification::assertSentTo($agent, SecurityNotice::class);
+    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === [$agent->email]);
+});
+
+test('after an admin email change, a 2FA reset also notifies the previous address', function () {
+    Notification::fake();
+    actingAsStaff();
+    confirmPassword();
+    $agent = User::factory()->staff(['support.*'])->withTwoFactor()->create(['email' => 'real.owner@example.com']);
+
+    $this->put(route('admin.platform.staff.update', $agent), ['name' => $agent->name, 'email' => 'attacker@evil.test', 'role_id' => $agent->role_id, 'is_active' => true])->assertRedirect();
+    $this->post(route('admin.platform.staff.reset-two-factor', $agent))->assertRedirect();
+
+    Notification::assertSentOnDemand(SecurityNotice::class, fn (SecurityNotice $notification, $channels, $notifiable) => $notification->subject === 'Your two-factor authentication was reset'
+        && in_array('real.owner@example.com', (array) $notifiable->routes['mail'], true)
+        && in_array('attacker@evil.test', (array) $notifiable->routes['mail'], true));
+});
+
+test('activity-log retention is a security setting', function () {
+    actingAsStaff(['core.settings.view', 'core.settings.update']);
+    confirmPassword();
+
+    $this->put(route('admin.platform.settings.update', ['section' => 'security']), ['platform' => ['activity_log_retention_days' => 30]])->assertForbidden();
+    $this->assertDatabaseMissing('settings', ['key' => 'platform.activity_log_retention_days']);
 });
 
 test('five failed sign-ins lock the email and IP for the lockout period, even with the right password', function () {
@@ -235,4 +257,9 @@ test('staff signed in as a client cannot change the account email', function () 
     $this->put(route('client.account.update'), [...$details, 'email' => 'billing@client.test'])->assertSessionHasNoErrors();
 
     expect($client->fresh()->email)->toBe('billing@client.test');
+});
+
+test('an array email on sign-in is a validation error, not a server error', function () {
+    $this->post(route('login.store'), ['email' => ['x@example.com'], 'password' => 'secret'])->assertSessionHasErrors('email');
+    $this->postJson(route('login.store'), ['email' => ['x@example.com'], 'password' => 'secret'])->assertUnprocessable();
 });

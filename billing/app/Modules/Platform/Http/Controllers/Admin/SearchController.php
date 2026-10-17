@@ -18,8 +18,8 @@ class SearchController extends Controller
 
     public function __invoke(Request $request, GlobalSearch $search): JsonResponse
     {
-        // "%" would turn the search into a match-all (portable LIKE has no common escape character).
-        $term = trim(str_replace(['%', '\\'], '', $request->string('q')->toString()));
+        // Providers must treat the term literally (App\Modules\Core\Support\Like escapes % and _).
+        $term = trim($request->string('q')->toString());
 
         if (mb_strlen($term) < self::MIN_LENGTH) {
             return response()->json(['groups' => []]);

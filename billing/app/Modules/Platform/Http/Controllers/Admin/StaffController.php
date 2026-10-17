@@ -5,6 +5,7 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Actions\Staff\CreateStaff;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
@@ -28,8 +29,11 @@ class StaffController extends Controller
             ->where('is_staff', true)
             ->with('role:id,name')
             ->when($request->filled('search'), function ($query) use ($request): void {
-                $like = '%'.str_replace(['%', '\\'], '', $request->string('search')->toString()).'%';
-                $query->where(fn ($query) => $query->whereLike('name', $like)->orWhereLike('email', $like));
+                $like = Like::contains($request->string('search')->toString());
+                $query->where(function ($query) use ($like): void {
+                    Like::where($query, 'name', $like);
+                    Like::where($query, 'email', $like, 'or');
+                });
             })
             ->when($request->filled('status'), fn ($query) => $query->where('is_active', $request->string('status')->toString() === 'active'))
             ->when($request->string('two_factor')->toString() === 'off', fn ($query) => $query->whereNull('two_factor_confirmed_at'))

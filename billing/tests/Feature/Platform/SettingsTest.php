@@ -172,3 +172,21 @@ test('a secret saved through the settings UI is stored encrypted and never rende
     expect(DB::table('settings')->where('key', 'acme.api_key')->value('value'))->not->toContain('sk_ui_000');
     $this->get(route('admin.platform.settings.edit', ['section' => 'acme']))->assertDontSee('sk_ui_000');
 });
+
+test('only registered secrets are decrypted, and only with ciphertext bound to their key', function () {
+    $settings = app(Settings::class);
+    $settings->set('acme.api_key', 'sk_bound_111');
+    $ciphertext = DB::table('settings')->where('key', 'acme.api_key')->value('value');
+
+    // Ciphertext copied into a non-secret setting is shown as the opaque string, never decrypted.
+    DB::table('settings')->insert(['key' => 'acme.label', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
+    Cache::forget('core.settings');
+    expect($settings->get('acme.label'))->not->toContain('sk_bound_111');
+
+    // Ciphertext copied into another secret setting is refused.
+    app(SettingsRegistry::class)->section('acme2', 'Acme 2', [new SettingDefinition('acme.other_key', 'Other key', secret: true)]);
+    DB::table('settings')->insert(['key' => 'acme.other_key', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
+    Cache::forget('core.settings');
+    expect($settings->get('acme.other_key', 'fallback'))->toBe('fallback')
+        ->and($settings->get('acme.api_key'))->toBe('sk_bound_111');
+});

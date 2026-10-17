@@ -5,6 +5,7 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Support\Like;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -27,7 +28,7 @@ class ActivityLogController extends Controller
 
         $entries = ActivityLog::query()
             ->with(['user:id,name,email', 'impersonator:id,name', 'client:id,first_name,last_name,company_name'])
-            ->when($filters['search'] ?? null, fn ($query, string $term) => $query->whereLike('description', '%'.str_replace(['%', '\\'], '', $term).'%'))
+            ->when($filters['search'] ?? null, fn ($query, string $term) => Like::where($query, 'description', Like::contains($term)))
             ->when($filters['event'] ?? null, fn ($query, string $event) => $query->where('event', $event))
             ->when($filters['user'] ?? null, fn ($query, $user) => $query->where('user_id', (int) $user))
             ->when($filters['client'] ?? null, fn ($query, $client) => $query->where('client_id', (int) $client))

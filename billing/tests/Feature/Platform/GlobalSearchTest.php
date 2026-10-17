@@ -58,5 +58,9 @@ test('LIKE wildcards in the search term cannot match everything', function () {
     Client::factory()->count(3)->create();
 
     $this->getJson(route('admin.platform.search', ['q' => '%%']))->assertExactJson(['groups' => []]);
-    $this->getJson(route('admin.platform.search', ['q' => '%a%']))->assertOk();
+    $this->getJson(route('admin.platform.search', ['q' => '__']))->assertExactJson(['groups' => []]);
+
+    $match = Client::factory()->create(['email' => 'first_last@example.test', 'company_name' => null]);
+    $results = collect($this->getJson(route('admin.platform.search', ['q' => 'first_l']))->json('groups'))->keyBy('group');
+    expect(collect($results['Clients']['results'])->pluck('href')->all())->toBe([route('admin.clients.show', $match)]);
 });
