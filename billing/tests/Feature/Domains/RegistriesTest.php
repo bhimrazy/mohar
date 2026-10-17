@@ -3,12 +3,14 @@
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -104,4 +106,13 @@ test('needs-attention todos count expiring and failed domains', function () {
 
     expect($todos['domains.expiring']['count'])->toBe(1)
         ->and($todos['domains.attention']['count'])->toBe(2);
+});
+
+test('registrar sync has one owner: the hourly schedule, not the daily pipeline', function () {
+    $sync = collect(app(Schedule::class)->events())
+        ->filter(fn ($event) => str_contains((string) $event->command, 'domains:sync'));
+
+    expect(app(Automation::class)->ordered())->not->toHaveKey('domains.sync')
+        ->and($sync)->toHaveCount(1)
+        ->and($sync->first()->expression)->toBe('0 * * * *');
 });

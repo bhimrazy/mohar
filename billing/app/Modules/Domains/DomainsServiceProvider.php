@@ -18,7 +18,6 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
-use App\Modules\Domains\Actions\SyncDomains;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -46,6 +45,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
+/**
+ * Domains module. Registrar sync is scheduled hourly (`domains:sync`) rather than in the daily automation
+ * pipeline because pending transfers and needs_review domains need sub-daily checks; it has no SYNC task.
+ */
 class DomainsServiceProvider extends ModuleServiceProvider
 {
     public function moduleKey(): string
@@ -106,12 +109,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today));
 
         $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
-
-        $automation->task('domains.sync', Automation::SYNC, function (): string {
-            $result = $this->app->make(SyncDomains::class)->handle();
-
-            return "{$result['synced']} synced, {$result['changes']} changes, {$result['errors']} errors";
-        });
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => RegistrarCommandLog::query()
             ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))
