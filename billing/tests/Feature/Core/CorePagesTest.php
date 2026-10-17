@@ -21,8 +21,7 @@ test('the admin dashboard renders permitted widgets, deferred widgets and to-dos
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/dashboard')
-            ->where('cards.0.key', 'core.clients')
-            ->where('cards.0.value', 2)
+            ->where('cards', fn ($cards) => collect($cards)->firstWhere('key', 'core.clients')['value'] === 2)
             ->where('activity', null)
             ->where('widgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.list')
                 && collect($widgets)->firstWhere('key', 'core.clients')['value'] === 2
@@ -100,7 +99,7 @@ test('the client dashboard shows the account and its cards', function () {
         ->assertInertia(fn (Assert $page) => $page
             ->component('client/dashboard')
             ->where('client.id', $client->id)
-            ->where('cards.0.label', 'Unpaid invoices'));
+            ->where('cards', fn ($cards) => collect($cards)->firstWhere('key', 'test.unpaid')['label'] === 'Unpaid invoices'));
 });
 
 test('the client account page shows the current account without staff notes', function () {
