@@ -130,9 +130,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - Whole-database audit on PostgreSQL with 100k clients and 1M-row log tables:
   `docs/database/audit-2026-10-18.md` (findings per module, EXPLAIN before/after, queries per page).
-- 54 indexes in seven migrations: every foreign key now has an index (PostgreSQL does not add them), plus the
+- 55 indexes in eight migrations: every foreign key now has an index (PostgreSQL does not add them), plus the
   transaction list sort, client sign-up date and `lower(email)` sender matching. Built CONCURRENTLY through the
-  new `OnlineIndex` helper. The admin order list went from 0.7–9 s to 4 ms; client service and order lists,
+  new `OnlineIndex` helper (refuses to run inside a transaction or to reuse a differently defined index). The admin order list went from 0.7–9 s to 4 ms; client service and order lists,
   service addons, usage history, module and registrar logs, and user deletes stopped scanning whole tables.
 - Constraints: one default currency, and one default-list TLD price per TLD, currency and years (partial
   unique indexes; NULL `client_group_id` had bypassed the unique key).
@@ -141,8 +141,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   id. Usage sync no longer stores a second snapshot when re-run for an earlier date.
 - Order and transaction date filters use index ranges instead of `whereDate()` on timestamps; settings are read
   once per request instead of one cache query per lookup (33 per admin page); retention pruning deletes in
-  batches (`ChunkedDelete`).
-- `db:seed` refuses to run in production (the module seeders create demo accounts with a known password).
+  batches (`ChunkedDelete`, which keeps rows that stopped matching after selection).
+- Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
+  with a known password); production reference data comes from the install path in #47.
 
 ### DevOps
 
