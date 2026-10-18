@@ -176,7 +176,9 @@ test('messages are masked with the same variants', function () {
 test('a session credential in a URL query is masked wherever the URL appears', function () {
     $url = 'https://h.example.test:2083/cpsess1/login/?session=root:Zz9:create_user_session,ffeedd&locale=en';
 
-    expect((new Redactor)->redact(['note' => "opened {$url}"]))->toBe(['note' => 'opened https://h.example.test:2083/[redacted]/login/?session=[redacted]&locale=en']);
+    expect((new Redactor)->redact(['note' => "opened {$url}"]))->toBe(['note' => 'opened https://h.example.test:2083/[redacted]/login/?session=[redacted]&locale=en'])
+        ->and((new Redactor)->maskValues('next=https%3A%2F%2Fh.example.test%3A2083%2Flogin%2F%3Fsession%3Droot%3AZz9%26locale%3Den', []))
+        ->toBe('next=https%3A%2F%2Fh.example.test%3A2083%2Flogin%2F%3Fsession%3D[redacted]%26locale%3Den');
 });
 
 test('cPanel session keys and cpsess tokens are masked, and SSO answers can mark url as secret', function () {

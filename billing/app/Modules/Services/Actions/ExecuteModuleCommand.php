@@ -34,6 +34,7 @@ use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Services\RetryableProvisioningException;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -86,9 +87,11 @@ class ExecuteModuleCommand
     public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1, ?int $jobTimeout = null): CommandOutcome
     {
         $jobTimeout ??= $this->serviceDrivers->jobTimeoutFor($serviceId);
+        // One deadline for the whole job, fixed before waiting for the lock: renames re-run the driver within it.
+        $deadline = CarbonImmutable::now()->addSeconds(max(5, $jobTimeout - self::DEADLINE_MARGIN_SECONDS));
 
         return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout))
-            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt, $jobTimeout));
+            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt, $deadline));
     }
 
     /**
@@ -119,7 +122,7 @@ class ExecuteModuleCommand
     /**
      * @param  array<string, mixed>  $args
      */
-    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt, int $jobTimeout, int $renames = 0): CommandOutcome
+    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt, CarbonImmutable $deadline, int $renames = 0): CommandOutcome
     {
         $service = Service::withTrashed()->with('client')->find($serviceId);
 
@@ -164,7 +167,6 @@ class ExecuteModuleCommand
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
             // What a create sends, recorded before the call: only an account matching it may later be adopted.
             $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain] : null;
-            $deadline = CarbonImmutable::now()->addSeconds(max(5, $jobTimeout - self::DEADLINE_MARGIN_SECONDS));
             $context = $this->snapshots->context($service, $server, $product, $driver, $deadline, $target === null ? null : $this->unknownAttemptAt($service));
             $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt, $target);
             $result = $this->callDriver($driver, $context, $command, $args);
@@ -191,7 +193,8 @@ class ExecuteModuleCommand
                 default => ModuleCommand::FAILED,
             },
             'error' => $error,
-            'request' => [...($target === null ? [] : ['target' => $target]), ...$this->redactor->redact($result->request, $secrets)] ?: null,
+            // The recorded target goes last, so nothing a driver logs can overwrite it.
+            'request' => [...$this->redactor->redact($result->request, $secrets), ...($target === null ? [] : ['target' => $target])] ?: null,
             'response' => $this->redactor->redact($result->response, $secrets) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
@@ -207,7 +210,7 @@ class ExecuteModuleCommand
         }
 
         if ($command === ModuleCommandName::Create && $outcome === DriverOutcome::Retryable && $renames < self::MAX_RENAMES && $this->takeRename($service, $result, $driver)) {
-            return $this->run($serviceId, $command, $args, $initiator, $attempt, $jobTimeout, $renames + 1);
+            return $this->run($serviceId, $command, $args, $initiator, $attempt, $deadline, $renames + 1);
         }
 
         if ($outcome === DriverOutcome::Retryable && $attempt < $this->settings->maxAttempts()) {
@@ -273,21 +276,44 @@ class ExecuteModuleCommand
     private function takeRename(Service $service, DriverResult $result, ?ProvisioningDriver $driver): bool
     {
         $username = $result->data['username'] ?? null;
+        $policy = $driver?->metadata()->usernamePolicy ?? new UsernamePolicy;
 
-        if ($driver === null || ! is_string($username) || $username === $service->username || ($driver->metadata()->usernamePolicy ?? new UsernamePolicy)->violation($username) !== null) {
+        if ($driver === null || ! is_string($username) || $username === $service->username || $policy->violation($username) !== null) {
             return false;
         }
 
-        $taken = Service::withTrashed()->where('server_id', $service->server_id)->where('username', $username)->whereKeyNot($service->id)->exists();
+        // The proposed name first, then local variants of it; the next attempt checks the chosen one on the server.
+        $base = rtrim($username, '0123456789') ?: $username;
+        $candidates = [$username];
 
-        if ($taken) {
-            return false;
+        for ($suffix = 1; count($candidates) < self::MAX_RENAMES && $suffix <= 99; $suffix++) {
+            $candidate = substr($base, 0, $policy->maxLength - strlen((string) $suffix)).$suffix;
+
+            if ($candidate !== $service->username && $policy->violation($candidate) === null && ! in_array($candidate, $candidates, true)) {
+                $candidates[] = $candidate;
+            }
         }
 
-        $this->activity->log("Username for {$service->label()} changed: the server already holds the assigned one", $service, $service->client_id, ['from' => $service->username, 'to' => $username]);
-        $service->forceFill(['username' => $username])->save();
+        foreach ($candidates as $candidate) {
+            if (Service::withTrashed()->where('server_id', $service->server_id)->where('username', $candidate)->whereKeyNot($service->id)->exists()) {
+                continue;
+            }
 
-        return true;
+            try {
+                // The unique (server_id, username) index settles a race with another service. No transaction is open
+                // here, so a refused statement aborts nothing else (PostgreSQL rule 7).
+                Service::withTrashed()->whereKey($service->id)->update(['username' => $candidate]);
+            } catch (UniqueConstraintViolationException) {
+                continue;
+            }
+
+            $this->activity->log("Username for {$service->label()} changed: the server already holds the assigned one", $service, $service->client_id, ['from' => $service->username, 'to' => $candidate]);
+            $service->username = $candidate;
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

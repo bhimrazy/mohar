@@ -243,3 +243,13 @@ test('a call with no time left in the operation is not sent, so it stays safely 
         ->toThrow(fn (WhmFailure $failure) => expect($failure->outcome)->toBe(DriverOutcome::Retryable));
     Http::assertNothingSent();
 });
+
+test('createacct is not started with less than 10 seconds left; that is a clean retry', function () {
+    Whm::fake();
+    $client = new WhmClient(Whm::server(), app(OutboundAddressGuard::class), microtime(true) + 8);
+
+    expect(fn () => $client->write('createacct', ['username' => 'example']))
+        ->toThrow(fn (WhmFailure $failure) => expect($failure->outcome)->toBe(DriverOutcome::Retryable));
+    expect($client->read('version')->ok)->toBeTrue()
+        ->and(Whm::sent('createacct'))->toBeEmpty();
+});
