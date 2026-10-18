@@ -36,7 +36,8 @@ test('the admin dashboard renders permitted widgets, deferred widgets and to-dos
 });
 
 test('dashboard widgets and to-dos are hidden without permission', function () {
-    actingAsStaff(['support.*']);
+    // A permission no module registers, so every module's widgets stay hidden as modules are added.
+    actingAsStaff(['tests.unrelated']);
 
     $this->get(route('admin.dashboard'))
         ->assertInertia(fn (Assert $page) => $page->where('cards', [])->where('activity', null)->where('widgets', [])->where('todos', []));
