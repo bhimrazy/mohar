@@ -47,6 +47,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Real UI for the admin dashboard, clients index/show/form, client dashboard and account details.
 - Permission catalog: `core.clients.create|update` replace `core.clients.manage`.
 
+### Catalog
+
+- Product groups and products with currency × billing-cycle pricing and setup fees (minor units), configurable options
+  (dropdown, radio, yes/no, quantity) with a pricing-completeness guard, custom fields, addons and upgrade paths.
+- `PriceBook` implementation: client-group pricing, atomic stock reservation and order-independent release on
+  cancel/fraud, slug lookup; never throws for invalid selections.
+- Provisioning binding with installed-driver settings; driver secrets encrypted at rest and never sent to the browser.
+- Admin Setup pages, duplicate product, prorata calculator (`App\Support\Billing\Prorata`), opt-in price
+  auto-convert, Catalog events, demo catalog in USD/INR/NPR.
+
 ### Domains
 
 - TLD catalog with per-term register/transfer/renew prices per currency and client-group slab (no silent currency
