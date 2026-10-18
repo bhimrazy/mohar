@@ -100,8 +100,13 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 
 ## Queue worker, scheduler and automation
 
-- `composer dev` already runs a queue worker. Standalone: `php artisan queue:work --tries=3`
+- `composer dev` already runs a queue worker on `provisioning,default` (registered by the Services
+  module). Standalone: `php artisan queue:work --queue=provisioning,default --tries=3`
   (`QUEUE_CONNECTION=database`; tests use `sync`).
+- Production: run at least one worker that consumes `provisioning` (driver calls: create, suspend,
+  terminate, change package/password), e.g. `php artisan queue:work --queue=provisioning,default`.
+  Module command jobs try once and time out after `services.module.job_timeout_seconds` (60 s); keep
+  the connection's `retry_after` (90 s) above `services.module.lock_ttl_seconds` (80 s).
 - Scheduler: `php artisan schedule:work` (foreground, every minute) or cron
   `* * * * * php artisan schedule:run`. `php artisan schedule:list` shows registered entries — the only
   daily entry is `automation:run` at 03:00.
