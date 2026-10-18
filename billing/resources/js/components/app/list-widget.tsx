@@ -24,6 +24,8 @@ type ListWidgetProps = {
     href?: string;
     empty?: ReactNode;
     actions?: ReactNode;
+    /** Shown between the header and the rows (e.g. status counts). */
+    summary?: ReactNode;
     className?: string;
 };
 
@@ -46,6 +48,7 @@ export function ListWidget({
     href,
     empty = 'Nothing here yet.',
     actions,
+    summary,
     className,
 }: ListWidgetProps) {
     return (
@@ -74,6 +77,11 @@ export function ListWidget({
                     )}
                 </div>
             </header>
+            {summary && (
+                <div className="border-t bg-muted/30 px-(--stat-p) py-2">
+                    {summary}
+                </div>
+            )}
             {items.length === 0 ? (
                 <p className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
                     {empty}
