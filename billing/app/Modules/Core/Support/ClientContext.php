@@ -14,6 +14,9 @@ class ClientContext
 {
     public const SESSION_KEY = 'current_client_id';
 
+    /** Areas a non-owner user can be granted on an account (client_user.permissions). */
+    public const AREAS = ['billing', 'services', 'domains', 'support', 'profile', 'contacts'];
+
     private ?Client $client = null;
 
     private ?User $user = null;
