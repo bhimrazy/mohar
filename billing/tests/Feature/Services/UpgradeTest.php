@@ -160,3 +160,17 @@ test('upgrades are refused when not allowed', function (callable $setup, string 
     }, 'already waiting'],
     'cycle not offered' => [fn () => [2, BillingCycle::Annually], 'not offered'],
 ]);
+
+test('upgrade expiry reaches every match when the run changes more rows than one page holds', function () {
+    $this->travelTo('2026-11-23 10:00');
+    $service = Service::factory()->create(['product_id' => 1]);
+    $row = ['service_id' => $service->id, 'kind' => 'upgrade', 'from_snapshot' => '{}', 'to_snapshot' => '{}', 'currency' => 'USD',
+        'status' => ChangeStatus::PendingPayment->value, 'expires_at' => '2026-11-22 10:00:00', 'created_at' => now(), 'updated_at' => now()];
+    // One more than the 1,000-row page: offset paging skipped rows that the run itself had just expired.
+    collect(range(1, 1001))->chunk(500)->each(fn ($chunk) => ServiceChange::query()->insert($chunk->map(fn () => $row)->all()));
+
+    $this->artisan('automation:run', ['--date' => '2026-11-23', '--only' => 'services.upgrade-expiry'])->assertSuccessful();
+
+    expect(ServiceChange::query()->where('status', ChangeStatus::PendingPayment->value)->count())->toBe(0)
+        ->and(ServiceChange::query()->where('status', ChangeStatus::Expired->value)->count())->toBe(1001);
+});

@@ -36,7 +36,9 @@ a module, follow the `run-workstream` skill. Reusable subagents are in `.claude/
   are made centrally by the CTO session, not inside a module branch, unless the PR body calls them out.
 - Run CPU-heavy commands through `scripts/heavy.sh` (full test suite, phpstan, builds, `npm ci`,
   browsers). The codespace has 4 vCPUs and is shared by several agents.
-- Hard-pinned dependencies with a 7-day release cooldown (ADR 0007). Do not add packages without approval.
+- Hard-pinned dependencies with a 7-day release cooldown (ADR 0007). Do not add packages without approval,
+  and never run `npx <package>` for a tool that is not in the lockfile: it executes unvetted code. Format
+  with `npx vp check --fix`, not standalone prettier.
 - Conventional Commits. Push branches to GitHub (`bhimrazy/whmcs`, private). Open and merge PRs with `gh`.
 - Keep `docs/handoff/state.md`, `billing/docs/progress.md` and `billing/changelog.md` current: update
   them when a PR merges, a workstream starts or stops, or the owner makes a decision.

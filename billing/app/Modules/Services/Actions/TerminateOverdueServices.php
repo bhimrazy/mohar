@@ -36,8 +36,7 @@ class TerminateOverdueServices
             ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<', $today)
-            ->orderBy('id')
-            ->each(function (Service $service) use ($today, &$count): void {
+            ->eachById(function (Service $service) use ($today, &$count): void {
                 if ($service->isExemptFromAutomation($today)) {
                     return;
                 }

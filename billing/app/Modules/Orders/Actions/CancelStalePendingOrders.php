@@ -34,8 +34,7 @@ class CancelStalePendingOrders
             ->where('status', OrderStatus::Pending)
             ->whereNotNull('invoice_id')
             ->where('created_at', '<', $today->subDays($days - 1)->startOfDay())
-            ->orderBy('id')
-            ->each(function (Order $order) use (&$cancelled): void {
+            ->eachById(function (Order $order) use (&$cancelled): void {
                 if ($this->invoicer->status((int) $order->invoice_id) === 'unpaid') {
                     $this->cancel->handle($order);
                     $cancelled++;

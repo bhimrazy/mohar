@@ -8,6 +8,7 @@ use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
 use App\Modules\Domains\Services\DomainPricingService;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -80,4 +81,11 @@ test('renewal orders are hidden until the renew window opens', function () {
 
     expect($service->renewalTerms($domain, 'USD', null, CarbonImmutable::parse('2027-05-01')))->toBe([])
         ->and($service->renewalTerms($domain, 'USD', null, CarbonImmutable::parse('2027-06-05')))->not->toBe([]);
+});
+
+test('the default price list cannot hold the same TLD, currency and years twice', function () {
+    $row = ['tld_id' => $this->com->id, 'currency' => 'NPR', 'client_group_id' => null, 'years' => 7, 'register' => 1000];
+    TldPrice::query()->create($row);
+
+    expect(fn () => TldPrice::query()->create($row))->toThrow(QueryException::class);
 });

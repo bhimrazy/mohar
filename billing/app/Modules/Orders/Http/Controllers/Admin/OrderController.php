@@ -46,6 +46,7 @@ class OrderController extends Controller
     public function index(Request $request, CheckoutGateways $gateways): Response
     {
         $this->authorize('orders.orders.view');
+        $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);
 
         $orders = Order::query()
             ->with('client')
@@ -55,8 +56,8 @@ class OrderController extends Controller
             ->when($request->filled('client'), fn ($query) => $query->where('client_id', $request->integer('client')))
             ->when($request->filled('gateway'), fn ($query) => $query->where('payment_gateway', $request->string('gateway')->toString()))
             ->when($request->filled('fraud'), fn ($query) => $query->where('fraud_decision', $request->string('fraud')->toString()))
-            ->when($request->filled('from'), fn ($query) => $query->whereDate('created_at', '>=', $request->date('from')))
-            ->when($request->filled('to'), fn ($query) => $query->whereDate('created_at', '<=', $request->date('to')))
+            ->when($request->filled('from'), fn ($query) => $query->where('created_at', '>=', $request->date('from')?->startOfDay()))
+            ->when($request->filled('to'), fn ($query) => $query->where('created_at', '<', $request->date('to')?->addDay()->startOfDay()))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate(25)

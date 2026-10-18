@@ -26,8 +26,7 @@ class ReleasePendingItems
     {
         $order->items()
             ->whereIn('status', [OrderItemStatus::Pending, OrderItemStatus::Fraud, OrderItemStatus::Active])
-            ->orderBy('id')
-            ->each(function (OrderItem $item): void {
+            ->eachById(function (OrderItem $item): void {
                 if ($item->status !== OrderItemStatus::Active && $item->item_id !== null) {
                     match ($item->item_type) {
                         OrderItemType::Service, OrderItemType::Upgrade => $this->services->cancelPending($item->item_id),

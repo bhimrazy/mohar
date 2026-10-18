@@ -43,7 +43,8 @@ class SyncUsage
             $services = $server->services()
                 ->whereIn('status', [ServiceStatus::Active->value, ServiceStatus::Suspended->value])
                 ->whereIn('username', array_map('strval', array_keys($rows)))
-                ->whereDoesntHave('latestUsage', fn ($query) => $query->whereDate('captured_at', $today))
+                // Any snapshot on the run date (a plain range keeps (service_id, captured_at) usable; latestOfMany aggregated the whole table).
+                ->whereDoesntHave('usageSnapshots', fn ($query) => $query->where('captured_at', '>=', $today->startOfDay())->where('captured_at', '<', $today->addDay()->startOfDay()))
                 ->get(['id', 'username']);
 
             foreach ($services as $service) {

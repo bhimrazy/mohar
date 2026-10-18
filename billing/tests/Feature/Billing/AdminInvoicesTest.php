@@ -245,3 +245,16 @@ test('billing forms search clients without a size cap', function () {
     actingAsStaff(['billing.invoices.view']);
     $this->getJson(route('admin.billing.clients.search', ['q' => 'Quorvath']))->assertForbidden();
 });
+
+test('the transaction list date range covers both whole days and nothing after it', function () {
+    actingAsStaff(['billing.transactions.view']);
+    $client = billingClient();
+    $first = Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-10-01 00:00:00']);
+    $last = Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-10-31 23:59:59']);
+    Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-11-01 00:00:00']);
+    Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-09-30 23:59:59']);
+
+    $this->get(route('admin.billing.transactions.index', ['from' => '2026-10-01', 'to' => '2026-10-31']))
+        ->assertInertia(fn (Assert $page) => $page->has('transactions.data', 2)
+            ->where('transactions.data.0.id', $last->id)->where('transactions.data.1.id', $first->id));
+});

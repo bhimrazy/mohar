@@ -21,16 +21,16 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
 /**
  * Demo billing data: gateways, tax rules and invoices in every status for the demo customer.
  */
-class BillingSeeder extends Seeder
+class BillingSeeder extends DemoSeeder
 {
     public function run(ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
     {

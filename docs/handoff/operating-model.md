@@ -37,6 +37,8 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
    non-trivial queries), `principal-architect` (every PR that changes the shared kernel), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
+   Send all requested changes in one message, and start a review only after the engineer reports a pushed,
+   clean head. Reviewing a head that is still changing wastes the review.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, resolve conflicts, run all gates locally,
    mark the PR ready (`gh pr ready <n>`; CI skips drafts), wait for CI, post a sign-off comment, `gh pr merge <n> --merge`. Remove the worktree and branch.

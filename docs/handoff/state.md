@@ -50,6 +50,11 @@ draft PR into `develop` when their gates pass.
 
 ## Next
 
+Next build after #43, #41 and #28 merge: ADR 0009, the kernel extension contracts (roadmap 3.1), before any
+control-panel or registrar driver. ADRs 0009–0012 are accepted; 0013 (company clock) and 0014 (observability)
+are proposed. Started now, because it doesn't overlap the open PRs: issue #47, the production install path (go-live
+blocker).
+
 Queued until load allows (the codespace has been at load 5–7 with five agents): PR #38 review, social sign-in,
 client dashboard and client profile (#31, #32, after Dashboard v2), Affiliates, Registrars, then wave 3 from the roadmap.
 
