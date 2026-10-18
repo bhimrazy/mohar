@@ -17,16 +17,17 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('currencies', function (Blueprint $table) {
-            $table->decimal('exchange_rate', 24, 12)->default(1)->change();
-        });
-        self::restoreSingleDefaultIndex();
+        self::withoutSingleDefaultIndex(function (): void {
+            Schema::table('currencies', function (Blueprint $table) {
+                $table->decimal('exchange_rate', 24, 12)->default(1)->change();
+            });
 
-        Schema::table('currencies', function (Blueprint $table) {
-            $table->string('rate_source', 30)->default('manual')->after('exchange_rate');
-            $table->timestamp('rate_checked_at')->nullable()->after('rate_updated_at');
-            $table->string('price_rounding', 20)->default('none');
-            $table->decimal('price_buffer_percent', 5, 2)->default(0);
+            Schema::table('currencies', function (Blueprint $table) {
+                $table->string('rate_source', 30)->default('manual')->after('exchange_rate');
+                $table->timestamp('rate_checked_at')->nullable()->after('rate_updated_at');
+                $table->string('price_rounding', 20)->default('none');
+                $table->decimal('price_buffer_percent', 5, 2)->default(0);
+            });
         });
 
         DB::table('currencies')->whereIn('code', ['INR', 'NPR'])->where('format', '1,234.56')->update(['format' => '1,23,456.78']);
@@ -42,29 +43,36 @@ return new class extends Migration
         DB::table('currencies')->where('code', 'NPR')->where('prefix', 'Rs ')->update(['prefix' => 'रू ']);
         DB::table('currencies')->whereIn('code', ['INR', 'NPR'])->where('format', '1,23,456.78')->update(['format' => '1,234.56']);
 
-        Schema::table('currencies', function (Blueprint $table) {
-            $table->dropColumn(['rate_source', 'rate_checked_at', 'price_rounding', 'price_buffer_percent']);
-        });
+        self::withoutSingleDefaultIndex(function (): void {
+            Schema::table('currencies', function (Blueprint $table) {
+                $table->dropColumn(['rate_source', 'rate_checked_at', 'price_rounding', 'price_buffer_percent']);
+            });
 
-        Schema::table('currencies', function (Blueprint $table) {
-            $table->decimal('exchange_rate', 16, 6)->default(1)->change();
+            Schema::table('currencies', function (Blueprint $table) {
+                $table->decimal('exchange_rate', 16, 6)->default(1)->change();
+            });
         });
-        self::restoreSingleDefaultIndex();
     }
 
     /**
-     * On SQLite a column change rebuilds the table, which turns the partial "one default currency" index
-     * (2026_10_18_000150) into a plain unique index on is_default, so two non-default currencies could no longer
-     * coexist. When that index exists (this migration ran after it), rebuild it as the partial index. The table is
-     * tiny, so a locking build is fine.
+     * On SQLite a column change or drop rebuilds the table and re-creates its indexes without their WHERE clause, so
+     * the partial "one default currency" index (2026_10_18_000150) would become a plain unique index on is_default
+     * (failing as soon as two currencies are not the default). When that index exists (this migration runs after
+     * it), drop it around the schema change and build it again as the partial index. The table is tiny, so a
+     * locking build is fine.
      */
-    private static function restoreSingleDefaultIndex(): void
+    private static function withoutSingleDefaultIndex(Closure $change): void
     {
-        if (! Schema::hasIndex('currencies', 'currencies_single_default_unique')) {
-            return;
+        $index = Schema::hasIndex('currencies', 'currencies_single_default_unique');
+
+        if ($index) {
+            OnlineIndex::drop('currencies', 'currencies_single_default_unique', allowLocking: true);
         }
 
-        OnlineIndex::drop('currencies', 'currencies_single_default_unique', allowLocking: true);
-        OnlineIndex::create('currencies', ['is_default'], 'currencies_single_default_unique', unique: true, where: 'is_default = true', allowLocking: true);
+        $change();
+
+        if ($index) {
+            OnlineIndex::create('currencies', ['is_default'], 'currencies_single_default_unique', unique: true, where: 'is_default = true', allowLocking: true);
+        }
     }
 };

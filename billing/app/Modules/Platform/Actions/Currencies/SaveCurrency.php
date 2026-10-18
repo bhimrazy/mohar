@@ -150,8 +150,22 @@ class SaveCurrency
 
         $previous = Currency::default()->code;
 
+        $rebased = ExchangeRateLock::run(fn (): array => $this->rebaseOnto($currency));
+
+        $currency->refresh();
+        $this->activity->log("Default currency changed to {$currency->code}", $currency, properties: ['old' => $previous, 'new' => $currency->code], event: 'currency.default_changed');
+        ExchangeRatesUpdated::dispatch($rebased, 'rebase');
+    }
+
+    /**
+     * @return list<string> codes whose rate changed
+     *
+     * @throws ValidationException when another default was saved meanwhile
+     */
+    private function rebaseOnto(Currency $currency): array
+    {
         try {
-            $rebased = ExchangeRateLock::run(fn (): array => DB::transaction(function () use ($currency): array {
+            return DB::transaction(function () use ($currency): array {
                 $currency = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
                 $base = (string) $currency->exchange_rate;
                 $codes = [];
@@ -171,15 +185,11 @@ class SaveCurrency
                 ExchangeRateReview::query()->whereNotNull('pending_currency')->update(['status' => ExchangeRateReview::SUPERSEDED, 'pending_currency' => null]);
 
                 return [...$codes, $currency->code];
-            }));
+            });
         } catch (UniqueConstraintViolationException) {
             // Another default was saved meanwhile (currencies_single_default_unique allows only one).
             throw self::defaultConflict();
         }
-
-        $currency->refresh();
-        $this->activity->log("Default currency changed to {$currency->code}", $currency, properties: ['old' => $previous, 'new' => $currency->code], event: 'currency.default_changed');
-        ExchangeRatesUpdated::dispatch($rebased, 'rebase');
     }
 
     /**
