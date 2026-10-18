@@ -19,11 +19,13 @@ use App\Data\Billing\ReturnHint;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Http\Request;
+use Throwable;
 
 /**
  * Khalti KPG-2 web checkout (docs/product/payments-nepal.md §2.1, docs.khalti.com/khalti-epayment).
@@ -115,7 +117,30 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             throw new ProviderException('Khalti initiate failed (HTTP '.$response->status().') '.ProviderHttp::summary($response->json()));
         }
 
-        return new RedirectInstruction($paymentUrl, $pidx);
+        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')));
+    }
+
+    /**
+     * Khalti's own link expiry (expires_at, else now + expires_in seconds). Ignored when missing or implausible
+     * (not between 1 minute and 24 hours ahead); the attempt then keeps attemptTtl().
+     */
+    private static function sessionExpiry(mixed $expiresAt, mixed $expiresIn): ?CarbonImmutable
+    {
+        $at = null;
+
+        if (is_string($expiresAt) && $expiresAt !== '') {
+            try {
+                $at = CarbonImmutable::parse($expiresAt);
+            } catch (Throwable) {
+                $at = null;
+            }
+        }
+
+        if ($at === null && is_numeric($expiresIn)) {
+            $at = CarbonImmutable::now()->addSeconds((int) $expiresIn);
+        }
+
+        return $at !== null && $at->greaterThan(now()->addMinute()) && $at->lessThan(now()->addDay()) ? $at : null;
     }
 
     public function parseReturn(GatewayConfig $gateway, Request $request): ReturnHint

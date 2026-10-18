@@ -63,6 +63,32 @@ test('a started payment stays on the invoice and blocks a second one until its s
     expect(PaymentAttempt::query()->count())->toBe(2);
 });
 
+test('the invoice stays locked until the session expiry Khalti reports, not a fixed hour', function () {
+    [, $invoice] = nprInvoice([150_000]);
+    $this->freezeTime();
+    Http::fake([STATES_INITIATE => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX1', 'expires_at' => now()->addMinutes(30)->toIso8601String(), 'expires_in' => 1800])]);
+
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect();
+    expect(PaymentAttempt::query()->sole()->expires_at->toDateTimeString())->toBe(now()->addMinutes(30)->toDateTimeString());
+
+    $this->travel(29)->minutes();
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress.can_pay_another_way', false));
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->assertSessionHasErrors('billing');
+
+    $this->travel(2)->minutes();
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress.can_pay_another_way', true));
+});
+
+test('an implausible session expiry from Khalti falls back to the configured lifetime', function () {
+    [, $invoice] = nprInvoice([150_000]);
+    $this->freezeTime();
+    Http::fake([STATES_INITIATE => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX1', 'expires_at' => now()->addYear()->toIso8601String()])]);
+
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY]);
+
+    expect(PaymentAttempt::query()->sole()->expires_at->toDateTimeString())->toBe(now()->addMinutes(60)->toDateTimeString());
+});
+
 test('a confirmed payment clears the in-progress state', function () {
     [, $invoice] = nprInvoice([150_000]);
     fakeKhaltiInitiate();

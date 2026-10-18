@@ -84,6 +84,12 @@ export function PaymentInProgressCard({
                         </Button>
                     )}
                 </div>
+                {!staff && attempt.can_pay_another_way && (
+                    <p className="text-sm font-medium">
+                        If you completed the payment on {name}, it will appear
+                        here shortly. Don’t pay again.
+                    </p>
+                )}
                 {staff && (
                     <p className="text-xs text-muted-foreground">
                         Reference {attempt.reference}

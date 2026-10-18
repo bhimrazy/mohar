@@ -100,7 +100,11 @@ class StartHostedPayment
             throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
         }
 
-        $attempt->update(['provider_ref' => $instruction->providerRef]);
+        // The provider's own session expiry, when it states one, decides how long the invoice stays locked.
+        $attempt->update(array_filter([
+            'provider_ref' => $instruction->providerRef,
+            'expires_at' => $instruction->expiresAt,
+        ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 
         return [$attempt, $instruction];

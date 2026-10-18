@@ -466,9 +466,11 @@ merchants).
 
 ### 8.2 Khalti: what the official docs say today vs this spec
 
-- **Link lifetime:** the docs still say 60 minutes in production by default, but the sample response shows
-  `expires_in: 1800` (30 minutes). We keep the attempt TTL at 60 minutes (configurable). Khalti's own `Expired`
-  status closes the attempt either way.
+- **Link lifetime:** the docs say 60 minutes by default in production, but the sample response shows
+  `expires_in: 1800` (30 minutes). The attempt takes Khalti's own `expires_at` from the initiate response (or now +
+  `expires_in`), so the invoice stays locked exactly as long as the Khalti link can still be paid. The configured 60
+  minutes is only the fallback when the response has no plausible expiry (between 1 minute and 24 hours ahead). An
+  `Initiated` lookup never unlocks the invoice early, because the link could still be paid.
 - **Status casing:** the lookup table spells it `Partially refunded`, the status table `Partially Refunded`. Status
   matching is case-insensitive. The docs also say `Canceled` and `Failed` should be treated as failures, although
   neither is a listed status. We map both to cancelled. Any unknown status goes to staff review: the docs say "hold
