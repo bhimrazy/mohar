@@ -41,6 +41,7 @@
         <tr><td>{{ $quote->tax2_name }}</td><td class="right">{{ $money($quote->tax2_amount) }}</td></tr>
     @endif
     <tr class="grand"><td>{{ __('Total') }}</td><td class="right">{{ $money($quote->total) }}</td></tr>
+    <tr><td colspan="2" class="right muted">{{ __('All amounts in :currency', ['currency' => $quote->currency]) }}</td></tr>
 </table>
 @if ($quote->customer_notes)
     <div class="section"><h2>{{ __('Notes') }}</h2>{!! nl2br(e($quote->customer_notes)) !!}</div>

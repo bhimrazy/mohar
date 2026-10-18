@@ -14,7 +14,7 @@ import {
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import InputError from '@/components/input-error';
-import { toMinor } from '@/lib/money';
+import { labelWithCurrency, toMinor } from '@/lib/money';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';
@@ -1195,7 +1195,7 @@ export default function ServiceShow({
                 <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                         htmlFor="addon-amount"
-                        label={`Recurring (${service.currency})`}
+                        label={labelWithCurrency('Recurring', service.currency)}
                         error={addonForm.errors.recurring_amount}
                     >
                         <Input

@@ -78,7 +78,11 @@ Daily scheduler: Services/Domains create renewal invoices via Invoicer (idempote
 
 **Money** — integers in minor units (`*_amount`, `total`, `subtotal` columns as `bigInteger`), always with a
 `currency` char(3) on the owning record. Use `App\Support\Money` for arithmetic; never floats.
-Display formatting is the frontend's job (`formatMoney`).
+Display: every amount people read goes through the currency's configured display (Admin → Currencies:
+prefix, suffix, number format incl. Indian lakh grouping) — `App\Support\Currencies\MoneyFormatter` on the server
+(dashboards, list meta, merge fields, mail, PDFs) and `formatMoney` / `<Money>` in the browser, which read the same
+config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
+ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
 **Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors
 (`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
@@ -87,7 +91,7 @@ original day-of-month as an anchor on recurring items to avoid drift. Query `dat
 
 **Automation** — daily jobs are tasks in the central pipeline, never ad-hoc scheduler entries:
 `app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today) => $count)`.
-Stages run in order RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
+Stages run in order EXCHANGE_RATES → RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
 TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
 idempotent for its run date (recorded in `automation_runs`). Renewal invoicing must call
 `Invoicer::hasInvoiceForPeriod()` before issuing.

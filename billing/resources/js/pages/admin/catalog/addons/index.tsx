@@ -62,7 +62,7 @@ export default function AddonsIndex({
         },
         {
             key: 'price',
-            header: `From (${currency})`,
+            header: 'From',
             align: 'right',
             cell: (addon) =>
                 addon.payment_type === 'free' ? (

@@ -21,6 +21,7 @@ class TldPricesRequest extends FormRequest
         return [
             'currency' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
             'client_group_id' => ['nullable', 'integer', Rule::exists('client_groups', 'id')],
+            'manual' => ['sometimes', 'boolean'],
             'prices' => ['required', 'array', 'max:10'],
             'prices.*.years' => ['required', 'integer', 'min:1', 'max:10', 'distinct'],
             'prices.*.register' => ['nullable', 'integer', 'min:1', 'max:100000000'],

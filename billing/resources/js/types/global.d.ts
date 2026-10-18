@@ -1,3 +1,4 @@
+import type { CurrencyFormat } from '@/lib/money';
 import type { Auth } from '@/types/auth';
 import type { Brand, SharedTheme } from '@/types/ui';
 import type {
@@ -27,6 +28,7 @@ declare module '@inertiajs/core' {
             theme: SharedTheme;
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
+            currencyFormats: CurrencyFormat[];
             impersonation?: {
                 staff: string;
                 user: string;

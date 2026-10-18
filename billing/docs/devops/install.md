@@ -76,6 +76,13 @@ OBJECTS_BUCKET=billing
 OBJECTS_REGION=us-east-1
 ```
 
+`APP_URL` must be the exact public address clients use, with `https://` and no trailing slash. Outside local
+development every generated link (password resets, email verification, signed download links, queued mail, the
+install's next steps) is built from `APP_URL`, never from the request's `Host` header, and requests for any host other
+than `APP_URL`'s host and its subdomains are rejected. A wrong value sends people to the wrong site, and an `http://`
+value produces insecure links. When the domain changes, update `APP_URL` and run `php artisan optimize` again. The
+install pre-flight warns in production when `APP_URL` is not an `https://` address or points at localhost.
+
 Then generate the application key **once**:
 
 ```bash

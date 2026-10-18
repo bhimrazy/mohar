@@ -173,7 +173,7 @@ it('renders the edit page with every tab dataset', function () {
             ->where('activeServices', 2)
             ->where('canManage', false)
             ->has('pricing.cycles', 6)
-            ->where('pricing.rows.0', ['currency' => 'USD', 'cycle' => 'monthly', 'enabled' => true, 'amount' => 1000, 'setup_fee' => 500])
+            ->where('pricing.rows.0', ['currency' => 'USD', 'cycle' => 'monthly', 'enabled' => true, 'amount' => 1000, 'setup_fee' => 500, 'manual' => false])
             ->has('currencies', 1)
             ->has('configOptionGroups')
             ->has('customFields')

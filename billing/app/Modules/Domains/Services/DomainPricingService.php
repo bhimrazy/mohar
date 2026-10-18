@@ -196,7 +196,7 @@ class DomainPricingService implements DomainPricing
 
     private function amount(Tld $tld, string $action, int $years, string $currency, ?int $clientGroupId): ?int
     {
-        $prices = $this->prices[$tld->id] ??= TldPrice::query()->where('tld_id', $tld->id)->get();
+        $prices = $this->prices[$tld->id] ??= TldPrice::query()->where('tld_id', $tld->id)->where('enabled', true)->get();
         $currency = strtoupper($currency);
 
         $matching = $prices->filter(fn (TldPrice $price): bool => $price->currency === $currency && $price->years === $years);

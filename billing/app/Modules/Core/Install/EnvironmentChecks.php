@@ -163,6 +163,13 @@ final class EnvironmentChecks
             $checks[] = new EnvironmentCheck('Debug mode', CheckStatus::Warning, 'APP_DEBUG is true: error pages would show code and configuration. Set APP_DEBUG=false.');
         }
 
+        $url = (string) config('app.url');
+        $host = (string) parse_url($url, PHP_URL_HOST);
+
+        if (! str_starts_with($url, 'https://') || in_array($host, ['', 'localhost', '127.0.0.1', '::1'], true)) {
+            $checks[] = new EnvironmentCheck('APP_URL', CheckStatus::Warning, "APP_URL is \"{$url}\". Every link (password resets, verification, signed downloads, mail) is built from it and other hosts are rejected: set the public https:// address.");
+        }
+
         $mailer = (string) config('mail.default');
 
         if (in_array((string) config("mail.mailers.{$mailer}.transport", $mailer), ['log', 'array'], true)) {

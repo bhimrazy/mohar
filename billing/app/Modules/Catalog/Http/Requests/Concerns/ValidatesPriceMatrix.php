@@ -7,7 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * Validation for a price matrix payload: [{currency, cycle, enabled, amount, setup_fee}] in minor units.
+ * Validation for a price matrix payload: [{currency, cycle, enabled, amount, setup_fee, manual?}] in minor units.
  */
 trait ValidatesPriceMatrix
 {
@@ -27,6 +27,7 @@ trait ValidatesPriceMatrix
             "{$key}.*.enabled" => ['required', 'boolean'],
             "{$key}.*.amount" => ['required', 'integer', 'min:0', 'max:'.self::MAX_AMOUNT],
             "{$key}.*.setup_fee" => ['required', 'integer', 'min:0', 'max:'.self::MAX_AMOUNT],
+            "{$key}.*.manual" => ['sometimes', 'boolean'],
         ];
     }
 

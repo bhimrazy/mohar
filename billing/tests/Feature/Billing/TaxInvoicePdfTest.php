@@ -57,7 +57,7 @@ test('a Nepal VAT invoice labels the buyer PAN and formats rupees', function () 
 
     $html = renderInvoiceHtml($invoice->fresh());
 
-    expect($html)->toContain('Tax Invoice')->toContain('PAN/VAT No.: 301234567')->toContain('Rs. 11,300.00')->toContain('Paid')
+    expect($html)->toContain('Tax Invoice')->toContain('PAN/VAT No.: 301234567')->toContain('Rs 11,300.00')->toContain('−Rs 5,000.00')->toContain('All amounts in NPR')->toContain('Paid')
         ->not->toContain('Place of supply');
 });
 

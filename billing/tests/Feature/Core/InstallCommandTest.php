@@ -58,7 +58,7 @@ function referenceSnapshot(): array
 {
     return [
         'currencies' => Currency::query()->whereIn('code', ['USD', 'INR', 'NPR'])->orderBy('code')->get()
-            ->mapWithKeys(fn (Currency $currency) => [$currency->code => $currency->only(['name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'is_auto_rate', 'is_default'])])->all(),
+            ->mapWithKeys(fn (Currency $currency) => [$currency->code => $currency->only(['name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'price_rounding', 'price_buffer_percent', 'is_default'])])->all(),
         'roles' => Role::query()->where('is_system', true)->orderBy('key')->get()
             ->mapWithKeys(fn (Role $role) => [$role->key => $role->only(['name', 'description', 'permissions'])])->all(),
     ];
@@ -349,7 +349,7 @@ test('a currency staff deleted is not re-created by a later run, and an edited o
 
     app(ReferenceDataInstaller::class)->install();
 
-    expect(Currency::query()->orderBy('code')->pluck('exchange_rate', 'code')->all())->toBe(['NPR' => '140.250000', 'USD' => '1.000000']);
+    expect(Currency::query()->orderBy('code')->pluck('exchange_rate', 'code')->all())->toBe(['NPR' => '140.250000000000', 'USD' => '1.000000000000']);
 });
 
 test('a system role edited away from its definition gets its permissions back, with an audit entry and an event', function () {
@@ -497,3 +497,20 @@ test('in production the pre-flight warns when staff two-factor authentication is
     expect($status)->toBe(0)
         ->and($output)->toContain('Two-factor authentication is not required for staff.');
 });
+
+test('in production the pre-flight warns when APP_URL is not the public https address', function (string $url, bool $warns) {
+    config(['app.url' => $url]);
+    app()->detectEnvironment(fn (): string => 'production');
+
+    try {
+        [, $output] = runInstall(['--admin-email' => 'owner@example.test']);
+    } finally {
+        app()->detectEnvironment(fn (): string => 'testing');
+    }
+
+    expect(str_contains($output, 'set the public https:// address'))->toBe($warns);
+})->with([
+    'http' => ['http://billing.example.test', true],
+    'localhost' => ['https://localhost', true],
+    'public https' => ['https://billing.example.test', false],
+]);

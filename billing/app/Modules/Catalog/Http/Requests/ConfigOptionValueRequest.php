@@ -95,11 +95,11 @@ class ConfigOptionValueRequest extends FormRequest
     }
 
     /**
-     * @return array{label: string, module_value: ?string, is_hidden: bool, sort_order: int, prices: list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int}>}
+     * @return array{label: string, module_value: ?string, is_hidden: bool, sort_order: int, prices: list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int, manual?: bool}>}
      */
     public function valueData(): array
     {
-        /** @var list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int}> $prices */
+        /** @var list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int, manual?: bool}> $prices */
         $prices = $this->validated('prices');
 
         return [

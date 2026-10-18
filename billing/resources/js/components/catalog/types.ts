@@ -23,6 +23,8 @@ export type PriceRow = {
     enabled: boolean;
     amount: number;
     setup_fee: number;
+    /** Set manually in a non-default currency: price conversion leaves it alone. */
+    manual?: boolean;
 };
 
 export type ProductChoice = {

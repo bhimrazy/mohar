@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
+  currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
+  held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
+  `core.*` never grant it, and each change needs a recent password. Roles that held only `core.currencies.manage`
+  keep currency display settings; grant `core.currencies.rates` explicitly to staff who maintain rates.
+- Exchange-rate columns widen to `decimal(24,12)` (currencies, rate history, reviews, transactions, payment
+  batches and attempts). Existing values are kept; rolling the migrations back rounds rates to six decimals.
+- Existing prices in non-default currencies are marked "set manually" (TLD prices always; product prices when
+  automatic conversion was off), so the first price conversion leaves them unchanged.
+
 ### Platform foundation
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),

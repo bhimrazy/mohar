@@ -69,6 +69,7 @@ import {
 import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
+import { labelWithCurrency } from '@/lib/money';
 
 type Props = {
     invoice: Invoice;
@@ -859,7 +860,10 @@ export default function InvoiceShow({
                             <Field
                                 className="content-start"
                                 htmlFor="payment-amount"
-                                label={`Amount (${invoice.currency})`}
+                                label={labelWithCurrency(
+                                    'Amount',
+                                    invoice.currency,
+                                )}
                                 error={form.errors.amount}
                             >
                                 <Input
