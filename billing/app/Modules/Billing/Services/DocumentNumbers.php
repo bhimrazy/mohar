@@ -1,0 +1,72 @@
+<?php
+
+namespace App\Modules\Billing\Services;
+
+use App\Modules\Billing\Models\BillingSequence;
+use App\Modules\Billing\Support\BillingSettings;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Gap-free document numbers (§3). The sequence row is locked FOR UPDATE inside the caller's transaction,
+ * so numbers are only consumed when the publishing transaction commits.
+ */
+class DocumentNumbers
+{
+    public const INVOICE = 'invoice';
+
+    public const PROFORMA = 'proforma';
+
+    public const QUOTE = 'quote';
+
+    public function __construct(private BillingSettings $settings) {}
+
+    public function next(string $sequence, ?CarbonImmutable $date = null): string
+    {
+        $date ??= CarbonImmutable::today();
+        $reset = $sequence === self::QUOTE ? 'never' : $this->settings->string('number_reset', 'never');
+        $period = match ($reset) {
+            'yearly' => $date->format('Y'),
+            'monthly' => $date->format('Y-m'),
+            default => '',
+        };
+        $increment = max(1, $this->settings->int('number_increment', 1));
+
+        $number = DB::transaction(function () use ($sequence, $period, $increment): int {
+            BillingSequence::query()->insertOrIgnore([
+                'sequence' => $sequence, 'period' => $period, 'next_number' => 1, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+
+            $row = BillingSequence::query()->where('sequence', $sequence)->where('period', $period)->lockForUpdate()->firstOrFail();
+            $number = $row->next_number;
+            $row->update(['next_number' => $number + $increment]);
+
+            return $number;
+        });
+
+        return $this->format($this->formatFor($sequence), $number, $date);
+    }
+
+    public function format(string $format, int $number, CarbonImmutable $date): string
+    {
+        $padded = str_pad((string) $number, max(0, $this->settings->int('number_padding')), '0', STR_PAD_LEFT);
+
+        return strtr($format, [
+            '{NUMBER}' => $padded,
+            '{YEAR}' => $date->format('Y'),
+            '{MONTH}' => $date->format('m'),
+            '{DAY}' => $date->format('d'),
+        ]);
+    }
+
+    private function formatFor(string $sequence): string
+    {
+        $format = match ($sequence) {
+            self::PROFORMA => $this->settings->string('proforma_format', 'PF-{NUMBER}'),
+            self::QUOTE => $this->settings->string('quote_number_format', 'Q-{NUMBER}'),
+            default => $this->settings->string('number_format', '{NUMBER}'),
+        };
+
+        return str_contains($format, '{NUMBER}') ? $format : $format.'{NUMBER}';
+    }
+}

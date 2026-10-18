@@ -35,7 +35,7 @@ interface Invoicer
     public function hasInvoiceForPeriod(BillableType $type, int $billableId, CarbonImmutable $periodStart): bool;
 
     /**
-     * Status of an invoice: draft|unpaid|paid|cancelled|refunded|collections, or null if missing.
+     * Status of an invoice: draft|unpaid|payment_pending|paid|cancelled|refunded|collections, or null if missing.
      */
     public function status(int $invoiceId): ?string;
 }

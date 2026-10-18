@@ -11,5 +11,7 @@ final class InvoiceCreated
     public function __construct(
         public int $invoiceId,
         public int $clientId,
+        public bool $notify = true,
+        public ?string $reason = null,
     ) {}
 }

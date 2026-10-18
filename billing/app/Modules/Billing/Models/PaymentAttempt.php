@@ -1,0 +1,97 @@
+<?php
+
+namespace App\Modules\Billing\Models;
+
+use App\Data\Billing\PaymentAttemptRef;
+use App\Modules\Billing\Enums\AttemptStatus;
+use App\Support\Money;
+use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * One hosted-payment try (Khalti/eSewa/… or sandbox hosted). amount/currency is what the provider collects;
+ * document_amount/document_currency is what it pays on the invoice or batch.
+ *
+ * @property int $id
+ * @property string $reference
+ * @property string $gateway
+ * @property int $client_id
+ * @property int|null $invoice_id
+ * @property int|null $payment_batch_id
+ * @property int $amount
+ * @property string $currency
+ * @property int $document_amount
+ * @property string $document_currency
+ * @property string|null $fx_rate
+ * @property string|null $provider_ref
+ * @property string|null $provider_txn_id
+ * @property AttemptStatus $status
+ * @property string|null $review_reason
+ * @property CarbonImmutable|null $expires_at
+ * @property CarbonImmutable|null $last_lookup_at
+ * @property int $lookup_count
+ * @property int|null $transaction_id
+ * @property array<string, mixed>|null $raw
+ * @property CarbonImmutable|null $created_at
+ * @property-read Invoice|null $invoice
+ */
+#[Fillable([
+    'reference', 'gateway', 'client_id', 'invoice_id', 'payment_batch_id', 'amount', 'currency', 'document_amount',
+    'document_currency', 'fx_rate', 'provider_ref', 'provider_txn_id', 'status', 'review_reason', 'expires_at',
+    'last_lookup_at', 'lookup_count', 'transaction_id', 'raw',
+])]
+class PaymentAttempt extends Model
+{
+    protected $attributes = ['status' => 'pending', 'lookup_count' => 0];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => AttemptStatus::class,
+            'amount' => 'integer',
+            'document_amount' => 'integer',
+            'fx_rate' => 'decimal:6',
+            'expires_at' => 'datetime',
+            'last_lookup_at' => 'datetime',
+            'lookup_count' => 'integer',
+            'raw' => 'array',
+        ];
+    }
+
+    /**
+     * Unguessable attempt reference: 26 base32 characters ([a-z2-7], 130 bits of randomness). Public return and
+     * sandbox URLs carry it, so it must not be enumerable. Drivers whose provider caps reference length map
+     * their own id through provider_ref.
+     */
+    public static function newReference(): string
+    {
+        $alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
+        $reference = '';
+
+        foreach (str_split(random_bytes(26)) as $byte) {
+            $reference .= $alphabet[ord($byte) & 31];
+        }
+
+        return $reference;
+    }
+
+    /**
+     * @return BelongsTo<Invoice, $this>
+     */
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
+    }
+
+    public function money(): Money
+    {
+        return Money::of($this->amount, $this->currency);
+    }
+
+    public function toRef(): PaymentAttemptRef
+    {
+        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at);
+    }
+}
