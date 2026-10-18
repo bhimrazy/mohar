@@ -41,7 +41,17 @@ draft PR into `develop` when their gates pass.
 
 ## Next
 
+The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
+studies). The items below are the near-term queue.
+
 1. Wave 2, when a build slot frees (at most two engineers at a time):
+   - **Social sign-in** (owner request 2026-10-18; raised from P2 in the parity study). Admin → Settings →
+     Sign-in integrations: per-provider enable, client ID and secret (write-only, encrypted), callback URL
+     to copy. Google first, then GitHub, Facebook, X and LinkedIn, all via first-party `laravel/socialite`
+     (to be added at a version at least 7 days old). Microsoft and Apple later via a provider registry.
+     Client sign-up and login, link and unlink from the profile. Accounts are matched only by a verified
+     email, with confirmation, to prevent takeover. Staff SSO optional, restricted by domain, with 2FA
+     still enforced.
    - Affiliates (`product/affiliates.md`), worktree `.worktrees/affiliates` exists.
    - Registrars (`product/registrars.md`): prerequisites PR first (C1 remote ids, C2 `findSubmission`
      reconcile, C3 stale-claim sweep = issue #12, C5 redaction gaps), then the `.np` manual driver,

@@ -11,6 +11,8 @@ every item.
 - Dashboards are at least as rich as the design directions in `billing/docs/design/directions/`:
   KPI cards with sparklines and trends, comparison charts, breakdowns, health summaries.
   (2026-10-18)
+- Operational pages (automation, logs, queues, gateways, servers) open with summary cards and a trend
+  chart where the data is time-based, then the detail list. (2026-10-18)
 - Admin screens are at least as capable as WHMCS's equivalent and easier to use; sidebar and
   dashboard at least as rich. (2026-10-17)
 
@@ -32,6 +34,12 @@ every item.
   work. (2026-10-17)
 - Charts use shadcn Chart (recharts) with theme tokens and look as good as the design
   directions. (2026-10-17)
+- Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
+  modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
+  primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
+- Email templates pass on every screen size (320px phone to desktop) and in light mode, dark mode and
+  clients that force-invert colours (Gmail, Outlook), with no overflow and AA contrast in each.
+  (2026-10-18)
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
 
