@@ -95,13 +95,15 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
 - `DriverMetadata` gains trailing `refusedPorts: list<int>` (compatible): ports a server of the driver may not use.
   The host's server form refuses them, and the cPanel driver checks the same list before every call.
 - `ProvisioningContext` gains trailing `?CarbonImmutable $deadline` (compatible): when the host stops waiting for the
-  call. The host sets it from the command's timeout less 5 s; a driver without one applies its own budget.
+  call. The host sets it once per job, from the command's timeout less 5 s, and keeps it across renamed attempts; a
+  driver without one applies its own budget.
 - `ProvisioningContext` gains trailing `?CarbonImmutable $unknownAttemptAt` (compatible): when an earlier attempt of the
   command, sent with the same username and domain, ended with an unknown outcome. The host records each create's
   target on its module command row before calling the driver. A driver may adopt only what that attempt created.
 - `DriverResult::renameUsername(username, message)` (compatible): a retryable create that carries `data.username`,
   the free name to use when the assigned one is taken on the server. The host stores it and runs the create again at
   once (at most 5 times), so the name is recorded before it is ever sent.
-- `Redactor` also masks `session=` credentials in URL query strings (cPanel login links), wherever they appear.
+- `Redactor` also masks `session=` credentials in URL query strings (cPanel login links), wherever they appear,
+  percent-encoded ones included.
 - Test support: `ProvisioningDriverContract::verify()` gains a trailing `serverSettings` override (compatible; not ADR
   0010 public surface) for server settings whose placeholder would be invalid, such as a certificate pin.

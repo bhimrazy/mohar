@@ -44,6 +44,12 @@ final class WhmClient
 
     private const LONG_TIMEOUT = 50;
 
+    /**
+     * A long call is not started with less time than this left: it would likely be cut off after WHM began the work,
+     * an unknown outcome, where not sending it is a clean retry.
+     */
+    private const MIN_LONG_CALL_SECONDS = 10;
+
     private const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
     private const LOG_OUTPUT_BYTES = 4096;
@@ -259,7 +265,7 @@ final class WhmClient
         if ($this->deadline !== null) {
             $left = (int) floor($this->deadline - microtime(true));
 
-            if ($left < 2) {
+            if ($left < 2 || (in_array($function, self::LONG_CALLS, true) && $left < self::MIN_LONG_CALL_SECONDS)) {
                 throw new WhmFailure('The action ran out of time before '.$function.' could be sent; it will be retried.', DriverOutcome::Retryable, WhmFailure::TRANSPORT);
             }
 

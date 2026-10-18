@@ -123,6 +123,7 @@ test('a login link that does not lead to this server is refused', function (stri
     'another host' => ['https://evil.example.net:2083/cpsess1/login/'],
     'another port' => ['https://whm.example.test:8443/cpsess1/login/'],
     'credentials in the authority' => ['https://whm.example.test@evil.example.net:2083/'],
+    'control characters' => ["https://whm.example.test:2083/cpsess1/\r\nLocation: https://evil.example.net/"],
 ]);
 
 test('SSO is refused when the server turns it off, without contacting WHM', function () {

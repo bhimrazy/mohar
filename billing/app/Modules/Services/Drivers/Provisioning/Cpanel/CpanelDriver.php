@@ -860,7 +860,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      */
     private function isLoginLinkFor(string $url, WhmClient $client): bool
     {
-        $parts = parse_url($url);
+        $parts = preg_match('/[\x00-\x20\x7F]/', $url) === 1 ? false : parse_url($url);
 
         return is_array($parts)
             && ($parts['scheme'] ?? null) === 'https'
