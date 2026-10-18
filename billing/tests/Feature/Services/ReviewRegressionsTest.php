@@ -390,7 +390,7 @@ test('drivers receive custom fields by module key and password fields are redact
     RunModuleCommand::dispatch($service->id, 'create');
 
     expect($seen)->toBe(['root' => 'yes', 'panel_pin' => 'pin-998877'])
-        ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toBe('failed with ***');
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toBe('failed with [redacted]');
 });
 
 test('product suspend overrides apply when the service has none', function () {
