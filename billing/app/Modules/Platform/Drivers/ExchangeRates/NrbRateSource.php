@@ -116,7 +116,8 @@ class NrbRateSource implements ExchangeRateSource
             throw new ExchangeRateUnavailable('The Nepal Rastra Bank API response contained no usable rates.');
         }
 
-        // NRB publishes the day's rates shortly after midnight Nepal time.
-        return new RateSnapshot($this->key(), 'NPR', $rates, CarbonImmutable::parse($latest['date'], 'Asia/Kathmandu')->utc());
+        // Rates apply to the stated Nepal business day (published shortly after midnight there); noon keeps
+        // the calendar date the same in every staff timezone.
+        return new RateSnapshot($this->key(), 'NPR', $rates, CarbonImmutable::parse($latest['date'].' 12:00', 'Asia/Kathmandu')->utc());
     }
 }

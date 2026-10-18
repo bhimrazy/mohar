@@ -123,7 +123,6 @@ export default function Complete({
                                 <Money
                                     amount={order.total}
                                     currency={order.currency}
-                                    showCode
                                 />
                             </dd>
                         </div>

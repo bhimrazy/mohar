@@ -4,6 +4,7 @@ import {
     currencySymbol,
     formatMoney,
     formatMoneyCompact,
+    labelWithCurrency,
     parseMoneyInput,
     toMinor,
 } from '../money';
@@ -157,5 +158,17 @@ describe('formatMoney', () => {
         configureCurrencies(undefined);
 
         expect(formatMoney(100, 'NPR')).toBe('Rs 1.00');
+    });
+});
+
+describe('labelWithCurrency', () => {
+    afterEach(() => configureCurrencies([]));
+
+    it('names the symbol and the code for amount inputs', () => {
+        configureCurrencies(SEEDED);
+
+        expect(labelWithCurrency('Amount', 'NPR')).toBe('Amount (Rs, NPR)');
+        expect(labelWithCurrency('Amount', 'usd')).toBe('Amount ($, USD)');
+        expect(labelWithCurrency('Amount', 'XYZ')).toBe('Amount (XYZ)');
     });
 });

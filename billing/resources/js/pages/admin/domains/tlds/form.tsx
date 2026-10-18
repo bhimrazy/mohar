@@ -19,7 +19,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { TldPricingGrid } from '@/components/domains/tld-pricing-grid';
 import type { PriceRow } from '@/components/domains/tld-pricing-grid';
-import { fromMinor, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 
 type Tld = {
     id: number;
@@ -243,7 +243,10 @@ function SettingsForm({
                         'Grace period (days)',
                         '0 turns the grace period off.',
                     )}
-                    {text('grace_fee', `Grace fee (${defaultCurrency})`)}
+                    {text(
+                        'grace_fee',
+                        labelWithCurrency('Grace fee', defaultCurrency),
+                    )}
                     {text(
                         'redemption_days',
                         'Redemption period (days)',
@@ -251,7 +254,7 @@ function SettingsForm({
                     )}
                     {text(
                         'redemption_fee',
-                        `Redemption fee (${defaultCurrency})`,
+                        labelWithCurrency('Redemption fee', defaultCurrency),
                     )}
                     {text(
                         'renew_window_days',

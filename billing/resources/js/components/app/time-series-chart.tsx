@@ -143,14 +143,7 @@ export function TimeSeriesChart({
                 width={56}
                 tickCount={4}
                 allowDecimals={Boolean(currency) || yScale === 'fit'}
-                domain={
-                    yScale === 'fit'
-                        ? [
-                              (min: number) => min - Math.abs(min) * 0.02,
-                              (max: number) => max + Math.abs(max) * 0.02,
-                          ]
-                        : undefined
-                }
+                domain={yScale === 'fit' ? ['auto', 'auto'] : undefined}
                 tickFormatter={formatAxis}
             />
             <ChartTooltip

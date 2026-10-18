@@ -213,7 +213,7 @@ export default function CurrencyForm({
                                     htmlFor="prefix"
                                     label="Symbol before amounts"
                                     error={errors.prefix}
-                                    hint='Include a trailing space if you want one, e.g. "Rs ".'
+                                    hint="Add a space after it to keep it apart from the number."
                                     optional
                                 >
                                     <Input
@@ -239,7 +239,7 @@ export default function CurrencyForm({
                                         id="suffix"
                                         name="suffix"
                                         defaultValue={currency?.suffix ?? ''}
-                                        placeholder=" €"
+                                        placeholder="e.g. kr"
                                         onChange={(event) =>
                                             setDisplay({
                                                 ...display,

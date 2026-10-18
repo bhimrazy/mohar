@@ -24,7 +24,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { fromMinor, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 
 export type PriceRow = {
     id: number;
@@ -401,7 +401,7 @@ export function TldPricingGrid({
                                         key={action}
                                         className="h-9 text-right text-xs capitalize last:pr-4 sm:last:pr-6"
                                     >
-                                        {action} ({currency})
+                                        {labelWithCurrency(action, currency)}
                                     </TableHead>
                                 ))}
                             </TableRow>

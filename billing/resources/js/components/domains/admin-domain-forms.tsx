@@ -26,7 +26,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { fromMinor, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 import type { Domain } from '@/types/domains';
 
 /** Staff forms on the admin domain page: billing/dates editor, forced status and move dialogs. */
@@ -192,7 +192,10 @@ export function DetailsForm({
                     </Field>
                     <Field
                         htmlFor="first_payment_amount"
-                        label={`First payment (${domain.currency})`}
+                        label={labelWithCurrency(
+                            'First payment',
+                            domain.currency,
+                        )}
                         error={errors.first_payment_amount}
                     >
                         <Input
@@ -210,7 +213,10 @@ export function DetailsForm({
                     </Field>
                     <Field
                         htmlFor="recurring_amount"
-                        label={`Renewal amount (${domain.currency})`}
+                        label={labelWithCurrency(
+                            'Renewal amount',
+                            domain.currency,
+                        )}
                         error={errors.recurring_amount}
                         hint="Locked at purchase; price list changes don't affect it."
                     >

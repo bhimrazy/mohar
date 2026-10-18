@@ -151,6 +151,19 @@ export function currencySymbol(currency: string): string {
 }
 
 /**
+ * A form label for an amount entered in a currency: "Amount (Rs, NPR)", or "Amount (CHF)" when the
+ * symbol is the code itself.
+ */
+export function labelWithCurrency(label: string, currency: string): string {
+    const code = currency.toUpperCase();
+    const symbol = currencySymbol(code);
+
+    return symbol === code
+        ? `${label} (${code})`
+        : `${label} (${symbol}, ${code})`;
+}
+
+/**
  * Grouping convention for currencies that are not configured: INR and NPR use Indian lakh/crore
  * grouping (₹12,34,567.89); everything else the default locale.
  */
