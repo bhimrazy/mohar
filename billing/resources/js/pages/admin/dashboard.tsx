@@ -1,85 +1,56 @@
-import { Head, Link } from '@inertiajs/react';
-import { ArrowRight, LayoutGrid } from 'lucide-react';
-import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
-import ActivityLogController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ActivityLogController';
-import { ActivityFeed } from '@/components/app/activity-feed';
-import type { ActivityItem } from '@/components/app/activity-feed';
-import { EmptyState } from '@/components/app/empty-state';
+import { Head, usePage } from '@inertiajs/react';
+import { DashboardWidgets } from '@/components/app/dashboard-widgets';
+import type { DashboardWidget } from '@/components/app/dashboard-widgets';
+import type { TodoItem } from '@/components/app/needs-attention';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import { SectionCard } from '@/components/app/section-card';
-import { StatCard } from '@/components/app/stat-card';
-import { Button } from '@/components/ui/button';
-import { navIcon } from '@/lib/nav-icons';
+import { formatDate } from '@/lib/date';
 import { dashboard } from '@/routes/admin';
-import type { DashboardCard } from '@/types';
 
-type Props = {
-    cards: DashboardCard[];
-    activity: ActivityItem[] | null;
+/**
+ * Props from Core's Admin\DashboardController (kernel Dashboard registry). Recent activity and
+ * automation health arrive as Platform's `list` widgets; the controller's separate `activity`
+ * and `automation` props remain for simpler consumers.
+ */
+type DashboardProps = {
+    widgets: DashboardWidget[];
+    deferredWidgets?: DashboardWidget[];
+    todos: TodoItem[];
 };
 
-export default function AdminDashboard({ cards, activity }: Props) {
+function greeting(): string {
+    const hour = new Date().getHours();
+
+    return hour < 12
+        ? 'Good morning'
+        : hour < 18
+          ? 'Good afternoon'
+          : 'Good evening';
+}
+
+export default function AdminDashboard({
+    widgets,
+    deferredWidgets,
+    todos,
+}: DashboardProps) {
+    const { auth } = usePage().props;
+    const firstName = auth.user?.name.split(' ')[0] ?? '';
+
     return (
         <>
             <Head title="Dashboard" />
             <Page>
                 <PageHeader
-                    title="Dashboard"
-                    description="What needs attention across clients, billing and support."
+                    eyebrow={formatDate(new Date().toISOString().slice(0, 10))}
+                    title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
+                    description="What needs you today and how the business is trending."
                 />
 
-                {cards.length > 0 ? (
-                    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        {cards.map((card) => (
-                            <StatCard
-                                key={card.key}
-                                label={card.label}
-                                value={
-                                    typeof card.value === 'number'
-                                        ? card.value.toLocaleString()
-                                        : card.value
-                                }
-                                hint={card.hint}
-                                trend={card.trend}
-                                icon={navIcon(card.icon)}
-                                href={card.href}
-                            />
-                        ))}
-                    </div>
-                ) : (
-                    <EmptyState
-                        variant="bordered"
-                        icon={LayoutGrid}
-                        title="No dashboard cards for your role"
-                        description="Cards appear here for the areas your role can view."
-                    />
-                )}
-
-                {activity && (
-                    <SectionCard
-                        title="Recent activity"
-                        description="The latest changes made by staff, clients and automation."
-                        flush
-                        actions={
-                            <Button variant="ghost" size="sm" asChild>
-                                <Link href={ActivityLogController.index()}>
-                                    View all
-                                    <ArrowRight />
-                                </Link>
-                            </Button>
-                        }
-                    >
-                        <ActivityFeed
-                            items={activity.map((item) => ({
-                                ...item,
-                                clientHref: item.client
-                                    ? ClientController.show.url(item.client.id)
-                                    : undefined,
-                            }))}
-                        />
-                    </SectionCard>
-                )}
+                <DashboardWidgets
+                    widgets={widgets}
+                    todos={todos}
+                    deferred={deferredWidgets}
+                />
             </Page>
         </>
     );

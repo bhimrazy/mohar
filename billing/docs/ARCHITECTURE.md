@@ -49,13 +49,14 @@ loads only Core + Billing.
 
 ### Contracts (implementer → consumers)
 
-| Contract                                                            | Implemented by   | Used by                                               |
-| ------------------------------------------------------------------- | ---------------- | ----------------------------------------------------- |
-| `Billing\Invoicer`, `Billing\TaxCalculator`, `Billing\CreditLedger` | Billing          | Orders, Services, Domains, Affiliates                 |
-| `Catalog\PriceBook`                                                 | Catalog          | Orders, Services                                      |
-| `Services\ServiceRegistry`                                          | Services         | Orders                                                |
-| `Domains\DomainRegistry`, `Domains\DomainPricing`                   | Domains          | Orders                                                |
-| `Notifications\MergeFieldRegistry`                                  | Core (in-memory) | every module registers resolvers; Notifications reads |
+| Contract                                                            | Implemented by         | Used by                                                       |
+| ------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------- |
+| `Billing\Invoicer`, `Billing\TaxCalculator`, `Billing\CreditLedger` | Billing                | Orders, Services, Domains, Affiliates                         |
+| `Catalog\PriceBook`                                                 | Catalog                | Orders, Services                                              |
+| `Services\ServiceRegistry`                                          | Services               | Orders                                                        |
+| `Domains\DomainRegistry`, `Domains\DomainPricing`                   | Domains                | Orders                                                        |
+| `Notifications\MergeFieldRegistry`                                  | Core (in-memory)       | every module registers resolvers; Notifications reads         |
+| `Branding\BrandProvider` (→ `Data\Branding\Brand`)                  | Themes (Core fallback) | Inertia shared props, mail layout, Billing invoice PDF header |
 
 ### Billing flow (the backbone)
 
@@ -139,6 +140,18 @@ app(GlobalSearch::class)->provider('Invoices', fn (string $term) => [...['title'
 ```
 
 Every permission you check must be registered; every tunable setting must be registered with a definition.
+
+**Themes & brand** — the Themes module renders the active theme's CSS variables into the root view
+(schema: `App\Support\Themes\ThemeSchema`, "billing-theme" v1). Theme packs add presets with
+`app(ThemeRegistry::class)->register(ThemePreset::fromDocument($json))`; presets are validated on
+registration. Pages/emails/PDFs get the brand from `app(BrandProvider::class)->brand()` (name, tagline,
+logo/mark URLs) or `->logoDataUri()` for PDFs — never hard-code the product name. Uploaded logos,
+mark and favicon are stored on the private `objects` disk (shared across app servers) and served
+by `GET /branding/{kind}` — registered outside the `web` group (no session/cookies), immutable only
+for the current `?v=<content hash>`, otherwise a short-cached redirect to it. SVG uploads are
+rejected (no sanitiser); the shipped defaults in `public/brand/` are SVG. The brand name is Core's
+`core.company_name` (Settings → Company, `core.settings.update`, default `config('app.name')`);
+Appearance shows it read-only. Every Themes change is written to the activity log.
 Groups: General, Clients, Orders, Billing, Services, Domains, Support, Marketing, Reports, Setup.
 
 **Merge fields** — register `app(MergeFieldRegistry::class)->register('invoice', fn (int $id) => [...])`

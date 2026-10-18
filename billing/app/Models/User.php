@@ -34,6 +34,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property int|null $role_id
  * @property bool $is_active
  * @property Carbon|null $last_login_at
+ * @property string|null $theme_preference
+ * @property string|null $density_preference
  * @property string|null $last_login_ip
  * @property CarbonInterface|null $invited_at
  * @property bool $must_change_password

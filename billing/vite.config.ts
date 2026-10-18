@@ -12,10 +12,28 @@ export default defineConfig({
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.tsx'],
             refresh: true,
+            // Self-hosted at build time (OFL fonts via Bunny Fonts). One family per design
+            // direction (resources/css/themes/*); only the default face is preloaded.
             fonts: [
                 bunny('Instrument Sans', {
                     weights: [400, 500, 600],
                 }),
+                ...(
+                    [
+                        ['Inter', [400, 500, 600, 700]],
+                        ['IBM Plex Sans', [400, 500, 600]],
+                        ['IBM Plex Mono', [400, 500]],
+                        ['Figtree', [400, 500, 600, 700]],
+                        ['Geist', [400, 500, 600]],
+                        ['Geist Mono', [400, 500]],
+                    ] as const
+                ).map(([family, weights]) =>
+                    bunny(family, {
+                        weights: [...weights],
+                        subsets: ['latin', 'latin-ext'],
+                        preload: false,
+                    }),
+                ),
             ],
         }),
         inertia(),
