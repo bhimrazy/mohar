@@ -135,6 +135,16 @@ test('usage sync stores one snapshot per service per day', function () {
     expect(UsageSnapshot::query()->where('service_id', $service->id)->count())->toBe(1);
 });
 
+test('re-running usage sync for an earlier date does not add a second snapshot for that day', function () {
+    $service = Service::factory()->onServer()->create();
+
+    runTask('services.usage-sync', '2026-11-01');
+    runTask('services.usage-sync', '2026-11-02');
+    runTask('services.usage-sync', '2026-11-01');
+
+    expect(UsageSnapshot::query()->where('service_id', $service->id)->count())->toBe(2);
+});
+
 test('the module log is pruned after the retention period', function () {
     $service = Service::factory()->create();
     ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'log', 'command' => 'create', 'initiator' => 'system', 'success' => true, 'created_at' => '2026-09-01 10:00:00']);

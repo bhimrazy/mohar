@@ -16,8 +16,8 @@ use App\Modules\Catalog\Models\ConfigOptionGroup;
 use App\Modules\Catalog\Models\ConfigOptionValue;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductGroup;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Currency;
-use Illuminate\Database\Seeder;
 
 /**
  * Demo catalog: shared hosting, VPS with configurable resources, SSL certificates and addons, priced in
@@ -25,7 +25,7 @@ use Illuminate\Database\Seeder;
  * Products provision with the Services "log" driver (or "none"); gateway restrictions use Billing's keys.
  * Safe to re-run.
  */
-class CatalogSeeder extends Seeder
+class CatalogSeeder extends DemoSeeder
 {
     /** @var list<Currency> */
     private array $currencies = [];

@@ -24,8 +24,7 @@ class ExpireUnpaidChanges
             ->where('status', ChangeStatus::PendingPayment->value)
             ->whereNotNull('expires_at')
             ->where('expires_at', '<', $today->endOfDay())
-            ->orderBy('id')
-            ->each(function (ServiceChange $change) use (&$count): void {
+            ->eachById(function (ServiceChange $change) use (&$count): void {
                 $expired = DB::transaction(function () use ($change): bool {
                     $locked = ServiceChange::query()->lockForUpdate()->find($change->id);
 
