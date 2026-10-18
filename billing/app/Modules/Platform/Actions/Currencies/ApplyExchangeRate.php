@@ -48,7 +48,7 @@ class ApplyExchangeRate
                 'rate' => $rate,
                 'source' => $source,
                 'effective_at' => $effectiveAt ?? $now,
-                'user_id' => $actor?->id ?? auth()->id(),
+                'user_id' => $actor !== null ? $actor->id : auth()->id(),
             ]);
 
             ExchangeRateReview::query()->pending()->where('currency', $currency->code)

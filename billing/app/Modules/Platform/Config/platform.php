@@ -26,8 +26,8 @@ return [
     'rates_update_time' => '',
 
     'exchange_rates' => [
-        'ecb_url' => env('ECB_RATES_URL', 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml'),
-        'nrb_url' => env('NRB_RATES_URL', 'https://www.nrb.org.np/api/forex/v1/rates'),
+        'ecb_url' => 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml',
+        'nrb_url' => 'https://www.nrb.org.np/api/forex/v1/rates',
         'timeout' => 10,
         'connect_timeout' => 5,
     ],

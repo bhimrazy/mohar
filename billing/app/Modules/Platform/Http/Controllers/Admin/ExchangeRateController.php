@@ -35,12 +35,13 @@ class ExchangeRateController extends Controller
         $this->authorize('core.currencies.rates');
 
         $result = $update->handle($this->staff($request));
-        $parts = array_filter([
-            $result['updated'] !== [] ? __('Updated: :codes.', ['codes' => implode(', ', $result['updated'])]) : null,
-            $result['unchanged'] !== [] ? __('Unchanged: :codes.', ['codes' => implode(', ', $result['unchanged'])]) : null,
-            $result['held'] !== [] ? __('Held for review: :codes.', ['codes' => implode(', ', $result['held'])]) : null,
-            $result['failed'] !== [] ? __('Failed: :codes.', ['codes' => implode(', ', array_keys($result['failed']))]) : null,
-        ]);
+        $parts = [];
+
+        foreach (['Updated: :codes.' => $result['updated'], 'Unchanged: :codes.' => $result['unchanged'], 'Held for review: :codes.' => $result['held'], 'Failed: :codes.' => array_keys($result['failed'])] as $sentence => $codes) {
+            if ($codes !== []) {
+                $parts[] = $this->sentence($sentence, implode(', ', $codes));
+            }
+        }
 
         Inertia::flash('toast', [
             'type' => $result['failed'] !== [] ? 'error' : ($result['held'] !== [] ? 'warning' : 'success'),
@@ -68,6 +69,16 @@ class ExchangeRateController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('The :code rate change was rejected; the current rate stays.', ['code' => $review->currency])]);
 
         return back();
+    }
+
+    /**
+     * A translated fixed sentence (a translation file may only map these keys to strings).
+     */
+    private function sentence(string $key, string $codes): string
+    {
+        $line = __($key, ['codes' => $codes]);
+
+        return is_string($line) ? $line : str_replace(':codes', $codes, $key);
     }
 
     private function staff(Request $request): User

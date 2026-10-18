@@ -127,7 +127,7 @@ class ConvertPrices implements PriceConverter
         $changes = 0;
 
         Price::query()->where('currency', $default->code)->orderBy('id')->chunkById(self::CHUNK, function (Collection $sources) use ($targets, $change, &$changes, &$unchanged, &$manual): void {
-            $existing = $this->existingFor($sources, $targets->pluck('code')->all());
+            $existing = $this->existingFor($sources, array_values($targets->map(fn (Currency $currency): string => $currency->code)->all()));
 
             /** @var Price $source */
             foreach ($sources as $source) {
