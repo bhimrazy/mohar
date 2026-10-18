@@ -17,6 +17,7 @@ return [
     'default_locale' => 'en',
     'signature' => '',
     'support_email' => '',
+    'auth_link_host' => '',
 
     // Sender per category; empty = MAIL_FROM_ADDRESS. The display name is always core.company_name.
     'from' => ['billing' => '', 'default' => ''],

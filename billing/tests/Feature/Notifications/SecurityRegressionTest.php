@@ -128,15 +128,15 @@ it('L2: the occurrence id survives serialisation before its first read', functio
         ->and(EventKey::of(unserialize(serialize($event))))->toBe(EventKey::of($event));
 });
 
-it('L3: secrets are masked in the stored subject too', function () {
+it('L3: a custom template can\'t put the one-time link in its subject (it renders empty)', function () {
     Mail::fake();
     $template = EmailTemplate::factory()->withBody('Reset via {{ auth.reset_url }}', 'Body')->create(['key' => 'custom.reset_subject']);
     $owner = Client::factory()->create(['email' => 'owner@example.test']);
 
     app(NotificationMailer::class)->send(new EmailRequest($template->key, [app(RecipientResolver::class)->owner($owner)], ['auth' => ['reset_url' => 'https://billing.test/reset/SECRET']], 'l3', $owner->id));
 
-    expect(EmailMessage::query()->sole()->subject)->toBe('Reset via ••••');
-    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === 'Reset via https://billing.test/reset/SECRET');
+    expect(EmailMessage::query()->sole()->subject)->toBe('Reset via');
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === 'Reset via');
 });
 
 it('L4: non-owner logins only see email history addressed to them', function () {

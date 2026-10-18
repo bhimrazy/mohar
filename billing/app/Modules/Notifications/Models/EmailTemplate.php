@@ -5,6 +5,7 @@ namespace App\Modules\Notifications\Models;
 use App\Modules\Notifications\Database\Factories\EmailTemplateFactory;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Enums\TemplateType;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
@@ -83,14 +84,12 @@ class EmailTemplate extends Model
     }
 
     /**
-     * Mail carrying a one-time secret (reset, verification and invitation links). It is never copied to
-     * anyone: no global BCC, no template CC/BCC (security review PR #28, B1).
+     * Mail carrying a one-time link (reset, verification, invitation): structure-only, never copied to anyone
+     * (security review B1). The list lives in SecretTemplatePolicy::ACTION_LINKS.
      */
-    public const SECRET_TEMPLATES = ['auth.password_reset', 'auth.email_verification', 'auth.user_invitation', 'staff.password_reset', 'staff.invitation'];
-
     public function carriesSecret(): bool
     {
-        return in_array($this->key, self::SECRET_TEMPLATES, true);
+        return SecretTemplatePolicy::isSecretTemplate($this->key);
     }
 
     /** Account-access mail that must always go out: disabling the template has no effect. */

@@ -43,7 +43,9 @@ type Translation = {
     locale: string;
     exists: boolean;
     subject: string;
+    heading: string;
     body: string;
+    action_label: string;
     updated_at: string | null;
 };
 
@@ -55,7 +57,13 @@ type Preview = {
     text: string | null;
 };
 
-type PreviewInput = { subject: string; body: string; locale: string };
+type PreviewInput = {
+    subject: string;
+    heading: string;
+    body: string;
+    action_label: string;
+    locale: string;
+};
 
 export default function TemplateEditor({
     template,
@@ -89,7 +97,9 @@ export default function TemplateEditor({
         bcc: template?.bcc ?? '',
         locale: translation.locale,
         subject: translation.subject,
+        heading: translation.heading,
         body: translation.body,
+        action_label: translation.action_label,
     });
     const errors = form.errors as Record<string, string | undefined>;
     const body = useRef<HTMLTextAreaElement>(null);
@@ -99,7 +109,9 @@ export default function TemplateEditor({
 
     const previewRequest = useHttp<PreviewInput, Preview>({
         subject: '',
+        heading: '',
         body: '',
+        action_label: '',
         locale: '',
     });
     const [preview, setPreview] = useState<Preview | null>(null);
@@ -113,7 +125,9 @@ export default function TemplateEditor({
         const timer = setTimeout(() => {
             previewRequest.transform(() => ({
                 subject: form.data.subject || ' ',
+                heading: form.data.heading,
                 body: form.data.body || ' ',
+                action_label: form.data.action_label,
                 locale: form.data.locale,
             }));
             previewRequest
@@ -123,7 +137,14 @@ export default function TemplateEditor({
         }, 400);
 
         return () => clearTimeout(timer);
-    }, [form.data.subject, form.data.body, form.data.locale, template?.id]);
+    }, [
+        form.data.subject,
+        form.data.heading,
+        form.data.body,
+        form.data.action_label,
+        form.data.locale,
+        template?.id,
+    ]);
 
     const insertField = (path: string) => {
         const token =
@@ -260,17 +281,15 @@ export default function TemplateEditor({
                                 {secretAction && (
                                     <Alert>
                                         <ShieldCheck />
-                                        <AlertTitle>
-                                            Only the wording can change
-                                        </AlertTitle>
+                                        <AlertTitle>Plain text only</AlertTitle>
                                         <AlertDescription>
                                             This email carries a one-time link.
-                                            Keep one action link to{' '}
-                                            <code className="font-mono text-xs">{`{{ ${secretAction} }}`}</code>
-                                            ; images, HTML and links to sites
-                                            other than this app (APP_URL, or the
-                                            domain of the one-time link itself)
-                                            are not allowed, and it is never
+                                            Edit the heading, text and button
+                                            label as plain text: no links,
+                                            images, HTML or web addresses. The
+                                            system adds the button for the link
+                                            itself; it only points to this app's
+                                            address, and the email is never
                                             copied to anyone.
                                         </AlertDescription>
                                     </Alert>
@@ -385,10 +404,34 @@ export default function TemplateEditor({
                                         required
                                     />
                                 </Field>
+                                {secretAction && (
+                                    <Field
+                                        htmlFor="heading"
+                                        label="Heading"
+                                        error={errors.heading}
+                                    >
+                                        <Input
+                                            id="heading"
+                                            value={form.data.heading}
+                                            onChange={(event) =>
+                                                form.setData(
+                                                    'heading',
+                                                    event.target.value,
+                                                )
+                                            }
+                                            disabled={readOnly}
+                                            required
+                                        />
+                                    </Field>
+                                )}
                                 <Field
                                     htmlFor="body"
                                     label="Body"
-                                    hint="Markdown. {% if path %}…{% endif %} and {% for item in list %}…{% endfor %} are supported."
+                                    hint={
+                                        secretAction
+                                            ? 'Plain text. Separate paragraphs with a blank line; the button goes after the first one.'
+                                            : 'Markdown. {% if path %}…{% endif %} and {% for item in list %}…{% endfor %} are supported.'
+                                    }
                                     error={errors.body}
                                 >
                                     <Textarea
@@ -408,6 +451,26 @@ export default function TemplateEditor({
                                         required
                                     />
                                 </Field>
+                                {secretAction && (
+                                    <Field
+                                        htmlFor="action_label"
+                                        label="Button label"
+                                        error={errors.action_label}
+                                    >
+                                        <Input
+                                            id="action_label"
+                                            value={form.data.action_label}
+                                            onChange={(event) =>
+                                                form.setData(
+                                                    'action_label',
+                                                    event.target.value,
+                                                )
+                                            }
+                                            disabled={readOnly}
+                                            required
+                                        />
+                                    </Field>
+                                )}
                             </div>
                         </SectionCard>
                         <SectionCard

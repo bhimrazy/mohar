@@ -2,9 +2,9 @@
 
 namespace App\Modules\Notifications\Http\Requests;
 
-use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -27,7 +27,7 @@ class SendClientEmailRequest extends FormRequest
     {
         return [
             // Templates carrying one-time links are only sent by their own flows, never by hand.
-            'template_key' => ['nullable', 'string', Rule::exists('email_templates', 'key')->where('audience', 'client'), Rule::notIn(EmailTemplate::SECRET_TEMPLATES)],
+            'template_key' => ['nullable', 'string', Rule::exists('email_templates', 'key')->where('audience', 'client'), Rule::notIn(array_keys(SecretTemplatePolicy::ACTION_LINKS))],
             'subject' => ['required_without:template_key', 'nullable', 'string', 'max:255'],
             'body' => ['required_without:template_key', 'nullable', 'string', 'max:50000'],
         ];
@@ -39,6 +39,12 @@ class SendClientEmailRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            foreach (SecretTemplatePolicy::violations('adhoc', ['subject' => $this->input('subject'), 'body' => $this->input('body')]) as $field => $problems) {
+                foreach ($problems as $problem) {
+                    $validator->errors()->add($field, $problem);
+                }
+            }
+
             foreach (['subject', 'body'] as $field) {
                 if (is_string($source = $this->input($field)) && $source !== '') {
                     try {

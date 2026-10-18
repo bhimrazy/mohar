@@ -31,7 +31,10 @@ return new class extends Migration
             $table->foreignId('email_template_id')->constrained()->cascadeOnDelete();
             $table->string('locale', 10);
             $table->string('subject', 255);
+            // Secret-bearing system templates are structure-only: heading + plain-text body + button label.
+            $table->string('heading', 255)->nullable();
             $table->text('body');
+            $table->string('action_label', 100)->nullable();
             $table->foreignId('updated_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->timestamps();
             $table->unique(['email_template_id', 'locale']);
@@ -73,10 +76,7 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['related_type', 'related_id']);
             $table->index('created_at');
-            $table->index(['client_id', 'id']);                    // admin log filtered by client (newest first)
-            $table->index(['client_id', 'status', 'sent_at']);     // client email history
-            $table->index(['status', 'updated_at']);               // failed-email dashboard to-do
-            $table->index(['body_purged_at', 'created_at']);       // retention purge
+            // Composite lookup indexes: 2026_10_18_800300 (OnlineIndex).
         });
 
         Schema::create('client_email_preferences', function (Blueprint $table) {

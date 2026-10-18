@@ -7,6 +7,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Models\EmailTemplate;
+use App\Modules\Notifications\Models\EmailTemplateTranslation;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Support\EmailBody;
@@ -16,9 +17,9 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 /**
- * Renders a template for one recipient: subject + Markdown body through the sandboxed engine, wrapped in
- * the brand mail layout (resources/views/vendor/mail, CSS inlined), with a text part and a redacted copy
- * for the log (spec §3, §2).
+ * Renders a template for one recipient: subject + body through the sandboxed engine, wrapped in the brand mail
+ * layout (resources/views/vendor/mail, CSS inlined), with a text part and, for mail with a one-time link, a
+ * redacted copy for the log (spec §3, §2).
  */
 class EmailComposer
 {
@@ -26,12 +27,15 @@ class EmailComposer
 
     public function __construct(
         private TemplateEngine $engine,
-        private MergeContext $mergeContext,
         private Markdown $markdown,
         private Settings $settings,
     ) {}
 
     /**
+     * The one rendering path for stored templates (sends, previews of saved or edited text, test sends).
+     * Secret-bearing system templates go through the structure-only renderer; every other template renders
+     * free-form Markdown with secret fields removed from its context (SecretTemplatePolicy).
+     *
      * @param  array<string, mixed>  $context
      *
      * @throws TemplateSyntaxError
@@ -44,6 +48,10 @@ class EmailComposer
             throw new TemplateSyntaxError("Template [{$template->key}] has no text for the default locale.");
         }
 
+        if (SecretTemplatePolicy::isSecretTemplate($template->key)) {
+            return $this->composeSecret($template, $translation, $context);
+        }
+
         return $this->composeSource(
             $template->hasFixedSubject() ? self::FIXED_SUPPORT_SUBJECT : $translation->subject,
             $translation->body,
@@ -51,42 +59,98 @@ class EmailComposer
             $translation->locale,
             $template->plain_text_only,
             $this->preferencesUrl($template),
-            $carriesSecret || $template->carriesSecret(),
         );
     }
 
     /**
+     * Free-form Markdown (non-secret templates, ad-hoc mail). Secret fields are never available here.
+     *
      * @param  array<string, mixed>  $context
      *
      * @throws TemplateSyntaxError
      */
-    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null, bool $carriesSecret = false): ComposedEmail
+    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null): ComposedEmail
     {
-        $options = [
-            'locale' => $locale,
-            'date_format' => DateFormats::current(),
-            'currency' => is_string($context['client']['currency'] ?? null) ? $context['client']['currency'] : null,
-        ];
-        [$redactedContext, $hasRedactions] = $this->mergeContext->redact($context);
-        $secrets = $carriesSecret || $hasRedactions ? SecretTemplatePolicy::secretValues($context) : null;
+        $context = SecretTemplatePolicy::withoutSecrets($context);
+        $options = $this->options($locale, $context);
 
         $renderedSubject = $this->engine->render($subject, $context, false, $options);
         $html = $this->engine->render($body, $context, true, $options);
         $text = $this->engine->render($body, $context, false, $options);
-
-        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($html->output, $preferencesUrl, $secrets);
-        $wrappedText = $this->wrapText($text->output, $preferencesUrl);
+        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml(EmailBody::html($html->output), $preferencesUrl);
+        $wrappedText = $this->wrapText(EmailBody::text($text->output), $preferencesUrl);
 
         return new ComposedEmail(
             subject: $this->subjectLine($renderedSubject->output),
             html: $wrappedHtml,
             text: $wrappedText,
-            storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output, $preferencesUrl, []) : $wrappedHtml,
-            storedText: $hasRedactions ? $this->wrapText($this->engine->render($body, $redactedContext, false, $options)->output, $preferencesUrl) : $wrappedText,
-            hasRedactions: $hasRedactions,
+            storedHtml: $wrappedHtml,
+            storedText: $wrappedText,
+            hasRedactions: false,
             warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
-            storedSubject: $hasRedactions ? $this->subjectLine($this->engine->render($subject, $redactedContext, false, $options)->output) : null,
         );
+    }
+
+    /**
+     * Structure-only rendering for reset, verification and invitation mail: plain-text heading, paragraphs and
+     * button label (allow-listed fields only, URL-like text removed), and a system-rendered button and text
+     * line for the one-time link, which must be on a configured host. The log copy shows the link as ••••.
+     *
+     * @param  array<string, mixed>  $context
+     *
+     * @throws TemplateSyntaxError
+     */
+    private function composeSecret(EmailTemplate $template, EmailTemplateTranslation $translation, array $context): ComposedEmail
+    {
+        $url = SecretTemplatePolicy::actionUrl($template->key, $context);
+        $textContext = SecretTemplatePolicy::textContext($context);
+        $options = $this->options($translation->locale, $context);
+        $plain = fn (?string $source): string => trim($this->engine->render(SecretTemplatePolicy::plainCopy((string) $source), $textContext, false, $options)->output);
+
+        $heading = $plain($translation->heading);
+        $label = $plain($translation->action_label) ?: __('Continue');
+        $paragraphs = array_values(array_filter(array_map('trim', preg_split('/\R{2,}/', $plain($translation->body)) ?: []), fn (string $paragraph): bool => $paragraph !== ''));
+        $subject = $this->subjectLine($plain($translation->subject));
+
+        $build = function (string $link) use ($heading, $label, $paragraphs, $template): array {
+            $first = array_slice($paragraphs, 0, 1);
+            $rest = array_slice($paragraphs, 1);
+            $html = ($heading !== '' ? '<h1>'.e($heading).'</h1>'."\n" : '')
+                .implode("\n", array_map(fn (string $paragraph): string => '<p>'.nl2br(e($paragraph), false).'</p>', $first))."\n"
+                .EmailBody::button($link, $label)."\n"
+                .implode("\n", array_map(fn (string $paragraph): string => '<p>'.nl2br(e($paragraph), false).'</p>', $rest));
+            $text = implode("\n\n", array_filter([$heading, ...$first, $label.': '.$link, ...$rest], fn (string $part): bool => $part !== ''));
+
+            return [
+                $template->plain_text_only ? null : $this->wrapHtml((string) preg_replace("/\n{2,}/", "\n", $html), null),
+                $this->wrapText($text, null),
+            ];
+        };
+
+        [$html, $text] = $build($url);
+        [$storedHtml, $storedText] = $build('••••');
+
+        return new ComposedEmail(
+            subject: $subject,
+            html: $html,
+            text: $text,
+            storedHtml: $storedHtml,
+            storedText: $storedText,
+            hasRedactions: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array{locale: string, date_format: string, currency: string|null}
+     */
+    private function options(string $locale, array $context): array
+    {
+        return [
+            'locale' => $locale,
+            'date_format' => DateFormats::current(),
+            'currency' => is_string($context['client']['currency'] ?? null) ? $context['client']['currency'] : null,
+        ];
     }
 
     private function subjectLine(string $rendered): string
@@ -111,16 +175,11 @@ class EmailComposer
         return route('client.notifications.preferences.edit');
     }
 
-    /**
-     * @param  list<string>|null  $secrets
-     */
-    private function wrapHtml(string $markdownBody, ?string $preferencesUrl, ?array $secrets = null): string
+    private function wrapHtml(string $bodyHtml, ?string $preferencesUrl): string
     {
-        $body = EmailBody::html($markdownBody, $secrets);
-
         return $this->markdown->render('notifications::mail.message', [
-            'body' => $body,
-            'preheader' => EmailBody::preheader($body),
+            'body' => $bodyHtml,
+            'preheader' => EmailBody::preheader($bodyHtml),
             'preferencesUrl' => $preferencesUrl,
         ])->toHtml();
     }
@@ -128,7 +187,7 @@ class EmailComposer
     private function wrapText(string $plainBody, ?string $preferencesUrl): string
     {
         return trim($this->markdown->renderText('notifications::mail.message', [
-            'body' => EmailBody::text($plainBody),
+            'body' => $plainBody,
             'preferencesUrl' => $preferencesUrl,
         ])->toHtml());
     }

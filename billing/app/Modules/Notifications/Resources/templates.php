@@ -12,7 +12,7 @@
  * Every path used here exists in SampleContext, so previews render without warnings. Support-type client
  * subjects are fixed by EmailComposer and only listed for completeness.
  *
- * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string}>
+ * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}>
  */
 
 $client = static fn (string $key, string $type, string $name, string $subject, string $body): array => [
@@ -22,21 +22,26 @@ $staff = static fn (string $key, string $name, string $subject, string $body): a
     'key' => $key, 'type' => 'admin', 'audience' => 'staff', 'name' => $name, 'subject' => $subject, 'body' => $body,
 ];
 
+/*
+ * Secret-bearing system templates are structure-only (security review B1): a plain-text heading, body paragraphs
+ * and button label. The system renders the button and the text-part link from the one-time link.
+ */
+$secret = static fn (string $key, string $audience, string $type, string $name, string $subject, string $heading, string $actionLabel, string $body): array => [
+    'key' => $key, 'type' => $type, 'audience' => $audience, 'name' => $name, 'subject' => $subject,
+    'heading' => $heading, 'action_label' => $actionLabel, 'body' => $body,
+];
+
 $signOff = "\n\n{% if signature %}{{ signature }}{% endif %}";
 $supportSubject = '[#{{ ticket.number }}] {{ ticket.subject }}';
 
 return [
     // ── General (client) ─────────────────────────────────────────────────────────────────────────
-    $client('auth.password_reset', 'general', 'Password reset link', 'Reset your {{ company.name }} password', <<<'MD'
-# Reset your password
+    $secret('auth.password_reset', 'client', 'general', 'Password reset link', 'Reset your {{ company.name }} password', 'Reset your password', 'Choose a new password', <<<'MD'
+Someone asked to reset the password for {{ user.email }}. If that was you, choose a new one with the button below.
 
-Someone asked to reset the password for {{ user.email }}. If that was you, choose a new one below.
+The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email and your password stays the same.
 
-[Choose a new password]({{ auth.reset_url }})
-
-The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email — your password stays the same.
-
-{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
+If this wasn't you, contact {{ support.email }}.
 MD),
     $client('auth.password_changed', 'general', 'Password changed', 'Your {{ company.name }} password was changed', <<<'MD'
 # Your password was changed
@@ -47,23 +52,13 @@ If this wasn't you, reset your password now{% if support.email %} and contact {{
 
 [Open the client area]({{ system.client_area_url }})
 MD),
-    $client('auth.email_verification', 'general', 'Verify email address', 'Confirm your {{ company.name }} email address', <<<'MD'
-# Confirm your email address
-
+    $secret('auth.email_verification', 'client', 'general', 'Verify email address', 'Confirm your {{ company.name }} email address', 'Confirm your email address', 'Confirm email address', <<<'MD'
 Confirm that {{ user.email }} is yours so we can keep you informed about your account.
 
-[Confirm email address]({{ auth.verify_url }})
-
-If you didn't create an account with {{ company.name }}, you can ignore this email.
-
-{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
+If you didn't create an account with {{ company.name }}, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
-    $client('auth.user_invitation', 'general', 'Account invitation', 'You have been invited to manage {{ client.company_name | default(client.full_name) }}', <<<'MD'
-# You're invited
-
+    $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You have been invited to manage {{ client.company_name | default(client.full_name) }}', 'You\'re invited', 'Accept invitation', <<<'MD'
 You now have access to the {{ company.name }} account of {{ client.company_name | default(client.full_name) }}.
-
-[Accept invitation]({{ auth.invite_url }})
 
 The invitation expires at {{ auth.expires_at }}.
 MD),
@@ -664,23 +659,13 @@ The run for {{ automation.run_at | date }} finished.
 
 [Open admin area]({{ system.admin_url }})
 MD),
-    $staff('staff.password_reset', 'Staff password reset', 'Reset your staff password', <<<'MD'
-# Reset your staff password
-
+    $secret('staff.password_reset', 'staff', 'admin', 'Staff password reset', 'Reset your staff password', 'Reset your staff password', 'Choose a new password', <<<'MD'
 Use the button below to choose a new password for {{ staff.email }}.
 
-[Choose a new password]({{ auth.reset_url }})
-
-The link expires at {{ auth.expires_at }}.
-
-{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
+The link expires at {{ auth.expires_at }}. If this wasn't you, contact {{ support.email }}.
 MD),
-    $staff('staff.invitation', 'Staff invitation', 'You are invited to the {{ company.name }} admin area', <<<'MD'
-# Join the {{ company.name }} team
-
+    $secret('staff.invitation', 'staff', 'admin', 'Staff invitation', 'You are invited to the {{ company.name }} admin area', 'Join the {{ company.name }} team', 'Accept invitation', <<<'MD'
 You've been invited to the admin area.
-
-[Accept invitation]({{ auth.invite_url }})
 
 The invitation expires at {{ auth.expires_at }}.
 MD),

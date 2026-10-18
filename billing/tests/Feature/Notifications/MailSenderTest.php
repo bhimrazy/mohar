@@ -95,7 +95,7 @@ it('names the support address in the footer of the HTML and text parts', functio
 });
 
 it('adds "if this wasn\'t you" with the support address to templated security mail', function () {
-    sendTemplate('auth.password_reset', ['user' => ['email' => 'owner@example.test'], 'auth' => ['reset_url' => 'https://billing.test/reset', 'expires_at' => 'soon']]);
+    sendTemplate('auth.password_reset', ['user' => ['email' => 'owner@example.test'], 'auth' => ['reset_url' => url('/reset-password/abc'), 'expires_at' => 'soon']]);
 
     expect(deliveredEmails()[0]->getTextBody())->toContain("If this wasn't you, contact help@example.test.");
 });

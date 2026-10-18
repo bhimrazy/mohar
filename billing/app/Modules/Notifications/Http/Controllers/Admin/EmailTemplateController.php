@@ -11,15 +11,18 @@ use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Http\Requests\EmailTemplateRequest;
 use App\Modules\Notifications\Models\EmailTemplate;
+use App\Modules\Notifications\Models\EmailTemplateTranslation;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -142,7 +145,7 @@ class EmailTemplateController extends Controller
 
         $template->translations()->updateOrCreate(
             ['locale' => $this->composer->defaultLocale()],
-            ['subject' => $definition['subject'], 'body' => $definition['body'], 'updated_by' => $request->user()?->id],
+            ['subject' => $definition['subject'], 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
         );
         $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Default text restored.')]);
@@ -151,27 +154,39 @@ class EmailTemplateController extends Controller
     }
 
     /**
-     * Renders unsaved editor text against sample data (or reports the syntax error).
+     * Renders unsaved editor text against sample data (fake, non-functional links), through the same gate and
+     * renderer as real sends.
      */
     public function preview(Request $request, EmailTemplate $template): JsonResponse
     {
         $this->authorize('notifications.templates.view');
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
+            'heading' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:50000'],
+            'action_label' => ['nullable', 'string', 'max:100'],
             'locale' => ['nullable', 'string', 'max:10'],
         ]);
+        $locale = (string) ($validated['locale'] ?? $this->composer->defaultLocale());
+
+        $problems = SecretTemplatePolicy::violations($template->key, Arr::only($validated, ['subject', 'heading', 'body', 'action_label']));
+
+        if ($problems !== []) {
+            return response()->json(['error' => implode(' ', array_merge(...array_values($problems))), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
+        }
+
+        $draft = $template->replicate();
+        $draft->key = $template->key;
+        $draft->setRelation('translations', new Collection([new EmailTemplateTranslation([
+            'locale' => $locale,
+            'subject' => $validated['subject'],
+            'heading' => $validated['heading'] ?? null,
+            'body' => $validated['body'],
+            'action_label' => $validated['action_label'] ?? null,
+        ])]));
 
         try {
-            $composed = $this->composer->composeSource(
-                $template->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : $validated['subject'],
-                $validated['body'],
-                $this->samples->build($template->audience === TemplateAudience::Staff),
-                (string) ($validated['locale'] ?? $this->composer->defaultLocale()),
-                $template->plain_text_only,
-                $this->composer->preferencesUrl($template),
-                $template->carriesSecret(),
-            );
+            $composed = $this->composer->compose($draft, $locale, $this->samples->build($template->audience === TemplateAudience::Staff));
         } catch (TemplateSyntaxError $error) {
             return response()->json(['error' => $error->getMessage(), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
         }
@@ -236,11 +251,13 @@ class EmailTemplateController extends Controller
                 'locale' => $locale,
                 'exists' => $translation !== null && $translation->locale === $locale,
                 'subject' => $template?->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : ($translation->subject ?? ''),
+                'heading' => $translation->heading ?? '',
                 'body' => $translation->body ?? '',
+                'action_label' => $translation->action_label ?? '',
                 'updated_at' => $translation?->updated_at?->toIso8601String(),
             ],
             'defaultLocale' => $this->composer->defaultLocale(),
-            'fields' => $this->samples->fieldsFor($type),
+            'fields' => $template !== null && $template->carriesSecret() ? ['allowed' => SecretTemplatePolicy::ALLOWED_FIELDS] : $this->samples->fieldsFor($type),
             'types' => $this->typeOptions(TemplateType::customisable()),
             'canManage' => request()->user()?->hasPermission('notifications.templates.manage') ?? false,
             'canManageDelivery' => request()->user()?->hasPermission('notifications.delivery.manage') ?? false,
@@ -269,7 +286,9 @@ class EmailTemplateController extends Controller
         $template->translations()->updateOrCreate(['locale' => $request->string('locale')->toString()], [
             // Support subjects are fixed for threading; the stored subject is kept as-is.
             'subject' => $template->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : $request->string('subject')->toString(),
+            'heading' => $template->carriesSecret() ? $request->string('heading')->toString() : null,
             'body' => $request->string('body')->toString(),
+            'action_label' => $template->carriesSecret() ? $request->string('action_label')->toString() : null,
             'updated_by' => $request->user()?->id,
         ]);
     }

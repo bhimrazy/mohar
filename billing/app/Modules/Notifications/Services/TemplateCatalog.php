@@ -11,16 +11,16 @@ use App\Modules\Notifications\Models\EmailTemplate;
  */
 class TemplateCatalog
 {
-    /** @var array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string}>|null */
+    /** @var array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}>|null */
     private ?array $definitions = null;
 
     /**
-     * @return array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string}>
+     * @return array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}>
      */
     public function all(): array
     {
         if ($this->definitions === null) {
-            /** @var list<array{key: string, type: string, audience: string, name: string, subject: string, body: string}> $list */
+            /** @var list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}> $list */
             $list = require dirname(__DIR__).'/Resources/templates.php';
             $this->definitions = array_column($list, null, 'key');
         }
@@ -29,7 +29,7 @@ class TemplateCatalog
     }
 
     /**
-     * @return array{key: string, type: string, audience: string, name: string, subject: string, body: string}|null
+     * @return array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}|null
      */
     public function find(string $key): ?array
     {
@@ -54,7 +54,9 @@ class TemplateCatalog
 
             $translation = $template->translations()->firstOrCreate(['locale' => $locale], [
                 'subject' => $definition['subject'],
+                'heading' => $definition['heading'] ?? null,
                 'body' => $definition['body'],
+                'action_label' => $definition['action_label'] ?? null,
             ]);
 
             $created += (int) $translation->wasRecentlyCreated;

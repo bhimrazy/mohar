@@ -17,11 +17,6 @@ use Throwable;
  */
 class MergeContext
 {
-    /**
-     * Paths whose values are secrets: sent to the recipient, but replaced by •••• in the stored log copy.
-     */
-    public const SECRET_PATHS = ['auth.reset_url', 'auth.verify_url', 'auth.invite_url'];
-
     public function __construct(
         private MergeFieldRegistry $registry,
         private BrandProvider $brand,
@@ -191,26 +186,6 @@ class MergeContext
         $reply = $this->resolve('ticket_reply', $replyId);
 
         return ['ticket' => $ticket, 'reply' => $reply === [] ? ['author_name' => '', 'body_html' => '', 'excerpt' => ''] : $reply];
-    }
-
-    /**
-     * Copy of the context with every secret replaced by the redaction marker.
-     *
-     * @param  array<string, mixed>  $context
-     * @return array{0: array<string, mixed>, 1: bool} [redacted context, whether anything was redacted]
-     */
-    public function redact(array $context): array
-    {
-        $redacted = false;
-
-        foreach (self::SECRET_PATHS as $path) {
-            if (filled(data_get($context, $path))) {
-                data_set($context, $path, '••••');
-                $redacted = true;
-            }
-        }
-
-        return [$context, $redacted];
     }
 
     /**

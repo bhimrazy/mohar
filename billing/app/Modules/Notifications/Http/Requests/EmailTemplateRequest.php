@@ -56,7 +56,9 @@ class EmailTemplateRequest extends FormRequest
             'bcc.*' => ['email', 'max:255'],
             'locale' => ['required', 'string', 'max:10', 'regex:/^[a-z]{2}([_-][A-Za-z]{2})?$/'],
             'subject' => ['required', 'string', 'max:255'],
+            'heading' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:50000'],
+            'action_label' => ['nullable', 'string', 'max:100'],
         ];
     }
 
@@ -70,17 +72,20 @@ class EmailTemplateRequest extends FormRequest
                 $validator->errors()->add('bcc', __('Changing the sender, CC or BCC needs the "Change email senders, Reply-To, global BCC and template CC/BCC" permission.'));
             }
 
+            // One gate for every template (store and update): no secret fields anywhere; structure-only rules
+            // for the secret-bearing system templates.
             $template = $this->route('template');
+            $key = $template instanceof EmailTemplate ? $template->key : (string) $this->input('key');
 
-            if ($template instanceof EmailTemplate && $template->carriesSecret() && is_string($this->input('body')) && is_string($this->input('subject'))) {
-                foreach (SecretTemplatePolicy::violations($template->key, $this->input('subject'), $this->input('body')) as $problem) {
-                    $validator->errors()->add('body', $problem);
+            foreach (SecretTemplatePolicy::violations($key, $this->only(['subject', 'heading', 'body', 'action_label'])) as $field => $problems) {
+                foreach ($problems as $problem) {
+                    $validator->errors()->add($field, $problem);
                 }
             }
 
             $engine = app(TemplateEngine::class);
 
-            foreach (['subject', 'body'] as $field) {
+            foreach (['subject', 'heading', 'body', 'action_label'] as $field) {
                 $source = $this->input($field);
 
                 if (! is_string($source)) {

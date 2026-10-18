@@ -14,15 +14,9 @@ use Illuminate\Mail\Markdown;
  */
 final class EmailBody
 {
-    /**
-     * @param  list<string>|null  $secrets  secret values when the mail carries a one-time link: raw HTML is
-     *                                      escaped and SecretTemplatePolicy cleans the result (B1)
-     */
-    public static function html(string $markdown, ?array $secrets = null): string
+    public static function html(string $markdown): string
     {
-        $html = $secrets === null
-            ? Markdown::parse($markdown)->toHtml()
-            : Markdown::converter(['html_input' => 'escape'])->convert($markdown)->getContent();
+        $html = Markdown::parse($markdown)->toHtml();
         $html = (string) preg_replace('/<table>/', '<table class="facts" cellpadding="0" cellspacing="0">', $html);
         $html = (string) preg_replace_callback(
             '#<p>\s*<a href="([^"]+)">([^<]+)</a>\s*</p>#',
@@ -30,10 +24,6 @@ final class EmailBody
             $html,
             1,
         );
-
-        if ($secrets !== null) {
-            $html = SecretTemplatePolicy::sanitizeHtml($html, $secrets);
-        }
 
         // The layout parses its slot as Markdown again; without blank lines the body stays one raw HTML block.
         return (string) preg_replace("/\n{2,}/", "\n", $html);
@@ -74,7 +64,7 @@ final class EmailBody
         return trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", $lines)));
     }
 
-    private static function button(string $url, string $label): string
+    public static function button(string $url, string $label): string
     {
         $brand = app(BrandProvider::class)->brand();
 
