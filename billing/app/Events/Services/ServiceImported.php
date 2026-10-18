@@ -2,15 +2,17 @@
 
 namespace App\Events\Services;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A service was created from an account that already existed on a server (account import), not ordered. No invoice,
  * welcome mail or module command follows. Dispatched after the import row commits.
  */
-final class ServiceImported
+final class ServiceImported implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  string  $driver  the provisioning driver key
