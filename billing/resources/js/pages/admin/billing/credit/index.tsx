@@ -28,6 +28,7 @@ import {
 import type { ResourcePaginated } from '@/types/app';
 
 type Props = {
+    can: { adjust: boolean };
     client: {
         id: number;
         display_name: string;
@@ -38,7 +39,7 @@ type Props = {
     entries: ResourcePaginated<CreditEntry>;
 };
 
-export default function CreditIndex({ client, entries }: Props) {
+export default function CreditIndex({ client, entries, can }: Props) {
     const { apply } = useQueryParams();
 
     const columns: DataTableColumn<CreditEntry>[] = [
@@ -112,108 +113,115 @@ export default function CreditIndex({ client, entries }: Props) {
                     title="Account credit"
                     description="Credit balances come from overpayments, deposits, refunds to credit and manual adjustments."
                     actions={
-                        <FormDialog
-                            trigger={<Button>Adjust credit</Button>}
-                            title="Adjust credit balance"
-                            description="Manual adjustments are logged with your name."
-                            submitLabel="Save adjustment"
-                            action={store()}
-                            moneyFields={['amount']}
-                            initial={{
-                                client_id: client ? String(client.id) : '',
-                                direction: 'add',
-                                amount: '',
-                                description: '',
-                            }}
-                            transform={(data) => ({
-                                ...data,
-                                client_id: Number(data.client_id),
-                            })}
-                        >
-                            {(form) => (
-                                <div className="grid gap-4 sm:grid-cols-2">
-                                    <Field
-                                        htmlFor="credit-client"
-                                        label="Client"
-                                        error={form.errors.client_id}
-                                        className="content-start sm:col-span-2"
-                                    >
-                                        <ClientPickerField
-                                            id="credit-client"
-                                            initial={client}
-                                            invalid={!!form.errors.client_id}
-                                            onSelect={(option) =>
-                                                form.setData(
-                                                    'client_id',
-                                                    option
-                                                        ? String(option.id)
-                                                        : '',
-                                                )
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        className="content-start"
-                                        htmlFor="credit-direction"
-                                        label="Adjustment"
-                                        error={form.errors.direction}
-                                    >
-                                        <SelectField
-                                            id="credit-direction"
-                                            value={form.data.direction}
-                                            onChange={(value) =>
-                                                form.setData('direction', value)
-                                            }
-                                            options={[
-                                                {
-                                                    value: 'add',
-                                                    label: 'Add credit',
-                                                },
-                                                {
-                                                    value: 'remove',
-                                                    label: 'Remove credit',
-                                                },
-                                            ]}
-                                        />
-                                    </Field>
-                                    <Field
-                                        className="content-start"
-                                        htmlFor="credit-amount"
-                                        label="Amount"
-                                        error={form.errors.amount}
-                                    >
-                                        <Input
-                                            id="credit-amount"
-                                            inputMode="decimal"
-                                            value={form.data.amount}
-                                            onChange={(event) =>
-                                                form.setData(
-                                                    'amount',
-                                                    event.target.value,
-                                                )
-                                            }
-                                        />
-                                    </Field>
-                                    <Field
-                                        htmlFor="credit-description"
-                                        label="Reason"
-                                        error={form.errors.description}
-                                        className="content-start sm:col-span-2"
-                                    >
-                                        <Input
-                                            id="credit-description"
-                                            value={form.data.description}
-                                            onChange={(event) =>
-                                                form.setData(
-                                                    'description',
-                                                    event.target.value,
-                                                )
-                                            }
-                                        />
-                                    </Field>
-                                </div>
-                            )}
-                        </FormDialog>
+                        can.adjust && (
+                            <FormDialog
+                                trigger={<Button>Adjust credit</Button>}
+                                title="Adjust credit balance"
+                                description="Manual adjustments are logged with your name."
+                                submitLabel="Save adjustment"
+                                action={store()}
+                                moneyFields={['amount']}
+                                initial={{
+                                    client_id: client ? String(client.id) : '',
+                                    direction: 'add',
+                                    amount: '',
+                                    description: '',
+                                }}
+                                transform={(data) => ({
+                                    ...data,
+                                    client_id: Number(data.client_id),
+                                })}
+                            >
+                                {(form) => (
+                                    <div className="grid gap-4 sm:grid-cols-2">
+                                        <Field
+                                            htmlFor="credit-client"
+                                            label="Client"
+                                            error={form.errors.client_id}
+                                            className="content-start sm:col-span-2"
+                                        >
+                                            <ClientPickerField
+                                                id="credit-client"
+                                                initial={client}
+                                                invalid={
+                                                    !!form.errors.client_id
+                                                }
+                                                onSelect={(option) =>
+                                                    form.setData(
+                                                        'client_id',
+                                                        option
+                                                            ? String(option.id)
+                                                            : '',
+                                                    )
+                                                }
+                                            />
+                                        </Field>
+                                        <Field
+                                            className="content-start"
+                                            htmlFor="credit-direction"
+                                            label="Adjustment"
+                                            error={form.errors.direction}
+                                        >
+                                            <SelectField
+                                                id="credit-direction"
+                                                value={form.data.direction}
+                                                onChange={(value) =>
+                                                    form.setData(
+                                                        'direction',
+                                                        value,
+                                                    )
+                                                }
+                                                options={[
+                                                    {
+                                                        value: 'add',
+                                                        label: 'Add credit',
+                                                    },
+                                                    {
+                                                        value: 'remove',
+                                                        label: 'Remove credit',
+                                                    },
+                                                ]}
+                                            />
+                                        </Field>
+                                        <Field
+                                            className="content-start"
+                                            htmlFor="credit-amount"
+                                            label="Amount"
+                                            error={form.errors.amount}
+                                        >
+                                            <Input
+                                                id="credit-amount"
+                                                inputMode="decimal"
+                                                value={form.data.amount}
+                                                onChange={(event) =>
+                                                    form.setData(
+                                                        'amount',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </Field>
+                                        <Field
+                                            htmlFor="credit-description"
+                                            label="Reason"
+                                            error={form.errors.description}
+                                            className="content-start sm:col-span-2"
+                                        >
+                                            <Input
+                                                id="credit-description"
+                                                value={form.data.description}
+                                                onChange={(event) =>
+                                                    form.setData(
+                                                        'description',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                            />
+                                        </Field>
+                                    </div>
+                                )}
+                            </FormDialog>
+                        )
                     }
                 />
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-end">

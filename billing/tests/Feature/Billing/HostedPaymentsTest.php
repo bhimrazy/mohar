@@ -177,7 +177,7 @@ test('an amount mismatch records nothing and raises a staff todo', function () {
         ->and(Transaction::query()->count())->toBe(0);
 
     $this->travel(31)->minutes();
-    $todo = collect(app(Dashboard::class)->resolveTodos('admin', actingAsStaff(['billing.*'])))->firstWhere('key', 'billing.payment_review');
+    $todo = collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review');
     expect($todo['count'])->toBe(1);
 });
 

@@ -90,7 +90,7 @@ test('the gateway log lists redacted entries', function () {
 });
 
 test('staff adjust a client credit balance', function () {
-    actingAsStaff(['billing.credit.manage']);
+    actingAsStaff(['billing.credit.manage', 'billing.credit.adjust']);
     $client = billingClient();
 
     $this->post(route('admin.billing.credit.store'), ['client_id' => $client->id, 'direction' => 'add', 'amount' => '25.00', 'description' => 'Goodwill'])->assertRedirect();
@@ -129,7 +129,7 @@ test('quotes are created, sent and converted once', function () {
 
 test('gateway, tax, refund and credit changes are audit-logged without secret values', function () {
     Event::fake([GatewayConfigurationChanged::class]);
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $client = billingClient();
 
     $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [

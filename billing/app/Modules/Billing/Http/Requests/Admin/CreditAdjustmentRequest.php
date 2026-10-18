@@ -12,7 +12,7 @@ class CreditAdjustmentRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('billing.credit.manage') ?? false;
+        return $this->user()?->hasPermission('billing.credit.adjust') ?? false;
     }
 
     /**

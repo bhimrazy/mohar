@@ -28,6 +28,8 @@ use Illuminate\Http\Request;
  */
 class GatewayCallbackHandler
 {
+    public const MAX_CALLBACK_AGE_SECONDS = 300;
+
     public function __construct(
         private GatewayManager $gateways,
         private GatewayLogger $log,
@@ -66,6 +68,11 @@ class GatewayCallbackHandler
 
         if ($event instanceof CallbackRejection) {
             return $this->outcome($gatewayKey, $event->isSignatureFailure() ? 403 : 422, $event->reason, $payload);
+        }
+
+        // Replay protection on top of provider-id idempotency: signed send times must be within 5 minutes.
+        if ($event->sentAt !== null && abs(now()->getTimestamp() - $event->sentAt->getTimestamp()) > self::MAX_CALLBACK_AGE_SECONDS) {
+            return $this->outcome($gatewayKey, 400, 'stale callback', [...$payload, 'sent_at' => $event->sentAt->toIso8601String()]);
         }
 
         return $this->process($gatewayKey, $event);

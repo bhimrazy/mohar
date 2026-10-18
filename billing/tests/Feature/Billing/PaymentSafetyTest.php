@@ -103,7 +103,7 @@ test('the payment guard blocks credit, staff payments, write-offs, manual income
 });
 
 test('staff entry points surface the guard refusal', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $this->withSession(['auth.password_confirmed_at' => time()]);
     $invoice = issueInvoice(billingClient(), [1_000]);
     refusePayments();

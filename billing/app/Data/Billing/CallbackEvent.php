@@ -2,6 +2,8 @@
 
 namespace App\Data\Billing;
 
+use Carbon\CarbonImmutable;
+
 /**
  * A verified, parsed gateway webhook (push gateways: Stripe, Razorpay, sandbox).
  */
@@ -17,6 +19,8 @@ final readonly class CallbackEvent
 
     /**
      * @param  array<string, mixed>  $raw  payload (redacted before storage)
+     * @param  CarbonImmutable|null  $sentAt  provider's (signed) send time, when the protocol has one: Billing rejects
+     *                                        callbacks more than 5 minutes old (replay protection)
      */
     public function __construct(
         public string $type,
@@ -27,5 +31,6 @@ final readonly class CallbackEvent
         public ?string $parentTxnId = null,
         public ?string $reason = null,
         public array $raw = [],
+        public ?CarbonImmutable $sentAt = null,
     ) {}
 }

@@ -18,6 +18,7 @@ use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
@@ -45,6 +46,7 @@ use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
 
 class BillingServiceProvider extends ModuleServiceProvider
@@ -81,6 +83,13 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Step-up middleware is owned by Platform; provide the same contract when Platform isn't installed.
+        $router = $this->app->make(Router::class);
+
+        if (! array_key_exists('password.recent', $router->getMiddleware())) {
+            $router->aliasMiddleware('password.recent', ConfirmPasswordForAction::class);
+        }
 
         // Card data must never be flashed into the session by a validation redirect (PCI DSS 3.3.1).
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
@@ -284,6 +293,19 @@ class BillingServiceProvider extends ModuleServiceProvider
         ];
     }
 
+    /**
+     * Money-moving and security-relevant permissions: never granted by wildcards (only explicitly or by "*"),
+     * and their routes require a recent password confirmation (password.recent).
+     */
+    public const SENSITIVE_PERMISSIONS = [
+        'billing.refunds.manage',
+        'billing.payments.manage',
+        'billing.transactions.manage',
+        'billing.credit.adjust',
+        'billing.gateways.manage',
+        'billing.tax.manage',
+    ];
+
     private function registerPermissions(): void
     {
         $this->app->make(PermissionRegistry::class)->register('Billing', [
@@ -293,14 +315,15 @@ class BillingServiceProvider extends ModuleServiceProvider
             'billing.refunds.manage' => 'Refund transactions',
             'billing.transactions.view' => 'View transactions',
             'billing.transactions.manage' => 'Record manual transactions',
-            'billing.credit.manage' => 'View and adjust client credit',
+            'billing.credit.manage' => 'View client credit and invoicing preferences',
+            'billing.credit.adjust' => 'Adjust client credit balances',
             'billing.quotes.view' => 'View quotes',
             'billing.quotes.manage' => 'Create, send and convert quotes',
             'billing.gateways.manage' => 'Configure payment gateways',
             'billing.gateway_log.view' => 'View the gateway log',
             'billing.tax.manage' => 'Manage tax rules',
             'billing.settings.manage' => 'Change billing settings',
-        ]);
+        ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
 
     private function registerSettings(): void

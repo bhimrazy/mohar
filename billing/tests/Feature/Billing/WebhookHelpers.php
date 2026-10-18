@@ -11,10 +11,12 @@ use Illuminate\Testing\TestResponse;
 function sandboxWebhook(array $payload, string $secret = 'whsec_test'): TestResponse
 {
     $body = (string) json_encode($payload);
+    $timestamp = now()->getTimestamp();
 
     return test()->call('POST', route('billing.webhooks', 'sandbox_card'), [], [], [], [
         'CONTENT_TYPE' => 'application/json',
         'HTTP_ACCEPT' => 'application/json',
-        'HTTP_X_SANDBOX_SIGNATURE' => SandboxCardDriver::signature($body, $secret),
+        'HTTP_X_SANDBOX_TIMESTAMP' => (string) $timestamp,
+        'HTTP_X_SANDBOX_SIGNATURE' => SandboxCardDriver::signature($body, $secret, $timestamp),
     ], $body);
 }

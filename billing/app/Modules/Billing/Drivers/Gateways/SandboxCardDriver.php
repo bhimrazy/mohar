@@ -20,6 +20,7 @@ use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Modules\Billing\Services\Tax\TaxMath;
 use App\Support\Billing\AbstractGatewayDriver;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -39,6 +40,8 @@ use Illuminate\Support\Str;
 class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDriver
 {
     public const SIGNATURE_HEADER = 'X-Sandbox-Signature';
+
+    public const TIMESTAMP_HEADER = 'X-Sandbox-Timestamp';
 
     public const OUTCOMES = [
         '4000000000000002' => ChargeResult::DECLINED,
@@ -159,8 +162,10 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
     {
         $secret = (string) $gateway->setting('webhook_secret', '');
         $signature = (string) $request->header(self::SIGNATURE_HEADER, '');
+        $timestamp = (string) $request->header(self::TIMESTAMP_HEADER, '');
 
-        if ($secret === '' || ! hash_equals(hash_hmac('sha256', $request->getContent(), $secret), $signature)) {
+        // The timestamp is part of the signed message, so a captured callback can't be re-dated.
+        if ($secret === '' || ! ctype_digit($timestamp) || ! hash_equals(self::signature($request->getContent(), $secret, (int) $timestamp), $signature)) {
             return new CallbackRejection(CallbackRejection::INVALID_SIGNATURE);
         }
 
@@ -190,6 +195,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
             parentTxnId: is_string($data['parent_txn_id'] ?? null) ? $data['parent_txn_id'] : null,
             reason: is_string($data['reason'] ?? null) ? $data['reason'] : null,
             raw: $data,
+            sentAt: CarbonImmutable::createFromTimestamp((int) $timestamp),
         );
     }
 
@@ -319,9 +325,9 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
     /**
      * Sign a webhook body the way the sandbox gateway does (used by tests and the dev simulator).
      */
-    public static function signature(string $body, string $secret): string
+    public static function signature(string $body, string $secret, int $timestamp): string
     {
-        return hash_hmac('sha256', $body, $secret);
+        return hash_hmac('sha256', $timestamp.'.'.$body, $secret);
     }
 
     public static function brand(string $number): string

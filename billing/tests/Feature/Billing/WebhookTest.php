@@ -27,11 +27,13 @@ require_once __DIR__.'/helpers.php';
 function webhook(array $payload, string $secret = 'whsec_test'): TestResponse
 {
     $body = (string) json_encode($payload);
+    $timestamp = now()->getTimestamp();
 
     return test()->call('POST', route('billing.webhooks', 'sandbox_card'), [], [], [], [
         'CONTENT_TYPE' => 'application/json',
         'HTTP_ACCEPT' => 'application/json',
-        'HTTP_X_SANDBOX_SIGNATURE' => SandboxCardDriver::signature($body, $secret),
+        'HTTP_X_SANDBOX_TIMESTAMP' => (string) $timestamp,
+        'HTTP_X_SANDBOX_SIGNATURE' => SandboxCardDriver::signature($body, $secret, $timestamp),
     ], $body);
 }
 
@@ -158,4 +160,17 @@ test('a pending capture settles through the webhook', function () {
     webhook(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => $result->txnId, 'amount' => 5_000, 'currency' => 'USD'])->assertOk();
 
     expect(Invoice::query()->find($invoice->id)->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('a replayed callback older than five minutes is rejected', function () {
+    $invoice = issueInvoice(billingClient(), [5_000]);
+    $body = (string) json_encode(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => 'sbx_old', 'amount' => 5_000, 'currency' => 'USD']);
+    $sent = now()->subMinutes(6)->getTimestamp();
+    $headers = fn (int $timestamp, int $signedAt) => ['CONTENT_TYPE' => 'application/json', 'HTTP_X_SANDBOX_TIMESTAMP' => (string) $timestamp, 'HTTP_X_SANDBOX_SIGNATURE' => SandboxCardDriver::signature($body, 'whsec_test', $signedAt)];
+
+    $this->call('POST', route('billing.webhooks', 'sandbox_card'), [], [], [], $headers($sent, $sent), $body)->assertStatus(400)->assertJson(['result' => 'stale callback']);
+    // Re-dating the captured request breaks the signature.
+    $this->call('POST', route('billing.webhooks', 'sandbox_card'), [], [], [], $headers(now()->getTimestamp(), $sent), $body)->assertForbidden();
+
+    expect(Transaction::query()->count())->toBe(0)->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 });

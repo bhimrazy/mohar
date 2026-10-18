@@ -52,7 +52,7 @@ test('invoice list filters validate their input', function () {
 
 test('staff create, edit and publish a draft invoice', function () {
     Event::fake([InvoiceCreated::class]);
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $client = billingClient();
 
     $this->post(route('admin.billing.invoices.store'), [
@@ -76,7 +76,7 @@ test('staff create, edit and publish a draft invoice', function () {
 });
 
 test('editing a line of a published invoice is rejected', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $invoice = issueInvoice(billingClient(), [5_000]);
 
     $this->put(route('admin.billing.invoices.update', $invoice), [
@@ -90,14 +90,14 @@ test('editing a line of a published invoice is rejected', function () {
 });
 
 test('draft validation explains how to fix lines', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
 
     $this->post(route('admin.billing.invoices.store'), ['client_id' => 999_999, 'items' => [['description' => '', 'quantity' => 0, 'unit_amount' => 'abc']]])
         ->assertSessionHasErrors(['client_id', 'items.0.description', 'items.0.quantity', 'items.0.unit_amount']);
 });
 
 test('only drafts can be deleted', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $draft = issueInvoice(billingClient(), status: 'draft');
     $issued = issueInvoice(billingClient());
 
@@ -157,7 +157,7 @@ test('staff refund a payment through the transactions endpoint', function () {
 
 test('staff cancel, reopen, remind and write off invoices', function () {
     Event::fake([InvoicePaymentReminder::class]);
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $invoice = issueInvoice(billingClient(), [5_000]);
 
     $this->post(route('admin.billing.invoices.remind', $invoice))->assertRedirect();
@@ -172,7 +172,7 @@ test('staff cancel, reopen, remind and write off invoices', function () {
 });
 
 test('bulk actions update only payable invoices', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $client = billingClient();
     $first = issueInvoice($client, [1_000]);
     $second = issueInvoice($client, [2_000]);
@@ -187,7 +187,7 @@ test('bulk actions update only payable invoices', function () {
 });
 
 test('selected lines can be cancelled with a credit note', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $invoice = issueInvoice(billingClient(), [1_000, 2_000]);
     $line = $invoice->items()->where('unit_amount', 2_000)->firstOrFail();
 
@@ -212,7 +212,7 @@ test('the PDF is cached per version and regenerated after a payment', function (
 });
 
 test('staff record manual income applied to invoices', function () {
-    actingAsStaff(['billing.transactions.*']);
+    actingAsStaff(['billing.transactions.view', 'billing.transactions.manage']);
     $client = billingClient();
     $invoice = issueInvoice($client, [2_000]);
 

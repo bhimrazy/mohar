@@ -69,7 +69,7 @@ test('navigation shows billing items according to permissions', function () {
 });
 
 test('dashboards show billing cards', function () {
-    $staff = actingAsStaff(['billing.*']);
+    $staff = billingStaff();
     billingClient();
     Invoice::factory()->overdue()->create();
 
@@ -109,7 +109,7 @@ test('merge fields resolve invoices, quotes and transactions with the client id'
 });
 
 test('the admin dashboard gets billing widgets and to-dos, the nav gets badges and quick-create', function () {
-    $staff = actingAsStaff(['billing.*']);
+    $staff = billingStaff();
     $client = billingClient();
     Invoice::factory()->overdue()->create(['client_id' => $client->id]);
     payInvoice(issueInvoice($client, [2_500]), 2_500);

@@ -36,6 +36,7 @@ class CreditController extends Controller
             ->withQueryString();
 
         return Inertia::render('admin/billing/credit/index', [
+            'can' => ['adjust' => $request->user()?->hasPermission('billing.credit.adjust') ?? false],
             'client' => $client === null ? null : [
                 'id' => $client->id,
                 'display_name' => $client->display_name,

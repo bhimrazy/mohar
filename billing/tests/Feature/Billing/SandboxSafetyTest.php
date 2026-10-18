@@ -2,6 +2,7 @@
 
 use App\Contracts\Billing\GatewayRegistry;
 use App\Modules\Billing\Actions\ConfigureGateway;
+use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Database\Seeders\BillingSeeder;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
@@ -10,6 +11,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Support\Permissions\PermissionRegistry;
 
 require_once __DIR__.'/helpers.php';
 
@@ -54,18 +56,16 @@ test('payment attempt references are random and unguessable', function () {
 });
 
 test('money-moving and security staff actions require a recent password confirmation', function () {
-    actingAsStaff(['billing.*']);
+    billingStaff();
     $payment = payInvoice(issueInvoice(billingClient(), [1_000]), 1_000);
-    $invoice = $payment->invoice()->firstOrFail();
 
-    $this->from(route('admin.billing.invoices.show', $invoice))
-        ->post(route('admin.billing.transactions.refund', $payment), ['amount' => '10.00', 'mode' => 'record_only'])
-        ->assertRedirect(route('password.confirm'));
-    expect(session('url.intended'))->toBe(route('admin.billing.invoices.show', $invoice))
-        ->and($payment->fresh()->refundable_remaining)->toBe(1_000);
+    $this->post(route('admin.billing.transactions.refund', $payment), ['amount' => '10.00', 'mode' => 'record_only'])
+        ->assertSessionHasErrors('password_confirmation');
+    expect($payment->fresh()->refundable_remaining)->toBe(1_000);
 
-    $this->put(route('admin.billing.gateways.update', 'bank_transfer'), ['display_name' => 'X'])->assertRedirect(route('password.confirm'));
-    $this->post(route('admin.billing.tax-rules.store'), ['name' => 'VAT', 'level' => 1, 'rate' => '5'])->assertRedirect(route('password.confirm'));
+    $this->put(route('admin.billing.gateways.update', 'bank_transfer'), ['display_name' => 'X'])->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.billing.tax-rules.store'), ['name' => 'VAT', 'level' => 1, 'rate' => '5'])->assertSessionHasErrors('password_confirmation');
+    $this->postJson(route('admin.billing.invoices.mark-paid', $payment->invoice_id))->assertStatus(423);
 
     $this->withSession(['auth.password_confirmed_at' => time()])
         ->post(route('admin.billing.transactions.refund', $payment), ['amount' => '10.00', 'mode' => 'record_only'])
@@ -113,4 +113,15 @@ test('the anonymous return route looks an attempt up at most once a minute', fun
     $this->travel(61)->seconds();
     $this->get(route('billing.gateways.return', ['sandbox_card', 'ref' => $attempt->reference]));
     expect($attempt->fresh()->lookup_count)->toBe(2);
+});
+
+test('money-moving billing permissions are sensitive: wildcards never grant them', function () {
+    $staff = actingAsStaff(['billing.*']);
+
+    foreach (BillingServiceProvider::SENSITIVE_PERMISSIONS as $permission) {
+        expect(app(PermissionRegistry::class)->isSensitive($permission))->toBeTrue()
+            ->and($staff->hasPermission($permission))->toBeFalse();
+    }
+
+    expect($staff->hasPermission('billing.invoices.manage'))->toBeTrue();
 });

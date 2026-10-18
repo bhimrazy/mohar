@@ -8,7 +8,9 @@ use App\Contracts\Billing\Invoicer;
 use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
+use App\Models\User;
 use App\Modules\Billing\Actions\ApplyPayment;
+use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
@@ -59,4 +61,12 @@ function payInvoice(Invoice $invoice, int $amount, ?string $txnId = null, string
 function sandboxGateway(string $secret = 'whsec_test'): Gateway
 {
     return Gateway::factory()->sandbox($secret)->create();
+}
+
+/**
+ * Staff with every billing permission, including the sensitive ones a "billing.*" wildcard never grants.
+ */
+function billingStaff(): User
+{
+    return actingAsStaff(['billing.*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
 }
