@@ -212,6 +212,14 @@ it('places the button after the body with the editable label, and the default ti
         ->and($text)->toMatch('/We got it\.\R+Open .+ ticket: '.preg_quote(guestUrl(), '/').'/');
 });
 
+it('masks the guest link in the written text part, after lists and links become text', function () {
+    [$html, $text] = sendGuestTicketMail('We got it.', '<ul><li>Your link: '.e(guestUrl()).'</li><li><a href="'.e(guestUrl()).'">Open it</a></li></ul>');
+
+    expect(keyOnlyInSystemButton($html))->toBeTrue()
+        ->and(substr_count($text, 'GUESTKEY'))->toBe(1)
+        ->and($text)->toContain('- Your link: ••••', '- Open it ••••')->not->toContain('<li>', '<a ', '</');
+});
+
 it('masks the guest\'s own link pasted into a staff reply, and still sends', function () {
     Mail::fake();
     seedEmailTemplates();

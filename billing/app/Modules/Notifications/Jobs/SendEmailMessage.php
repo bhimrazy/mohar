@@ -79,6 +79,7 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
                     fromName: $message->from_name,
                     replyToEmail: $message->reply_to,
                     messageUuid: $message->uuid,
+                    automatic: $message->template_key !== null,
                 ));
         } catch (Throwable $exception) {
             $this->recordFailure($message, $exception);

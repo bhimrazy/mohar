@@ -56,9 +56,9 @@ use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Support\EventKey;
+use App\Modules\Notifications\Support\MailClock;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use App\Support\Currencies\MoneyFormatter;
-use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 use Throwable;
@@ -235,7 +235,16 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function serviceSuspended(ServiceSuspended $event): void
     {
         $context = $this->context->service($event->serviceId);
-        data_set($context, 'service.suspension_reason', $event->reason ?: data_get($context, 'service.suspension_reason'));
+        $overdue = in_array($event->reason, ['overdue', 'addon_overdue'], true);
+        // The client reads a reason, never a code: an overdue suspension names the invoice to pay; a staff note
+        // (staff:…) is internal and is not shown.
+        data_set($context, 'service.suspension_reason', $overdue ? __('Overdue invoice') : null);
+
+        if ($overdue) {
+            $invoice = $this->context->resolve('service_open_invoice', $event->serviceId);
+            $context = [...$context, ...($invoice === [] ? [] : $this->invoiceContextFrom(['invoice' => [...$invoice, 'balance_due' => true]]))];
+        }
+
         $this->clientMail('service.suspended', $event->clientId, EmailCategory::Product, $context, $event, 'service', $event->serviceId);
     }
 
@@ -654,11 +663,19 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
      */
     private function invoiceContext(int $invoiceId): array
     {
-        $context = $this->context->invoice($invoiceId);
+        return $this->invoiceContextFrom($this->context->invoice($invoiceId));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    private function invoiceContextFrom(array $context): array
+    {
         $dueDate = data_get($context, 'invoice.due_date');
 
         if (is_string($dueDate) && $dueDate !== '') {
-            data_set($context, 'invoice.days_overdue', max(0, (int) CarbonImmutable::parse($dueDate)->diffInDays(CarbonImmutable::today(), false)));
+            data_set($context, 'invoice.days_overdue', max(0, -(int) MailClock::daysFromToday($dueDate)));
         }
 
         return $context;

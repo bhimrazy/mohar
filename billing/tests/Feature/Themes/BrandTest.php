@@ -101,10 +101,12 @@ it('brands the mail layout header and footer', function () {
         ->not->toContain('Laravel');
 });
 
-it('uses the raster default logo in email for the default brand', function () {
+it('uses the raster default mark and the brand name as text in email for the default brand', function () {
     $html = (string) (new MailMessage)->line('Hello')->render();
 
-    expect($html)->toContain(asset('brand/logo.png'));
+    // The name is live text so it stays readable when a mail client force-inverts colours.
+    expect($html)->toContain(asset('brand/email/mark-light.png'), asset('brand/email/mark-dark.png'))
+        ->toMatch('#class="tx-strong brand-name"[^>]*>'.preg_quote(config('app.name'), '#').'</td>#');
 });
 
 it('falls back to config and public assets without the Themes module', function () {

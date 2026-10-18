@@ -164,7 +164,7 @@ final class MailFramer
             label: $this->string($context, 'service.product_name') ?? __('Your service'),
             statusTone: $tone,
             statusLabel: $label,
-            statusWhen: $this->string($context, 'service.domain'),
+            statusWhen: $invoice !== null ? __('invoice :number is overdue', ['number' => $invoice]) : $this->string($context, 'service.domain'),
             downloads: $invoice !== null ? $this->invoiceDownload($context) : [],
         );
     }

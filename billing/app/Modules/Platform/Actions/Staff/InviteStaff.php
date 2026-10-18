@@ -2,9 +2,12 @@
 
 namespace App\Modules\Platform\Actions\Staff;
 
+use App\Contracts\Notifications\SystemMailer;
+use App\Data\Notifications\SensitiveValue;
 use App\Events\Core\StaffInvited;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
@@ -15,7 +18,7 @@ use Illuminate\Support\Str;
 
 class InviteStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private Settings $settings) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private Settings $settings, private SystemMailer $mailer) {}
 
     /**
      * Invitation validity from the "Staff invitation validity" setting (falls back to config).
@@ -71,6 +74,13 @@ class InviteStaff
 
     private function send(StaffInvitation $invitation, string $token): void
     {
-        Notification::route('mail', $invitation->email)->notify(new StaffInvitationNotification($invitation->load('role', 'inviter'), $token));
+        // The editable staff.invitation template; the notification is the fallback when Notifications is absent.
+        $sent = $this->mailer->send('staff.invitation', [$invitation->email], [
+            'auth' => ['invite_url' => new SensitiveValue(AccountLinks::withAppOrigin(fn (): string => route('platform.invitations.show', $token)), secret: $token), 'expires_at' => $invitation->expires_at],
+        ], 'staff-invite|'.$invitation->id.'|'.StaffInvitation::hashToken($token), carriesSecret: true);
+
+        if (! $sent) {
+            Notification::route('mail', $invitation->email)->notify(new StaffInvitationNotification($invitation->load('role', 'inviter'), $token));
+        }
     }
 }

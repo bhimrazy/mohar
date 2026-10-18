@@ -6,17 +6,16 @@ use App\Events\Core\SettingsUpdated;
 use App\Models\User;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 
 class UpdateSettings
 {
     public const MASK = '••••••';
 
-    public function __construct(private SettingsCatalog $catalog, private Settings $settings, private ActivityLogger $activity) {}
+    public function __construct(private SettingsCatalog $catalog, private Settings $settings, private ActivityLogger $activity, private AccountMail $mail) {}
 
     /**
      * Security-policy changes are announced to every active full administrator.
@@ -28,9 +27,10 @@ class UpdateSettings
         $admins = User::query()->where('is_staff', true)->where('is_active', true)->with('role')->get()
             ->filter(fn (User $user): bool => $user->role !== null && in_array('*', $user->role->permissions, true));
 
-        Notification::send($admins, new SecurityNotice(__(':title settings were changed', ['title' => $title]), [
-            __(':actor changed: :keys.', ['actor' => request()->user()->name ?? __('Someone'), 'keys' => implode(', ', $keys)]),
-        ]));
+        $actor = request()->user()->name ?? __('Someone');
+        $this->mail->notice('staff.settings_changed', $admins, ['section' => $title, 'actor' => $actor, 'changes' => implode(', ', $keys)], __(':title settings were changed', ['title' => $title]), [
+            __(':actor changed: :keys.', ['actor' => $actor, 'keys' => implode(', ', $keys)]),
+        ]);
     }
 
     /**
