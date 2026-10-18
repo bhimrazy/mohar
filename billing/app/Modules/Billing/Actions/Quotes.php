@@ -14,6 +14,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\QuoteItem;
 use App\Modules\Billing\Services\DocumentNumbers;
+use App\Modules\Billing\Services\MoneyFormatter;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Services\Tax\TaxMath;
 use App\Modules\Billing\Services\Tax\TaxRates;
@@ -33,6 +34,7 @@ class Quotes
         private DocumentNumbers $numbers,
         private IssueInvoice $issue,
         private BillingSettings $settings,
+        private MoneyFormatter $money,
     ) {}
 
     /**
@@ -150,17 +152,10 @@ class Quotes
                 throw new BillingException(__('This quote has already been converted to an invoice.'));
             }
 
-            // Quantity and unit price carry over; a discount becomes its own negative line so it stays visible.
-            $lines = [];
-
-            foreach ($quote->items as $item) {
-                $lines[] = new InvoiceLineData($item->description, $item->unit_amount, $item->quantity, $item->taxable, BillableType::Manual);
-                $discount = $item->amount - $item->unit_amount * $item->quantity;
-
-                if ($discount !== 0) {
-                    $lines[] = new InvoiceLineData(__('Discount :percent% — :line', ['percent' => rtrim(rtrim((string) $item->discount_percent, '0'), '.'), 'line' => mb_substr($item->description, 0, 150)]), $discount, 1, $item->taxable, BillableType::Manual);
-                }
-            }
+            // Each invoice line carries the quote line's stored net amount, so tax is computed on exactly the same
+            // amounts and the invoice total equals the quote total. Quantity is kept when the net divides evenly;
+            // otherwise the line is one unit with the quantity, price and discount spelled out in its description.
+            $lines = array_values($quote->items->map(fn (QuoteItem $item): InvoiceLineData => $this->invoiceLine($item, $quote->currency))->all());
 
             $invoice = $this->issue->handle(new InvoiceDraft(
                 clientId: $quote->client_id,
@@ -174,6 +169,31 @@ class Quotes
 
             return $invoice;
         });
+    }
+
+    private function invoiceLine(QuoteItem $item, string $currency): InvoiceLineData
+    {
+        if ($item->quantity > 0 && $item->amount % $item->quantity === 0) {
+            $description = (float) $item->discount_percent > 0
+                ? __(':line (:percent% discount)', ['line' => $item->description, 'percent' => self::percent($item)])
+                : $item->description;
+
+            return new InvoiceLineData(mb_substr($description, 0, 255), intdiv($item->amount, $item->quantity), $item->quantity, $item->taxable, BillableType::Manual);
+        }
+
+        $description = __(':line (:quantity × :price, :percent% discount)', [
+            'line' => $item->description,
+            'quantity' => $item->quantity,
+            'price' => $this->money->format($item->unit_amount, $currency),
+            'percent' => self::percent($item),
+        ]);
+
+        return new InvoiceLineData(mb_substr($description, 0, 255), $item->amount, 1, $item->taxable, BillableType::Manual);
+    }
+
+    private static function percent(QuoteItem $item): string
+    {
+        return rtrim(rtrim((string) $item->discount_percent, '0'), '.');
     }
 
     /**
