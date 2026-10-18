@@ -84,8 +84,9 @@ class TemplatedAuthMailer implements AuthMailer
         }
 
         $host = (string) parse_url($url, PHP_URL_HOST);
-        Log::warning('Account email blocked: its link is not on a configured host.', ['kind' => $kind, 'host' => $host, 'user_id' => $user->id]);
-        app(ActivityLogger::class)->log('Account email blocked: link host not allowed', $user, properties: ['kind' => $kind, 'host' => mb_substr($host, 0, 255)], event: 'security');
+        $reason = SecretTemplatePolicy::accountLinkProblem() ?? 'The link is not on APP_URL or notifications.auth_link_host.';
+        Log::warning('Account email blocked: its link is not on a configured host.', ['kind' => $kind, 'host' => $host, 'reason' => $reason, 'user_id' => $user->id]);
+        app(ActivityLogger::class)->log('Account email blocked: link host not allowed', $user, properties: ['kind' => $kind, 'host' => mb_substr($host, 0, 255), 'reason' => $reason], event: 'security');
 
         return false;
     }
@@ -110,6 +111,7 @@ class TemplatedAuthMailer implements AuthMailer
                 [
                     ...$this->context->client($client?->id),
                     'user' => ['first_name' => $recipient->firstName(), 'email' => $user->email],
+                    ...($user->is_staff ? ['staff' => ['first_name' => $recipient->firstName()]] : []),
                     ...$context,
                 ],
                 $occurrenceKey,

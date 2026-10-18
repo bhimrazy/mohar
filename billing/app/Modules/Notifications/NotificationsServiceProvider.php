@@ -17,6 +17,7 @@ use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Notifications\Services\TemplatedAuthMailer;
 use App\Modules\Notifications\Services\TemplateDirectory;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
@@ -115,6 +116,19 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             'href' => route('admin.notifications.webhooks.index'),
             'tone' => 'warning',
         ], 'notifications.webhooks.manage', 41);
+
+        // Account mail fails closed when APP_URL can't carry account links (e.g. http:// in production): say so.
+        $dashboard->health('admin', 'notifications.account_links', function (?User $user): array {
+            $problem = SecretTemplatePolicy::accountLinkProblem();
+
+            return [
+                'label' => 'Account email',
+                'detail' => $problem ?? 'Reset and verification links use '.config('app.url'),
+                'value' => $problem === null ? 'OK' : 'Held',
+                'tone' => $problem === null ? 'success' : 'danger',
+                'icon' => 'Mail',
+            ];
+        }, 'notifications.log.view', 60);
     }
 
     private function registerPermissions(): void

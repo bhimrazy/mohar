@@ -242,6 +242,15 @@ Email preferences per user/contact (categories), "email history" list of message
 - Password reset and email verification are sent through the `App\Contracts\Auth\AuthMailer` contract (Core default:
   Laravel's notifications; Notifications: its templates), not through events, so no event carries a token or signed
   URL (ADR 0011). `PasswordResetRequested` / `EmailVerificationRequested` in §6 are therefore not events.
+- Access links (security review B1): merge fields that grant access by themselves are `App\Data\Notifications\SensitiveValue`
+  (account links; the guest ticket link, allowed only in `ticket.*` mail). The system places them: in reset,
+  verification and invitation mail as the action button and a "Label: url" text line; in other templates only as
+  the entire `href` of a link in the rendered HTML and on a line of its own in the text part. They are masked
+  everywhere else and in the log. Reset, verification and invitation text is plain and may use only `company.name`,
+  `user.first_name` / `staff.first_name` (URL-like text removed), `auth.expires_at`, `support.email` and `system.today`.
+- Account links are built from `APP_URL` and refused on any other origin (except `notifications.auth_link_host`):
+  the email is then not sent at all, and the security log, the dashboard health card and the install pre-flight say
+  why (an `http://` APP_URL in production holds all of them).
 
 ## 16. Out of scope for v1
 

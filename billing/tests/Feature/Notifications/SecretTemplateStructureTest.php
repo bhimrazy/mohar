@@ -58,7 +58,7 @@ function resetTranslationPayload(array $overrides = []): array
     return [
         'name' => 'Password reset link', 'locale' => 'en',
         'subject' => 'Reset your password', 'heading' => 'Reset your password', 'action_label' => 'Choose a new password',
-        'body' => "Someone asked to reset the password for {{ user.email }}.\n\nIf you didn't ask for this, ignore this email.",
+        'body' => "Someone asked to reset the password for your {{ company.name }} account, {{ user.first_name }}.\n\nIf you didn't ask for this, ignore this email.",
         ...$overrides,
     ];
 }

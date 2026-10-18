@@ -37,7 +37,7 @@ $supportSubject = '[#{{ ticket.number }}] {{ ticket.subject }}';
 return [
     // ── General (client) ─────────────────────────────────────────────────────────────────────────
     $secret('auth.password_reset', 'client', 'general', 'Password reset link', 'Reset your {{ company.name }} password', 'Reset your password', 'Choose a new password', <<<'MD'
-Someone asked to reset the password for {{ user.email }}. If that was you, choose a new one with the button below.
+Hello {{ user.first_name }}, someone asked to reset the password for your {{ company.name }} account. If that was you, choose a new one with the button below.
 
 The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email and your password stays the same.
 
@@ -53,12 +53,12 @@ If this wasn't you, reset your password now{% if support.email %} and contact {{
 [Open the client area]({{ system.client_area_url }})
 MD),
     $secret('auth.email_verification', 'client', 'general', 'Verify email address', 'Confirm your {{ company.name }} email address', 'Confirm your email address', 'Confirm email address', <<<'MD'
-Confirm that {{ user.email }} is yours so we can keep you informed about your account.
+Hello {{ user.first_name }}, confirm that this email address is yours so we can keep you informed about your account.
 
 If you didn't create an account with {{ company.name }}, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
-    $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You have been invited to manage {{ client.company_name | default(client.full_name) }}', 'You\'re invited', 'Accept invitation', <<<'MD'
-You now have access to the {{ company.name }} account of {{ client.company_name | default(client.full_name) }}.
+    $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You have been invited to a {{ company.name }} account', 'You\'re invited', 'Accept invitation', <<<'MD'
+Hello {{ user.first_name }}, you now have access to a {{ company.name }} client account. Sign in to see which one.
 
 The invitation expires at {{ auth.expires_at }}.
 MD),
@@ -660,7 +660,7 @@ The run for {{ automation.run_at | date }} finished.
 [Open admin area]({{ system.admin_url }})
 MD),
     $secret('staff.password_reset', 'staff', 'admin', 'Staff password reset', 'Reset your staff password', 'Reset your staff password', 'Choose a new password', <<<'MD'
-Use the button below to choose a new password for {{ staff.email }}.
+Hello {{ staff.first_name }}, use the button below to choose a new password for your staff account.
 
 The link expires at {{ auth.expires_at }}. If this wasn't you, contact {{ support.email }}.
 MD),

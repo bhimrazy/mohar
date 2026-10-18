@@ -81,7 +81,8 @@ class EmailComposer
 
     /**
      * Free-form Markdown (non-secret templates, ad-hoc mail). Sensitive values reach it only if allowed for this
-     * template ($templateKey; never ad-hoc), and only as whole link targets; the log copy masks them.
+     * template ($templateKey; never ad-hoc), as opaque placeholders. They are placed after Markdown becomes HTML,
+     * only as the entire href of a link, and on their own line in the text part; the log copy masks them.
      *
      * @param  array<string, mixed>  $context
      *
@@ -109,14 +110,14 @@ class EmailComposer
 
         $parts = function (bool $reveal) use ($html, $text, $sensitive, $plainTextOnly, $preferencesUrl): array {
             return [
-                $plainTextOnly ? null : $this->wrapHtml(EmailBody::html(SecretTemplatePolicy::placeSensitive($html->output, $sensitive, $reveal)), $preferencesUrl),
-                $this->wrapText(EmailBody::text(SecretTemplatePolicy::placeSensitive($text->output, $sensitive, $reveal)), $preferencesUrl),
+                $plainTextOnly ? null : $this->wrapHtml(SecretTemplatePolicy::placeSensitiveHtml(EmailBody::html($html->output), $sensitive, $reveal), $preferencesUrl),
+                $this->wrapText(SecretTemplatePolicy::placeSensitiveText($text->output, $sensitive, $reveal, EmailBody::text(...)), $preferencesUrl),
             ];
         };
 
         [$wrappedHtml, $wrappedText] = $parts(true);
         [$storedHtml, $storedText] = $usedSensitive ? $parts(false) : [$wrappedHtml, $wrappedText];
-        $subjectLine = $this->subjectLine(SecretTemplatePolicy::placeSensitive($renderedSubject->output, $sensitive, false));
+        $subjectLine = $this->subjectLine(SecretTemplatePolicy::mask($renderedSubject->output, $sensitive));
 
         return new ComposedEmail(
             subject: $subjectLine,

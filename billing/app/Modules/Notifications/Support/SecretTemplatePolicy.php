@@ -7,6 +7,9 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Services\SampleContext;
+use Closure;
+use Dom\Element;
+use Dom\HTMLDocument;
 use LogicException;
 
 /**
@@ -14,13 +17,15 @@ use LogicException;
  * PR #28, B1). Used by template store and update, preview, ad-hoc send, test-send and every render.
  *
  *  1. Sensitivity is declared by type: merge-field resolvers return a SensitiveValue. A SensitiveValue reaches
- *     only templates it names in allowedIn (never custom or ad-hoc mail), and only as the whole target of a link;
- *     anywhere else it is masked. The account-link fields reach only the fixed system templates in ACTION_LINKS,
+ *     only templates it names in allowedIn (never custom or ad-hoc mail), and only as the entire href of an <a>
+ *     in the rendered HTML (found by parsing it, not by matching Markdown) or on a "Label: url" line the system
+ *     writes in the text part; anywhere else it is masked. The account-link fields reach only the fixed system templates in ACTION_LINKS,
  *     and those never print them in editable text. A name check (isSecretName) is kept as a backstop: a secret-looking
  *     field that is not a SensitiveValue is stripped, and fails the test suite so the resolver gets fixed.
  *  2. Secret templates are structure-only: subject, heading, paragraphs and button label are plain text — no
  *     Markdown links or images, no HTML, nothing URL-like, only allow-listed merge fields without filter arguments.
- *     The system renders the action button and the text-part link line.
+ *     The only account-controlled values allowed are first names, and URL-like text in them is removed. The system
+ *     renders the action button and the text-part link line.
  *  3. Account links must be on a configured origin — APP_URL or notifications.auth_link_host: same scheme, host
  *     and port, no user info — never derived from the request or the link itself.
  */
@@ -35,12 +40,21 @@ final class SecretTemplatePolicy
         'staff.invitation' => 'auth.invite_url',
     ];
 
-    /** The only merge fields a secret template's text may use. */
-    public const ALLOWED_FIELDS = [
-        'company.name', 'recipient.name', 'recipient.first_name', 'recipient.email', 'user.first_name', 'user.email',
-        'staff.first_name', 'staff.email', 'client.first_name', 'client.full_name', 'client.company_name',
-        'auth.expires_at', 'support.email', 'system.today',
-    ];
+    /**
+     * The only merge fields a secret template's text may use: the brand, system values, and the recipient's first
+     * name. Values an account holder controls (names, company names, addresses) could put a look-alike link beside
+     * the real button, so only first names are allowed and they are rendered without URL-like text.
+     */
+    public const ALLOWED_FIELDS = ['company.name', 'user.first_name', 'staff.first_name', 'auth.expires_at', 'support.email', 'system.today'];
+
+    /** Allowed fields an account holder controls: URL-like text is removed from their values. */
+    private const ACCOUNT_CONTROLLED_FIELDS = ['user.first_name', 'staff.first_name'];
+
+    /** Elements dropped from mail that reveals a sensitive link: they could read or send it (CSS selectors, forms). */
+    private const UNSAFE_ELEMENTS = 'style, link, base, meta, script, form, iframe, frame, object, embed, svg, math, template, noscript';
+
+    /** Attributes a revealed link keeps (no ping, no event handlers). */
+    private const LINK_ATTRIBUTES = ['href', 'class', 'style', 'target', 'rel', 'title'];
 
     /** Filters a secret template may apply (none take arguments). */
     public const ALLOWED_FILTERS = ['upper', 'lower'];
@@ -106,7 +120,7 @@ final class SecretTemplatePolicy
             }
 
             foreach ($paths as $path) {
-                if (self::isSensitivePath($path) && ! self::allowedAsLinkTarget($templateKey, $path, $text)) {
+                if (self::isSensitivePath($path) && ! self::allowedAsLinkTarget($templateKey, $path, (string) $field, $text)) {
                     $problems[$field][] = __('Access links and tokens can\'t be used here; the system adds the action button itself.');
                 } elseif ($secretTemplate && ! in_array($path, self::ALLOWED_FIELDS, true)) {
                     $problems[$field][] = __('This email carries a one-time link, so it can only use these merge fields: :fields.', ['fields' => implode(', ', self::ALLOWED_FIELDS)]);
@@ -173,7 +187,13 @@ final class SecretTemplatePolicy
 
         foreach (self::ALLOWED_FIELDS as $path) {
             $value = data_get($context, $path);
-            data_set($allowed, $path, is_scalar($value) ? $value : null);
+            $value = is_scalar($value) ? $value : null;
+
+            if (is_string($value) && in_array($path, self::ACCOUNT_CONTROLLED_FIELDS, true)) {
+                $value = trim((string) preg_replace('/\s+/u', ' ', self::withoutUrlLike($value)));
+            }
+
+            data_set($allowed, $path, $value);
         }
 
         return $allowed;
@@ -219,27 +239,74 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * Puts sensitive values back into rendered Markdown, only as the whole target of a link — [label](placeholder) —
-     * and masks every other occurrence (text, query strings, image sources, subjects). $reveal = false masks all
-     * (the log copy).
+     * Puts sensitive values into rendered HTML. The HTML is parsed, not matched as text: a placeholder becomes the
+     * real value only where it is the entire href of an <a> whose text holds no placeholder. Every other occurrence
+     * — another attribute, an image source, part of another URL, text, a comment — is masked. Mail that reveals a
+     * value also loses elements that could read or send it (style sheets with attribute selectors, forms), and the
+     * link keeps only presentational attributes. $reveal = false masks all (the log copy).
+     *
+     * @param  array<string, string>  $placeholders  placeholder => value (prepareContext)
+     */
+    public static function placeSensitiveHtml(string $html, array $placeholders, bool $reveal): string
+    {
+        return self::placeInHtml($html, $placeholders, $reveal)[0];
+    }
+
+    /**
+     * Puts sensitive values into the plain-text part. Each Markdown link to a placeholder, [label](placeholder), is
+     * replaced by its label, and the link goes on a line of its own that the system writes: "Label: url". Every other
+     * occurrence is masked. $toText converts the Markdown to text in between (EmailBody::text).
+     *
+     * @param  array<string, string>  $placeholders
+     * @param  Closure(string): string  $toText
+     */
+    public static function placeSensitiveText(string $markdown, array $placeholders, bool $reveal, Closure $toText): string
+    {
+        if ($placeholders === []) {
+            return $toText($markdown);
+        }
+
+        $any = implode('|', array_map(fn (string $placeholder): string => preg_quote($placeholder, '/'), array_keys($placeholders)));
+        $link = '(?<!!)\[([^\[\]\n]*)\]\(\s*('.$any.')\s*\)';
+        $tokens = [];
+        $lines = [];
+
+        foreach (preg_split('/\R/', $markdown) ?: [] as $line) {
+            $own = [];
+            $whole = preg_match('/^\s*'.$link.'\s*$/', $line) === 1;
+            $line = (string) preg_replace_callback('/'.$link.'/', function (array $match) use (&$own, &$tokens, $placeholders): string {
+                $label = trim(self::withoutUrlLike(self::mask($match[1], $placeholders)));
+                $token = 'zzlink'.count($tokens).bin2hex(random_bytes(6)).'zz';
+                $tokens[$token] = $placeholders[$match[2]];
+                $own[] = ($label !== '' ? $label : __('Link')).': '.$token;
+
+                return $label;
+            }, $line);
+
+            array_push($lines, ...($whole ? $own : [$line, ...$own]));
+        }
+
+        $text = self::mask($toText(implode("\n", $lines)), $placeholders);
+
+        foreach ($tokens as $token => $value) {
+            $text = str_replace($token, $reveal ? str_replace(["\r", "\n"], '', $value) : '••••', $text);
+        }
+
+        return $text;
+    }
+
+    /**
+     * Masks every placeholder (subjects, labels and anything not placed as a link).
      *
      * @param  array<string, string>  $placeholders
      */
-    public static function placeSensitive(string $markdown, array $placeholders, bool $reveal): string
+    public static function mask(string $text, array $placeholders): string
     {
-        foreach ($placeholders as $placeholder => $value) {
-            if ($reveal) {
-                $markdown = (string) preg_replace_callback(
-                    '/(?<!!)(\[[^\]]*\])\(\s*'.preg_quote($placeholder, '/').'\s*\)/',
-                    fn (array $match): string => $match[1].'(<'.str_replace(['<', '>', "\n", "\r"], '', $value).'>)',
-                    $markdown,
-                );
-            }
-
-            $markdown = str_replace($placeholder, '••••', $markdown);
+        foreach (array_keys($placeholders) as $placeholder) {
+            $text = str_ireplace($placeholder, '••••', $text);
         }
 
-        return $markdown;
+        return $text;
     }
 
     /**
@@ -291,6 +358,26 @@ final class SecretTemplatePolicy
     }
 
     /**
+     * Why every account link would be refused, if the configuration makes that so: shown in the security log, the
+     * admin dashboard's health card and the install pre-flight. Null when links can be sent.
+     */
+    public static function accountLinkProblem(): ?string
+    {
+        $url = (string) config('app.url');
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return __('APP_URL ":url" has no host, so password-reset, verification and invitation emails are held. Set APP_URL to the public https:// address.', ['url' => $url]);
+        }
+
+        if (app()->isProduction() && strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return __('APP_URL is ":url": in production account links must use https://, so password-reset, verification and invitation emails are held. Set APP_URL to the https:// address.', ['url' => $url]);
+        }
+
+        return null;
+    }
+
+    /**
      * @return list<string> scheme://host:port
      */
     public static function allowedOrigins(): array
@@ -338,12 +425,64 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * Free-form templates may use a sensitive field only if it is allowed for them and every use is the whole
-     * target of a link. Secret system templates never print one (the system renders their button).
+     * @param  array<string, string>  $placeholders
+     * @return array{0: string, 1: int} [html, occurrences masked]
      */
-    private static function allowedAsLinkTarget(string $templateKey, string $path, string $text): bool
+    private static function placeInHtml(string $html, array $placeholders, bool $reveal): array
     {
-        if (self::isSecretTemplate($templateKey)) {
+        if ($placeholders === [] || self::mask($html, $placeholders) === $html) {
+            return [$html, 0];
+        }
+
+        $document = HTMLDocument::createFromString('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'.$html.'</body></html>', LIBXML_NOERROR);
+        $body = $document->body;
+
+        if ($body === null) {
+            return [self::mask($html, $placeholders), 1];
+        }
+
+        foreach (iterator_to_array($body->querySelectorAll(self::UNSAFE_ELEMENTS)) as $element) {
+            $element->remove();
+        }
+
+        foreach ($body->querySelectorAll('a[href]') as $link) {
+            $href = trim((string) $link->getAttribute('href'));
+
+            if (! isset($placeholders[$href]) || $link->namespaceURI !== 'http://www.w3.org/1999/xhtml' || self::mask((string) $link->textContent, $placeholders) !== $link->textContent) {
+                continue;
+            }
+
+            self::keepLinkAttributes($link);
+            $link->setAttribute('href', $reveal ? $placeholders[$href] : '••••');
+        }
+
+        $out = $body->innerHTML;
+        $masked = 0;
+
+        foreach (array_keys($placeholders) as $placeholder) {
+            $masked += substr_count(strtolower($out), strtolower($placeholder));
+        }
+
+        return [self::mask($out, $placeholders), $masked];
+    }
+
+    private static function keepLinkAttributes(Element $link): void
+    {
+        foreach (iterator_to_array($link->attributes) as $attribute) {
+            if (! in_array(strtolower($attribute->name), self::LINK_ATTRIBUTES, true)) {
+                $link->removeAttribute($attribute->name);
+            }
+        }
+    }
+
+    /**
+     * Free-form templates may use a sensitive field only in their body, only if it is allowed for them, and only
+     * where the system will place it: rendered against the sample data, every occurrence must be the entire href
+     * of a link (placeInHtml). Secret system templates never print one (the system renders their button).
+     */
+    private static function allowedAsLinkTarget(string $templateKey, string $path, string $field, string $text): bool
+    {
+        if (self::isSecretTemplate($templateKey) || $field !== 'body') {
             return false;
         }
 
@@ -353,11 +492,15 @@ final class SecretTemplatePolicy
             return false;
         }
 
-        $quoted = preg_quote($path, '/');
-        $uses = preg_match_all('/\{\{\s*'.$quoted.'\b[^}]*\}\}/', $text);
-        $asTargets = preg_match_all('/(?<!!)\[[^\]]*\]\(\s*\{\{\s*'.$quoted.'\s*\}\}\s*\)/', $text);
+        [$context, $placeholders] = self::prepareContext(app(SampleContext::class)->build(true), $templateKey);
 
-        return $uses === $asTargets;
+        try {
+            $markdown = (new TemplateEngine)->render($text, $context, true)->output;
+        } catch (TemplateSyntaxError) {
+            return false;
+        }
+
+        return self::placeInHtml(EmailBody::html($markdown), $placeholders, true)[1] === 0;
     }
 
     private static function hasDisallowedFilters(string $text): bool
