@@ -97,7 +97,8 @@ the settings catalog, activity log, admin global search, login-as-client (impers
 - `exchange_rate` = units of this currency per 1 default unit (decimal 16,6). Conversion: `target_minor = round_half_up(source_minor × rate_target/rate_source × 10^(dec_target − dec_source))`. **MUST**
 - Zero-decimal currencies (JPY, KRW, HUF in practice, …) use `decimals=0`. Formatting from prefix/suffix/format/decimals. **MUST**
 - A client's currency can change only while they have no invoices/transactions (else staff must use a forced flow with warning). **MUST**
-- Currency in use by clients/prices cannot be deleted. **MUST**
+- Currency in use by clients, prices, invoices, quotes or transactions cannot be deleted; deleting clears its rate
+  history so a currency re-created with the same code starts fresh. **MUST**
 
 ### 6.1 Display (built 2026-10-18)
 
@@ -127,12 +128,18 @@ the settings catalog, activity log, admin global search, login-as-client (impers
       (all four required; `per_page` ≤ 100), daily `buy`/`sell` in NPR per `currency.unit` (e.g. 100 INR); we take the
       latest day in the last week and use the mid rate. Docs: https://www.nrb.org.np/api-docs-v1 . The live response
       names the code `currency.iso3` (the docs say `ISO3`); both are read.
-- Fetches use Laravel's Http client with a 5 s connect and 10 s total timeout and never run on page loads. Each source
+- Fetches use Laravel's Http client with a 5 s connect and 10 s total timeout, no redirects and a 1 MB response
+  cap, and never run on page loads. Feed values must be plausible (positive, at most 9 significant digits; NRB
+  buy ≤ sell) and the derived rate must lie between 0.000001 and 1,000,000 per default unit; anything else fails
+  that currency with an audit entry and keeps its rate. Every rate change (fetches, manual edits, review
+  decisions, default-currency rebases) runs under one lock, and the currency row is locked and re-read before
+  old → new is computed. A currency has at most one pending review (unique `pending_currency`). Each source
   is fetched once per update; every rate is derived through the default currency as an exact fraction
   (`units × base_default ÷ (base × units_default)`), rounded half up to six decimals without floats.
 - **Schedule:** the `platform.exchange-rates` automation task runs first in the daily pipeline (stage
   `EXCHANGE_RATES`), so renewals and converted prices use the day's rates. Setting `platform.rates_update_time`
-  (HH:MM) runs the same task at its own time; the main run then skips it for that date. Admin → Currencies →
+  (HH:MM) moves the fetch to that time: the pipeline task records "skipped: rates update at HH:MM" and the
+  scheduled `platform:update-exchange-rates` command fetches and replaces that record, once per date. Admin → Currencies →
   **Update rates now** runs it on demand.
 - **Safety:** a fetched rate that moved more than `platform.rates_max_change_percent` (default 10; 0 = off) from the rate
   in force is not applied. It becomes a pending review (one per currency, replaced by newer proposals), shows on the
@@ -159,18 +166,21 @@ user_id)` and an activity entry (`currency.rate_changed`, old → new, source, w
   on, conversion also runs after rate changes and daily.
 - A price set manually in a non-default currency is never converted: the Catalog price matrix has a lock per cell
   (typing a price in another currency locks it), and the TLD price grid has a "Set manually" switch per currency and
-  slab. Converted rows whose default-currency price was removed are turned off (Catalog) or removed (Domains).
+  slab. Converted rows whose default-currency price was removed are turned off, never deleted. On upgrade, existing
+  TLD prices in other currencies (and Catalog prices when automatic conversion was off) are marked "set manually".
 - Existing services and domains are never repriced: they renew at their stored recurring amount. Issued invoices keep
   their amounts, and payments converted by a gateway keep the rate stored on the transaction (refunds use it).
 
 ### 6.4 Permissions
 
-- `core.currencies.manage`: currencies list, create, display settings, delete.
+- `core.currencies.manage`: currencies list and display settings.
 - The currency forms warn before leaving with unsaved changes; making a currency the default asks for
   confirmation and explains that every rate is recalculated.
 - `core.currencies.rates` (sensitive tier, granted only explicitly or by `*`; every change needs a recent password):
-  rate source and manual rate, rounding and buffer, update now, approve/reject, change the default currency, converted
-  prices, and the "Exchange rates" settings section.
+  creating and deleting currencies, rate source and manual rate, rounding and buffer, update now, approve/reject,
+  change the default currency, converted prices, and the "Exchange rates", "Converted product prices" and
+  "Converted TLD prices" settings sections. Roles that held only `core.currencies.manage` lose rate editing on
+  upgrade; grant `core.currencies.rates` explicitly.
 
 ## 7. Settings catalog
 
