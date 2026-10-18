@@ -5,6 +5,7 @@ namespace App\Modules\Core;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
@@ -19,6 +20,7 @@ use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientServiceDirectory;
+use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
 use App\Modules\Core\Support\NullInvoiceQueries;
 use App\Modules\Core\Support\NullPaymentGuard;
@@ -56,6 +58,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(GatewayDirectory::class, NullGatewayDirectory::class);
         $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
         $this->app->bindIf(BrandProvider::class, DefaultBrandProvider::class);
+        $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
     }
 
     protected function schedule(Schedule $schedule): void
