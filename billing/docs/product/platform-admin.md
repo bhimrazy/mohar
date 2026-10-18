@@ -135,7 +135,8 @@ the settings catalog, activity log, admin global search, login-as-client (impers
   in force is not applied. It becomes a pending review (one per currency, replaced by newer proposals), shows on the
   currencies page and as a dashboard "Needs attention" item, and staff approve or keep the current rate. A manual rate
   change supersedes a pending review. Auto-sourced currencies whose last successful fetch is older than
-  `platform.rates_stale_after_days` (default 3) are flagged as stale on the page and in "Needs attention". A failed
+  `platform.rates_stale_after_days` (default 3), and manual rates not changed for
+  `platform.rates_manual_stale_after_days` (default 30), are flagged as stale on the page and in "Needs attention". A failed
   fetch fails the automation task with the reason, keeps the old rates and is audit-logged.
 - **Audit and history:** every rate change writes `exchange_rate_history (currency, rate, source, effective_at,
 user_id)` and an activity entry (`currency.rate_changed`, old → new, source, who; system for automation). Held,
@@ -162,6 +163,8 @@ user_id)` and an activity entry (`currency.rate_changed`, old → new, source, w
 ### 6.4 Permissions
 
 - `core.currencies.manage`: currencies list, create, display settings, delete.
+- The currency forms warn before leaving with unsaved changes; making a currency the default asks for
+  confirmation and explains that every rate is recalculated.
 - `core.currencies.rates` (sensitive tier, granted only explicitly or by `*`; every change needs a recent password):
   rate source and manual rate, rounding and buffer, update now, approve/reject, change the default currency, converted
   prices, and the "Exchange rates" settings section.
