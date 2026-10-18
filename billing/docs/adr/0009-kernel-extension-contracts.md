@@ -1,6 +1,6 @@
 # ADR 0009 — Kernel extension contracts for provisioning and registrar drivers
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-18 (CTO) · Owner: Principal architect
 - Roadmap: wave 3, item 3.1 (`docs/parity/roadmap.md`). Unblocks 3.2 control panels, 3.3 registrars, 3.5 importers.
 - Depends on: ADR 0010 (contract evolution), 0011 (events), 0012 (capability interfaces and registries).
 

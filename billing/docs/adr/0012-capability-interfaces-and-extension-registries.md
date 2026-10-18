@@ -1,6 +1,6 @@
 # ADR 0012 — Capability interfaces vs flags, and one extension-registry pattern
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-18 (CTO) · Owner: Principal architect
 
 ## Context
 

@@ -46,3 +46,6 @@ For a PR review: post one review with `gh pr review <n> --comment --body-file <f
 fix), Non-blocking and Verified good. For an audit: write findings to the file named in the brief, fix
 small contained issues on the branch named in the brief with tests and all gates green, and file
 GitHub issues for larger ones. Report to the CTO in under 300 words.
+
+Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
+PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.

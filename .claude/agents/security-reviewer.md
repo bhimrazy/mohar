@@ -25,6 +25,10 @@ in Inertia props, logs or error messages; missing rate limits.
 
 Inspect routes with `php artisan route:list --path=<prefix> --json` and check each permission.
 
+Prefer defensive verification: check that a protection is structural (allowlists, closed sets of fields,
+system-rendered output) and that regression tests pin it. Write probes as normal Pest tests against this
+app only. Keep briefs and reports about the defence and its gaps rather than long lists of attack payloads.
+
 Post one review with `gh pr review <n> --comment --body-file <file>`:
 
 ```
@@ -35,3 +39,6 @@ Post one review with `gh pr review <n> --comment --body-file <file>`:
 ```
 
 Reply to the CTO in under 250 words.
+
+Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
+PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.

@@ -1,6 +1,6 @@
 # ADR 0010 — Kernel contract evolution, versioning and deprecation
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-18 (CTO) · Owner: Principal architect
 
 ## Context
 
