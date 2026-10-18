@@ -19,6 +19,7 @@ Definitions live in `.claude/agents/`. Pass the role's file name as `subagent_ty
 | QA + design reviewer | `qa-design-reviewer` | opus    | no          | acceptance-criteria coverage, exploratory run, UI quality        |
 | Re-reviewer          | `re-reviewer`        | opus    | no          | verifies every round-1 blocking/medium item after fixes          |
 | AI-slop reviewer     | `slop-reviewer`      | opus    | no          | docs/infra PRs and handoff docs (folded into the board for code) |
+| Product reviewer     | `product-reviewer`   | opus    | small fixes | the owner's eyes: product standards, directions, WHMCS parity    |
 
 Reviewers are read-only. All agents run as the same GitHub account, so reviews are posted with
 `gh pr review <n> --comment` (approval is not possible); the verdict line in the comment is the gate.
@@ -29,13 +30,17 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 2. **Worktree.** `scripts/new-worktree.sh <slug>` → `.worktrees/<slug>/billing` on `feature/<slug>`.
 3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The
    engineer commits in small steps, pushes, and opens a draft PR into `develop` with gates green.
-4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer`, plus `security-reviewer`
+4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer` + `product-reviewer`
+   (every user-facing PR), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, resolve conflicts, run all gates locally,
    mark the PR ready (`gh pr ready <n>`; CI skips drafts), wait for CI, post a sign-off comment, `gh pr merge <n> --merge`. Remove the worktree and branch.
-8. **Record.** Update `docs/handoff/state.md`, `billing/docs/progress.md`, `billing/changelog.md`.
+8. **Before reporting to the owner:** run a `product-reviewer` sweep of `develop` after user-facing
+   merges, act on its owner-blocking findings, and only then send the owner an update. When the owner
+   corrects something, add it to `docs/handoff/product-standards.md` in the same session.
+9. **Record.** Update `docs/handoff/state.md`, `billing/docs/progress.md`, `billing/changelog.md`.
    Non-blocking review items become GitHub issues.
 
 Waves: modules with no dependency on each other run in parallel. With the current machine, at most two

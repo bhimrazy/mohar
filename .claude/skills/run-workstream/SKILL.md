@@ -37,6 +37,8 @@ When the draft PR is up, launch in parallel (background):
 
 - `review-board`: PR number, worktree, the domain expertise needed, focus areas from the spec.
 - `qa-design-reviewer`: PR number, worktree, the main flows to drive, a free port.
+- `product-reviewer`: PR number, worktree, pages in scope, a free port. Required for every
+  user-facing PR; its owner-blocking findings block the merge like any other blocking item.
 - `security-reviewer`: when the PR touches auth, permissions, money, files, webhooks or third-party
   input. Name the concrete threats for this module.
 
@@ -68,4 +70,5 @@ cd /workspaces/whmcs && git pull --ff-only && git worktree remove .worktrees/<sl
 - `billing/docs/progress.md`: status row and a timeline line.
 - `billing/changelog.md`: what users and operators get, under `[Unreleased]`.
 - Non-blocking review items: `gh issue create` with the PR reference.
-- Send the owner a short update with screenshots.
+- Run a `product-reviewer` sweep of `develop` when user-facing work merged, fix or route its
+  owner-blocking findings, then send the owner a short update with screenshots.
