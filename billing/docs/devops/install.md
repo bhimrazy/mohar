@@ -25,7 +25,9 @@ Pick one of the two options.
 data in the `postgres-data` and `rustfs-data` volumes. Set strong values for `DB_PASSWORD`, `OBJECTS_ACCESS_KEY` and
 `OBJECTS_SECRET_KEY` in `.env` **before** the first `docker compose up -d --wait`: PostgreSQL reads them only when its
 volume is created. The compose file also creates an empty `billing_test` database for the test suite, which
-production does not use. There is no application image yet, so the app itself runs on the host (step 2).
+production does not use. The file is written for local infrastructure: it also turns on the RustFS web console
+(`RUSTFS_CONSOLE_ENABLE`, port 9001 on `127.0.0.1`). In production set that to `'false'` or keep the port off any
+public interface. There is no application image yet, so the app itself runs on the host (step 2).
 
 **Bare metal or managed services.** Create a PostgreSQL database and a user that owns it, and a private bucket
 with an access key limited to that bucket. Put the connection details in `.env` (step 3).
@@ -40,7 +42,8 @@ composer install --no-dev --optimize-autoloader
 npm ci && npm run build        # writes public/build; Node is not needed at runtime
 ```
 
-The app runs without the dev dependencies: the install path uses no factories or Faker.
+The app runs without the dev dependencies: the install path uses no factories or Faker. The PHP user (for php-fpm and
+the workers) must be able to write `storage/` and `bootstrap/cache/`; everything else can stay read-only.
 
 ## 3. Environment
 
@@ -98,10 +101,10 @@ php artisan app:install
    or `array` mailer are reported as warnings; the install goes on.
 2. **Reference data** from every installed module, each in its own transaction:
 
-    | Installer         | Creates                                                                                                                                  |
-    | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-    | `core_currencies` | USD (the default when no currency is), INR and NPR with their symbols, formats and starting rates. Existing currencies are never changed |
-    | `core_roles`      | the system roles Full Administrator, Billing, Support and Sales, reset to their built-in permissions                                     |
+    | Installer         | Creates                                                                                                                                                                                                    |
+    | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `core_currencies` | USD (the default), INR and NPR with their symbols, formats and starting rates, on the first install only (while no currency exists). Later runs never re-create a deleted currency or change an edited one |
+    | `core_roles`      | the system roles Full Administrator, Billing, Support and Sales, found by a stable key and reset to their built-in permissions (names staff chose are kept)                                                |
 
     Settings, the daily automation time, theme presets and staff permissions need no rows: they are built-in defaults
     in code and configuration until staff change them. Support departments are not created, because each needs a
@@ -152,10 +155,15 @@ The scheduler writes a heartbeat every minute and runs the daily automation pipe
 Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
 
 ```bash
-php artisan queue:work --queue=payments,provisioning,registrar --tries=3
+php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=85
 php artisan queue:work --queue=notifications,webhooks --tries=3
 php artisan queue:work --queue=default --tries=3
 ```
+
+The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
+calls gateways, control panels and registrars: its `--timeout` must stay above the drivers' own timeouts (module jobs
+use `services.module.job_timeout_seconds`, 60 s) and below the queue connection's `retry_after` (90 s), or a slow job
+is started twice. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
 
 A minimal systemd unit for one pool:
 
@@ -185,13 +193,46 @@ WantedBy=multi-user.target
 3. Admin → Setup → Currencies: review the starting exchange rates.
 4. Work through the go-live checklist in [security/standards.md](../security/standards.md#go-live-checklist).
 
+## Backups
+
+Three things, kept apart, and a restore you have actually tried.
+
+1. **The database.** A compressed custom-format dump at least daily, for example from cron at 02:30 (before the
+   03:00 automation run):
+
+    ```bash
+    pg_dump --format=custom --no-owner --file=/var/backups/billing/billing-$(date +%F).dump \
+      "postgresql://billing@127.0.0.1:5432/billing"
+    find /var/backups/billing -name 'billing-*.dump' -mtime +30 -delete   # keep 30 days
+    ```
+
+    Give `pg_dump` its password through `~/.pgpass` (mode 600), not the command line. Copy the dumps off the server
+    (another region or provider). Keep weekly or monthly dumps longer if your accounting rules require it. A managed
+    PostgreSQL service with point-in-time recovery covers this, but still take a periodic logical dump.
+
+2. **The objects bucket.** Invoice PDFs, ticket attachments, exports and brand assets live only there. Turn on bucket
+   versioning or replication to a second bucket, or sync it to another provider on a schedule (for example
+   `rclone sync`). A database restore without the bucket leaves links to files that no longer exist.
+
+3. **`APP_KEY` (and `.env`).** Store the key in a password manager or secrets store, **separately from the database
+   dumps**. Without it, every encrypted value in a dump (gateway, registrar and server credentials, secret
+   settings) is unrecoverable. And a dump stored together with the key gives whoever reads it all of those
+   credentials.
+
+**Restore test.** At least once before go-live, and then every quarter, restore the latest dump into a scratch
+database (`createdb billing_restore && pg_restore --no-owner --dbname=billing_restore <file>`). Point a copy of the
+app at it with the same `APP_KEY` and run `php artisan app:install --no-interaction`: the pre-flight must pass and
+every reference row must report as unchanged. Then sign in and open an invoice PDF to check the bucket.
+
 ## Upgrading
 
 ```bash
 php artisan down
+# take a database dump first (see Backups): a migration cannot always be rolled back
 # deploy the new release, then:
 composer install --no-dev --optimize-autoloader
 npm ci && npm run build
+php artisan optimize:clear                 # drop the previous release's cached configuration and routes
 php artisan migrate --force
 php artisan app:install --no-interaction   # adds new reference data and resets the system roles
 php artisan optimize
@@ -200,9 +241,11 @@ php artisan up
 ```
 
 Re-running `app:install` is safe: on an unchanged database it changes nothing and reports every row as unchanged.
-It adds reference rows that a new release introduces and resets the four system roles to their built-in permissions,
-so a permission added in the release reaches them. Changes staff made to a system role are lost; copy a system role
-into a custom role if you need different permissions. Currencies staff edited are kept.
+It adds reference data a new release introduces and resets the permissions of the four system roles, so a permission
+added in the release reaches them. The system roles are found by a stable key, so a name staff gave one is kept, and a
+custom role is never changed, even one named like a system role. Each reset is in the activity log
+(`role.updated`). Permission changes staff made to a system role are lost: copy it into a custom role if you need
+different permissions. Currencies are never re-created or changed after the first install.
 
 ## Demo data
 

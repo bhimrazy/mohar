@@ -22,7 +22,7 @@ app/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
     Models/  Actions/  Services/  Drivers/  Jobs/  Listeners/  Policies/
-    Console/Commands/             auto-registered artisan commands (`<module>:<action>`)
+    Console/Commands/             auto-registered artisan commands (`<module>:<action>`; Core uses its area)
     Install/                      InstallsReferenceData implementations (reference data, every environment)
     Database/Migrations|Factories|Seeders/<Module>Seeder.php (demo data; DatabaseSeeder runs it outside production)
     Http/Controllers/{Admin,Client,Public}/  Http/Requests/  Http/Resources/
@@ -152,12 +152,16 @@ app(ReferenceDataRegistry::class)->register('notifications_templates', DefaultTe
 
 `php artisan app:install` (production install, `docs/devops/install.md`) and `DatabaseSeeder` both run every
 registered installer in order, each in a transaction, so the demo and production never drift. `install()` is
-idempotent (a second run creates and updates nothing), returns a `ReferenceDataResult`, creates operator-owned rows
-only when missing and resets system-owned rows to their definition. No users, credentials, demo rows or network calls.
+idempotent (a second run creates and updates nothing) and returns a `ReferenceDataResult`. Rows the operator owns
+afterwards (currencies, template wording) are created on the first install only, so a deleted one never comes back.
+Rows the system owns (system roles) are found by a stable key (`roles.key`), never by a name staff can change, and are
+reset to their definition with an audit entry. No users, credentials, demo rows or network calls. The contract is a
+provider contract (ADR 0010): it never gains a method.
 Everything else a module seeds (demo accounts, products, invoices, tickets) goes in its `<Module>Seeder`, which
 extends `DemoSeeder` and so refuses to run in production. Settings, the automation time and theme presets are
-defaults in code and config, not rows. Commands are named `<module>:<action>`; the install command is the
-brand-neutral `app:install`.
+defaults in code and config, not rows. Commands are named `<module>:<action>` (`billing:reconcile-payments`); Core and
+cross-cutting commands use their area instead (`automation:run`, `objects:ensure-bucket`, and the brand-neutral
+`app:install`).
 
 **Themes & brand** — the Themes module renders the active theme's CSS variables into the root view
 (schema: `App\Support\Themes\ThemeSchema`, "billing-theme" v1). Theme packs add presets with
