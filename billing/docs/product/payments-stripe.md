@@ -77,7 +77,9 @@ sequenceDiagram
 Session parameters: `mode=payment`, one line item with `price_data` (currency, `unit_amount` in Stripe units,
 `product_data.name` "Invoice <number>"), `quantity=1`, `client_reference_id=<ref>`, `success_url` = Billing's
 return URL plus `ref`, `cancel_url` = Billing's cancel URL, `customer_email` from the invoice snapshot,
-`expires_at` = now + 35 minutes (Stripe allows 30 minutes to 24 hours), `adaptive_pricing[enabled]=false`, and
+`expires_at` = now + 35 minutes (Stripe allows 30 minutes to 24 hours), `adaptive_pricing[enabled]=false`,
+`allowed_payment_method_types[]=card` (cards, including Apple Pay and Google Pay; no delayed methods that settle
+days later; the current API version filters the eligible methods with this parameter), and
 the same metadata on the session and on `payment_intent_data`: `mohar_reference`, `mohar_invoice_id`,
 `mohar_amount` (Stripe units), `mohar_currency`, `mohar_flow=checkout`.
 
@@ -92,18 +94,20 @@ the same metadata on the session and on `payment_intent_data`: `mohar_reference`
 
 ### 3.2 Lookup status mapping
 
-| Checkout Session (+ PaymentIntent)                            | LookupResult         | Attempt becomes                       |
-| ------------------------------------------------------------- | -------------------- | ------------------------------------- |
-| `complete` + `paid`, PI `succeeded`, nothing refunded         | succeeded            | succeeded (after Billing's guards)    |
-| `complete` + `paid`, charge partly or fully refunded          | (partially_)refunded | staff review                          |
-| `complete` + `unpaid` (delayed method still processing)       | pending              | pending                               |
-| `open`                                                        | pending              | pending; review after TTL + grace     |
-| `expired`                                                     | expired              | expired                               |
-| reference, mode, livemode or metadata don't match the attempt | ambiguous            | staff review                          |
-| `no_payment_required`, unknown status                         | ambiguous            | staff review                          |
-| HTTP 404                                                      | not_found            | expired after TTL + grace             |
-| HTTP 401/403                                                  | ambiguous            | staff review ("check the secret key") |
-| HTTP 429/5xx, connection error                                | pending, retryable   | unchanged, polled again               |
+| Checkout Session (+ PaymentIntent)                             | LookupResult         | Attempt becomes                                                                    |
+| -------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- |
+| `complete` + `paid`, PI `succeeded`, nothing refunded          | succeeded            | succeeded (after Billing's guards)                                                 |
+| `complete` + `paid`, charge partly or fully refunded           | (partially_)refunded | staff review                                                                       |
+| `complete` + PI `processing` (paid or unpaid)                  | processing           | pending, no expiry: the invoice stays locked until it resolves or staff resolve it |
+| `complete` + `unpaid`, PI `requires_payment_method`/`canceled` | failed               | failed, with Stripe's error as the reason                                          |
+| `complete` + `unpaid`, PI not started                          | pending              | pending                                                                            |
+| `open`                                                         | pending              | pending; review after TTL + grace                                                  |
+| `expired`                                                      | expired              | expired                                                                            |
+| reference, mode, livemode or metadata don't match the attempt  | ambiguous            | staff review                                                                       |
+| `no_payment_required`, unknown status                          | ambiguous            | staff review                                                                       |
+| HTTP 404                                                       | not_found            | expired after TTL + grace                                                          |
+| HTTP 401/403                                                   | ambiguous            | staff review ("check the secret key")                                              |
+| HTTP 429/5xx, connection error                                 | pending, retryable   | unchanged, polled again                                                            |
 
 `providerTxnId` is the PaymentIntent id (`pi_…`); refunds and disputes point back to it. The fee comes from the
 charge's balance transaction, only when it is in the charge currency (otherwise 0, because a fee in the
@@ -128,7 +132,7 @@ stored:
 | `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired` | session       | settle the attempt named by our reference (Billing looks it up and applies its guards); sessions not created here are ignored |
 | `payment_intent.succeeded`                                                                                                                    | PaymentIntent | the same, for PaymentIntents our Checkout created (`mohar_flow=checkout`)                                                     |
 | `payment_intent.payment_failed`                                                                                                               | —             | acknowledged and logged; Checkout shows the failure and the customer can retry there                                          |
-| `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded` and not made from our admin (`metadata.mohar_origin`); else ignored                          |
+| `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded`, unless our own refund row already recorded it (below); else ignored                         |
 | `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
 | anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
 
@@ -144,8 +148,11 @@ stored:
   retry it for days.
 - `charge.refunded` is not used: its object is the charge, which doesn't say which refund is new. Stripe's own
   guidance is to listen to `refund.created`.
-- Refunds made from our admin carry `metadata[mohar_origin]=admin`, so their webhooks are ignored and can't race
-  the refund action into a second booking.
+- Refunds made from our admin carry `metadata[mohar_origin]=admin` and `metadata[mohar_refund]=<our refund row>`,
+  which the webhook passes to Billing as the event's reference. Billing answers "refund already recorded" only when
+  that row succeeded, 409 while it is still pending (Stripe delivers again), and books the refund when the row
+  failed (the API answer timed out although Stripe refunded).
+- Webhook bodies over 256 KB are refused with 413 before any signature work (Billing's shared webhook route).
 
 ## 5. Amounts and currencies
 
@@ -165,8 +172,10 @@ stored:
 
 ## 6. Refunds
 
-- `POST /v1/refunds` with `payment_intent`, `amount` in Stripe units (always sent, even for a full refund) and
-  `metadata[mohar_origin]=admin`. Partial refunds are supported: Stripe's unit is unambiguous.
+- Billing creates the pending refund row first. `POST /v1/refunds` sends `payment_intent`, `amount` in Stripe units
+  (always, even for a full refund), `metadata[mohar_origin]=admin`, `metadata[mohar_refund]=<row id>` and
+  `Idempotency-Key: mohar-refund-<row id>`, so a repeated request for the same refund is a no-op at Stripe.
+  Partial refunds are supported: Stripe's unit is unambiguous.
 - `succeeded` and `pending` count as accepted (the money is on its way). `failed`/`canceled` or an API error is
   declined with Stripe's message. No answer → error "check the Stripe Dashboard before retrying".
 - A refund that later fails at Stripe arrives as `refund.updated` with status `failed`; it is logged for staff.
@@ -250,8 +259,8 @@ DTOs in `app/Data/Billing` (final, readonly):
   Stored payloads keep ids, statuses, amounts and Stripe's error code/type, nothing else.
 - Every call: `Authorization: Bearer <secret>`, `Stripe-Version: 2026-09-30.endive`, TLS verification on, pinned
   host `https://api.stripe.com/v1/`, 5 s connect and `billing.gateways.http_timeout_seconds` total timeout. Every
-  `POST` sends an `Idempotency-Key` (`mohar-checkout-<ref>` for sessions; a random UUID per refund, because two
-  equal partial refunds are legitimate). POSTs are never retried automatically; background lookups retry on
+  `POST` sends an `Idempotency-Key` derived from our own record (`mohar-checkout-<ref>`, `mohar-expire-<ref>`,
+  `mohar-refund-<refund row id>`). POSTs are never retried automatically; background lookups retry on
   connection errors and 5xx.
 - Test mode follows `SandboxPolicy`: never activatable, offered or chargeable in production, and the driver itself
   refuses test mode there. Keys are checked against the mode (`sk_test_`/`rk_test_` vs `sk_live_`/`rk_live_`).
@@ -284,7 +293,8 @@ DTOs in `app/Data/Billing` (final, readonly):
 12. MUST: The connection test reports a rejected key, a key of the wrong mode and success, without creating
     anything at Stripe.
 13. MUST: `payments:stripe-smoke` runs a test-mode payment and a partial plus full refund against real test keys,
-    refuses live keys, and prints no secret.
+    refuses live keys, and prints no secret. The key comes only from `STRIPE_SMOKE_SECRET_KEY` or a hidden prompt,
+    never an option (shell history, process list).
 14. SHOULD: Cancelling on Stripe's page unlocks the invoice at once.
 
 ## 10. Sources (read 2026-10-18)

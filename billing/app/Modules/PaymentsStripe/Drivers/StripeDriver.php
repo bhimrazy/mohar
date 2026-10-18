@@ -126,6 +126,8 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             'customer_email' => $intent->customerEmail !== null && filter_var($intent->customerEmail, FILTER_VALIDATE_EMAIL) !== false ? $intent->customerEmail : null,
             'expires_at' => $expiresAt,
             'adaptive_pricing' => ['enabled' => 'false'],
+            // Cards only (Apple Pay and Google Pay are cards): no delayed methods that settle days later (spec §1).
+            'allowed_payment_method_types' => ['card'],
             'line_items' => [[
                 'quantity' => 1,
                 'price_data' => ['currency' => $currency, 'unit_amount' => $amount, 'product_data' => ['name' => $description]],
@@ -209,8 +211,8 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             $response = $this->client->post($gateway, 'refunds', [
                 'payment_intent' => $request->providerTxnId,
                 'amount' => $amount,
-                'metadata' => ['mohar_origin' => self::REFUND_ORIGIN],
-            ], 'mohar-refund-'.Str::uuid()->toString());
+                'metadata' => array_filter(['mohar_origin' => self::REFUND_ORIGIN, 'mohar_refund' => $request->reference]),
+            ], 'mohar-refund-'.($request->reference ?? Str::uuid()->toString()));
         } catch (ConnectionException) {
             // The refund may still have gone through: staff must check the Dashboard before retrying.
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Stripe; check the Stripe Dashboard before retrying', raw: ['payment_intent' => $request->providerTxnId]);
@@ -388,8 +390,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             'expired' => new LookupResult(LookupResult::EXPIRED, raw: $raw),
             'complete' => match ($session['payment_status'] ?? null) {
                 'paid' => $this->paidResult($intent, $charge, $raw),
-                // A delayed payment method is still processing; payment_intent.succeeded or the poller settles it.
-                'unpaid' => new LookupResult(LookupResult::PENDING, raw: $raw),
+                'unpaid' => $this->unpaidResult($intent, $raw),
                 default => new LookupResult(LookupResult::AMBIGUOUS, raw: $raw),
             },
             default => new LookupResult(LookupResult::AMBIGUOUS, raw: $raw),
@@ -404,7 +405,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
     private function paidResult(array $intent, array $charge, array $raw): LookupResult
     {
         if (($intent['status'] ?? null) !== 'succeeded' || ! is_string($intent['id'] ?? null) || ! is_string($intent['currency'] ?? null)) {
-            return new LookupResult(($intent['status'] ?? null) === 'processing' ? LookupResult::PENDING : LookupResult::AMBIGUOUS, raw: $raw);
+            return new LookupResult(($intent['status'] ?? null) === 'processing' ? LookupResult::PROCESSING : LookupResult::AMBIGUOUS, raw: $raw);
         }
 
         $currency = strtoupper($intent['currency']);
@@ -423,6 +424,25 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             fee: $status === LookupResult::SUCCEEDED ? self::fee($charge, $currency) : 0,
             raw: $raw,
         );
+    }
+
+    /**
+     * A completed session whose payment hasn't arrived: still processing (keeps the invoice locked), failed (the
+     * customer can pay again), or not started yet.
+     *
+     * @param  array<string, mixed>  $intent
+     * @param  array<string, mixed>  $raw
+     */
+    private function unpaidResult(array $intent, array $raw): LookupResult
+    {
+        $error = $intent['last_payment_error'] ?? null;
+        $reason = is_array($error) ? implode(': ', array_filter([is_string($error['code'] ?? null) ? $error['code'] : null, is_string($error['message'] ?? null) ? mb_substr($error['message'], 0, 120) : null])) : '';
+
+        return match ($intent['status'] ?? null) {
+            'processing' => new LookupResult(LookupResult::PROCESSING, raw: $raw),
+            'requires_payment_method', 'canceled' => new LookupResult(LookupResult::FAILED, raw: [...$raw, 'error' => $reason !== '' ? $reason : 'payment failed at Stripe']),
+            default => new LookupResult(LookupResult::PENDING, raw: $raw),
+        };
     }
 
     /**
@@ -500,9 +520,10 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $context->ignored('refund of a payment not made here');
         }
 
-        if (($refund['metadata']['mohar_origin'] ?? null) === self::REFUND_ORIGIN) {
-            // Booked by the refund action already; a later failure needs staff to look at it.
-            return $context->ignored($status === 'failed' ? 'refund from the admin FAILED at Stripe, check it' : 'refund from the admin, already recorded');
+        $fromAdmin = ($refund['metadata']['mohar_origin'] ?? null) === self::REFUND_ORIGIN;
+
+        if ($fromAdmin && $status === 'failed') {
+            return $context->ignored('refund from the admin FAILED at Stripe, check it');
         }
 
         if ($status !== 'succeeded') {
@@ -524,7 +545,9 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             currency: strtoupper($currency),
             parentTxnId: $intent,
             reason: is_string($refund['reason'] ?? null) ? $refund['reason'] : null,
-            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $intent, 'amount' => $refund['amount'], 'currency' => $currency],
+            // Billing books an admin refund only when its own refund row didn't record it (e.g. the answer timed out).
+            reference: $fromAdmin && is_string($refund['metadata']['mohar_refund'] ?? null) ? $refund['metadata']['mohar_refund'] : null,
+            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $intent, 'amount' => $refund['amount'], 'currency' => $currency, 'from_admin' => $fromAdmin],
             sentAt: $context->sentAt,
         );
     }

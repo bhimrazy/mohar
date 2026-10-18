@@ -27,7 +27,8 @@ final readonly class CallbackEvent
      * @param  array<string, mixed>  $raw  payload (redacted before storage)
      * @param  CarbonImmutable|null  $sentAt  provider's (signed) send time, when the protocol has one: Billing rejects
      *                                        callbacks more than 5 minutes old (replay protection)
-     * @param  string|null  $reference  our payment attempt reference (ATTEMPT_UPDATED)
+     * @param  string|null  $reference  our own reference: the payment attempt (ATTEMPT_UPDATED), or the refund
+     *                                  transaction a REFUND was started from (RefundRequest::$reference)
      */
     public function __construct(
         public string $type,

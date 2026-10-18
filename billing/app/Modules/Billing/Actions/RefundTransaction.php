@@ -95,7 +95,7 @@ class RefundTransaction
 
         // 2. Call the provider outside any DB transaction (no locks held over network I/O; the log always survives).
         if ($mode === RefundMode::Gateway) {
-            $result = $this->refundAtGateway($payment->fresh() ?? $payment, $amount);
+            $result = $this->refundAtGateway($payment->fresh() ?? $payment, $amount, $refund);
 
             if (! $result->succeeded()) {
                 DB::transaction(function () use ($refund, $payment, $amount): void {
@@ -155,7 +155,11 @@ class RefundTransaction
     /**
      * The refund is sent in what the provider charged (gateway currency, prorated from the recorded amounts).
      */
-    private function refundAtGateway(Transaction $payment, int $amount): ChargeResult
+    /**
+     * The pending refund row is created first, so its id identifies this refund at the provider (idempotency key,
+     * reconciliation of a refund whose answer never arrived).
+     */
+    private function refundAtGateway(Transaction $payment, int $amount, Transaction $refund): ChargeResult
     {
         $charge = $this->amounts->charge($payment);
         $result = $this->gateways->driver($payment->gateway)->refund($this->gateways->config($payment->gateway), new RefundRequest(
@@ -163,6 +167,7 @@ class RefundTransaction
             amount: $this->amounts->toGateway($payment, $amount),
             originalAmount: Money::of($charge['gatewayAmount'], $charge['gatewayCurrency']),
             paymentRaw: $payment->raw ?? [],
+            reference: (string) $refund->id,
         ));
         $this->log->log($payment->gateway, 'response', 'refund '.$result->status, $result->raw, $payment->invoice_id);
 

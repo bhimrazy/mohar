@@ -58,6 +58,7 @@ test('starting a payment creates a Checkout Session with our reference, exact am
         && $request['success_url'] === route('billing.gateways.return', StripeDriver::KEY).'?ref='.$attempt->reference
         && $request['cancel_url'] === route('billing.gateways.return', [StripeDriver::KEY, 'ref' => $attempt->reference, 'cancelled' => 1])
         && $request['adaptive_pricing'] === ['enabled' => 'false']
+        && $request['allowed_payment_method_types'] === ['card']
         && $request['metadata'] === ['mohar_reference' => $attempt->reference, 'mohar_invoice_id' => (string) $invoice->id, 'mohar_amount' => '2500', 'mohar_currency' => 'usd', 'mohar_flow' => 'checkout']
         && $request['payment_intent_data']['metadata'] === $request['metadata']);
 
@@ -236,4 +237,62 @@ test('the pay panel lists the staff-chosen name and names the provider the custo
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
         ->where('payment.gateways', fn ($gateways) => collect($gateways)->contains(fn (array $option) => $option['key'] === StripeDriver::KEY
             && $option['name'] === 'Credit or debit card' && $option['provider'] === 'Stripe' && $option['kind'] === 'redirect')));
+});
+
+test('a paid session still processing keeps the invoice locked after the session expired', function (array $session) {
+    [, $invoice, $attempt] = startStripe();
+    fakeSessionRetrieve(stripePaidSession($attempt, $session));
+
+    $this->get(stripeReturn($attempt));
+    $this->travel(40)->minutes();
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->expires_at->toBeNull()
+        ->and(fn () => app(StartHostedPayment::class)->handle($invoice->fresh(), StripeDriver::KEY))->toThrow(BillingException::class, 'already in progress')
+        ->and(PaymentAttempt::query()->count())->toBe(1);
+})->with([
+    'complete, unpaid, PaymentIntent processing' => [['payment_status' => 'unpaid', 'payment_intent' => ['status' => 'processing']]],
+    'complete, paid, PaymentIntent processing' => [['payment_intent' => ['status' => 'processing']]],
+]);
+
+test('a completed session whose payment failed fails the attempt with the reason, so the customer can pay again', function () {
+    [, $invoice, $attempt] = startStripe();
+    fakeSessionRetrieve(stripePaidSession($attempt, ['payment_status' => 'unpaid', 'payment_intent' => ['status' => 'requires_payment_method',
+        'last_payment_error' => ['code' => 'payment_intent_payment_attempt_failed', 'message' => 'The payment failed.']]]));
+
+    $this->get(stripeReturn($attempt));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->review_reason->toContain('payment_intent_payment_attempt_failed');
+    Http::fake([STRIPE_API.'checkout/sessions' => fn (Request $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id, ['id' => 'cs_test_a1MoharSession0002']))]);
+    app(StartHostedPayment::class)->handle($invoice->fresh(), StripeDriver::KEY);
+    expect(PaymentAttempt::query()->count())->toBe(2);
+});
+
+test('the Stripe fee is booked only when its balance transaction is in the charge currency', function (string $feeCurrency, int $fee) {
+    [, $invoice, $attempt] = startStripe();
+    fakeSessionRetrieve(stripePaidSession($attempt, ['payment_intent' => ['latest_charge' => ['balance_transaction' => ['currency' => $feeCurrency]]]]));
+
+    $this->get(stripeReturn($attempt));
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->sole()->fee)->toBe($fee);
+})->with([
+    'charge currency' => ['usd', 103],
+    'settlement in another currency' => ['eur', 0],
+]);
+
+test('calls to Stripe carry short timeouts: quick for the waiting customer, bounded otherwise', function () {
+    $options = [];
+    [, $invoice] = usdInvoice();
+    Http::fake(function (Request $request, array $sent) use (&$options, $invoice) {
+        $options[$request->method().' '.strtok($request->url(), '?')] = [$sent['connect_timeout'] ?? null, $sent['timeout'] ?? null];
+
+        return $request->method() === 'POST'
+            ? Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id))
+            : Http::response(stripeCreatedSession(PaymentAttempt::query()->sole()->reference, $invoice->id));
+    });
+
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY]);
+    $this->get(stripeReturn(PaymentAttempt::query()->sole()));
+
+    expect($options['POST '.STRIPE_API.'checkout/sessions'])->toBe([5, 15])
+        ->and($options['GET '.STRIPE_API.'checkout/sessions/'.STRIPE_SESSION])->toBe([3, 6]);
 });

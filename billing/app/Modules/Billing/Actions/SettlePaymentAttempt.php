@@ -62,7 +62,8 @@ class SettlePaymentAttempt
 
             match ($result->status) {
                 LookupResult::SUCCEEDED => $this->succeed($attempt, $result),
-                LookupResult::FAILED, LookupResult::CANCELLED => $attempt->status = AttemptStatus::Failed,
+                LookupResult::FAILED, LookupResult::CANCELLED => $this->fail($attempt, $result),
+                LookupResult::PROCESSING => $this->processing($attempt),
                 LookupResult::EXPIRED => $attempt->status = AttemptStatus::Expired,
                 LookupResult::AMBIGUOUS => $this->review($attempt, is_string($result->raw['error'] ?? null) ? 'Provider: '.$result->raw['error'] : 'The provider could not confirm the payment yet'),
                 LookupResult::REFUNDED, LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Refunded at the provider before it was recorded here'),
@@ -140,6 +141,25 @@ class SettlePaymentAttempt
         }
 
         $this->review($attempt, 'Still pending at the provider after the grace period');
+    }
+
+    private function fail(PaymentAttempt $attempt, LookupResult $result): void
+    {
+        $attempt->status = AttemptStatus::Failed;
+
+        if (is_string($result->raw['error'] ?? null)) {
+            $attempt->review_reason = mb_substr('Provider: '.$result->raw['error'], 0, 191);
+        }
+    }
+
+    /**
+     * Paid at the provider and still settling: no expiry any more, so the invoice stays locked (PaymentInProgress)
+     * until a lookup settles or fails it, or staff resolve it after the grace period.
+     */
+    private function processing(PaymentAttempt $attempt): void
+    {
+        $attempt->expires_at = null;
+        $this->stillPending($attempt, LookupResult::PROCESSING);
     }
 
     private function review(PaymentAttempt $attempt, string $reason): void

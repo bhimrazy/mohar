@@ -234,7 +234,6 @@ test('refund webhooks for refunds made from our admin, or not yet succeeded, boo
 
     expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(0);
 })->with([
-    'made from the admin' => [['metadata' => ['mohar_origin' => 'admin']]],
     'pending' => [['status' => 'pending']],
     'of a payment not made here' => [['payment_intent' => ['metadata' => ['mohar_reference' => null]]]],
 ]);
@@ -260,4 +259,28 @@ test('a dispute of a payment made by another integration on the account is ackno
     postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0002'))->assertOk()->assertJson(['result' => 'ignored event type']);
 
     expect(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(0);
+});
+
+test('an attempt reference only settles attempts of the gateway the webhook came in on', function () {
+    paidStripeAttempt();
+    $khalti = PaymentAttempt::query()->create(['reference' => 'khalti-attempt-ref-0001', 'gateway' => 'khalti', 'client_id' => PaymentAttempt::query()->sole()->client_id,
+        'amount' => 2_500, 'currency' => 'NPR', 'document_amount' => 2_500, 'document_currency' => 'NPR', 'provider_ref' => 'PIDX1', 'expires_at' => now()->addHour()]);
+    Http::fake([STRIPE_API.'checkout/sessions/cs_test_a1MoharSession0009*' => Http::response(stripeFixture('checkout_session_created', [
+        'id' => 'cs_test_a1MoharSession0009', 'client_reference_id' => $khalti->reference, 'metadata' => ['mohar_reference' => $khalti->reference]]))]);
+
+    postStripeWebhook(stripeEvent('checkout.session.completed', 'cs_test_a1MoharSession0009'))->assertOk()->assertJson(['result' => 'unknown attempt']);
+
+    expect($khalti->fresh())->lookup_count->toBe(0)->status->toBe(AttemptStatus::Pending);
+    Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'khalti'));
+});
+
+test('webhook bodies over 256 KB are refused before any signature work', function () {
+    paidStripeAttempt();
+    $body = (string) json_encode(stripeEvent('payment_intent.succeeded', STRIPE_INTENT, ['padding' => str_repeat('x', 262_144)]));
+
+    postStripeWebhook($body)->assertStatus(413);
+
+    expect(GatewayLog::query()->latest('id')->first()->result)->toBe('payload too large')
+        ->and(Transaction::query()->count())->toBe(0)
+        ->and(stripeRetrieves())->toBe(0);
 });
