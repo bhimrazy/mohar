@@ -46,3 +46,6 @@ continue.
 
 Report to the CTO in under 300 words: verdict, owner-blocking findings with their routing (fixed /
 issue / workstream), proposed new standards, and screenshot paths.
+
+Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
+PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.

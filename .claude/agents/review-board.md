@@ -37,3 +37,6 @@ Every finding cites file:line and a concrete fix. Post one review with
 ```
 
 Reply to the CTO in under 250 words: verdict and blocking list.
+
+Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
+PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.
