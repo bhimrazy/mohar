@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Support\SupportAddresses;
 
@@ -37,7 +38,7 @@ class SampleContext
                 'reset_url' => url('/reset-password/sample-token'),
                 'verify_url' => url('/email/verify/sample'),
                 'invite_url' => url('/invitation/sample'),
-                'expires_at' => now()->addHour()->format('Y-m-d H:i'),
+                'expires_at' => now()->addHour()->format(DateFormats::current().' H:i'),
                 'ip' => '203.0.113.24',
             ],
             'order' => [

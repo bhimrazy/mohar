@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
 use App\Modules\Notifications\Enums\TemplateAudience;
@@ -63,7 +64,7 @@ class EmailComposer
     {
         $options = [
             'locale' => $locale,
-            'date_format' => (string) $this->settings->get('core.date_format', 'Y-m-d'),
+            'date_format' => DateFormats::current(),
             'currency' => is_string($context['client']['currency'] ?? null) ? $context['client']['currency'] : null,
         ];
         [$redactedContext, $hasRedactions] = $this->mergeContext->redact($context);

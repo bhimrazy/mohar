@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Rendering;
 
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Notifications\Support\MoneyText;
 use Carbon\CarbonImmutable;
 use Throwable;
@@ -63,7 +64,7 @@ final class TemplateEngine
     /**
      * @param  array<string, mixed>  $context
      * @param  bool  $escape  true: HTML/Markdown-escape values (body for the HTML part); false: plain text
-     * @param  array{date_format?: string, locale?: string, currency?: string}  $options
+     * @param  array{date_format?: string, locale?: string, currency?: string}  $options  date_format defaults to DateFormats::current()
      */
     public function render(string $source, array $context, bool $escape = true, array $options = []): RenderResult
     {
@@ -457,7 +458,7 @@ final class TemplateEngine
             return $value;
         }
 
-        return $date->translatedFormat(is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? 'Y-m-d'));
+        return $date->translatedFormat(is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? DateFormats::current()));
     }
 
     /**

@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Models\EmailMessage;
@@ -125,3 +126,14 @@ it('formats money with the currency symbol and lakh grouping for INR and NPR', f
     ['INR', '₹1,23,456.00'],
     ['NPR', 'Rs 1,23,456.00'],
 ]);
+
+it('formats dates with the configured format and falls back to the default for unknown values', function () {
+    $settings = app(Settings::class);
+    $render = fn (): string => app(EmailComposer::class)->composeSource('{{ d | date }}', 'x', ['d' => '2026-10-18'], 'en')->subject;
+
+    $settings->set('core.date_format', 'd/m/Y');
+    expect($render())->toBe('18/10/2026');
+
+    $settings->set('core.date_format', 'Y-m-d H:i:s <script>');
+    expect($render())->toBe('Oct 18, 2026');
+});

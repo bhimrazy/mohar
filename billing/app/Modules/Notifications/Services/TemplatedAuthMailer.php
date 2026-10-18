@@ -4,6 +4,7 @@ namespace App\Modules\Notifications\Services;
 
 use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
@@ -33,7 +34,7 @@ class TemplatedAuthMailer implements AuthMailer
             ? (string) call_user_func(ResetPassword::$createUrlCallback, $user, $token)
             : url(route('password.reset', ['token' => $token, 'email' => $user->getEmailForPasswordReset()], false));
         $broker = (string) config('auth.defaults.passwords', 'users');
-        $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))->format('Y-m-d H:i');
+        $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))->format(DateFormats::current().' H:i');
 
         $sent = $this->send($user, $user->is_staff ? 'staff.password_reset' : 'auth.password_reset', [
             'auth' => ['reset_url' => $url, 'expires_at' => $expiresAt],
