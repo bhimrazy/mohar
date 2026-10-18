@@ -60,7 +60,6 @@ use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
-use Illuminate\Events\Dispatcher;
 use Throwable;
 
 /**
@@ -77,54 +76,53 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     ) {}
 
     /**
-     * @return array<class-string, string>
+     * Event => handler method. Registered by the provider without instantiating this class at boot.
+     *
+     * @var array<class-string, string>
      */
-    public function subscribe(Dispatcher $events): array
-    {
-        return [
-            PasswordResetRequested::class => 'passwordReset',
-            EmailVerificationRequested::class => 'emailVerification',
-            ClientRegistered::class => 'clientRegistered',
-            ClientUpdated::class => 'clientUpdated',
-            OrderPlaced::class => 'orderPlaced',
-            OrderMarkedFraud::class => 'orderFraud',
-            ServiceActivated::class => 'serviceActivated',
-            ProvisioningFailed::class => 'provisioningFailed',
-            ServiceSuspended::class => 'serviceSuspended',
-            ServiceUnsuspended::class => 'serviceUnsuspended',
-            ServiceCancellationRequested::class => 'cancellationRequested',
-            ServiceUpgraded::class => 'serviceUpgraded',
-            ServiceTerminated::class => 'serviceTerminated',
-            InvoiceCreated::class => 'invoiceCreated',
-            InvoicePaymentReminder::class => 'invoiceReminder',
-            PaymentReceived::class => 'paymentReceived',
-            PaymentFailed::class => 'paymentFailed',
-            InvoiceRefunded::class => 'invoiceRefunded',
-            InvoiceModified::class => 'invoiceModified',
-            QuoteSent::class => 'quoteSent',
-            DomainRegistered::class => 'domainRegistered',
-            DomainTransferInitiated::class => 'domainTransferInitiated',
-            DomainTransferred::class => 'domainTransferred',
-            DomainTransferFailed::class => 'domainTransferFailed',
-            DomainRenewed::class => 'domainRenewed',
-            DomainExpiryDigest::class => 'domainExpiryDigest',
-            RegistrarActionFailed::class => 'registrarActionFailed',
-            FreeDomainRenewalBlocked::class => 'freeDomainRenewalBlocked',
-            DomainSyncReport::class => 'domainSyncReport',
-            TicketOpened::class => 'ticketOpened',
-            TicketReplied::class => 'ticketReplied',
-            TicketAssigned::class => 'ticketAssigned',
-            TicketNoteAdded::class => 'ticketNoteAdded',
-            TicketDepartmentChanged::class => 'ticketDepartmentChanged',
-            TicketClosed::class => 'ticketClosed',
-            InboundEmailBounced::class => 'inboundBounced',
-            AffiliateActivated::class => 'affiliateActivated',
-            AffiliateWithdrawalRequested::class => 'affiliateWithdrawalRequested',
-            StaffLoginFailuresThreshold::class => 'staffLoginFailures',
-            AutomationRunCompleted::class => 'automationCompleted',
-            WebhookEndpointDisabled::class => 'webhookEndpointDisabled',
-        ];
-    }
+    public const EVENTS = [
+        PasswordResetRequested::class => 'passwordReset',
+        EmailVerificationRequested::class => 'emailVerification',
+        ClientRegistered::class => 'clientRegistered',
+        ClientUpdated::class => 'clientUpdated',
+        OrderPlaced::class => 'orderPlaced',
+        OrderMarkedFraud::class => 'orderFraud',
+        ServiceActivated::class => 'serviceActivated',
+        ProvisioningFailed::class => 'provisioningFailed',
+        ServiceSuspended::class => 'serviceSuspended',
+        ServiceUnsuspended::class => 'serviceUnsuspended',
+        ServiceCancellationRequested::class => 'cancellationRequested',
+        ServiceUpgraded::class => 'serviceUpgraded',
+        ServiceTerminated::class => 'serviceTerminated',
+        InvoiceCreated::class => 'invoiceCreated',
+        InvoicePaymentReminder::class => 'invoiceReminder',
+        PaymentReceived::class => 'paymentReceived',
+        PaymentFailed::class => 'paymentFailed',
+        InvoiceRefunded::class => 'invoiceRefunded',
+        InvoiceModified::class => 'invoiceModified',
+        QuoteSent::class => 'quoteSent',
+        DomainRegistered::class => 'domainRegistered',
+        DomainTransferInitiated::class => 'domainTransferInitiated',
+        DomainTransferred::class => 'domainTransferred',
+        DomainTransferFailed::class => 'domainTransferFailed',
+        DomainRenewed::class => 'domainRenewed',
+        DomainExpiryDigest::class => 'domainExpiryDigest',
+        RegistrarActionFailed::class => 'registrarActionFailed',
+        FreeDomainRenewalBlocked::class => 'freeDomainRenewalBlocked',
+        DomainSyncReport::class => 'domainSyncReport',
+        TicketOpened::class => 'ticketOpened',
+        TicketReplied::class => 'ticketReplied',
+        TicketAssigned::class => 'ticketAssigned',
+        TicketNoteAdded::class => 'ticketNoteAdded',
+        TicketDepartmentChanged::class => 'ticketDepartmentChanged',
+        TicketClosed::class => 'ticketClosed',
+        InboundEmailBounced::class => 'inboundBounced',
+        AffiliateActivated::class => 'affiliateActivated',
+        AffiliateWithdrawalRequested::class => 'affiliateWithdrawalRequested',
+        StaffLoginFailuresThreshold::class => 'staffLoginFailures',
+        AutomationRunCompleted::class => 'automationCompleted',
+        WebhookEndpointDisabled::class => 'webhookEndpointDisabled',
+    ];
 
     // ── Auth (always sent, ignores preferences) ─────────────────────────────────────────────────
 

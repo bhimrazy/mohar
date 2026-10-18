@@ -12,6 +12,7 @@ use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Notifications\Webhooks\HostResolver;
+use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -48,8 +49,13 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        Event::subscribe(SendEventEmails::class);
-        Event::subscribe(PublishEventWebhooks::class);
+        foreach (SendEventEmails::EVENTS as $event => $method) {
+            Event::listen($event, [SendEventEmails::class, $method]);
+        }
+
+        foreach (array_keys(WebhookEventTypes::MAP) as $event) {
+            Event::listen($event, [PublishEventWebhooks::class, 'handle']);
+        }
 
         $this->registerNavigation();
         $this->registerDashboard();
