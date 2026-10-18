@@ -32,11 +32,15 @@ class ThemeManager
     public static function areaFor(Request $request): string
     {
         $name = (string) $request->route()?->getName();
+        $explicit = $request->route()?->defaults['theme_area'] ?? null;
+
+        if (in_array($explicit, self::AREAS, true)) {
+            return $explicit;
+        }
 
         return match (true) {
             str_starts_with($name, 'admin.'), $name === 'dashboard' => 'admin',
-            $name === 'dev.client-preview', str_starts_with($name, 'client.') => 'client',
-            str_starts_with($name, 'dev.') => 'admin',
+            str_starts_with($name, 'client.') => 'client',
             in_array($name, ['profile.edit', 'security.edit', 'appearance.edit'], true) => $request->user()?->is_staff ? 'admin' : 'client',
             default => 'public',
         };
@@ -150,25 +154,39 @@ class ThemeManager
      */
     public function usages(string $key): array
     {
+        return $this->usagesByKey([$key])[$key] ?? [];
+    }
+
+    /**
+     * Usages for many themes with a single query (Appearance page).
+     *
+     * @param  list<string>|null  $keys  null = every key in use
+     * @return array<string, list<string>>
+     */
+    public function usagesByKey(?array $keys = null): array
+    {
         $usages = [];
 
         foreach (self::AREAS as $area) {
-            if ($this->areaDefault($area) === $key) {
-                $usages[] = match ($area) {
-                    'admin' => 'Admin default',
-                    'client' => 'Client area default',
-                    default => 'Storefront default',
-                };
-            }
+            $usages[$this->areaDefault($area)][] = match ($area) {
+                'admin' => 'Admin default',
+                'client' => 'Client area default',
+                default => 'Storefront default',
+            };
         }
 
-        $users = User::query()->where('theme_preference', $key)->count();
+        $preferences = User::query()
+            ->whereNotNull('theme_preference')
+            ->when($keys !== null, fn ($query) => $query->whereIn('theme_preference', $keys))
+            ->selectRaw('theme_preference, count(*) as total')
+            ->groupBy('theme_preference')
+            ->pluck('total', 'theme_preference');
 
-        if ($users > 0) {
-            $usages[] = trans_choice(':count staff preference|:count staff preferences', $users);
+        foreach ($preferences as $key => $total) {
+            $usages[(string) $key][] = trans_choice(':count staff preference|:count staff preferences', (int) $total);
         }
 
-        return $usages;
+        return $keys === null ? $usages : array_intersect_key($usages, array_flip($keys));
     }
 
     /**

@@ -1,7 +1,10 @@
 <?php
 
+use App\Events\Core\SettingsUpdated;
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
+use Illuminate\Support\Facades\Event;
 use Inertia\Testing\AssertableInertia as Assert;
 
 it('requires the themes.manage permission', function () {
@@ -31,11 +34,11 @@ it('lists presets with usages and the current settings', function () {
             ->where('themes.0.usages', ['Admin default', 'Client area default', 'Storefront default']));
 });
 
-it('saves per-area defaults, density, staff choice and the company name', function () {
+it('saves per-area defaults, density and staff choice with an audit diff and event', function () {
+    Event::fake([SettingsUpdated::class]);
     actingAsStaff(['themes.manage']);
 
     $this->put(route('admin.appearance.update'), [
-        'company_name' => 'Himalaya Cloud',
         'default_admin' => 'operator',
         'default_client' => 'warm',
         'default_public' => 'slate',
@@ -48,15 +51,17 @@ it('saves per-area defaults, density, staff choice and the company name', functi
         ->and($settings->get('themes.default_client'))->toBe('warm')
         ->and($settings->get('themes.default_public'))->toBe('slate')
         ->and($settings->get('themes.density'))->toBe('compact')
-        ->and($settings->get('themes.allow_user_choice'))->toBeFalse()
-        ->and($settings->get('core.company_name'))->toBe('Himalaya Cloud');
+        ->and($settings->get('themes.allow_user_choice'))->toBeFalse();
+
+    $log = ActivityLog::query()->where('event', 'themes.appearance_updated')->sole();
+    expect($log->properties['changes']['themes.default_admin'])->toBe(['from' => 'calm', 'to' => 'operator']);
+    Event::assertDispatched(SettingsUpdated::class, fn (SettingsUpdated $event): bool => in_array('themes.density', $event->keys, true));
 });
 
 it('rejects unknown themes and densities', function () {
     actingAsStaff(['themes.manage']);
 
     $this->put(route('admin.appearance.update'), [
-        'company_name' => 'Acme',
         'default_admin' => 'does-not-exist',
         'default_client' => 'calm',
         'default_public' => 'calm',

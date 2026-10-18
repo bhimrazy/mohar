@@ -3,6 +3,7 @@
 namespace App\Modules\Themes\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Themes\Http\Requests\ThemeImportRequest;
 use App\Modules\Themes\Http\Requests\ThemeRequest;
 use App\Modules\Themes\Models\Theme;
@@ -21,7 +22,11 @@ use Inertia\Response;
  */
 class ThemeController extends Controller
 {
-    public function __construct(private ThemeManager $themes, private ThemeRegistry $registry) {}
+    public function __construct(
+        private ThemeManager $themes,
+        private ThemeRegistry $registry,
+        private ActivityLogger $activity,
+    ) {}
 
     public function create(Request $request): Response
     {
@@ -44,6 +49,7 @@ class ThemeController extends Controller
             'created_by' => $request->user()?->id,
         ]);
 
+        $this->activity->log('Custom theme created', $theme, properties: ['key' => $theme->key, 'name' => $theme->name, 'base' => $theme->base_preset], event: 'themes.theme_created');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" saved.', ['name' => $theme->name])]);
 
         return to_route('admin.appearance.themes.edit', $theme);
@@ -58,11 +64,19 @@ class ThemeController extends Controller
 
     public function update(ThemeRequest $request, Theme $theme): RedirectResponse
     {
+        $before = $theme->tokens;
+        $oldName = $theme->name;
         $theme->update([
             'name' => $request->string('name')->trim()->toString(),
             'tokens' => $request->tokens(),
             'version' => $theme->version + 1,
         ]);
+        $this->activity->log('Custom theme updated', $theme, properties: [
+            'key' => $theme->key,
+            'version' => $theme->version,
+            'name' => $oldName === $theme->name ? $theme->name : ['from' => $oldName, 'to' => $theme->name],
+            'changes' => $this->tokenDiff($before, $theme->tokens),
+        ], event: 'themes.theme_updated');
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" saved.', ['name' => $theme->name])]);
 
@@ -73,7 +87,9 @@ class ThemeController extends Controller
     {
         $this->authorize('themes.manage');
         $data = $request->validate(['name' => ['required', 'string', 'max:60']]);
+        $oldName = $theme->name;
         $theme->update(['name' => trim($data['name'])]);
+        $this->activity->log('Custom theme renamed', $theme, properties: ['key' => $theme->key, 'from' => $oldName, 'to' => $theme->name], event: 'themes.theme_renamed');
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme renamed.')]);
 
@@ -94,6 +110,7 @@ class ThemeController extends Controller
         }
 
         $theme->delete();
+        $this->activity->log('Custom theme deleted', properties: ['key' => $theme->key, 'name' => $theme->name], event: 'themes.theme_deleted');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" deleted.', ['name' => $theme->name])]);
 
         return to_route('admin.appearance.edit');
@@ -130,6 +147,7 @@ class ThemeController extends Controller
             'created_by' => $request->user()?->id,
         ]);
 
+        $this->activity->log('Custom theme imported', $theme, properties: ['key' => $theme->key, 'name' => $theme->name], event: 'themes.theme_imported');
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" imported.', ['name' => $theme->name])]);
 
         return to_route('admin.appearance.themes.edit', $theme);
@@ -153,6 +171,31 @@ class ThemeController extends Controller
             'presets' => array_values(array_map(fn ($preset): array => ['key' => $preset->key, 'name' => $preset->name, 'tokens' => $preset->tokens], $this->registry->all())),
             'schema' => ThemeSchema::describe(),
         ]);
+    }
+
+    /**
+     * Changed tokens as "group.token" => [from, to] (capped for the audit log).
+     *
+     * @param  array<mixed>  $before
+     * @param  array<mixed>  $after
+     * @return array<string, array{from: mixed, to: mixed}>
+     */
+    private function tokenDiff(array $before, array $after): array
+    {
+        $changes = [];
+
+        foreach (['shared', 'light', 'dark'] as $group) {
+            $old = is_array($before[$group] ?? null) ? $before[$group] : [];
+            $new = is_array($after[$group] ?? null) ? $after[$group] : [];
+
+            foreach ($new as $token => $value) {
+                if (($old[$token] ?? null) !== $value) {
+                    $changes["{$group}.{$token}"] = ['from' => $old[$token] ?? null, 'to' => $value];
+                }
+            }
+        }
+
+        return array_slice($changes, 0, 40, true);
     }
 
     private function newKey(string $name): string

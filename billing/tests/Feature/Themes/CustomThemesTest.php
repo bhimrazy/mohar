@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Themes\Models\Theme;
 use App\Modules\Themes\Support\ThemeManager;
@@ -202,4 +203,29 @@ it('requires themes.manage for every custom theme action', function () {
     $this->delete(route('admin.appearance.themes.destroy', $theme))->assertForbidden();
     $this->get(route('admin.appearance.themes.export', 'calm'))->assertForbidden();
     $this->post(route('admin.appearance.themes.import'), ['file' => themeFile(themeDocument())])->assertForbidden();
+});
+
+it('audits theme create, update, rename, import and delete', function () {
+    actingAsStaff(['themes.manage']);
+    $tokens = presetTokens();
+
+    $this->post(route('admin.appearance.themes.store'), ['name' => 'Audited', 'base_preset' => 'calm', 'tokens' => $tokens]);
+    $theme = Theme::query()->sole();
+    $tokens['light']['primary'] = '#3F3AB0';
+    $this->put(route('admin.appearance.themes.update', $theme), ['name' => 'Audited', 'tokens' => $tokens]);
+    $this->patch(route('admin.appearance.themes.rename', $theme), ['name' => 'Renamed']);
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile(themeDocument(['name' => 'Imported one']))]);
+    $this->delete(route('admin.appearance.themes.destroy', $theme));
+
+    $events = ActivityLog::query()->where('event', 'like', 'themes.theme_%')->pluck('event')->all();
+    expect($events)->toEqualCanonicalizing(['themes.theme_created', 'themes.theme_updated', 'themes.theme_renamed', 'themes.theme_imported', 'themes.theme_deleted'])
+        ->and(ActivityLog::query()->where('event', 'themes.theme_updated')->sole()->properties['changes']['light.primary'])->toBe(['from' => '#4F4BC4', 'to' => '#3F3AB0']);
+});
+
+it('rejects values with a trailing newline', function () {
+    actingAsStaff(['themes.manage']);
+    $document = themeDocument();
+    $document['tokens']['light']['chart-grid'] .= "\n";
+
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile($document)])->assertSessionHasErrors('file');
 });
