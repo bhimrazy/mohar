@@ -56,7 +56,7 @@ composer deps:check                                # composer validate + compose
   image's digest under a tag, a tarball of another package, a swapped integrity or Composer archive).
 - Exit codes: `0` ok · `1` policy violation · `2` a date could not be verified (network/registry failure —
   never treated as a pass). Set `GITHUB_TOKEN` locally if you hit GitHub API rate limits.
-- CI ([CI.md](CI.md)) runs it on every PR and push, together with `composer validate`, `composer audit --locked`
+- CI ([ci.md](ci.md)) runs it on every PR and push, together with `composer validate`, `composer audit --locked`
   and `npm audit --audit-level=high --package-lock-only` — all **before** `composer install` / `npm ci`, so no
   package code runs before the lockfiles pass. PR runs diff against the PR base, pushes against
   `github.event.before` (a new branch or an unreachable base checks `--all`). `composer ci` runs the same via

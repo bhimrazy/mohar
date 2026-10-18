@@ -209,7 +209,7 @@ never shift timezone.
   `chart-grid`, radius (`--radius`, `--badge-radius`), elevation (`elevation-card`/
   `elevation-hover` utilities), shell (`--shell-*`), density (`--cell-py`, `--table-head-h`,
   `--card-p`, `--stat-p`, `--page-gap`, `--nav-item-h`, `--root-font-size`) and type
-  (`font-display`, `font-numeric`, `eyebrow` utilities). See `docs/design/DIRECTIONS.md`.
+  (`font-display`, `font-numeric`, `eyebrow` utilities). See `docs/design/directions.md`.
 - **Brand**: render logos with `<BrandLogo>` / `<AppLogoIcon>` (shared `brand` prop); never
   hard-code the product name or logo.
 - Cards: `rounded-xl border bg-card elevation-card`. Use padding/gap tokens (`p-(--stat-p)`,

@@ -1,4 +1,4 @@
-# Supply-chain rule (billing/docs/devops/DEPENDENCY_POLICY.md): exact pins, nothing younger than 7 days —
+# Supply-chain rule (billing/docs/devops/dependency-policy.md): exact pins, nothing younger than 7 days —
 # enforced in CI by billing/scripts/check-dependency-age.mjs; Dependabot waits 14 days (cooldown below).
 # Security updates ignore the cooldown: label such PRs `security-exception` (CTO approval required).
 # Not covered: the `services:` image in .github/workflows/ci.yml — CI asserts it equals compose.yaml,

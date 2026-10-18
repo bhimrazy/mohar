@@ -376,7 +376,7 @@ Also:
   allow-list renderer, so there is one sanitiser.
 - (c) Migration prefix for the Ai module. Proposed `2026_10_17_95xxxx` (Platform holds 9xxxxx; please confirm).
 - (d) `composer require laravel/ai:1.0.1` and publish `config/ai.php` (Anthropic only, `default=anthropic`).
-- (e) The rule "modules must not import `Laravel\Ai\*`; only the Ai module may", added to ARCHITECTURE.md.
+- (e) The rule "modules must not import `Laravel\Ai\*`; only the Ai module may", added to architecture.md.
 - (f) Add the "AI" row to FEATURE_MAP and `nav-icons.ts` (`Sparkles`).
 
 ## 14. Rollout

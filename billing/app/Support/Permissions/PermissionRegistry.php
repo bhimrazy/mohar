@@ -13,7 +13,7 @@ namespace App\Support\Permissions;
  * Sensitive permissions (impersonation, merges, staff/role management, security settings, refunds,
  * gateway credentials, ...) are never granted through a "module.*" or "module.area.*" wildcard: a role
  * must list them explicitly. The only exception is "*", the full-administrator grant. Routes guarded by a
- * sensitive permission also require a recent password confirmation (see docs/security/STANDARDS.md).
+ * sensitive permission also require a recent password confirmation (see docs/security/standards.md).
  * Entries in $sensitive are exact keys or "prefix.*" patterns.
  */
 class PermissionRegistry

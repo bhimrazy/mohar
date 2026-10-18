@@ -13,7 +13,7 @@ if (app()->isLocal()) {
     // Design-system showcase (resources/js/pages/dev/components.tsx), used for visual review and screenshots.
     Route::inertia('dev/components', 'dev/components')->middleware('auth')->name('dev.components')->defaults('theme_area', 'admin');
 
-    // Design-direction previews with sample data (docs/design/DIRECTIONS.md); switch themes in the header.
+    // Design-direction previews with sample data (docs/design/directions.md); switch themes in the header.
     Route::inertia('dev/dashboard-preview', 'dev/dashboard-preview')->middleware('auth')->name('dev.dashboard-preview')->defaults('theme_area', 'admin');
     Route::inertia('dev/invoice-preview', 'dev/invoice-preview')->middleware('auth')->name('dev.invoice-preview')->defaults('theme_area', 'admin');
     Route::inertia('dev/client-preview', 'dev/client-preview')->middleware('auth')->name('dev.client-preview')->defaults('theme_area', 'client');

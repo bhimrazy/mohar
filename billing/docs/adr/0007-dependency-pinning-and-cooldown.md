@@ -32,4 +32,4 @@ than 7 days (`laravel/framework` 13.34.0: 13.35 introduced the QUERY verb, which
 New releases (including bug fixes) reach us a week later; security fixes have an explicit, audited fast path.
 Upgrades are deliberate PRs, and lockfile diffs are reviewable. Composer prints "exact version constraints
 should be avoided" warnings for `composer validate`, which we accept for an application. Details and the
-day-to-day workflow: `docs/devops/DEPENDENCY_POLICY.md`.
+day-to-day workflow: `docs/devops/dependency-policy.md`.

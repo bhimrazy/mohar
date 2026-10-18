@@ -61,6 +61,9 @@ class BillingSeeder extends Seeder
         ClientFlag::query()->firstOrCreate(['client_id' => $demo->id], ['first_order_accepted_at' => now()]);
         $online = self::sandboxAllowed() ? SandboxCardDriver::KEY : 'manual';
 
+        // ~90 days of history first, so invoice numbers stay chronological and today's scenario comes last.
+        $this->call(BillingHistorySeeder::class);
+
         if (self::sandboxAllowed()) {
             $card = (new SandboxCardDriver)->tokenize('4242424242424242', 12, $today->addYears(2)->year);
             PayMethod::query()->create([
@@ -125,7 +128,7 @@ class BillingSeeder extends Seeder
     /**
      * The sandbox gateway is only seeded (and active) for local development and tests.
      */
-    private static function sandboxAllowed(): bool
+    public static function sandboxAllowed(): bool
     {
         return SandboxCardDriver::enabled() && app()->environment(['local', 'testing']);
     }
@@ -158,11 +161,11 @@ class BillingSeeder extends Seeder
     }
 
     /**
-     * India (GST intra-/inter-state, B2B GSTIN) and Nepal (VAT 13%) customers in their own currencies.
+     * India (GST intra-/inter-state, B2B GSTIN) and Nepal (VAT 13%) demo customers in their own currencies.
      *
-     * @param  \Closure(Client, list<InvoiceLineData>, CarbonImmutable, ?string): Invoice  $issue
+     * @return list<array{client: Client, amount: int}>
      */
-    private function marketInvoices(\Closure $issue, ApplyPayment $pay, CarbonImmutable $today): void
+    public static function marketClients(): array
     {
         $markets = [
             ['first_name' => 'Priya', 'last_name' => 'Sharma', 'company_name' => 'Sharma Digital LLP', 'email' => 'priya@sharmadigital.in', 'city' => 'Pune', 'state' => 'Maharashtra', 'postcode' => '411001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '27AAPFU0939F1ZV', 'amount' => 149_900],
@@ -170,14 +173,22 @@ class BillingSeeder extends Seeder
             ['first_name' => 'Sita', 'last_name' => 'Gurung', 'company_name' => 'Himalayan Treks', 'email' => 'sita@himalayantreks.com.np', 'city' => 'Kathmandu', 'state' => 'Bagmati', 'postcode' => '44600', 'country' => 'NP', 'currency' => 'NPR', 'tax_id' => null, 'amount' => 250_000],
         ];
 
-        foreach ($markets as $index => $market) {
+        return array_map(function (array $market): array {
             $amount = $market['amount'];
             unset($market['amount']);
-            $client = Client::query()->firstOrCreate(['email' => $market['email']], [...$market, 'phone' => null, 'address_1' => 'Main Road '.($index + 1), 'language' => 'en', 'status' => 'active', 'tax_exempt' => false]);
-            $invoice = $issue($client, [new InvoiceLineData('Business Hosting (annual)', $amount, billableType: BillableType::Service, billableId: 500 + $index, periodStart: $today, periodEnd: $today->addYear())], $today->addDays(7), 'bank_transfer');
+            $client = Client::query()->firstOrCreate(['email' => $market['email']], [...$market, 'phone' => null, 'address_1' => 'Main Road 1', 'language' => 'en', 'status' => 'active', 'tax_exempt' => false]);
+
+            return ['client' => $client, 'amount' => $amount];
+        }, $markets);
+    }
+
+    private function marketInvoices(\Closure $issue, ApplyPayment $pay, CarbonImmutable $today): void
+    {
+        foreach (self::marketClients() as $index => $market) {
+            $invoice = $issue($market['client'], [new InvoiceLineData('Business Hosting (annual)', $market['amount'], billableType: BillableType::Service, billableId: 500 + $index, periodStart: $today, periodEnd: $today->addYear())], $today->addDays(7), 'bank_transfer');
 
             if ($index === 0) {
-                $pay->handle($invoice, new PaymentData($invoice->balance, 'bank_transfer', 'NEFT-'.random_int(100000, 999999)));
+                $pay->handle($invoice, new PaymentData($invoice->balance, 'bank_transfer', 'NEFT-'.(310000 + $index)));
             }
         }
     }

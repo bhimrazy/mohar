@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
-[Semantic Versioning](https://semver.org/). Progress, status and screenshots: [docs/PROGRESS.md](docs/PROGRESS.md).
+[Semantic Versioning](https://semver.org/). Progress, status and screenshots: [docs/progress.md](docs/progress.md).
 
 ## [Unreleased]
 
@@ -130,12 +130,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (target `develop`, 14-day cooldown) for actions, compose, Composer and npm.
 - `composer ci` runs every CI gate locally, including `composer test:pgsql` (migrate:fresh --seed + suite on
   PostgreSQL; `DB_*` overridable per worktree). `.nvmrc` pins Node 24.21.0; `composer.json` requires PHP ^8.4.
-  RustFS and PostgreSQL ports bind to 127.0.0.1. Local setup guide: `docs/devops/LOCAL_SETUP.md`.
+  RustFS and PostgreSQL ports bind to 127.0.0.1. Local setup guide: `docs/devops/local-setup.md`.
 - `vite-plus` 0.3.0 → 0.3.3 (fixes the critical `tinypool` advisory GHSA-85c8-ppgw-ccpr; `npm audit` clean);
   `vite` is now aliased to `@voidzero-dev/vite-plus-core@0.3.3` (dependency + override), as 0.3.3 requires.
 - Fixed: admin client search was case-sensitive on PostgreSQL (`whereLike` now renders `ilike`); client,
   contact and new-user emails are stored lowercase.
-- Dependency policy (ADR 0007, `docs/devops/DEPENDENCY_POLICY.md`): exact versions for every direct Composer/npm
+- Dependency policy (ADR 0007, `docs/devops/dependency-policy.md`): exact versions for every direct Composer/npm
   dependency, `.npmrc` `save-exact` + native `min-release-age=7`, Composer `config.policy` (block advisories and
   malware), RustFS image digest-pinned. `scripts/check-dependency-age.mjs` fails CI and `composer ci` when a
   changed package, action, image or tool is younger than 7 days, an action SHA does not match its tag or
@@ -147,7 +147,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - New gates: `composer validate`, `composer audit --locked`, `npm audit --audit-level=high` (`composer deps:check`).
 - CI minutes: one job instead of five (≈ 2 billed minutes per PR run instead of 5), no runs for drafts,
   feature-branch pushes or screenshot-only changes, docs-only PRs run only `vp check`, PHPStan result cache,
-  15-minute timeout (`docs/devops/CI.md`).
+  15-minute timeout (`docs/devops/ci.md`).
 - Dependency check hardening (PR #9 review): image digests must be the tag's registry digest (index or platform),
   npm `resolved`/`integrity` and Composer `dist`/`source` must match the registry for the checked name@version;
   offline unit tests for these rules run in `npm test`. Policy checks run before `composer install`/`npm ci`;

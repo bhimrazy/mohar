@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Baseline browser security headers for every web response (docs/security/STANDARDS.md §1).
+ * Baseline browser security headers for every web response (docs/security/standards.md §1).
  *
  * The Content-Security-Policy allows scripts only from this origin plus a per-request nonce that Vite
  * stamps on its tags (Vite::useCspNonce()); inline scripts in Blade must carry nonce="{{ Vite::cspNonce() }}".
