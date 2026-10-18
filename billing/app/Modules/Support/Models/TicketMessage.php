@@ -30,6 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $body_html
  * @property TicketSource $source
  * @property string|null $email_message_id
+ * @property bool $email_message_id_generated true when we generated the Message-ID (outbound mail)
  * @property bool $is_autoresponse
  * @property bool $is_unverified_sender
  * @property int|null $rating
@@ -43,7 +44,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[UseFactory(TicketMessageFactory::class)]
 #[Fillable([
     'ticket_id', 'type', 'author_type', 'user_id', 'contact_id', 'author_name', 'author_email', 'body', 'body_html',
-    'source', 'email_message_id', 'is_autoresponse', 'is_unverified_sender', 'rating', 'edited_at', 'edited_by',
+    'source', 'email_message_id', 'email_message_id_generated', 'is_autoresponse', 'is_unverified_sender', 'rating', 'edited_at', 'edited_by',
     'created_at',
 ])]
 class TicketMessage extends Model
@@ -57,6 +58,7 @@ class TicketMessage extends Model
             'type' => MessageType::class,
             'author_type' => AuthorType::class,
             'source' => TicketSource::class,
+            'email_message_id_generated' => 'boolean',
             'is_autoresponse' => 'boolean',
             'is_unverified_sender' => 'boolean',
             'rating' => 'integer',

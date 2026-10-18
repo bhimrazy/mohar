@@ -191,46 +191,58 @@ class ProcessInboundEmail
     }
 
     /**
-     * The ticket a reply belongs to, and whether it was matched through our own unguessable
-     * Message-IDs (In-Reply-To/References) rather than only the guessable [#number] subject token.
+     * The ticket a reply belongs to (any stored Message-ID or the [#number] subject token routes it),
+     * and whether it is threaded on a Message-ID that WE generated for that ticket. Only the latter is
+     * proof the sender saw our mail; From headers and provider auth headers inside the payload are
+     * attacker-controlled (the HMAC only authenticates the relay).
      *
      * @return array{0: Ticket|null, 1: bool}
      */
     private function matchTicket(InboundMessage $mail): array
     {
         $ids = array_values(array_filter([$mail->inReplyTo, ...$mail->references]));
+        $ticket = null;
 
         if ($ids !== []) {
-            $ticketId = TicketMessage::query()->whereIn('email_message_id', $ids)->value('ticket_id');
-
-            if ($ticketId !== null) {
-                return [Ticket::query()->whereKey($ticketId)->first()?->resolveMergeTarget(), true];
-            }
+            $ticketId = TicketMessage::query()->whereIn('email_message_id', $ids)->orderBy('id')->value('ticket_id');
+            $ticket = $ticketId !== null ? Ticket::query()->whereKey($ticketId)->first()?->resolveMergeTarget() : null;
         }
 
-        if (preg_match('/\[#([A-Za-z0-9-]{1,32})\]/', $mail->subject, $match) === 1) {
-            return [Ticket::query()->where('number', $match[1])->first()?->resolveMergeTarget(), false];
+        if ($ticket === null && preg_match('/\[#([A-Za-z0-9-]{1,32})\]/', $mail->subject, $match) === 1) {
+            $ticket = Ticket::query()->where('number', $match[1])->first()?->resolveMergeTarget();
         }
 
-        return [null, false];
+        if ($ticket === null) {
+            return [null, false];
+        }
+
+        $threaded = $ids !== [] && TicketMessage::query()
+            ->where('ticket_id', $ticket->id)
+            ->where('email_message_id_generated', true)
+            ->whereIn('email_message_id', $ids)
+            ->exists();
+
+        return [$ticket, $threaded];
     }
 
     /**
-     * A reply is trusted only when the sender is linked to the ticket AND the mail is either threaded on
-     * one of our Message-IDs or passed SPF/DKIM/DMARC; the From header alone can be spoofed (spec §6.6).
-     * Anything else is held back for staff (or imported with an "unverified sender" badge when allowed).
+     * A reply is verified only when (a) it is threaded on one of OUR Message-IDs for this ticket and
+     * (b) the sender exactly matches the ticket's requester, CC, client owner, login or contact (spec
+     * §6.6). A provider verdict may only stand in for (a) when a provider-specific driver reads it from
+     * structured fields of its own signed payload; the generic driver never sets one. Anything else is
+     * held back for staff (or imported with the "unverified sender" badge when that setting is on).
      */
     private function reply(InboundEmail $record, Ticket $ticket, InboundMessage $mail, string $body, bool $threaded): InboundEmail
     {
         $record->ticket_id = $ticket->id;
         $authorized = $this->requesters->isAuthorizedSender($ticket, $mail->fromEmail);
-        $verified = $authorized && $mail->authenticated !== false && ($threaded || $mail->authenticated === true);
+        $verified = $authorized && ($threaded || $mail->authenticated === true);
         $unverified = false;
 
         if (! $verified) {
             if (! $this->settings->bool('allow_unverified_email_replies')) {
                 $reason = $authorized
-                    ? 'sender could not be verified (no thread reference and no SPF/DKIM/DMARC pass)'
+                    ? 'sender could not be verified (not threaded on one of our messages)'
                     : 'sender is not linked to the ticket';
                 $record->forceFill(['status' => InboundEmailStatus::Blocked, 'reason' => $reason])->save();
                 InboundEmailRejected::dispatch($record->id, InboundEmailStatus::Blocked->value);

@@ -122,11 +122,15 @@ test('a reply whose In-Reply-To matches a stored message id is appended as custo
         ->and($latest)->body->toBe('Here are the logs.')->author_type->toBe(AuthorType::Client)->source->value->toBe('email');
 });
 
-test('a reply is matched by the [#number] subject token', function () {
+test('a [#number] subject token routes the reply but holds it until it is threaded on our mail', function () {
     $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
 
-    inboundEmail(['subject' => "Re: [#{$ticket->number}] Help needed", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'reply_added');
+    inboundEmail(['subject' => "Re: [#{$ticket->number}] Help needed"])->assertJsonPath('status', 'blocked');
+    expect(InboundEmail::query()->where('status', 'blocked')->sole()->ticket_id)->toBe($ticket->id)
+        ->and($ticket->messages()->count())->toBe(1);
 
+    inboundEmail(['subject' => "Re: [#{$ticket->number}] Help needed", 'references' => ['<unrelated@x>', $ticket->messages()->firstOrFail()->email_message_id]])
+        ->assertJsonPath('status', 'reply_added');
     expect($ticket->messages()->count())->toBe(2);
 });
 
@@ -199,12 +203,13 @@ test('email replies reopen closed tickets unless prevented', function () {
     $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
     $ticket->forceFill(['status' => TicketStatus::Closed, 'closed_at' => now()])->save();
 
-    inboundEmail(['subject' => "[#{$ticket->number}]", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'reply_added');
+    $ours = $ticket->messages()->firstOrFail()->email_message_id;
+    inboundEmail(['subject' => "[#{$ticket->number}]", 'in_reply_to' => $ours])->assertJsonPath('status', 'reply_added');
     expect($ticket->fresh()->status)->toBe(TicketStatus::CustomerReply);
 
     $ticket->fresh()->forceFill(['status' => TicketStatus::Closed, 'closed_at' => now()])->save();
     app(Settings::class)->set('support.prevent_email_reopen', true);
-    inboundEmail(['subject' => "[#{$ticket->number}] again", 'auth' => ['dmarc' => 'pass']])->assertJsonPath('status', 'bounced_closed');
+    inboundEmail(['subject' => "[#{$ticket->number}] again", 'in_reply_to' => $ours])->assertJsonPath('status', 'bounced_closed');
     expect($ticket->fresh()->status)->toBe(TicketStatus::Closed);
     Event::assertDispatched(InboundEmailBounced::class, fn (InboundEmailBounced $event) => $event->template === 'ticket.closed_bounce');
 });
@@ -225,7 +230,8 @@ test('inbound replies to a merged ticket land in the target', function () {
     $newer = clientTicket($client, $this->department);
     app(MergeTickets::class)->handle([$older->id, $newer->id], User::factory()->staff()->create());
 
-    inboundEmail(['subject' => "Re: [#{$newer->number}]", 'text' => 'Following up', 'auth' => ['spf' => 'pass', 'dkim' => 'pass']])->assertJsonPath('status', 'reply_added');
+    $newerMessageId = TicketMessage::query()->where('body', 'My site is down.')->orderByDesc('id')->value('email_message_id');
+    inboundEmail(['subject' => "Re: [#{$newer->number}]", 'text' => 'Following up', 'in_reply_to' => $newerMessageId])->assertJsonPath('status', 'reply_added');
 
     expect(TicketMessage::query()->where('ticket_id', $older->id)->latest('id')->value('body'))->toBe('Following up');
 });
@@ -255,26 +261,34 @@ test('overlong subjects are truncated before storage', function () {
     expect(mb_strlen(Ticket::query()->sole()->subject))->toBeLessThanOrEqual(255);
 });
 
-test('a spoofed From with only the [#number] subject token is held back, not posted as the client', function () {
+test('spoofed replies never post as the client', function (array $payload) {
+    $client = Client::factory()->create(['email' => 'victim@example.com']);
+    $ticket = clientTicket($client, $this->department);
+    $ours = $ticket->messages()->firstOrFail()->email_message_id;
+    TicketMessage::factory()->for($ticket)->create(['email_message_id' => '<customer-chosen@victim.example>', 'source' => 'email', 'body' => 'Earlier email']);
+    $payload = array_map(fn ($value) => is_string($value) ? str_replace(['{number}', '{ours}'], [$ticket->number, $ours], $value) : $value, $payload);
+
+    inboundEmail(['text' => 'Spoofed', ...$payload])->assertAccepted()->assertJsonPath('status', 'blocked');
+
+    expect($ticket->messages()->count())->toBe(2)
+        ->and(TicketMessage::query()->where('body', 'Spoofed')->exists())->toBeFalse();
+})->with([
+    'forged Authentication-Results pass' => [['from' => 'victim@example.com', 'subject' => 'Re: [#{number}]', 'headers' => ['Authentication-Results' => 'mx.example; spf=pass dkim=pass header.d=example.com; dmarc=pass']]],
+    'unaligned spf/dkim pass with dmarc fail' => [['from' => 'victim@example.com', 'subject' => 'Re: [#{number}]', 'auth' => ['spf' => 'pass', 'dkim' => 'pass', 'dmarc' => 'fail'], 'headers' => ['Authentication-Results' => 'mx; spf=pass smtp.mailfrom=evil.example; dkim=pass header.d=evil.example; dmarc=fail']]],
+    'envelope local-part trick (threaded)' => [['from' => '"victim@example.com" <victim@example.com.evil.example>', 'in_reply_to' => '{ours}']],
+    'plus-address trick (threaded)' => [['from' => 'victim+x@example.com', 'in_reply_to' => '{ours}']],
+    'no threading at all' => [['from' => 'victim@example.com', 'subject' => 'Re: [#{number}]']],
+    'threaded on a non-generated id' => [['from' => 'victim@example.com', 'in_reply_to' => '<customer-chosen@victim.example>', 'subject' => 'Re: [#{number}]']],
+]);
+
+test('a reply threaded on our Message-ID from the exact client address is verified', function () {
     $client = Client::factory()->create(['email' => 'victim@example.com']);
     $ticket = clientTicket($client, $this->department);
 
-    inboundEmail(['from' => 'victim@example.com', 'subject' => "Re: [#{$ticket->number}]", 'text' => 'Spoofed', 'headers' => ['Authentication-Results' => 'mx.example; spf=fail dkim=fail dmarc=fail']])
-        ->assertAccepted()->assertJsonPath('status', 'blocked');
-    inboundEmail(['from' => 'victim@example.com', 'subject' => "Re: [#{$ticket->number}]", 'text' => 'No verdict'])
-        ->assertJsonPath('status', 'blocked');
+    inboundEmail(['from' => 'Victim <VICTIM@Example.com>', 'in_reply_to' => $ticket->messages()->firstOrFail()->email_message_id, 'text' => 'Real reply'])
+        ->assertCreated()->assertJsonPath('status', 'reply_added');
 
-    expect($ticket->messages()->count())->toBe(1)
-        ->and(InboundEmail::query()->where('status', 'blocked')->value('reason'))->toContain('could not be verified');
-});
-
-test('an explicit DMARC fail blocks even a threaded reply', function () {
-    $ticket = clientTicket(Client::factory()->create(['email' => 'casey@example.com']), $this->department);
-    $first = $ticket->messages()->firstOrFail();
-
-    inboundEmail(['in_reply_to' => $first->email_message_id, 'headers' => ['Authentication-Results' => 'mx; dmarc=fail']])->assertJsonPath('status', 'blocked');
-
-    expect($ticket->messages()->count())->toBe(1);
+    expect(TicketMessage::query()->where('body', 'Real reply')->sole()->is_unverified_sender)->toBeFalse();
 });
 
 test('an inbound Message-ID equal to one of our outbound ids is dropped as a loop, not a 500', function () {

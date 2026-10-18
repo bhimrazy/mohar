@@ -41,8 +41,11 @@ class MessageWriter
             $body = $this->withSignature($this->tokens->resolve($body, $ticket), $author->user);
         }
 
+        $generated = false;
+
         if ($emailMessageId === null && $type === MessageType::Reply) {
             $emailMessageId = self::outboundMessageId();
+            $generated = true;
         }
 
         $message = TicketMessage::query()->create([
@@ -57,6 +60,7 @@ class MessageWriter
             'body_html' => $this->markdown->render($body),
             'source' => $source,
             'email_message_id' => $emailMessageId,
+            'email_message_id_generated' => $generated,
             'is_autoresponse' => $autoresponse,
             'is_unverified_sender' => $unverified,
         ]);

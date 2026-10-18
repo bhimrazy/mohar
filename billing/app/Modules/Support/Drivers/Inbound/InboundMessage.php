@@ -13,7 +13,9 @@ final readonly class InboundMessage
      * @param  list<string>  $references
      * @param  array<string, string>  $headers  lowercase header name => value
      * @param  list<array{name: string, content: string}>  $attachments  decoded file contents
-     * @param  bool|null  $authenticated  provider's SPF/DKIM/DMARC verdict: true = pass, false = fail, null = unknown
+     * @param  bool|null  $authenticated  sender-authentication verdict; set ONLY by a provider-specific driver that reads it
+     *                                    from structured fields of its own signed payload (documented per driver). The generic
+     *                                    driver never sets it; headers inside a payload are attacker-controlled.
      */
     public function __construct(
         public string $provider,
