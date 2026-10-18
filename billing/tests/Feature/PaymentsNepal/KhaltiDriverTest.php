@@ -4,6 +4,7 @@ use App\Events\Billing\InvoicePaid;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Actions\StartHostedPayment;
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
@@ -15,6 +16,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
+use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Dashboard\Dashboard;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
@@ -333,7 +335,7 @@ test('activation requires the secret key', function () {
     Gateway::query()->where('key', KhaltiDriver::KEY)->delete();
 
     expect(fn () => app(ConfigureGateway::class)->handle('khalti', ['display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '1']))
-        ->toThrow(BillingException::class, 'Live secret key is required to activate this gateway.');
+        ->toThrow(BillingException::class, 'Secret key is required to activate this gateway.');
 });
 
 test('staff can test the saved key without it ever reaching the page', function (int $httpStatus, string $toast) {
@@ -368,4 +370,26 @@ test('checkout shows the official logos with an accessible name and other gatewa
     foreach (['khalti.svg', 'esewa.png', 'esewa-on-dark.png'] as $file) {
         expect(public_path('images/gateways/'.$file))->toBeFile();
     }
+});
+
+test('an Initiated payment stays pending until Khalti reports an outcome', function () {
+    [, $invoice, $attempt] = startKhalti();
+    Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Initiated', transactionId: null))]);
+
+    $this->get(khaltiReturn($attempt, ['status' => 'Initiated']));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+});
+
+test('the payer mobile number from the return is masked to its last three digits', function () {
+    $config = app(GatewayManager::class)->config(KhaltiDriver::KEY);
+    $request = Illuminate\Http\Request::create('/?pidx=PIDX1&status=Completed&purchase_order_id=abcdefghijklmnopqrstuvwxyz&mobile=9800000904');
+
+    $hint = app(KhaltiDriver::class)->parseReturn($config, $request);
+
+    expect($hint->raw['mobile'])->toBe('*******904')
+        ->and(json_encode($hint->raw))->not->toContain('9800000904')
+        ->and(ProviderHttp::maskMobile('98-0000-0904'))->toBe('*******904')
+        ->and(ProviderHttp::maskMobile(''))->toBeNull();
 });

@@ -72,8 +72,8 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         return [
             ['key' => 'sandbox', 'label' => 'Sandbox mode', 'type' => 'boolean', 'default' => true,
                 'help' => 'Uses dev.khalti.com with the key from test-admin.khalti.com; no real money moves. Not available in production.'],
-            ['key' => 'secret_key', 'label' => 'Live secret key', 'type' => 'secret', 'required' => true,
-                'help' => 'Merchant dashboard → Keys → "Live secret key" (admin.khalti.com, or test-admin.khalti.com in sandbox mode).'],
+            ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
+                'help' => 'Merchant dashboard → Keys → "Live secret key" (admin.khalti.com; in sandbox mode, the one from test-admin.khalti.com).'],
         ];
     }
 
