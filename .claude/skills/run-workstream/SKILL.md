@@ -59,7 +59,7 @@ php artisan wayfinder:generate --with-form
 vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G
 npx tsc --noEmit && npx vp check && npm test && $H npm run build && $H php artisan test --compact
 git push origin feature/<slug>
-gh pr ready <n>                                                 # CI does not run on drafts
+gh pr ready <n>                                                 # drafts run CI only with the `ci` label
 gh pr checks <n> --watch
 gh pr comment <n> -b "CTO sign-off: <reviews passed, gates, test count>"
 gh pr merge <n> --merge
@@ -70,7 +70,9 @@ cd /workspaces/whmcs && git pull --ff-only && git worktree remove .worktrees/<sl
 
 - `docs/handoff/state.md`: move the row from in-progress to merged; update test count and next steps.
 - `billing/docs/progress.md`: status row and a timeline line.
-- `billing/changelog.md`: what users and operators get, under `[Unreleased]`.
+- `billing/changelog.md`: what users and operators get, under `[Unreleased]`. Check before merging that the PR
+  added its own entry (and upgrade notes where behaviour or permissions change); if it didn't, write it first.
+  Check the PR body describes this PR.
 - Non-blocking review items: `gh issue create` with the PR reference.
 - Run a `product-reviewer` sweep of `develop` when user-facing work merged, fix or route its
   owner-blocking findings, then send the owner a short update with screenshots.
