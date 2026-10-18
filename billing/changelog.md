@@ -145,6 +145,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
   with a known password); production reference data comes from the install path in #47.
 
+### Payments — Stripe
+
+- Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
+  invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
+  PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
+  `Stripe-Version` and an idempotency key on every POST; no SDK.
+- Signed webhooks (constant-time `Stripe-Signature` check, 5-minute tolerance, mode check) trigger a retrieve and
+  never trust the posted body: payments, Dashboard refunds (`refund.created`/`refund.updated`) and disputes
+  (`charge.dispute.created`, recorded as chargebacks). Duplicates and races with the return route and the poller
+  record one transaction.
+- Full and partial refunds through the Refunds API; exact amounts for zero-decimal currencies; test mode refused
+  in production; connection test; Stripe's official wordmark; `php artisan payments:stripe-smoke` for a real
+  sandbox run.
+
 ### DevOps
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;

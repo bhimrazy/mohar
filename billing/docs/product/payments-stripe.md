@@ -1,6 +1,6 @@
 # Payments — Stripe gateway (design, v1)
 
-Status: designed, build in `app/Modules/PaymentsStripe` · Owner: Billing (payments) · Roadmap 3.4 · Refines
+Status: v1 built in `app/Modules/PaymentsStripe` (saved cards: second PR) · Owner: Billing (payments) · Roadmap 3.4 · Refines
 `billing.md` §6 and follows the extension pattern of `payments-nepal.md` §8 · Stripe docs read 2026-10-18 (§9)
 
 Clean-room: written from Stripe's public API reference and guides in our own words. No Stripe SDK is used; the
