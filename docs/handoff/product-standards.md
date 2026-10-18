@@ -16,6 +16,18 @@ every item.
 - Admin screens are at least as capable as WHMCS's equivalent and easier to use; sidebar and
   dashboard at least as rich. (2026-10-17)
 
+- Every admin and client page has a breadcrumb that links back to its list. (2026-10-18)
+- Pages linked from the client sidebar keep signed-in customers inside the client area. (2026-10-18)
+- Never show internal keys or database IDs; show names and document numbers (INV-1247, not 208).
+  (2026-10-18)
+- One term per action across the app ("Log in", "Create account", "Client area"). (2026-10-18)
+
+## Settings
+
+- Every setting changes behaviour; a setting nothing reads is a bug. (2026-10-18)
+- Settings use proper controls: selects, toggles, money inputs. Never ask for JSON, internal keys or
+  minor units. (2026-10-18)
+
 ## Money and currency
 
 - Amounts show the currency symbol, not the ISO code: `$1,234.50`, `₹1,23,456.00`, `Rs 1,23,456.00`.
