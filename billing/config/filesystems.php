@@ -54,7 +54,8 @@ return [
         */
         'objects' => [
             'driver' => env('OBJECTS_DRIVER', 's3'),
-            'root' => storage_path('app/objects'),
+            // Local driver: a directory. S3/RustFS: an optional key prefix inside the bucket (never a local path).
+            'root' => env('OBJECTS_DRIVER', 's3') === 'local' ? storage_path('app/objects') : env('OBJECTS_PREFIX', ''),
             'key' => env('OBJECTS_ACCESS_KEY'),
             'secret' => env('OBJECTS_SECRET_KEY'),
             'region' => env('OBJECTS_REGION', 'us-east-1'),

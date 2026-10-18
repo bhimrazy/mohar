@@ -36,6 +36,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     'partially-paid': 'warning',
     'payment-pending': 'warning',
     scheduled: 'warning',
+    identified: 'warning',
 
     // Needs attention / money at risk
     overdue: 'danger',
@@ -53,6 +54,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     delivered: 'info',
     'in-progress': 'info',
     investigating: 'info',
+    monitoring: 'info',
 
     // Finished / inert
     cancelled: 'neutral',
