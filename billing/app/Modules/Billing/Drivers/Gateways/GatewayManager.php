@@ -5,7 +5,7 @@ namespace App\Modules\Billing\Drivers\Gateways;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\HostedPaymentDriver;
-use App\Contracts\Billing\ProvidesLogo;
+use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\GatewayConfig;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;

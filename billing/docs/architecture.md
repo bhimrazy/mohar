@@ -42,8 +42,8 @@ loads only Core + Billing.
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
 4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
-   kernel → module imports, non-interface contracts, non-final DTOs/events, debug calls, and `DB` facade use in
-   controllers all fail the build. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+   kernel → module imports, non-interface contracts, non-final DTOs/events, Eloquent models in DTOs/events, debug
+   calls, and `DB` facade use in controllers all fail the build. The module list is read from `app/Modules`. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
 5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
 6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
@@ -58,6 +58,29 @@ loads only Core + Billing.
 | `Domains\DomainRegistry`, `Domains\DomainPricing`                   | Domains                | Orders                                                        |
 | `Notifications\MergeFieldRegistry`                                  | Core (in-memory)       | every module registers resolvers; Notifications reads         |
 | `Branding\BrandProvider` (→ `Data\Branding\Brand`)                  | Themes (Core fallback) | Inertia shared props, mail layout, Billing invoice PDF header |
+
+### Integration drivers (ADR 0009, 0012)
+
+Settings, connection checks, logos and log redaction are shared by every driver family:
+
+- `Data\Integrations\SettingField` with `Enums\FieldType` is the one settings-field schema. A secret is a type
+  (`Secret`, `SecretText`), not a flag. Gateways still return arrays, which Billing reads through
+  `SettingField::fromArray()` until the gateway family is aligned.
+- `Data\Integrations\ConnectionCheck` is the result of any credential test.
+- `Contracts\Integrations\ProvidesLogo` (returning `Data\Integrations\IntegrationLogo`) lets any driver ship a logo.
+- `Support\Integrations\Redactor` masks secrets in the gateway, module and registrar logs (one rule, matched by
+  word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
+  to show staff (redacted, 4 KB).
+- `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
+  resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
+  the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the
+  policy.
+
+Driver registries are kernel classes that extend `Support\Integrations\DriverRegistry`. They are bound as singletons in
+`AppServiceProvider`, so a package registers a driver in its own `boot()` whether or not the consuming module is
+loaded. Registration is `register(key, class-string|Closure, replace: false)`, resolution is lazy, and the capability
+lists the UI shows are computed from the interfaces a driver implements. Kernel API changes are listed in
+`docs/architecture/kernel-changelog.md`.
 
 ### Billing flow (the backbone)
 

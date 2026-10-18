@@ -19,6 +19,7 @@ use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
+use App\Support\Integrations\Redactor;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -181,7 +182,7 @@ test('module logs never contain server or service passwords', function () {
     expect($raw)->not->toContain('TopSecretPw!')
         ->not->toContain('ClientPw-123')
         ->not->toContain('NewPw-456789')
-        ->toContain('***')
+        ->toContain(Redactor::MASK)
         ->and($service->refresh()->password)->toBe('NewPw-456789');
 });
 
