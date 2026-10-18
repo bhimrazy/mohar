@@ -154,27 +154,3 @@ export function tokensToCssVars(
         Object.entries(variables).filter(([, value]) => !UNSAFE.test(value)),
     );
 }
-
-/** A full stylesheet (`selector{…}` + `selector.dark{…}`), matching ThemeStylesheet::render. */
-export function tokensToCss(
-    tokens: ThemeTokens,
-    schema: Pick<
-        ThemeSchemaDescription,
-        'fonts' | 'fontFeatures' | 'densities'
-    >,
-    selector = 'html:root',
-): string {
-    const block = (variables: Record<string, string>) =>
-        Object.entries(variables)
-            .map(([name, value]) => `${name}:${value};`)
-            .join('');
-    const light = tokensToCssVars(tokens, 'light', schema);
-    const darkOnly = Object.fromEntries(
-        Object.keys(tokens.dark).map((name) => [
-            `--${name}`,
-            tokensToCssVars(tokens, 'dark', schema)[`--${name}`],
-        ]),
-    );
-
-    return `${selector}{${block(light)}}${selector}.dark{${block(darkOnly)}}`;
-}

@@ -3,7 +3,6 @@ import {
     checkContrast,
     contrastRatio,
     relativeLuminance,
-    tokensToCss,
     tokensToCssVars,
 } from '../theme-tokens';
 import type { ThemeTokens } from '../theme-tokens';
@@ -121,16 +120,5 @@ describe('tokensToCssVars', () => {
         expect(vars['--app-font-sans']).toBeUndefined();
         expect(vars['--radius']).toBeUndefined();
         expect(vars['--background']).toBeUndefined();
-    });
-});
-
-describe('tokensToCss', () => {
-    it('renders a light block and a dark override block', () => {
-        const css = tokensToCss(tokens, schema, '.preview');
-
-        expect(css.startsWith('.preview{')).toBe(true);
-        expect(css).toContain('--background:#FFFFFF;');
-        expect(css).toContain('.preview.dark{--background:#12151D;');
-        expect(css.split('.preview.dark{')[1]).not.toContain('--radius');
     });
 });

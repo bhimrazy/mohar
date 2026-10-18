@@ -21,7 +21,7 @@ final class ThemeSchema
 
     public const VERSION = 1;
 
-    public const KEY_PATTERN = '/^[a-z][a-z0-9-]{1,47}$/';
+    public const KEY_PATTERN = '/^[a-z][a-z0-9-]{1,47}$/D';
 
     /** Maximum size of an imported theme document. */
     public const MAX_DOCUMENT_BYTES = 32_768;
@@ -141,9 +141,9 @@ final class ThemeSchema
     ];
 
     private const PATTERNS = [
-        'color' => '/^#[0-9a-fA-F]{6}$/',
-        'length' => '/^(0|-?\d{1,4}(\.\d{1,4})?(rem|px|em))$/',
-        'percent' => '/^\d{2,3}(\.\d{1,2})?%$/',
+        'color' => '/^#[0-9a-fA-F]{6}$/D',
+        'length' => '/^(0|-?\d{1,4}(\.\d{1,4})?(rem|px|em))$/D',
+        'percent' => '/^\d{2,3}(\.\d{1,2})?%$/D',
     ];
 
     /** One shadow layer: 2–4 lengths and a colour; up to three layers, or "none". */
@@ -247,7 +247,7 @@ final class ThemeSchema
             'font-sans' => is_string($value) && (self::FONTS[$value][1] ?? null) === 'sans',
             'font-mono' => is_string($value) && (self::FONTS[$value][1] ?? null) === 'mono',
             'shadow' => is_string($value) && strlen($value) <= 200
-                && ($value === 'none' || preg_match('/^'.self::SHADOW_LAYER.'(?:,\s*'.self::SHADOW_LAYER.'){0,2}$/', $value) === 1),
+                && ($value === 'none' || preg_match('/^'.self::SHADOW_LAYER.'(?:,\s*'.self::SHADOW_LAYER.'){0,2}$/D', $value) === 1),
             default => false,
         };
     }
@@ -310,9 +310,9 @@ final class ThemeSchema
     public static function jsonSchema(): array
     {
         $property = fn (string $type): array => match ($type) {
-            'color' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['color'], '/')],
-            'length' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['length'], '/')],
-            'percent' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['percent'], '/')],
+            'color' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['color'], '/D')],
+            'length' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['length'], '/D')],
+            'percent' => ['type' => 'string', 'pattern' => trim(self::PATTERNS['percent'], '/D')],
             'weight' => ['type' => 'integer', 'minimum' => 300, 'maximum' => 800, 'multipleOf' => 100],
             'case' => ['enum' => ['none', 'uppercase']],
             'features' => ['enum' => array_keys(self::FONT_FEATURES)],
@@ -331,7 +331,7 @@ final class ThemeSchema
 
         return [
             '$schema' => 'https://json-schema.org/draft/2020-12/schema',
-            '$id' => 'https://billing.local/schemas/theme.v1.json',
+            '$id' => 'urn:billing-theme:v1',
             'title' => 'Billing theme',
             'type' => 'object',
             'additionalProperties' => false,
@@ -339,7 +339,7 @@ final class ThemeSchema
             'properties' => [
                 'schema' => ['const' => self::NAME],
                 'version' => ['const' => self::VERSION],
-                'key' => ['type' => 'string', 'pattern' => trim(self::KEY_PATTERN, '/')],
+                'key' => ['type' => 'string', 'pattern' => trim(self::KEY_PATTERN, '/D')],
                 'name' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 60],
                 'description' => ['type' => 'string', 'maxLength' => 200],
                 'base' => ['type' => 'string', 'maxLength' => 48],

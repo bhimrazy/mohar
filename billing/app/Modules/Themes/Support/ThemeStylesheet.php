@@ -20,7 +20,8 @@ class ThemeStylesheet
     {
         $key = sprintf('themes.css:%s:%s:%s:%d', $theme->key, $theme->version, $density, self::RENDERER_VERSION);
 
-        return Cache::rememberForever($key, fn (): string => $this->render($theme->tokens, $density));
+        // Keys change with every theme version; a TTL lets superseded versions expire.
+        return Cache::remember($key, now()->addDays(30), fn (): string => $this->render($theme->tokens, $density));
     }
 
     /**
