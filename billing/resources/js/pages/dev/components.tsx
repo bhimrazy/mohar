@@ -26,6 +26,7 @@ import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
 import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import { ThemeSwitcher } from '@/components/theme-switcher';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -215,6 +216,33 @@ export default function ComponentsShowcase() {
         <>
             <Head title="Components" />
             <Page>
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed bg-muted/40 px-4 py-3 text-sm">
+                    <span className="text-muted-foreground">
+                        Design-system showcase · compare directions on{' '}
+                        <a
+                            className="font-medium text-foreground underline underline-offset-4"
+                            href="/dev/dashboard-preview"
+                        >
+                            dashboard
+                        </a>
+                        ,{' '}
+                        <a
+                            className="font-medium text-foreground underline underline-offset-4"
+                            href="/dev/invoice-preview"
+                        >
+                            invoices
+                        </a>{' '}
+                        and{' '}
+                        <a
+                            className="font-medium text-foreground underline underline-offset-4"
+                            href="/dev/client-preview"
+                        >
+                            client area
+                        </a>
+                        .
+                    </span>
+                    <ThemeSwitcher />
+                </div>
                 <PageHeader
                     back={{ href: '/dashboard', label: 'Invoices' }}
                     title="INV-1042"

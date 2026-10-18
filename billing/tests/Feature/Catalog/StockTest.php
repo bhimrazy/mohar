@@ -58,28 +58,31 @@ it('returns stock when an order is cancelled before its service was activated', 
     expect($product->fresh()->stock_quantity)->toBe(4);
 });
 
-it('returns stock when an order is marked fraud', function () {
+it('keeps stock while an order is only flagged as fraud and returns it on cancellation', function () {
     $product = Product::factory()->stock(1)->create();
     app(PriceBook::class)->reserveStock($product->id);
 
     OrderPlaced::dispatch(11, 1, null, [['type' => 'service', 'id' => 200, 'product_id' => $product->id]], null);
     OrderMarkedFraud::dispatch(11, 1);
 
+    expect($product->fresh()->stock_quantity)->toBe(0);
+
+    OrderCancelled::dispatch(11, 1);
+
     expect($product->fresh()->stock_quantity)->toBe(1);
 });
 
-it('returns stock when fraud is flagged before the order is placed', function () {
+it('returns stock when the cancellation arrives before the order is placed, exactly once', function () {
     $product = Product::factory()->stock(3)->create();
     app(PriceBook::class)->reserveStock($product->id);
     app(PriceBook::class)->reserveStock($product->id);
 
-    OrderMarkedFraud::dispatch(20, 1);
+    OrderCancelled::dispatch(20, 1);
     OrderPlaced::dispatch(20, 1, null, [
         ['type' => 'service', 'id' => 400, 'product_id' => $product->id],
         ['type' => 'service', 'id' => 401, 'product_id' => $product->id],
     ], null);
     OrderPlaced::dispatch(20, 1, null, [['type' => 'service', 'id' => 400, 'product_id' => $product->id]], null);
-    OrderMarkedFraud::dispatch(20, 1);
     OrderCancelled::dispatch(20, 1);
 
     expect($product->fresh()->stock_quantity)->toBe(3);

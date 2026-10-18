@@ -10,6 +10,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingsRegistry;
+use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
@@ -34,6 +35,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(SettingsRegistry::class);
         $this->app->singleton(GlobalSearch::class);
         $this->app->singleton(Automation::class);
+        $this->app->singleton(ThemeRegistry::class);
         $this->app->singleton(ClientMergeRegistry::class);
     }
 

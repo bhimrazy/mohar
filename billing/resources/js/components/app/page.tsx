@@ -14,7 +14,7 @@ export function Page({ children, size = 'default', className }: PageProps) {
         <div
             data-slot="page"
             className={cn(
-                'mx-auto flex w-full flex-1 flex-col gap-6 px-4 py-6 md:px-6',
+                'mx-auto flex w-full flex-1 flex-col gap-(--page-gap) px-4 py-6 md:px-6 md:py-8',
                 size === 'narrow' ? 'max-w-3xl' : 'max-w-7xl',
                 className,
             )}

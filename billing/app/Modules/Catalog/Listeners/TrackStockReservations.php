@@ -3,7 +3,6 @@
 namespace App\Modules\Catalog\Listeners;
 
 use App\Events\Orders\OrderCancelled;
-use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
 use App\Modules\Catalog\Models\Product;
@@ -11,11 +10,13 @@ use App\Modules\Catalog\Models\StockReservation;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Remembers which order took stock so it can be returned when the order is cancelled or marked fraud
- * before its service was ever activated (catalog spec §3.5).
+ * Remembers which order took stock so it can be returned when the order is cancelled before its service
+ * was ever activated (catalog spec §3.5).
  *
+ * Stock is released on cancellation only: a fraud flag is reversible (staff can set the order back to
+ * pending and accept it), so flagged orders keep their units until they are actually cancelled.
  * Order-independent and idempotent per order (ADR 0008): a cancellation leaves a release marker, so
- * reservations recorded later (OrderPlaced after OrderMarkedFraud at checkout) are returned at once.
+ * reservations recorded later (OrderPlaced after OrderCancelled) are returned at once.
  */
 class TrackStockReservations
 {
@@ -60,11 +61,6 @@ class TrackStockReservations
     }
 
     public function orderCancelled(OrderCancelled $event): void
-    {
-        $this->release($event->orderId);
-    }
-
-    public function orderMarkedFraud(OrderMarkedFraud $event): void
     {
         $this->release($event->orderId);
     }

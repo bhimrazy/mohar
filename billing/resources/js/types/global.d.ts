@@ -1,5 +1,10 @@
 import type { Auth } from '@/types/auth';
-import type { ClientAccount, ServerNavGroup } from '@/types/navigation';
+import type { Brand, SharedTheme } from '@/types/ui';
+import type {
+    ClientAccount,
+    QuickAction,
+    ServerNavGroup,
+} from '@/types/navigation';
 
 declare module 'react' {
     interface InputHTMLAttributes<T> {
@@ -15,10 +20,11 @@ declare module '@inertiajs/core' {
             sidebarOpen: boolean;
             area: 'admin' | 'client';
             navigation: ServerNavGroup[];
+            quickActions: QuickAction[];
+            brand: Brand;
+            theme: SharedTheme;
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
-            /** Company name setting (falls back to the app name). */
-            brand: string;
             impersonation?: {
                 staff: string;
                 user: string;

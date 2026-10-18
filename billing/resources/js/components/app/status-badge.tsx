@@ -26,6 +26,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
     online: 'success',
     resolved: 'success',
     pass: 'success',
+    success: 'success',
+    succeeded: 'success',
+    healthy: 'success',
+    ok: 'success',
 
     // Waiting on someone
     pending: 'warning',
@@ -75,25 +79,36 @@ const STATUS_TONES: Record<string, StatusTone> = {
     draft: 'outline',
 };
 
+/** Colours come from the theme's semantic tokens (resources/css/themes/*). */
 const TONE_CLASSES: Record<StatusTone, string> = {
-    success:
-        'border-emerald-600/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/20 dark:text-emerald-400',
-    warning:
-        'border-amber-600/25 bg-amber-500/10 text-amber-800 dark:border-amber-400/20 dark:text-amber-400',
-    danger: 'border-red-600/20 bg-red-500/10 text-red-700 dark:border-red-400/25 dark:text-red-400',
-    info: 'border-sky-600/20 bg-sky-500/10 text-sky-700 dark:border-sky-400/20 dark:text-sky-400',
+    success: 'border-success/25 bg-success-subtle text-success-text',
+    warning: 'border-warning/30 bg-warning-subtle text-warning-text',
+    danger: 'border-danger/25 bg-danger-subtle text-danger-text',
+    info: 'border-info/25 bg-info-subtle text-info-text',
     neutral: 'border-border bg-muted text-muted-foreground',
     outline: 'border-dashed border-border bg-transparent text-muted-foreground',
 };
 
 const DOT_CLASSES: Record<StatusTone, string> = {
-    success: 'bg-emerald-500',
-    warning: 'bg-amber-500',
-    danger: 'bg-red-500',
-    info: 'bg-sky-500',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    danger: 'bg-danger',
+    info: 'bg-info',
     neutral: 'bg-muted-foreground/60',
     outline: 'bg-muted-foreground/40',
 };
+
+/** Text colour for a tone (counts, inline figures) — same tokens as the badge. */
+export const TONE_TEXT: Record<StatusTone, string> = {
+    success: 'text-success-text',
+    warning: 'text-warning-text',
+    danger: 'text-danger-text',
+    info: 'text-info-text',
+    neutral: 'text-muted-foreground',
+    outline: 'text-muted-foreground',
+};
+
+export { DOT_CLASSES as TONE_DOT, TONE_CLASSES as TONE_SURFACE };
 
 export function normalizeStatus(status: string): string {
     return status
@@ -135,7 +150,7 @@ export function StatusBadge({
             data-slot="status-badge"
             data-status={normalizeStatus(status)}
             className={cn(
-                'inline-flex w-fit shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+                'inline-flex w-fit shrink-0 items-center gap-1.5 rounded-badge border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
                 TONE_CLASSES[resolvedTone],
                 className,
             )}
