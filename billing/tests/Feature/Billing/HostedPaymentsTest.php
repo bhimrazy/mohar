@@ -13,6 +13,7 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
+use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -224,6 +225,20 @@ test('NPR-only gateways require NPR or a configured conversion, and use form pos
     $transaction = Transaction::query()->where('gateway', 'fake_wallet')->firstOrFail();
     expect($usd->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($transaction)->amount_in->toBe(10_000)->gateway_amount->toBe(1_344_000)->gateway_currency->toBe('NPR');
+});
+
+test('clients get 429 after too many pay requests a minute, on single and batch pay', function () {
+    Currency::factory()->npr()->create();
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    $invoice = issueInvoice($client, [50_000]);
+
+    foreach (range(1, BillingServiceProvider::PAY_REQUESTS_PER_MINUTE) as $ignored) {
+        $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet'])->assertRedirect();
+    }
+
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet'])->assertTooManyRequests();
+    expect(PaymentAttempt::query()->count())->toBe(BillingServiceProvider::PAY_REQUESTS_PER_MINUTE)
+        ->and(app('router')->getRoutes()->getByName('client.invoices.batches.pay')->gatherMiddleware())->toContain('throttle:billing-pay');
 });
 
 test('the provider form page is bound to the client and to an open attempt', function () {

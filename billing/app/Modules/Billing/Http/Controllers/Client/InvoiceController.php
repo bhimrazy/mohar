@@ -10,6 +10,7 @@ use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\StartHostedPayment;
+use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
@@ -26,6 +27,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
 use App\Modules\Core\Http\Middleware\SecurityHeaders;
 use App\Modules\Core\Support\ClientContext;
+use App\Support\Billing\SandboxPolicy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,8 +42,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class InvoiceController extends Controller
 {
-    /** Session slot holding the provider form of the client's latest hosted payment. */
-    private const HOSTED_FORM_SESSION = 'billing.hosted_form';
+    /** Session slots holding provider forms, one per attempt reference (several tabs may pay at once). */
+    private const HOSTED_FORM_SESSION = 'billing.hosted_form.';
 
     public function __construct(private ClientContext $context) {}
 
@@ -150,7 +152,7 @@ class InvoiceController extends Controller
         if ($instruction instanceof FormPost) {
             // The SPA document's CSP only allows forms to post to this site (form-action 'self'), so the auto-posted
             // form needs a full page load whose CSP adds exactly the provider's origin (see checkout()).
-            $request->session()->put(self::HOSTED_FORM_SESSION, ['reference' => $attempt->reference, 'action' => $instruction->action, 'fields' => $instruction->fields]);
+            $request->session()->put(self::HOSTED_FORM_SESSION.$attempt->reference, ['action' => $instruction->action, 'fields' => $instruction->fields]);
 
             return Inertia::location(route('client.invoices.checkout', [$invoice->id, $attempt->reference]));
         }
@@ -159,9 +161,10 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Full-page checkout that auto-posts the provider form of an open attempt of this client's invoice.
+     * Full-page checkout that auto-posts the provider form of an open attempt of this client's invoice. The form is
+     * served once (the slot is cleared), so a refresh never re-posts the same signed form.
      */
-    public function checkout(Request $request, int $invoice, string $reference): SymfonyResponse
+    public function checkout(Request $request, int $invoice, string $reference, GatewayManager $gateways): SymfonyResponse
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
@@ -171,10 +174,18 @@ class InvoiceController extends Controller
             ->where('reference', $reference)
             ->where('status', AttemptStatus::Pending)
             ->first();
-        $form = $request->session()->get(self::HOSTED_FORM_SESSION);
+        $form = $request->session()->pull(self::HOSTED_FORM_SESSION.$reference);
+
+        // An attempt opened in sandbox mode before test money was switched off (production) fails closed: its form
+        // would send the customer to the provider's test site.
+        if ($attempt !== null && ! SandboxPolicy::allowed() && $gateways->isSandbox($attempt->gateway)) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => __('This payment method is no longer available. Choose another way to pay.')]);
+
+            return to_route('client.invoices.show', $invoice->id);
+        }
 
         if ($attempt === null || ($attempt->expires_at !== null && $attempt->expires_at->isPast()) || ! is_array($form)
-            || ($form['reference'] ?? null) !== $reference || ! is_string($form['action'] ?? null) || ! is_array($form['fields'] ?? null)) {
+            || ! is_string($form['action'] ?? null) || ! is_array($form['fields'] ?? null)) {
             Inertia::flash('toast', ['type' => 'warning', 'message' => __('This payment session has ended. Start the payment again.')]);
 
             return to_route('client.invoices.show', $invoice->id);
