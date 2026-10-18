@@ -94,7 +94,8 @@ the settings catalog, activity log, admin global search, login-as-client (impers
 ## 6. Currencies & exchange rates
 
 - Exactly one default currency (rate fixed 1.000000, not editable). Default can only change while no invoices/transactions exist; changing it rebases every rate exactly (six decimals) and records the rebase in the rate history. **MUST**
-- `exchange_rate` = units of this currency per 1 default unit (decimal 16,6). Conversion: `target_minor = round_half_up(source_minor × rate_target/rate_source × 10^(dec_target − dec_source))`. **MUST**
+- `exchange_rate` = units of this currency per 1 default unit (decimal 24,12, so a weak default such as NPR keeps
+  enough significant digits; gateway rates on payments use the same precision). Conversion: `target_minor = round_half_up(source_minor × rate_target/rate_source × 10^(dec_target − dec_source))`. **MUST**
 - Zero-decimal currencies (JPY, KRW, HUF in practice, …) use `decimals=0`. Formatting from prefix/suffix/format/decimals. **MUST**
 - A client's currency can change only while they have no invoices/transactions (else staff must use a forced flow with warning). **MUST**
 - Currency in use by clients, prices, invoices, quotes or transactions cannot be deleted; deleting clears its rate
@@ -129,13 +130,14 @@ the settings catalog, activity log, admin global search, login-as-client (impers
       latest day in the last week and use the mid rate. Docs: https://www.nrb.org.np/api-docs-v1 . The live response
       names the code `currency.iso3` (the docs say `ISO3`); both are read.
 - Fetches use Laravel's Http client with a 5 s connect and 10 s total timeout, no redirects and a 1 MB response
-  cap, and never run on page loads. Feed values must be plausible (positive, at most 9 significant digits; NRB
-  buy ≤ sell) and the derived rate must lie between 0.000001 and 1,000,000 per default unit; anything else fails
+  cap, and never run on page loads. Feed values must be plausible (positive, at most 12 significant digits; NRB
+  buy ≤ sell) and the derived rate must lie between 0.000000001 and 1,000,000,000 per default unit; anything else fails
   that currency with an audit entry and keeps its rate. Every rate change (fetches, manual edits, review
   decisions, default-currency rebases) runs under one lock, and the currency row is locked and re-read before
   old → new is computed. A currency has at most one pending review (unique `pending_currency`). Each source
   is fetched once per update; every rate is derived through the default currency as an exact fraction
-  (`units × base_default ÷ (base × units_default)`), rounded half up to six decimals without floats.
+  (`units × base_default ÷ (base × units_default)`), rounded half up to twelve decimals without floats (arbitrary-
+  precision decimal strings; bcmath is not required).
 - **Schedule:** the `platform.exchange-rates` automation task runs first in the daily pipeline (stage
   `EXCHANGE_RATES`), so renewals and converted prices use the day's rates. Setting `platform.rates_update_time`
   (HH:MM) moves the fetch to that time: the pipeline task records "skipped: rates update at HH:MM" and the
@@ -157,8 +159,9 @@ user_id)` and an activity entry (`currency.rate_changed`, old → new, source, w
 ### 6.3 Converted prices (built 2026-10-18)
 
 - Per currency: an FX buffer (0–50 %, two decimals) and a rounding rule: none, nearest whole unit, nearest 10,
-  nearest .99. Converted price = default price × rate, then the buffer, then rounding (`Currency::priceFromDefault()`).
-  Rounding never turns a paid price into zero; free stays free.
+  nearest .99. Converted price = default price × rate × (1 + buffer), rounded once to the minor unit, then the rounding
+  rule (`Currency::priceFromDefault()`). A rule applies only from its unit up (whole and .99: 1.00; tens: 10.00);
+  smaller amounts keep their exact minor units and zero stays zero.
 - Modules expose conversion through `App\Contracts\Currencies\PriceConverter` (registered in `PriceConverters`):
   Catalog (products, addons, configurable options) and Domains (TLD prices, base and client-group slabs). Admin →
   Currencies → **Converted prices** previews each one (count of changes, unchanged and manual rows, and a sample of

@@ -9,12 +9,17 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Per-currency rate source and price-conversion rules, plus the new display defaults: Indian lakh grouping
  * for INR/NPR and "Rs " for NPR. Display rows are only changed where they still hold the old seed values, so
- * staff customisations survive.
+ * staff customisations survive. Exchange rates widen to decimal(24,12) so a weak default currency (NPR, IDR)
+ * keeps enough significant digits; widening keeps every stored value. Rolling back rounds to six decimals.
  */
 return new class extends Migration
 {
     public function up(): void
     {
+        Schema::table('currencies', function (Blueprint $table) {
+            $table->decimal('exchange_rate', 24, 12)->default(1)->change();
+        });
+
         Schema::table('currencies', function (Blueprint $table) {
             $table->string('rate_source', 30)->default('manual')->after('exchange_rate');
             $table->timestamp('rate_checked_at')->nullable()->after('rate_updated_at');
@@ -37,6 +42,10 @@ return new class extends Migration
 
         Schema::table('currencies', function (Blueprint $table) {
             $table->dropColumn(['rate_source', 'rate_checked_at', 'price_rounding', 'price_buffer_percent']);
+        });
+
+        Schema::table('currencies', function (Blueprint $table) {
+            $table->decimal('exchange_rate', 16, 6)->default(1)->change();
         });
     }
 };

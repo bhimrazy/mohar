@@ -27,7 +27,7 @@ class CurrencyRatesRequest extends FormRequest
 
         return [
             'rate_source' => ['required', 'string', Rule::in([ExchangeRateSources::MANUAL, ...$sources])],
-            'exchange_rate' => ['nullable', Rule::requiredIf(fn (): bool => ! $currency->is_default && $this->input('rate_source') === ExchangeRateSources::MANUAL), 'numeric', 'gt:0', 'max:9999999999', 'decimal:0,6'],
+            'exchange_rate' => ['nullable', Rule::requiredIf(fn (): bool => ! $currency->is_default && $this->input('rate_source') === ExchangeRateSources::MANUAL), 'numeric', 'gt:0', 'max:1000000000', 'decimal:0,12'],
             'price_rounding' => ['required', Rule::enum(PriceRounding::class)],
             'price_buffer_percent' => ['nullable', 'numeric', 'min:0', 'max:50', 'decimal:0,2'],
         ];

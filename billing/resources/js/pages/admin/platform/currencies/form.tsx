@@ -311,7 +311,7 @@ export default function CurrencyForm({
                                             htmlFor="exchange_rate"
                                             label={`Starting exchange rate (per 1 ${defaultCode})`}
                                             error={errors.exchange_rate}
-                                            hint="Up to 6 decimal places. Choose an automatic source after creating the currency."
+                                            hint="Up to 12 decimal places. Choose an automatic source after creating the currency."
                                             className="sm:col-span-2"
                                         >
                                             <Input
@@ -415,7 +415,7 @@ export default function CurrencyForm({
                                                 hint={
                                                     currency.is_stale
                                                         ? 'This rate has not changed for a long time. Check that it is still right.'
-                                                        : 'Up to 6 decimal places.'
+                                                        : 'Up to 12 decimal places.'
                                                 }
                                             >
                                                 <Input

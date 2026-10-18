@@ -145,7 +145,7 @@ test('a converting gateway charges round(balance × rate) and stores both amount
 
     $transaction = Transaction::query()->where('invoice_id', $invoice->id)->firstOrFail();
     expect($transaction)->amount_in->toBe(10_001)->currency->toBe('EUR')
-        ->gateway_amount->toBe(11_001)->gateway_currency->toBe('USD')->exchange_rate->toBe('1.100000')
+        ->gateway_amount->toBe(11_001)->gateway_currency->toBe('USD')->exchange_rate->toBe('1.100000000000')
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 

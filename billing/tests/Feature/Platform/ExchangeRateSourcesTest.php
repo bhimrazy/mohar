@@ -32,7 +32,7 @@ test('ECB reference rates are parsed against the euro', function () {
         ->and($snapshot->rates['INR'])->toBe(['units' => '106.8640', 'base' => '1'])
         ->and($snapshot->fraction('NPR'))->toBeNull()
         ->and($snapshot->effectiveAt->toDateString())->toBe('2026-10-16')
-        ->and($snapshot->crossRate('USD', 'INR'))->toBe('94.964898');
+        ->and($snapshot->crossRate('USD', 'INR'))->toBe('94.964898249356');
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml');
 });
 
@@ -43,10 +43,10 @@ test('Nepal Rastra Bank rates use the latest day and the buy/sell mid per unit',
 
     expect($snapshot->baseCurrency)->toBe('NPR')
         ->and($snapshot->effectiveAt->setTimezone('Asia/Kathmandu')->toDateString())->toBe('2026-10-15')
-        ->and($snapshot->rates['USD'])->toBe(['units' => '1', 'base' => '152.250000'])
-        ->and($snapshot->rates['INR'])->toBe(['units' => '100', 'base' => '160.075000'])
-        ->and($snapshot->crossRate('USD', 'NPR'))->toBe('152.250000')
-        ->and($snapshot->crossRate('USD', 'INR'))->toBe('95.111666');
+        ->and($snapshot->rates['USD'])->toBe(['units' => '1', 'base' => '152.250000000000'])
+        ->and($snapshot->rates['INR'])->toBe(['units' => '100', 'base' => '160.075000000000'])
+        ->and($snapshot->crossRate('USD', 'NPR'))->toBe('152.250000000000')
+        ->and($snapshot->crossRate('USD', 'INR'))->toBe('95.111666406372');
     Http::assertSent(function (Request $request): bool {
         parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
@@ -65,7 +65,7 @@ test('the NRB rate type setting picks the buying, selling or mid rate', function
         ->and($snapshot->rates['INR']['base'])->toBe($inr)
         ->and(app(NrbRateSource::class)->description())->toContain(strtolower(NrbRateSource::RATE_TYPES[$type]));
 })->with([
-    'mid (default)' => ['mid', '152.250000', '160.075000'],
+    'mid (default)' => ['mid', '152.250000000000', '160.075000000000'],
     'buy' => ['buy', '151.95', '160.00'],
     'sell' => ['sell', '152.55', '160.15'],
 ]);

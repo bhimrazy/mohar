@@ -122,7 +122,7 @@ class NrbRateSource implements ExchangeRateSource
             $rate = match ($type) {
                 'buy' => $buy,
                 'sell' => $sell,
-                default => Decimal::divide(Decimal::add($buy, $sell), '2', 6),
+                default => Decimal::divide(Decimal::add($buy, $sell), '2', 12),
             };
 
             if (Decimal::isPositive($rate)) {

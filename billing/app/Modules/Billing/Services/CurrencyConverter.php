@@ -25,8 +25,8 @@ class CurrencyConverter
             throw new BillingException(__('No exchange rate is configured for :from → :to.', ['from' => $from, 'to' => $to]));
         }
 
-        // Cross rate via the default currency, exact to six decimals (stored on the transaction as is).
-        return (float) Decimal::divide($target, $source, 6);
+        // Cross rate via the default currency, exact to twelve decimals (stored on the transaction as is).
+        return (float) Decimal::divide($target, $source, Currency::RATE_SCALE);
     }
 
     public function convert(int $amount, float $rate): int

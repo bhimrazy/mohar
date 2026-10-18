@@ -12,7 +12,7 @@ return new class extends Migration
         Schema::create('exchange_rate_history', function (Blueprint $table) {
             $table->id();
             $table->char('currency', 3);
-            $table->decimal('rate', 16, 6);
+            $table->decimal('rate', 24, 12);
             $table->string('source', 30);
             $table->timestamp('effective_at');
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
@@ -25,8 +25,8 @@ return new class extends Migration
         Schema::create('exchange_rate_reviews', function (Blueprint $table) {
             $table->id();
             $table->char('currency', 3);
-            $table->decimal('current_rate', 16, 6);
-            $table->decimal('proposed_rate', 16, 6);
+            $table->decimal('current_rate', 24, 12);
+            $table->decimal('proposed_rate', 24, 12);
             $table->decimal('change_percent', 10, 4);
             $table->string('source', 30);
             $table->timestamp('effective_at');

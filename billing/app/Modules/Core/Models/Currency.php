@@ -15,7 +15,6 @@ use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
-use OverflowException;
 
 /**
  * @property int $id
@@ -51,6 +50,9 @@ class Currency extends Model
      */
     public const DECIMALS = [2];
 
+    /** Exchange rates are stored and computed with twelve decimals (decimal(24,12)). */
+    public const RATE_SCALE = 12;
+
     protected $attributes = [
         'decimals' => 2,
         'format' => '1,234.56',
@@ -73,7 +75,7 @@ class Currency extends Model
     protected function casts(): array
     {
         return [
-            'exchange_rate' => 'decimal:6',
+            'exchange_rate' => 'decimal:12',
             'decimals' => 'integer',
             'is_auto_rate' => 'boolean',
             'rate_updated_at' => 'immutable_datetime',
@@ -117,16 +119,11 @@ class Currency extends Model
             return $this->price_rounding->apply($this->code === $default->code ? $amount : $this->fromDefault($amount, $default));
         }
 
-        try {
-            $converted = (int) Decimal::divide(
-                Decimal::multiply(Decimal::multiply((string) $amount, (string) $this->exchange_rate), Decimal::add('100', $buffer)),
-                Decimal::multiply((string) $default->exchange_rate, '100'),
-                0,
-            );
-        } catch (OverflowException) {
-            // Beyond 18 significant digits: convert first, then apply the buffer (may differ by one minor unit).
-            $converted = (int) Decimal::round(Decimal::multiply((string) $this->fromDefault($amount, $default), Decimal::add('1', Decimal::divide($buffer, '100', 6))), 0);
-        }
+        $converted = (int) Decimal::divide(
+            Decimal::multiply(Decimal::multiply((string) $amount, (string) $this->exchange_rate), Decimal::add('100', $buffer)),
+            Decimal::multiply((string) $default->exchange_rate, '100'),
+            0,
+        );
 
         return $this->price_rounding->apply($converted);
     }
@@ -145,32 +142,13 @@ class Currency extends Model
      */
     public function convertTo(int $amount, self $target): int
     {
-        $sourceRate = self::rateToInteger($this->exchange_rate);
-        $targetRate = self::rateToInteger($target->exchange_rate);
         $shift = $target->decimals - $this->decimals;
 
-        $scaleUp = 10 ** max(0, $shift);
-        $denominator = $sourceRate * (10 ** max(0, -$shift));
-        $fitsInInteger = (float) abs($amount) * $targetRate * $scaleUp < PHP_INT_MAX;
-
-        if ($fitsInInteger && $denominator > 0) {
-            $numerator = abs($amount) * $targetRate * $scaleUp;
-            $converted = intdiv($numerator, $denominator);
-            $converted += ($numerator % $denominator) * 2 >= $denominator ? 1 : 0;
-        } else {
-            $converted = (int) round(abs($amount) * $targetRate / $sourceRate * (10 ** $shift), 0, PHP_ROUND_HALF_UP);
-        }
-
-        return $amount < 0 ? -$converted : $converted;
-    }
-
-    /**
-     * "150.000000" → 150000000 (rates have six decimal places).
-     */
-    private static function rateToInteger(string $rate): int
-    {
-        [$whole, $fraction] = array_pad(explode('.', $rate, 2), 2, '');
-
-        return (int) $whole * 1_000_000 + (int) str_pad(substr($fraction, 0, 6), 6, '0');
+        // Exact decimal maths (no overflow, no floats), rounded half up once.
+        return (int) Decimal::divide(
+            Decimal::multiply(Decimal::multiply((string) $amount, (string) $target->exchange_rate), '1'.str_repeat('0', max(0, $shift))),
+            Decimal::multiply((string) $this->exchange_rate, '1'.str_repeat('0', max(0, -$shift))),
+            0,
+        );
     }
 }

@@ -28,9 +28,9 @@ use Throwable;
 class UpdateExchangeRates
 {
     /** Plausible units per 1 default unit; anything outside is treated as a garbled feed. */
-    public const MIN_RATE = '0.000001';
+    public const MIN_RATE = '0.000000001';
 
-    public const MAX_RATE = '1000000';
+    public const MAX_RATE = '1000000000';
 
     /** Largest change stored on a review (the column is decimal(10,4)). */
     private const MAX_CHANGE_PERCENT = '999999.9999';
@@ -160,7 +160,7 @@ class UpdateExchangeRates
                 return ['failed', self::text('The default currency changed during the update; run it again.')];
             }
 
-            $current = Decimal::round((string) $locked->exchange_rate, 6);
+            $current = Decimal::round((string) $locked->exchange_rate, Currency::RATE_SCALE);
             $locked->forceFill(['rate_checked_at' => CarbonImmutable::now()])->save();
 
             if (Decimal::compare($current, $proposed) === 0) {

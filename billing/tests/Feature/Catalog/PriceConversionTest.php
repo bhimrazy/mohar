@@ -131,3 +131,14 @@ test('preview and apply use a bounded number of queries', function () {
     expect($previewQueries)->toBeLessThan(30)
         ->and($applyQueries)->toBeLessThan(220);
 });
+
+test('rounding rules apply only from their unit up, so a 0.50 setup fee stays 0.50', function (PriceRounding $rule) {
+    $eur = Currency::factory()->euro()->create(['exchange_rate' => '1', 'price_rounding' => $rule]);
+    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1449, 50)->create();
+
+    app(ConvertPrices::class)->apply();
+
+    expect($product->prices()->where('currency', 'EUR')->sole())
+        ->setup_fee->toBe(50)
+        ->amount->toBe($rule === PriceRounding::Whole ? 1400 : 1000); // 14.49 → 14.00 (whole) or 10.00 (tens)
+})->with([PriceRounding::Whole, PriceRounding::Tens]);

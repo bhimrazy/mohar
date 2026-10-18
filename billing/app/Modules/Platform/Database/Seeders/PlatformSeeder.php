@@ -139,7 +139,7 @@ class PlatformSeeder extends Seeder
         $npr = Currency::query()->where('code', 'NPR')->first();
 
         if ($npr !== null && ! $npr->is_default) {
-            $proposed = Decimal::round(Decimal::multiply((string) $npr->exchange_rate, '1.11'), 6);
+            $proposed = Decimal::round(Decimal::multiply((string) $npr->exchange_rate, '1.11'), Currency::RATE_SCALE);
 
             ExchangeRateReview::query()->create([
                 'currency' => 'NPR',

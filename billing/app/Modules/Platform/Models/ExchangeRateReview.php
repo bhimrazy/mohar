@@ -41,8 +41,8 @@ class ExchangeRateReview extends Model
     protected function casts(): array
     {
         return [
-            'current_rate' => 'decimal:6',
-            'proposed_rate' => 'decimal:6',
+            'current_rate' => 'decimal:12',
+            'proposed_rate' => 'decimal:12',
             'change_percent' => 'decimal:4',
             'effective_at' => 'immutable_datetime',
             'decided_at' => 'immutable_datetime',

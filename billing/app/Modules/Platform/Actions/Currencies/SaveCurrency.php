@@ -50,7 +50,7 @@ class SaveCurrency
         if ($creating) {
             $isFirst = ! Currency::query()->exists();
             $currency->is_default = $isFirst;
-            $currency->exchange_rate = $isFirst ? '1' : Decimal::round((string) ($data['exchange_rate'] ?? '1'), 6);
+            $currency->exchange_rate = $isFirst ? '1' : Decimal::round((string) ($data['exchange_rate'] ?? '1'), Currency::RATE_SCALE);
             $currency->rate_updated_at = now();
         }
 
@@ -114,7 +114,7 @@ class SaveCurrency
     }
 
     /**
-     * Make the currency the default. Other rates are rebased (exactly, to six decimals) so that
+     * Make the currency the default. Other rates are rebased (exactly, to twelve decimals) so that
      * 1 new default = rate units.
      *
      * @throws ValidationException when invoices or transactions already exist
@@ -143,7 +143,7 @@ class SaveCurrency
             Currency::query()->whereKeyNot($currency->id)->orderBy('id')->lockForUpdate()->get()->each(function (Currency $other) use ($base, &$codes): void {
                 $this->apply->seedHistory($other);
                 $other->forceFill(['is_default' => false])->save();
-                $this->apply->handle($other, Decimal::divide((string) $other->exchange_rate, $base, 6), 'rebase');
+                $this->apply->handle($other, Decimal::divide((string) $other->exchange_rate, $base, Currency::RATE_SCALE), 'rebase');
                 $codes[] = $other->code;
             });
 

@@ -50,7 +50,7 @@ test('a currency can be created, listed and edited', function () {
         ->assertRedirect();
 
     $npr = Currency::query()->where('code', 'NPR')->sole();
-    expect($npr)->decimals->toBe(2)->exchange_rate->toBe('134.400000')->rate_updated_at->not->toBeNull();
+    expect($npr)->decimals->toBe(2)->exchange_rate->toBe('134.400000000000')->rate_updated_at->not->toBeNull();
 
     $this->get(route('admin.platform.currencies.index'))
         ->assertInertia(fn (Assert $page) => $page->component('admin/platform/currencies/index')->has('currencies', 2)->where('currencies.0.is_default', true));
@@ -67,7 +67,7 @@ test('the display form cannot change an existing currency rate', function () {
 
     $this->put(route('admin.platform.currencies.update', $npr), ['code' => 'NPR', 'name' => 'Nepalese Rupee', 'decimals' => 2, 'format' => '1,23,456.78', 'exchange_rate' => '999'])
         ->assertSessionHasErrors('exchange_rate');
-    expect($npr->fresh()->exchange_rate)->toBe('134.400000');
+    expect($npr->fresh()->exchange_rate)->toBe('134.400000000000');
 });
 
 test('currency validation rejects bad codes, decimals, formats and rates', function () {
@@ -91,7 +91,7 @@ test('the default currency rate stays fixed at 1', function () {
     $this->put(route('admin.platform.currencies.rates.update', $usd), ['rate_source' => 'manual', 'exchange_rate' => '2', 'price_rounding' => 'none'])
         ->assertRedirect();
 
-    expect($usd->fresh()->exchange_rate)->toBe('1.000000');
+    expect($usd->fresh()->exchange_rate)->toBe('1.000000000000');
 });
 
 test('changing the default currency rebases rates while no invoices exist', function () {
@@ -102,8 +102,8 @@ test('changing the default currency rebases rates while no invoices exist', func
 
     $this->post(route('admin.platform.currencies.default', $eur))->assertRedirect();
 
-    expect($eur->fresh())->is_default->toBeTrue()->exchange_rate->toBe('1.000000')
-        ->and($usd->fresh())->is_default->toBeFalse()->exchange_rate->toBe('1.250000');
+    expect($eur->fresh())->is_default->toBeTrue()->exchange_rate->toBe('1.000000000000')
+        ->and($usd->fresh())->is_default->toBeFalse()->exchange_rate->toBe('1.250000000000');
 });
 
 test('the default currency cannot change once invoices exist (422)', function () {
@@ -160,7 +160,7 @@ test('creating or deleting a currency needs the rates permission and a recent pa
     $this->delete(route('admin.platform.currencies.destroy', $npr))->assertSessionHasErrors('password_confirmation');
 
     expect(Currency::query()->pluck('code')->sort()->values()->all())->toBe(['NPR', 'USD'])
-        ->and($npr->fresh()->exchange_rate)->toBe('134.400000');
+        ->and($npr->fresh()->exchange_rate)->toBe('134.400000000000');
 });
 
 test('a currency used by prices, invoices or payments cannot be deleted', function () {
@@ -192,4 +192,15 @@ test('a currency used by prices, invoices or payments cannot be deleted', functi
         ->assertSessionHasErrors(['currency' => 'Invoices, quotes or transactions use this currency, so it cannot be deleted.']);
 
     expect(Currency::query()->count())->toBe(3);
+});
+
+test('with NPR as the default currency, conversions between USD and INR stay exact to the paisa', function () {
+    Currency::factory()->create(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'exchange_rate' => 1, 'is_default' => true]);
+    $usd = Currency::factory()->create(['code' => 'USD', 'name' => 'US Dollar', 'exchange_rate' => '0.006581545347', 'is_default' => false]);
+    $inr = Currency::factory()->create(['code' => 'INR', 'name' => 'Indian Rupee', 'exchange_rate' => '0.624707168515', 'is_default' => false]);
+
+    // $10,000.00 → ₹949,180.07 at 151.94/160.075 × 100 (6-decimal rates would give ₹949,114.25, 0.007% off).
+    expect($usd->fresh()->exchange_rate)->toBe('0.006581545347')
+        ->and($usd->convertTo(1_000_000, $inr))->toBe(94_918_007)
+        ->and($inr->convertTo(94_918_007, $usd))->toBe(1_000_000);
 });
