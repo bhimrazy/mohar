@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Models\Department;
@@ -58,7 +59,8 @@ test('merge fields resolve tickets and replies', function () {
     $reply = $registry->resolve('ticket_reply', $ticket->messages()->firstOrFail()->id);
 
     expect($fields)->number->toBe($ticket->number)->client_id->toBeNull()->is_guest->toBeTrue()
-        ->and($fields['url'])->toContain('key='.$ticket->access_key)
+        ->and($fields['url'])->toBeInstanceOf(SensitiveValue::class)   // the guest link carries the access key
+        ->and($fields['url']->value)->toContain('key='.$ticket->access_key)
         ->and($fields['email_subject'])->toBe("[#{$ticket->number}] {$ticket->subject}")
         ->and($reply)->ticket_id->toBe($ticket->id)->message_id->toStartWith('<');
     expect(Client::query()->count())->toBe(0);

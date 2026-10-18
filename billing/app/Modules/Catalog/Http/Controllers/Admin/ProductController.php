@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
+use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Enums\BillingCycle;
@@ -209,6 +210,7 @@ class ProductController extends Controller
             'freeDomains' => FreeDomain::options(),
             'customFieldTypes' => CustomFieldType::options(),
             'recurringCycles' => CyclePicker::options(BillingCycle::recurring()),
+            'emailTemplates' => app(EmailTemplates::class)->options(['product', 'general']),
         ];
     }
 }

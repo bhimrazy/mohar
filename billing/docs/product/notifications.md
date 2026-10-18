@@ -227,7 +227,41 @@ Email preferences per user/contact (categories), "email history" list of message
 19. Given a 302 response, Then it is treated as failure (not followed).
 20. Given preview with sample data for `invoice.created`, Then it renders without warnings for every seeded template (seed fixtures cover all fields).
 
-## 15. Out of scope for v1
+## 15. Implementation notes (v1, accepted by the CTO 2026-10-18)
+
+- Settings keys are namespaced under `notifications.*` so they never fall back to Laravel's own config:
+  `mail.disabled` → `notifications.mail_disabled`, `mail.bcc` → `notifications.mail_bcc`,
+  `mail.signature` → `notifications.signature`, `webhooks.max_attempts` → `notifications.webhooks_max_attempts`,
+  `webhooks.disable_after_consecutive_failures` → `notifications.webhooks_disable_after_consecutive_failures`,
+  `webhooks.delivery_retention_days` → `notifications.webhooks_delivery_retention_days`,
+  `webhooks.allow_private_targets` → config-only `notifications.webhooks_allow_private_targets` (ignored in production).
+- Passwords are never emailed (supersedes the welcome-email password in §4/§5 and criterion 9): welcome mail links
+  to the client-area service page. The log still redacts one-time links (reset, verify, invite).
+- Dedupe keys use a per-occurrence event id (`App\Contracts\Events\DomainEvent`, implemented by
+  `IdentifiesOccurrence`), not the payload.
+- Password reset and email verification are sent through the `App\Contracts\Auth\AuthMailer` contract (Core default:
+  Laravel's notifications; Notifications: its templates), not through events, so no event carries a token or signed
+  URL (ADR 0011). `PasswordResetRequested` / `EmailVerificationRequested` in §6 are therefore not events.
+- Access links (security review B1): merge fields that grant access by themselves are `App\Data\Notifications\SensitiveValue`
+  (account links; the guest ticket link). Staff-editable text can never use one, in any template: it is rejected on
+  save and removed at render. The system places them as its own button: in reset, verification and invitation mail,
+  and in the client ticket mail (`SecretTemplatePolicy::SYSTEM_ACTIONS`: "View your ticket", label editable as plain
+  text), where the button is added to a system slot of the layout after the mail is built. Staff content in mail
+  that carries a guest link is reduced to an element allow-list, and the finished HTML must hold the link exactly
+  once, as the button's href, to both the HTML5 parser and libxml, or nothing is sent. The text part gets a system
+  "Label: url" line. Masking and the final check work on the secret inside the link (`SensitiveValue::secret()`: the
+  access key or token) in any case or encoding, over every field — subject, preheader, HTML, text and the log copies.
+  One normaliser (entities and percent-encoding decoded until stable, any case) serves masking and the check on the
+  HTML and text paths. Known limit: a key split across HTML tags (`GUEST<b></b>KEY`) is not recognised as the key.
+  Notifications bodies are final HTML: the layout prints them without a second Markdown pass. Ticket CCs get the
+  reply without the button and with a note that the ticket owner has the link. Mail that carried a private link is
+  never resent from the log. Reset, verification and invitation text is plain and may use only `company.name`,
+  `user.first_name` / `staff.first_name` (URL-like text removed), `auth.expires_at`, `support.email` and `system.today`.
+- Account links are built from `APP_URL` and refused on any other origin (except `notifications.auth_link_host`):
+  the email is then not sent at all, and the security log, the dashboard health card and the install pre-flight say
+  why (an `http://` APP_URL in production holds all of them).
+
+## 16. Out of scope for v1
 
 Mass mail/marketing campaigns, SMS/Slack/push channels and conditional staff notification rules, open/click tracking, bounce/complaint webhooks from mail providers,
 inbound webhooks that trigger actions, per-template attachments uploaded by staff, WYSIWYG HTML editor, scheduled digest emails other than the automation summary.

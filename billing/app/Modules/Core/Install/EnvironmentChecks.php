@@ -167,7 +167,9 @@ final class EnvironmentChecks
         $host = (string) parse_url($url, PHP_URL_HOST);
 
         if (! str_starts_with($url, 'https://') || in_array($host, ['', 'localhost', '127.0.0.1', '::1'], true)) {
-            $checks[] = new EnvironmentCheck('APP_URL', CheckStatus::Warning, "APP_URL is \"{$url}\". Every link (password resets, verification, signed downloads, mail) is built from it and other hosts are rejected: set the public https:// address.");
+            $checks[] = new EnvironmentCheck('APP_URL', CheckStatus::Warning, "APP_URL is \"{$url}\". Every link (password resets, verification, signed downloads, mail) is built from it and other hosts are rejected"
+                .(str_starts_with($url, 'https://') ? '' : '; with http:// in production, password-reset, verification and invitation emails are held')
+                .': set the public https:// address.');
         }
 
         $mailer = (string) config('mail.default');

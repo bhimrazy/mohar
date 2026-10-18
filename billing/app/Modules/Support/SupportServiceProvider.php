@@ -3,6 +3,7 @@
 namespace App\Modules\Support;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\RequestMemo;
@@ -283,8 +284,9 @@ class SupportServiceProvider extends ModuleServiceProvider
                 'requester_email' => $ticket->requester_email,
                 'cc' => $ticket->cc ?? [],
                 'is_guest' => $ticket->isGuest(),
+                // A guest link carries the ticket's access key: sensitive, so only the system's ticket button carries it.
                 'url' => $ticket->isGuest()
-                    ? route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key])
+                    ? new SensitiveValue(route('support.tickets.show', ['number' => $ticket->number, 'key' => $ticket->access_key]), secret: $ticket->access_key)
                     : route('client.support.tickets.show', $ticket->number),
                 'admin_url' => route('admin.support.tickets.show', $ticket),
                 'email_subject' => '[#'.$ticket->number.'] '.$ticket->subject,

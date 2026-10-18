@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Modules\Core\Support\AccountLinks;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
@@ -18,8 +19,12 @@ use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Contracts\Auth\CanResetPassword;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -56,6 +61,42 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureModules();
+        $this->configureAuthMail();
+    }
+
+    /**
+     * Laravel's own reset and verification mails (sent when no Notifications template handles them) carry
+     * the "If this wasn't you" security line, like the templated ones.
+     */
+    protected function configureAuthMail(): void
+    {
+        // Account links are built on APP_URL, never on the request's Host header (host-header poisoning).
+        ResetPassword::createUrlUsing(fn (CanResetPassword $notifiable, string $token): string => $notifiable instanceof User
+            ? AccountLinks::passwordReset($notifiable, $token)
+            : rtrim((string) config('app.url'), '/').route('password.reset', ['token' => $token, 'email' => $notifiable->getEmailForPasswordReset()], false));
+        VerifyEmail::createUrlUsing(fn (object $notifiable): string => $notifiable instanceof User
+            ? AccountLinks::emailVerification($notifiable)
+            : throw new \LogicException('Email verification is only sent to users.'));
+
+        ResetPassword::toMailUsing(function (CanResetPassword $notifiable, string $token): MailMessage {
+            $url = (string) call_user_func(ResetPassword::$createUrlCallback ?? fn (): string => '', $notifiable, $token);
+            $broker = (string) config('auth.defaults.passwords', 'users');
+
+            return (new MailMessage)
+                ->subject(__('Reset Password Notification'))
+                ->markdown('notifications::email', ['security' => true])
+                ->line(__('You are receiving this email because we received a password reset request for your account.'))
+                ->action(__('Reset Password'), $url)
+                ->line(__('This password reset link will expire in :count minutes.', ['count' => config("auth.passwords.{$broker}.expire")]))
+                ->line(__('If you did not request a password reset, no further action is required.'));
+        });
+
+        VerifyEmail::toMailUsing(fn (object $notifiable, string $url): MailMessage => (new MailMessage)
+            ->subject(__('Verify Email Address'))
+            ->markdown('notifications::email', ['security' => true])
+            ->line(__('Please click the button below to verify your email address.'))
+            ->action(__('Verify Email Address'), $url)
+            ->line(__('If you did not create an account, no further action is required.')));
     }
 
     /**

@@ -2,15 +2,17 @@
 
 namespace App\Events\Core;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * One or more exchange rates changed (staff edit, scheduled update, "Update rates now", an approved review
  * or a default-currency rebase). Modules with converted prices may regenerate them when their auto-convert setting is on.
  */
-final class ExchangeRatesUpdated
+final class ExchangeRatesUpdated implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  list<string>  $currencies  ISO codes whose rate changed

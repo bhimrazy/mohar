@@ -20,6 +20,12 @@ final readonly class Brand
         public string $favicon,
         /** True when the name, tagline or any asset differs from the defaults. */
         public bool $customised = false,
+        /** Absolute URL of a raster (PNG/JPEG) logo for dark-mode email clients; null = show the name. */
+        public ?string $emailLogoDark = null,
+        /** The client theme's primary colour (#RRGGBB) for email buttons and links; null = mail default. */
+        public ?string $accent = null,
+        /** Text colour on the accent (#RRGGBB). */
+        public ?string $accentForeground = null,
     ) {}
 
     /**
