@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import StaffInvitationController from '@/actions/App/Modules/Platform/Http/Controllers/Public/StaffInvitationController';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';

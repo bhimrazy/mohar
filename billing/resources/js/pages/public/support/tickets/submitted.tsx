@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { MailCheck } from 'lucide-react';
 import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';

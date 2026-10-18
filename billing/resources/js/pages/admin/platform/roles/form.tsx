@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import RoleController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/RoleController';
 import { Field } from '@/components/app/field';

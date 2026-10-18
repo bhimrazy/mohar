@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { useEffect, useRef } from 'react';
 import { DateTime } from '@/components/app/date';
 import { Page } from '@/components/app/page';

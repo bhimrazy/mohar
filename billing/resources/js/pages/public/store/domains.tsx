@@ -1,4 +1,5 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ArrowRightLeft, Globe, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
 import CartController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CartController';

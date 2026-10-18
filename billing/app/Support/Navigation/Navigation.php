@@ -21,6 +21,9 @@ class Navigation
     /** Fixed ordering of sidebar groups; unknown groups go last. */
     public const GROUP_ORDER = ['General', 'Clients', 'Orders', 'Billing', 'Services', 'Domains', 'Support', 'Marketing', 'Reports', 'Setup'];
 
+    /** Client area: what the customer owns comes first, then billing, ordering and help. */
+    public const CLIENT_GROUP_ORDER = ['General', 'Services', 'Domains', 'Billing', 'Orders', 'Support', 'Setup'];
+
     /** @var array<string, list<NavItem>> */
     private array $items = ['admin' => [], 'client' => [], 'admin-client' => [], 'admin-create' => []];
 
@@ -35,6 +38,7 @@ class Navigation
     public function forUser(string $area, ?User $user): array
     {
         $current = Route::currentRouteName() ?? '';
+        $groupOrder = $area === 'client' ? self::CLIENT_GROUP_ORDER : self::GROUP_ORDER;
 
         $visible = collect($this->items[$area] ?? [])
             ->filter(fn (NavItem $item): bool => Route::has($item->route))
@@ -43,7 +47,7 @@ class Navigation
 
         return array_values($visible
             ->groupBy('group')
-            ->sortBy(fn ($items, string $group): int => ($index = array_search($group, self::GROUP_ORDER, true)) === false ? 999 : $index)
+            ->sortBy(fn ($items, string $group): int => ($index = array_search($group, $groupOrder, true)) === false ? 999 : $index)
             ->map(fn ($items, string $group): array => [
                 'title' => $group,
                 'items' => array_values($items->map(fn (NavItem $item): array => [

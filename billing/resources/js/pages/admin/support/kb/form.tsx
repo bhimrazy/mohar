@@ -1,4 +1,5 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import KbArticleController from '@/actions/App/Modules/Support/Http/Controllers/Admin/KbArticleController';

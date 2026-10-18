@@ -1,4 +1,5 @@
-import { Form, Head, Link, router } from '@inertiajs/react';
+import { Form, Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     Copy,
     Inbox,

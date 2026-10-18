@@ -1,4 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
+import { showsPublicPageInClientArea } from '@/lib/layout-area';
 import { cn } from '@/lib/utils';
 import { index as announcements } from '@/routes/support/announcements';
 import { index as kb } from '@/routes/support/kb';
@@ -22,10 +23,14 @@ const LINKS = [
 
 /**
  * Section tabs for public support pages (guests see no sidebar navigation).
- * Becomes part of the public layout once it lands.
  */
 export function PublicSupportNav() {
-    const { url } = usePage();
+    const { url, component, props } = usePage();
+
+    // Inside the client area the sidebar already links to these pages.
+    if (showsPublicPageInClientArea(component, props)) {
+        return null;
+    }
 
     return (
         <nav

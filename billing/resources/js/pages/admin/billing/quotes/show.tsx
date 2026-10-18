@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Download, Send } from 'lucide-react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';

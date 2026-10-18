@@ -1,4 +1,5 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { EmptyState } from '@/components/app/empty-state';
 import { Page } from '@/components/app/page';

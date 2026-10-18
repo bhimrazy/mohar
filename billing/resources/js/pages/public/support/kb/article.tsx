@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Lock, ThumbsDown, ThumbsUp } from 'lucide-react';
 import KnowledgebaseController from '@/actions/App/Modules/Support/Http/Controllers/Public/KnowledgebaseController';
 import GuestTicketController from '@/actions/App/Modules/Support/Http/Controllers/Public/GuestTicketController';
