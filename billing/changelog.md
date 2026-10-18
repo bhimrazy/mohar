@@ -17,6 +17,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   batches and attempts). Existing values are kept; rolling the migrations back rounds rates to six decimals.
 - Existing prices in non-default currencies are marked "set manually" (TLD prices always; product prices when
   automatic conversion was off), so the first price conversion leaves them unchanged.
+- **Provisioning drivers read custom fields and configurable options by module key only** (#65). Set a module key on
+  any custom field or option a driver reads; fields without one are no longer sent. A custom field's module key must
+  now be unique per product: the migration fails if a product already has two fields with the same key, so rename
+  duplicates first.
 - **Notifications permissions.** New `notifications.*` permissions: `templates.view`, `templates.manage`,
   `log.view`, `log.resend`, `send`, `subscriptions.manage`, `webhooks.manage`, `delivery.manage` and
   `settings.manage`. `templates.manage`, `webhooks.manage` and `delivery.manage` are sensitive: wildcards never grant
@@ -97,6 +101,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - An open "verify" item (unknown outcome) can no longer be turned into an ordinary failure by a later job failure,
   so create is never sent twice. Accepting an order whose provisioning is queued says "Provisioning queued for …"
   instead of reporting a failure.
+- Servers store driver-declared settings (encrypted `servers.settings`), shown on the server form through the shared
+  settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
+  value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers. A failed save never flashes a secret into the
+  session (#65).
 
 ### Core
 
@@ -364,6 +372,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
+  `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
+  gains `fields` in the shared `SettingField` shape (`config_fields` deprecated). Module keys of custom fields are unique per product (#65).
 - `Notifications\SystemMailer` contract (Core binds a null default, Notifications the templated one): Platform sends
   invitations and account security notices through editable templates and falls back to its own notifications
   when the Notifications module is absent.

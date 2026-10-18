@@ -6,6 +6,8 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { SettingFieldInput } from '@/components/app/setting-field';
+import type { SettingFieldData } from '@/components/app/setting-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,10 +27,32 @@ import type { ServerRow } from '@/types/services';
 type Props = {
     server?: ServerRow;
     drivers: SelectOption[];
+    /** Each driver's server settings beyond hostname and credentials. */
+    driverFields: Record<string, SettingFieldData[]>;
     currencies: string[];
 };
 
-export default function ServerForm({ server, drivers, currencies }: Props) {
+/** Non-secret defaults of a driver's server settings, so the values the form shows are the values it submits. */
+const defaultsFor = (fields: SettingFieldData[] = []): Record<string, string> =>
+    Object.fromEntries(
+        fields
+            .filter((field) => !field.secret && field.default !== null)
+            .map((field) => [
+                field.key,
+                typeof field.default === 'boolean'
+                    ? field.default
+                        ? '1'
+                        : '0'
+                    : String(field.default),
+            ]),
+    );
+
+export default function ServerForm({
+    server,
+    drivers,
+    driverFields,
+    currencies,
+}: Props) {
     const form = useForm({
         name: server?.name ?? '',
         hostname: server?.hostname ?? '',
@@ -51,6 +75,9 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
         currency: server?.currency ?? currencies[0] ?? 'USD',
         datacenter: server?.datacenter ?? '',
         status_url: server?.status_url ?? '',
+        settings: server
+            ? server.settings.values
+            : defaultsFor(driverFields[drivers[0]?.value ?? 'none']),
     });
     const { data, setData, errors, processing } = form;
     const errorFor = (prefix: string) =>
@@ -74,7 +101,7 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
         );
     };
 
-    const text = (name: keyof typeof data) => ({
+    const text = (name: Exclude<keyof typeof data, 'settings'>) => ({
         id: name,
         value: String(data[name] ?? ''),
         onChange: (event: { target: { value: string } }) =>
@@ -179,7 +206,16 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
                                 <Select
                                     value={data.driver}
                                     onValueChange={(value) =>
-                                        setData('driver', value)
+                                        setData((current) => ({
+                                            ...current,
+                                            driver: value,
+                                            settings:
+                                                value === server?.driver
+                                                    ? server.settings.values
+                                                    : defaultsFor(
+                                                          driverFields[value],
+                                                      ),
+                                        }))
                                     }
                                 >
                                     <SelectTrigger
@@ -309,6 +345,49 @@ export default function ServerForm({ server, drivers, currencies }: Props) {
                             ))}
                         </div>
                     </SectionCard>
+
+                    {(driverFields[data.driver] ?? []).length > 0 && (
+                        <SectionCard
+                            title="Driver settings"
+                            description="Settings this driver needs for the server. Secret values are encrypted and never shown again."
+                        >
+                            <div className="grid items-start gap-6 sm:grid-cols-2">
+                                {(driverFields[data.driver] ?? []).map(
+                                    (field) => (
+                                        <SettingFieldInput
+                                            key={field.key}
+                                            id={`settings-${field.key}`}
+                                            field={field}
+                                            value={
+                                                data.settings[field.key] ?? ''
+                                            }
+                                            onChange={(value) =>
+                                                setData('settings', {
+                                                    ...data.settings,
+                                                    [field.key]: value,
+                                                })
+                                            }
+                                            secretStored={
+                                                server?.driver ===
+                                                    data.driver &&
+                                                server.settings.secrets_set[
+                                                    field.key
+                                                ]
+                                            }
+                                            error={
+                                                (
+                                                    errors as Record<
+                                                        string,
+                                                        string
+                                                    >
+                                                )[`settings.${field.key}`]
+                                            }
+                                        />
+                                    ),
+                                )}
+                            </div>
+                        </SectionCard>
+                    )}
 
                     <SectionCard title="Nameservers and cost">
                         <div className="grid gap-6 sm:grid-cols-2">

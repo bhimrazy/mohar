@@ -5,6 +5,7 @@ namespace App\Modules\Catalog\Http\Requests;
 use App\Modules\Catalog\Enums\CustomFieldType;
 use App\Modules\Catalog\Enums\QuantityMode;
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Catalog\Support\RegexMatcher;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -33,7 +34,10 @@ class ProductCustomFieldRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:100'],
-            'module_key' => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9_.-]+$/i'],
+            // The module key is how a provisioning driver reads the field (PriceBook::moduleInputs()): one per product.
+            'module_key' => ['nullable', 'string', 'max:100', 'regex:/^[a-z0-9_.-]+$/i', Rule::unique('product_custom_fields', 'module_key')
+                ->where('product_id', $this->productId())
+                ->ignore($this->route('field') instanceof ProductCustomField ? $this->route('field')->id : null)],
             'type' => ['required', Rule::enum(CustomFieldType::class)],
             'options' => ['nullable', 'array', 'required_if:type,dropdown', 'max:100'],
             'options.*' => ['string', 'max:100', 'distinct'],
@@ -89,5 +93,20 @@ class ProductCustomFieldRequest extends FormRequest
         $data['sort_order'] = $data['sort_order'] ?? 0;
 
         return $data;
+    }
+
+    private function productId(): ?int
+    {
+        $product = $this->route('product');
+
+        return $product instanceof Product ? $product->id : null;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function attributes(): array
+    {
+        return ['module_key' => __('module key')];
     }
 }

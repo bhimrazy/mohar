@@ -7,12 +7,15 @@ use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
+use Tests\Fakes\Concerns\FakesModuleInputs;
 
 /**
  * Configurable in-memory catalog. Prices are minor units in every currency (no conversion).
  */
 class FakePriceBook implements PriceBook
 {
+    use FakesModuleInputs;
+
     /** @var array<int, ProductSummary> */
     public array $products = [];
 

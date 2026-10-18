@@ -116,3 +116,17 @@ it('deletes an unused addon', function () {
     $this->assertModelMissing($addon);
     $this->assertDatabaseCount('prices', 0);
 });
+
+test('a failed add-on save never flashes secret driver settings into the session', function () {
+    actingAsStaff(['catalog.addons.manage']);
+    FakeProvisioningDrivers::withLogDriver();
+
+    $this->post(route('admin.catalog.addons.store'), addonPayload([
+        'name' => '',
+        'provisioning_driver' => 'log',
+        'driver_config' => [['key' => 'plan', 'value' => 'backup'], ['key' => 'api_token', 'value' => 'Addon-S3cret']],
+    ]))->assertSessionHasErrors('name');
+
+    expect(json_encode(session()->all()))->not->toContain('Addon-S3cret')
+        ->and(session()->getOldInput('driver_config.0.value'))->toBe('backup');
+});
