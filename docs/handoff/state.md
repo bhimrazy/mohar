@@ -7,7 +7,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41) and kernel contracts PR A (#61).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61) and provisioning on the kernel PR B (#62).
 - Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,24 +21,25 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #28, #62; #58 independent)
+## Open pull requests (merge order: #28, #66, #65; #58 independent)
 
-| PR  | Workstream                    | Status                                                                                                                                                                                                                                                         |
-| --- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #28 | Notifications                 | Final security check at `e3906ca`: changes requested (link in an edited ticket subject; masking must match the key, not the URL; sanitizer must be the last step; CC copies and resend). Engineer fixing; the same reviewer re-checks those items, then merge. |
-| #62 | Provisioning on kernel (PR B) | Re-review at `4bd2ae3`: all fixed except queue redelivery can still re-run create after an unknown outcome, and queued "run now" shows as failed. Engineer fixing; narrow re-check, then merge. B2 (`feature/kernel-provisioning-b2`) paused until then.       |
-| #58 | Stripe gateway                | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                            |
+| PR  | Workstream     | Status                                                                                                                                                      |
+| --- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #28 | Notifications  | Security re-check passed; last medium (plain-text decoding) fixed at `78ad30e` and verified by the CTO. Merges when CI is green.                            |
+| #65 | Kernel PR B2   | Encrypted `servers.settings`, `PriceBook::moduleInputs`/`productsForDriver`, `fields` key. Draft; database review running, then review board and architect. |
+| #66 | CI             | Docs-only pushes to develop/main run only the formatter.                                                                                                    |
+| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.         |
 
 ## Design and research in progress
 
-| Workstream                | Branch                         | State                                                                                                                            |
-| ------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| Home page directions      | `design/home-page`             | Principal designer: 2–3 directions (desktop and phone, light and dark), shared public header with product groups. For the owner. |
-| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.        |
+| Workstream                | Branch                         | State                                                                                                                     |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                 |
+| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it. |
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
-1. Merge #28 and #62 (each with PostgreSQL CI green).
+1. Merge #28, #66 and #65; cPanel/WHM driver in progress on `feature/provisioning-cpanel` (stacked on #65, recorded fixtures until the owner provides a WHM server) (each with PostgreSQL CI green).
 2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
 3. Done: #47 install path merged in #57. Still open: `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
    PostgreSQL without demo data.

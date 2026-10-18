@@ -128,6 +128,7 @@ test('an overdue addon with suspend-parent suspends itself and its parent', func
 
 test('usage sync stores one snapshot per service per day', function () {
     $service = Service::factory()->onServer()->create();
+    $this->kit->driver->rememberAccount((int) $service->server_id, (string) $service->username);
 
     runTask('services.usage-sync', '2026-11-01');
     runTask('services.usage-sync', '2026-11-01');
@@ -137,6 +138,7 @@ test('usage sync stores one snapshot per service per day', function () {
 
 test('re-running usage sync for an earlier date does not add a second snapshot for that day', function () {
     $service = Service::factory()->onServer()->create();
+    $this->kit->driver->rememberAccount((int) $service->server_id, (string) $service->username);
 
     runTask('services.usage-sync', '2026-11-01');
     runTask('services.usage-sync', '2026-11-02');

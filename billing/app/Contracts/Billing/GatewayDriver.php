@@ -2,6 +2,7 @@
 
 namespace App\Contracts\Billing;
 
+use App\Contracts\Integrations\IntegrationDriver;
 use App\Data\Billing\CallbackEvent;
 use App\Data\Billing\CallbackRejection;
 use App\Data\Billing\CardToken;
@@ -16,7 +17,7 @@ use Illuminate\Http\Request;
  * GatewayRegistry. They receive DTOs only and never touch Billing models. Billing calls a method only when the
  * driver declares the matching capability; extend App\Support\Billing\AbstractGatewayDriver for defaults.
  */
-interface GatewayDriver
+interface GatewayDriver extends IntegrationDriver
 {
     public const CAPTURE = 'capture';
 

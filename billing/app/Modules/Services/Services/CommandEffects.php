@@ -2,13 +2,13 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Data\Services\Provisioning\DriverResult;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceCancelled;
 use App\Events\Services\ServiceSuspended;
 use App\Events\Services\ServiceTerminated;
 use App\Events\Services\ServiceUnsuspended;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Services\Drivers\Provisioning\DriverResult;
 use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Enums\ModuleCommandName;

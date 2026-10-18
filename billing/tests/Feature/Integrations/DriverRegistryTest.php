@@ -18,7 +18,7 @@ function exampleRegistry(): DriverRegistry
             return IntegrationDriver::class;
         }
 
-        protected function capabilities(): array
+        public function capabilities(): array
         {
             return ['logo' => ProvidesLogo::class];
         }

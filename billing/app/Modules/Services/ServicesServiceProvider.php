@@ -21,7 +21,6 @@ use App\Modules\Services\Actions\PruneModuleLog;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Drivers\Provisioning\NoneDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -45,6 +44,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -60,13 +60,6 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
-        $this->app->singleton(DriverRegistry::class, function ($app): DriverRegistry {
-            $registry = new DriverRegistry($app);
-            $registry->register('none', NoneDriver::class);
-            $registry->register('log', LogDriver::class);
-
-            return $registry;
-        });
         $this->app->singleton(LogDriver::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
         $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
@@ -76,6 +69,10 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $drivers = $this->app->make(ProvisioningDriverRegistry::class);
+        $drivers->register('none', NoneDriver::class);
+        $drivers->register('log', LogDriver::class);
+
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);

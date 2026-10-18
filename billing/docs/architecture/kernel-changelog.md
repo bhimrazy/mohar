@@ -34,3 +34,35 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - **Breaking:** moved `App\Data\Billing\ConnectionCheck` to `App\Data\Integrations\ConnectionCheck`.
 - **Breaking:** moved `App\Contracts\Billing\ProvidesLogo` to `App\Contracts\Integrations\ProvidesLogo`, and renamed
   `App\Data\Billing\GatewayLogo` to `App\Data\Integrations\IntegrationLogo`. Khalti and eSewa are updated.
+
+### Provisioning contracts (ADR 0009 §2–§5, PR B)
+
+- Added `App\Contracts\Services\Provisioning\ProvisioningDriver` (extends `IntegrationDriver`) and the capability
+  interfaces `ChangesPackage`, `ChangesPassword`, `ReportsUsage`, `TestsServerConnection`, `ProvidesServiceSso`
+  (with an optional target), `ProvidesServerSso`, `ListsAccounts`, `RenewsAccounts`, `ProvidesFieldOptions` and
+  `ReconcilesCommands`.
+- Added the snapshot DTOs in `App\Data\Services\Provisioning`: `ProvisioningContext`, `ServiceSnapshot`,
+  `ServerConnection` (with `apiToken`, `settings` and `secretSettingKeys`), `ClientSummary`, `DriverMetadata`,
+  `DriverResult` (with `outcomeUnknown`, `unknown()`, `outcome()`), `PreviousPackage`, `UsageRow`, `SsoLink`,
+  `RemoteAccount`, `CommandLookup` and `UsernamePolicy`. Also `App\Data\Services\RemoteOptions`.
+- Added the enums `App\Enums\DriverOutcome` and `App\Enums\ReconcileStatus`.
+- Added `App\Support\Services\ProvisioningDriverRegistry` (final, bound in `AppServiceProvider`) and
+  `App\Support\Services\RetryableProvisioningException`.
+- `App\Contracts\Services\ProvisioningDrivers` gains `remoteOptions()`. Its fields may carry `options_source`.
+- `App\Contracts\Billing\GatewayDriver` now extends `IntegrationDriver` (same methods; compatible).
+- `ProvidesServiceSso` has `ssoTargets(): array<target, label>` next to `serviceSsoLink(ctx, ?target)` (cPanel K7).
+- Added `App\Events\Services\ServiceImported` (`serviceId`, `clientId`, `serverId`, `driver`, `source`; cPanel K8).
+- `App\Data\Integrations\ConnectionCheck` gains trailing `steps` (`list<ConnectionCheckStep>`, with
+  `App\Enums\CheckStatus`) and `details` (compatible).
+- `App\Data\Services\ProvisionResult` gains a trailing `pending` flag (compatible): the create runs on the queue, so
+  callers show "queued", never "failed".
+- `ProvisioningDriver` docblock: any exception a driver throws during a call, other than
+  `RetryableProvisioningException`, is an unknown outcome.
+- `DriverRegistry::capabilities()` (PR A surface) is now public, so tests can check that every capability is
+  covered.
+- `ProvisioningContext::$configOptions` is empty until PR B2 fills it by module key from `PriceBook::moduleInputs()`;
+  install-specific option ids are never sent to drivers.
+- **Breaking (module SPI removed):** `App\Modules\Services\Drivers\Provisioning\{ProvisioningDriver, ServiceContext,
+DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
+  `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an
+  arch rule keeps the old names out.

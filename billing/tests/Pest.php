@@ -22,6 +22,9 @@ pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
     ->in('Feature');
 
+// Extension packages booted with a module subset (TestCase::$onlyModules); these tests never touch the database.
+pest()->extend(TestCase::class)->in('Extensions');
+
 /*
 |--------------------------------------------------------------------------
 | Expectations
