@@ -3,7 +3,8 @@ import type { LucideIcon } from 'lucide-react';
 
 export type BreadcrumbItem = {
     title: string;
-    href: NonNullable<InertiaLinkProps['href']>;
+    /** Omitted for a level that is only a label, such as a sidebar group. */
+    href?: NonNullable<InertiaLinkProps['href']>;
 };
 
 export type NavItem = {

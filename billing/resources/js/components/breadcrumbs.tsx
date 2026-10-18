@@ -25,11 +25,21 @@ export function Breadcrumbs({
 
                             return (
                                 <Fragment key={index}>
-                                    <BreadcrumbItem>
+                                    <BreadcrumbItem
+                                        className={
+                                            isLast
+                                                ? 'min-w-0'
+                                                : 'hidden sm:inline-flex'
+                                        }
+                                    >
                                         {isLast ? (
-                                            <BreadcrumbPage>
+                                            <BreadcrumbPage className="max-w-[16rem] truncate sm:max-w-sm">
                                                 {item.title}
                                             </BreadcrumbPage>
+                                        ) : item.href === undefined ? (
+                                            <span className="text-muted-foreground">
+                                                {item.title}
+                                            </span>
                                         ) : (
                                             <BreadcrumbLink asChild>
                                                 <Link href={item.href}>
@@ -38,7 +48,11 @@ export function Breadcrumbs({
                                             </BreadcrumbLink>
                                         )}
                                     </BreadcrumbItem>
-                                    {!isLast && <BreadcrumbSeparator />}
+                                    {!isLast && (
+                                        <BreadcrumbSeparator
+                                            className="hidden sm:list-item"
+                                        />
+                                    )}
                                 </Fragment>
                             );
                         })}
