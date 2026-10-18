@@ -9,6 +9,7 @@ use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Support\Integrations\Redactor;
 use Closure;
 use Illuminate\Support\Facades\Auth;
 use JsonSerializable;
@@ -30,13 +31,7 @@ class RegistrarGateway
     /** Commands that change state at the registry and must never be blindly repeated. */
     public const MUTATING = ['register', 'transfer', 'renew', 'restore'];
 
-    /** Keys redacted when they equal one of these. */
-    private const SECRET_KEYS = ['code', 'pw', 'key', 'pass'];
-
-    /** Keys redacted when they contain one of these. */
-    private const SECRET_FRAGMENTS = ['epp', 'auth', 'password', 'secret', 'token', 'api_key', 'apikey', 'private_key', 'transfer_code'];
-
-    public function __construct(private RegistrarManager $registrars) {}
+    public function __construct(private RegistrarManager $registrars, private Redactor $redactor) {}
 
     /**
      * Run $call against the driver of $registrarKey after checking $capability.
@@ -115,40 +110,6 @@ class RegistrarGateway
     }
 
     /**
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
-    public static function redact(array $data): array
-    {
-        foreach ($data as $key => $value) {
-            if (is_array($value)) {
-                $data[$key] = self::redact($value);
-            } elseif ($value !== null && $value !== '' && self::isSecretKey((string) $key)) {
-                $data[$key] = '[redacted]';
-            }
-        }
-
-        return $data;
-    }
-
-    private static function isSecretKey(string $key): bool
-    {
-        $key = strtolower($key);
-
-        if (in_array($key, self::SECRET_KEYS, true)) {
-            return true;
-        }
-
-        foreach (self::SECRET_FRAGMENTS as $fragment) {
-            if (str_contains($key, $fragment)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @param  array<string, mixed>  $request
      * @param  array<string, mixed>|null  $response
      */
@@ -158,8 +119,8 @@ class RegistrarGateway
             'domain_id' => $domain?->id,
             'registrar_key' => $registrarKey,
             'command' => $command,
-            'request' => self::redact($request),
-            'response' => $response === null ? null : $this->truncate(self::redact($response)),
+            'request' => $this->redactor->redact($request),
+            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response)),
             'success' => $success,
             'error' => $error,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),

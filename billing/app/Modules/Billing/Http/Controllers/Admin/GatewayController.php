@@ -4,7 +4,8 @@ namespace App\Modules\Billing\Http\Controllers\Admin;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\GatewayDriver;
-use App\Data\Billing\ConnectionCheck;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -34,16 +35,17 @@ class GatewayController extends Controller
         $this->authorize('billing.gateways.manage');
         $driver = $this->gateways->driver($gateway);
         $model = $this->gateways->gateway($gateway);
+        $fields = array_map(SettingField::fromArray(...), $driver->settingsFields());
 
         return Inertia::render('admin/billing/gateways/edit', [
             'gateway' => [
                 ...$this->present($driver),
                 // Secrets are never sent back to the browser; an empty field keeps the stored value.
-                'settings' => collect($driver->settingsFields())->mapWithKeys(fn (array $field): array => [
-                    $field['key'] => in_array($field['type'], ['secret', 'secret_text'], true) ? '' : (string) $model->setting($field['key'], $field['default'] ?? ''),
+                'settings' => collect($fields)->mapWithKeys(fn (SettingField $field): array => [
+                    $field->key => $field->isSecret() ? '' : (string) $model->setting($field->key, $field->default ?? ''),
                 ]),
-                'secrets_set' => collect($driver->settingsFields())->whereIn('type', ['secret', 'secret_text'])
-                    ->mapWithKeys(fn (array $field): array => [$field['key'] => (string) $model->setting($field['key'], '') !== '']),
+                'secrets_set' => collect($fields)->filter(fn (SettingField $field): bool => $field->isSecret())
+                    ->mapWithKeys(fn (SettingField $field): array => [$field->key => (string) $model->setting($field->key, '') !== '']),
             ],
             'fields' => $driver->settingsFields(),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),

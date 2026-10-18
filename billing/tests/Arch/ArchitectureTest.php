@@ -6,13 +6,14 @@
  * App\Contracts, cross-module reactions through App\Events.
  */
 
-const FEATURE_MODULES = [
-    'Catalog', 'Orders', 'Billing', 'Services', 'Domains', 'Support',
-    'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal',
-];
-
 /** Read models allowed to depend on every module. */
 const READ_MODEL_MODULES = ['Reports'];
+
+/** Every module directory except Core and the read models, so a new module is checked from its first commit. */
+define('FEATURE_MODULES', array_values(array_diff(
+    array_map('basename', glob(dirname(__DIR__, 2).'/app/Modules/*', GLOB_ONLYDIR) ?: []),
+    ['Core', ...READ_MODEL_MODULES],
+)));
 
 foreach (FEATURE_MODULES as $module) {
     $others = array_values(array_map(
@@ -32,6 +33,10 @@ arch('Core and the shared kernel do not depend on feature modules')
 arch('contracts are interfaces')
     ->expect('App\Contracts')
     ->toBeInterfaces();
+
+arch('DTOs and events carry data, never Eloquent models')
+    ->expect(['App\Data', 'App\Events'])
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models']);
 
 arch('DTOs and events are final and immutable-by-construction')
     ->expect(['App\Data', 'App\Events'])

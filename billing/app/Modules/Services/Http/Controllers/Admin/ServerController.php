@@ -11,7 +11,7 @@ use App\Modules\Services\Http\Requests\ServerRequest;
 use App\Modules\Services\Http\Resources\ServerResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
-use App\Modules\Services\Support\Redactor;
+use App\Support\Integrations\Redactor;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;

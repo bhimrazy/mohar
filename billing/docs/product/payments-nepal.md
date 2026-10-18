@@ -543,7 +543,7 @@ stored in `provider_ref`.
 
 ### 8.6 Provider logos (owner decision 2026-10-18)
 
-Drivers ship their provider's official logo through the optional `ProvidesLogo` contract (`GatewayLogo` DTO:
+Drivers ship their provider's official logo through the optional `ProvidesLogo` contract (now `Contracts\Integrations\ProvidesLogo`; `IntegrationLogo` DTO:
 light-background URL, optional dark-background URL, alt text). The client pay panel and the admin gateway screens
 show it, and fall back to the text name when a driver has none. The files are served from `public/images/gateways/`
 and are byte-identical to their sources (scaled only, in CSS: 40 px high including the files' own padding on checkout, 32 px in the admin list).
