@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "Sorry, the domain example-shop.com already exists on this server.",
-    "command": "createacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "Sorry, the domain example-shop.com already exists on this server.",
+        "command": "createacct",
+        "version": 1
+    }
 }

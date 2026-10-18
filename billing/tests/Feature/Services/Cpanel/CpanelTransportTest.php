@@ -131,7 +131,7 @@ test('transport failures map to the outcome vocabulary', function (mixed $answer
     'read timeout after sending' => [fn () => Http::failedConnection('cURL error 28: Operation timed out after 50001 milliseconds with 0 bytes received'), DriverOutcome::Unknown, 'may have run'],
     'connection reset after sending' => [fn () => Http::failedConnection('cURL error 56: Recv failure: Connection reset by peer'), DriverOutcome::Unknown, 'may have run'],
     'HTTP 500' => [fn () => Http::response('Internal Server Error', 500), DriverOutcome::Unknown, 'HTTP 500'],
-    'truncated body' => [fn () => Http::response(Whm::raw('truncated.json')), DriverOutcome::Unknown, 'did not answer like the WHM API'],
+    'truncated body' => [fn () => Http::response(Whm::raw('truncated-body.txt')), DriverOutcome::Unknown, 'did not answer like the WHM API'],
     'HTML 401' => [fn () => Http::response(Whm::raw('http_401.html'), 401), DriverOutcome::Rejected, 'credentials'],
     'redirect' => [fn () => Http::response('', 302, ['Location' => 'https://elsewhere.test/']), DriverOutcome::Rejected, 'redirect'],
     'access denied' => ['access_denied', DriverOutcome::Rejected, 'permission (ACL)'],
@@ -151,7 +151,7 @@ test('the same failures on a read are retryable, never unknown', function (mixed
 })->with([
     'read timeout' => [fn () => Http::failedConnection('cURL error 28: Operation timed out after 20001 milliseconds with 0 bytes received')],
     'HTTP 503' => [fn () => Http::response('busy', 503)],
-    'truncated body' => [fn () => Http::response(Whm::raw('truncated.json'))],
+    'truncated body' => [fn () => Http::response(Whm::raw('truncated-body.txt'))],
 ]);
 
 test('module log entries never hold the token, passwords, session values or long raw output', function () {

@@ -1,14 +1,11 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "get_nameserver_config",
-    "version": 1
-  },
-  "data": {
-    "nameservers": [
-      "ns1.example-host.test",
-      "ns2.example-host.test"
-    ]
-  }
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "get_nameserver_config",
+        "version": 1
+    },
+    "data": {
+        "nameservers": ["ns1.example-host.test", "ns2.example-host.test"]
+    }
 }

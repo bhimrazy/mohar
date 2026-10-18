@@ -1,26 +1,26 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "listaccts",
-    "version": 1
-  },
-  "data": {
-    "acct": [
-      {
-        "user": "example",
-        "domain": "example-shop.com",
-        "plan": "root_basic",
-        "owner": "root",
-        "email": "owner@example-shop.com",
-        "ip": "203.0.113.20",
-        "suspended": 0,
-        "is_locked": 0,
-        "suspendreason": "not suspended",
-        "unix_startdate": 1760000000,
-        "diskused": "14M",
-        "disklimit": "unlimited"
-      }
-    ]
-  }
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "listaccts",
+        "version": 1
+    },
+    "data": {
+        "acct": [
+            {
+                "user": "example",
+                "domain": "example-shop.com",
+                "plan": "root_basic",
+                "owner": "root",
+                "email": "owner@example-shop.com",
+                "ip": "203.0.113.20",
+                "suspended": 0,
+                "is_locked": 0,
+                "suspendreason": "not suspended",
+                "unix_startdate": 1760000000,
+                "diskused": "14M",
+                "disklimit": "unlimited"
+            }
+        ]
+    }
 }

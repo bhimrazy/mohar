@@ -1,46 +1,46 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "listaccts",
-    "version": 1,
-    "chunk": {
-      "start": 1,
-      "size": 2,
-      "records": 3,
-      "current": 1
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "listaccts",
+        "version": 1,
+        "chunk": {
+            "start": 1,
+            "size": 2,
+            "records": 3,
+            "current": 1
+        }
+    },
+    "data": {
+        "acct": [
+            {
+                "user": "alpha",
+                "domain": "alpha-books.com",
+                "plan": "root_basic",
+                "owner": "root",
+                "email": "Anna@Alpha-Books.com",
+                "ip": "203.0.113.20",
+                "suspended": 0,
+                "is_locked": 0,
+                "suspendreason": "not suspended",
+                "unix_startdate": 1700000000,
+                "diskused": "120M",
+                "disklimit": "1024M"
+            },
+            {
+                "user": "bravo",
+                "domain": "bravo-cafe.com",
+                "plan": "reseller1_starter",
+                "owner": "reseller1",
+                "email": "chef@bravo-cafe.com",
+                "ip": "203.0.113.20",
+                "suspended": 1,
+                "is_locked": 0,
+                "suspendreason": "Abuse report",
+                "unix_startdate": 1760000000,
+                "diskused": "0M",
+                "disklimit": "500M"
+            }
+        ]
     }
-  },
-  "data": {
-    "acct": [
-      {
-        "user": "alpha",
-        "domain": "alpha-books.com",
-        "plan": "root_basic",
-        "owner": "root",
-        "email": "Anna@Alpha-Books.com",
-        "ip": "203.0.113.20",
-        "suspended": 0,
-        "is_locked": 0,
-        "suspendreason": "not suspended",
-        "unix_startdate": 1700000000,
-        "diskused": "120M",
-        "disklimit": "1024M"
-      },
-      {
-        "user": "bravo",
-        "domain": "bravo-cafe.com",
-        "plan": "reseller1_starter",
-        "owner": "reseller1",
-        "email": "chef@bravo-cafe.com",
-        "ip": "203.0.113.20",
-        "suspended": 1,
-        "is_locked": 0,
-        "suspendreason": "Abuse report",
-        "unix_startdate": 1760000000,
-        "diskused": "0M",
-        "disklimit": "500M"
-      }
-    ]
-  }
 }

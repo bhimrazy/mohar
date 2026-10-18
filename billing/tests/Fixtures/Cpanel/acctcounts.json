@@ -1,16 +1,16 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "acctcounts",
-    "version": 1
-  },
-  "data": {
-    "reseller": {
-      "user": "reseller1",
-      "active": 12,
-      "suspended": 2,
-      "limit": 50
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "acctcounts",
+        "version": 1
+    },
+    "data": {
+        "reseller": {
+            "user": "reseller1",
+            "active": 12,
+            "suspended": 2,
+            "limit": 50
+        }
     }
-  }
 }

@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "Sorry, that username is reserved.",
-    "command": "createacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "Sorry, that username is reserved.",
+        "command": "createacct",
+        "version": 1
+    }
 }

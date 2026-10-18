@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "verify_new_username",
-    "version": 1
-  }
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "verify_new_username",
+        "version": 1
+    }
 }

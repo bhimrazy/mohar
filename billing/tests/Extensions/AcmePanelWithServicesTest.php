@@ -14,7 +14,7 @@ beforeEach(fn () => $this->app->register(AcmePanelServiceProvider::class));
 test('with Services loaded, the package driver is listed for the product editor next to the built-in drivers', function () {
     $drivers = collect(app(ProvisioningDrivers::class)->all())->keyBy('key');
 
-    expect($drivers->keys()->all())->toBe(['none', 'log', 'acme_panel'])
+    expect($drivers->keys()->all())->toBe(['none', 'log', 'cpanel', 'acme_panel'])
         ->and(app()->providerIsLoaded('App\Modules\Catalog\CatalogServiceProvider'))->toBeFalse()
         ->and($drivers['acme_panel'])->toBe([
             'key' => 'acme_panel',

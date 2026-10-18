@@ -1,15 +1,15 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "myprivs",
-    "version": 1
-  },
-  "data": {
-    "privileges": [
-      {
-        "all": 1
-      }
-    ]
-  }
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "myprivs",
+        "version": 1
+    },
+    "data": {
+        "privileges": [
+            {
+                "all": 1
+            }
+        ]
+    }
 }

@@ -1,11 +1,11 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "removeacct",
-    "version": 1,
-    "output": {
-      "raw": "Removing account files, mail and databases... done."
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "removeacct",
+        "version": 1,
+        "output": {
+            "raw": "Removing account files, mail and databases... done."
+        }
     }
-  }
 }

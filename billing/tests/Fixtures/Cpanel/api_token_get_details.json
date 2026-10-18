@@ -1,32 +1,30 @@
 {
-  "metadata": {
-    "result": 1,
-    "reason": "OK",
-    "command": "api_token_get_details",
-    "version": 1
-  },
-  "data": {
-    "name": "billing",
-    "create_time": 1760000000,
-    "expires_at": null,
-    "whitelist_ips": [
-      "198.51.100.7"
-    ],
-    "acls": [
-      "basic-whm-functions",
-      "basic-system-info",
-      "list-accts",
-      "acct-summary",
-      "create-acct",
-      "suspend-acct",
-      "kill-acct",
-      "upgrade-account",
-      "passwd",
-      "list-pkgs",
-      "viewglobalpackages",
-      "show-bandwidth",
-      "ns-config",
-      "create-user-session"
-    ]
-  }
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "api_token_get_details",
+        "version": 1
+    },
+    "data": {
+        "name": "billing",
+        "create_time": 1760000000,
+        "expires_at": null,
+        "whitelist_ips": ["198.51.100.7"],
+        "acls": [
+            "basic-whm-functions",
+            "basic-system-info",
+            "list-accts",
+            "acct-summary",
+            "create-acct",
+            "suspend-acct",
+            "kill-acct",
+            "upgrade-account",
+            "passwd",
+            "list-pkgs",
+            "viewglobalpackages",
+            "show-bandwidth",
+            "ns-config",
+            "create-user-session"
+        ]
+    }
 }

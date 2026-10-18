@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "Something unexpected happened on the server.",
-    "command": "createacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "Something unexpected happened on the server.",
+        "command": "createacct",
+        "version": 1
+    }
 }

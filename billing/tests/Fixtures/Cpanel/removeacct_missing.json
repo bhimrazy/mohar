@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "The user “example” does not exist.",
-    "command": "removeacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "The user “example” does not exist.",
+        "command": "removeacct",
+        "version": 1
+    }
 }

@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "You are not allowed to use the package “root_pro”.",
-    "command": "createacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "You are not allowed to use the package “root_pro”.",
+        "command": "createacct",
+        "version": 1
+    }
 }

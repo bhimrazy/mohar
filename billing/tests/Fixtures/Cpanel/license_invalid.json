@@ -1,8 +1,8 @@
 {
-  "metadata": {
-    "result": 0,
-    "reason": "The cPanel license for this server is not valid; account creation is disabled.",
-    "command": "createacct",
-    "version": 1
-  }
+    "metadata": {
+        "result": 0,
+        "reason": "The cPanel license for this server is not valid; account creation is disabled.",
+        "command": "createacct",
+        "version": 1
+    }
 }
