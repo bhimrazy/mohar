@@ -27,7 +27,7 @@ test('the converted-prices page previews every registered converter', function (
         ->where('defaultCode', 'USD')
         ->where('currencies.0.code', 'NPR')
         ->where('previews', fn ($previews) => collect($previews)->firstWhere('key', 'fake') === [
-            'key' => 'fake', 'label' => 'Test prices', 'changes' => 2, 'unchanged' => 5, 'manual' => 1, 'automatic' => false,
+            'key' => 'fake', 'label' => 'Test prices', 'changes' => 2, 'unchanged' => 5, 'manual' => 1, 'automatic' => false, 'settings_section' => null,
             'samples' => [['item' => 'Starter', 'currency' => 'NPR', 'period' => 'Monthly', 'before' => 130_000, 'after' => 134_266]],
         ]));
     expect($this->converter->applied)->toBe(0);

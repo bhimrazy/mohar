@@ -41,6 +41,11 @@ class ConvertPrices implements PriceConverter
         return 'Products, addons and configurable options';
     }
 
+    public function settingsSection(): ?string
+    {
+        return 'catalog_conversion';
+    }
+
     public function automatic(): bool
     {
         return (bool) $this->settings->get('catalog.auto_convert_prices', false);
@@ -114,6 +119,7 @@ class ConvertPrices implements PriceConverter
                 $sample[3],
             ), $sampled),
             $this->automatic(),
+            $this->settingsSection(),
         );
     }
 

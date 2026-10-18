@@ -27,6 +27,11 @@ final class FakePriceConverter implements PriceConverter
 
     public bool $throws = false;
 
+    public function settingsSection(): ?string
+    {
+        return null;
+    }
+
     public function automatic(): bool
     {
         return $this->automatic;

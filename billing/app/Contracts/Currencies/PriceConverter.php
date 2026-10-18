@@ -21,6 +21,9 @@ interface PriceConverter
     /** Whether the module's own setting converts prices automatically after rates change. */
     public function automatic(): bool;
 
+    /** Settings section key (Admin → Settings) holding the module's automatic-conversion setting, if any. */
+    public function settingsSection(): ?string;
+
     /**
      * Whether any price is stored in this currency (a currency in use by prices cannot be deleted).
      */

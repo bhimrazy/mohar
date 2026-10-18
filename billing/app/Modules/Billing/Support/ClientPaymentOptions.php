@@ -183,11 +183,13 @@ class ClientPaymentOptions
     {
         $money = app(MoneyFormatter::class);
         $perUnit = (int) Decimal::round(Decimal::multiply(number_format($rate, 6, '.', ''), '100'), 0);
+        // No-break spaces keep a symbol on the same line as its number ("Rs 13,440.00").
+        $keep = fn (string $amount): string => str_replace(' ', "\u{00A0}", $amount);
         $label = __('You\'ll pay :amount on :gateway (:one = :rate).', [
-            'amount' => $money->format($amount),
+            'amount' => $keep($money->format($amount)),
             'gateway' => $gateway->display_name,
-            'one' => $money->amount(100, $from),
-            'rate' => $money->amount($perUnit, $amount->currency),
+            'one' => $keep($money->amount(100, $from)),
+            'rate' => $keep($money->amount($perUnit, $amount->currency)),
         ]);
 
         return is_string($label) ? $label : '';

@@ -43,17 +43,21 @@ class ExchangeRateController extends Controller
             return back();
         }
 
+        // Rates waiting for approval, whether held just now or by an earlier update.
+        $awaiting = ExchangeRateReview::query()->pending()->orderBy('currency')->pluck('currency')->all();
         $parts = [];
 
-        foreach (['Updated: :codes.' => $result['updated'], 'Unchanged: :codes.' => $result['unchanged'], 'Held for review: :codes.' => $result['held'], 'Failed: :codes.' => array_keys($result['failed'])] as $sentence => $codes) {
+        foreach (['Updated: :codes.' => $result['updated'], 'Unchanged: :codes.' => $result['unchanged'], 'Failed: :codes.' => array_keys($result['failed']), 'Waiting for your approval: :codes.' => $awaiting] as $sentence => $codes) {
             if ($codes !== []) {
                 $parts[] = $this->sentence($sentence, implode(', ', $codes));
             }
         }
 
+        $checked = $result['updated'] !== [] || $result['unchanged'] !== [] || $result['held'] !== [] || $result['failed'] !== [];
+
         Inertia::flash('toast', [
-            'type' => $result['failed'] !== [] ? 'error' : ($result['held'] !== [] ? 'warning' : 'success'),
-            'message' => $parts === [] ? __('No currency uses an automatic rate source.') : implode(' ', $parts),
+            'type' => $result['failed'] !== [] ? 'error' : ($awaiting !== [] ? 'warning' : 'success'),
+            'message' => ! $checked ? __('No currency uses an automatic rate source.') : __('Rates checked.').' '.implode(' ', $parts),
         ]);
 
         return back();

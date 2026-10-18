@@ -153,6 +153,28 @@ describe('formatMoney', () => {
         expect(formatMoneyCompact(120000000, 'NPR')).toBe('Rs 12L');
     });
 
+    it('uses our own compact suffixes, never locale abbreviations', () => {
+        configureCurrencies(SEEDED);
+
+        // Indian grouping: K (thousand), L (lakh), Cr (crore).
+        expect(formatMoneyCompact(200000, 'INR')).toBe('₹2K');
+        expect(formatMoneyCompact(117000000, 'INR')).toBe('₹11.7L');
+        expect(formatMoneyCompact(75000000, 'NPR')).toBe('Rs 7.5L');
+        expect(formatMoneyCompact(1200000000, 'INR')).toBe('₹1.2Cr');
+        expect(formatMoneyCompact(9996000, 'INR')).toBe('₹1L');
+        expect(formatMoneyCompact(-250000, 'NPR')).toBe('−Rs 2.5K');
+        expect(formatMoneyCompact(95000, 'INR')).toBe('₹950');
+        // Everything else: K, M, B.
+        expect(formatMoneyCompact(120000000, 'USD')).toBe('$1.2M');
+        expect(formatMoneyCompact(350000000000, 'USD')).toBe('$3.5B');
+        expect(formatMoneyCompact(0, 'USD')).toBe('$0');
+        // Unconfigured currencies follow the same rules.
+        expect(formatMoneyCompact(4800000, 'GBP')).toBe('£48K');
+        expect(formatMoneyCompact(117000000, 'PKR', 'en-IN')).toMatch(
+            /11\.7L$/,
+        );
+    });
+
     it('ignores a missing shared prop instead of clearing the configuration', () => {
         configureCurrencies(SEEDED);
         configureCurrencies(undefined);

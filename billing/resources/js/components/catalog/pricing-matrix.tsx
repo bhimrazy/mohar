@@ -359,6 +359,14 @@ export function PricingMatrix({
                     ))}
                 </tbody>
             </table>
+            {currencies.some((currency) => !currency.is_default) && (
+                <p className="flex items-center gap-1.5 px-4 py-2 text-xs text-muted-foreground">
+                    <Lock className="size-3.5" aria-hidden="true" />
+                    Locked prices keep the amount you set when prices are
+                    converted from the default currency. Typing a price in
+                    another currency locks it; select the lock to unlock.
+                </p>
+            )}
         </div>
     );
 }

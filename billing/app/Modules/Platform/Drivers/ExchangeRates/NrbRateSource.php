@@ -41,7 +41,13 @@ class NrbRateSource implements ExchangeRateSource
 
     public function description(): string
     {
-        return 'Nepal\'s central bank publishes NPR buy and sell rates every day ('.strtolower(self::RATE_TYPES[$this->rateType()]).' used; change it in Rate settings). Covers NPR, INR, USD and about 20 more.';
+        $used = match ($this->rateType()) {
+            'buy' => 'the buying rate',
+            'sell' => 'the selling rate',
+            default => 'the mid rate, halfway between buying and selling',
+        };
+
+        return "Nepal's central bank publishes NPR buying and selling rates every day; {$used} is used (Settings → Exchange rates). Covers NPR, INR, USD and about 20 more.";
     }
 
     public function currencies(): array

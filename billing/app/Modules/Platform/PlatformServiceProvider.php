@@ -104,13 +104,13 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
         $dashboard = $this->app->make(Dashboard::class);
         $dashboard->todo('admin', 'platform.exchange_rates.review', fn (): array => [
-            'label' => 'Exchange-rate changes waiting for approval',
+            'label' => 'Rate changes to approve',
             'count' => ExchangeRateReview::query()->pending()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
         ], 'core.currencies.rates', 30);
         $dashboard->todo('admin', 'platform.exchange_rates.stale', fn (): array => [
-            'label' => 'Exchange rates not updated recently',
+            'label' => 'Exchange rates out of date',
             'count' => $this->app->make(ExchangeRateStatus::class)->staleQuery()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
@@ -227,7 +227,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('platform.rates_stale_after_days', 'Warn when automatic rates are older than (days)', 'integer', rules: ['min:1', 'max:60']),
             new SettingDefinition('platform.rates_manual_stale_after_days', 'Warn when manual rates are older than (days)', 'integer', 'Manual rates that nobody has changed for this long are flagged for review.', rules: ['min:1', 'max:365']),
             new SettingDefinition('platform.nrb_rate_type', 'Nepal Rastra Bank rate to use', 'select', 'NRB publishes a buying and a selling rate for each currency.', options: NrbRateSource::RATE_TYPES),
-            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Server time (HH:MM) to fetch rates each day. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
+            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Time of day (24-hour HH:MM, server time '.config('app.timezone').') to fetch rates, e.g. 17:00 after ECB publishes. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
         ], 'core.currencies.rates');
 
         $this->app->make(SettingsRegistry::class)->section('security', 'Security', [

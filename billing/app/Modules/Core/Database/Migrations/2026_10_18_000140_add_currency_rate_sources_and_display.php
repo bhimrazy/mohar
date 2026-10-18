@@ -32,6 +32,9 @@ return new class extends Migration
 
         DB::table('currencies')->whereIn('code', ['INR', 'NPR'])->where('format', '1,234.56')->update(['format' => '1,23,456.78']);
         DB::table('currencies')->where('code', 'NPR')->where('prefix', 'रू ')->update(['prefix' => 'Rs ']);
+        // Converted INR and NPR prices round to whole rupees ("₹379", not "₹378.91"); the column is new, so every
+        // row still holds the old default.
+        DB::table('currencies')->whereIn('code', ['INR', 'NPR'])->where('price_rounding', 'none')->update(['price_rounding' => 'whole']);
 
         // Every currency starts on the manual source, so the legacy flag must agree with it.
         DB::table('currencies')->update(['is_auto_rate' => false]);

@@ -27,9 +27,11 @@ class PriceConversionController extends Controller
             'defaultCode' => Currency::default()->code,
             'currencies' => Currency::query()->where('is_default', false)->orderBy('code')->orderBy('id')->get()
                 ->map(fn (Currency $currency): array => [
+                    'id' => $currency->id,
                     'code' => $currency->code,
                     'exchange_rate' => $currency->exchange_rate,
-                    'price_rounding' => $currency->price_rounding->label(),
+                    'price_rounding' => $currency->price_rounding->value,
+                    'price_rounding_label' => $currency->price_rounding->label(),
                     'price_buffer_percent' => $currency->price_buffer_percent,
                 ])->values(),
             'previews' => array_map(fn (PriceConverter $converter): array => $converter->preview()->toArray(), $this->converters->all()),

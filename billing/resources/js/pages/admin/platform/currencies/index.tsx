@@ -1,6 +1,5 @@
 import { Link, router } from '@inertiajs/react';
 import {
-    ArrowRight,
     Coins,
     MoreHorizontal,
     Plus,
@@ -22,6 +21,7 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import { RateChange } from '@/components/currencies/rate-change';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +33,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Spinner } from '@/components/ui/spinner';
 import { formatMoney } from '@/lib/money';
-import { formatPercentChange, formatRate } from '@/lib/exchange-rates';
+import { daysSince, formatRate, ratePair } from '@/lib/exchange-rates';
 import type { RateReview } from '@/lib/exchange-rates';
 
 type CurrencyRow = {
@@ -52,7 +52,28 @@ type CurrencyRow = {
     rate_checked_at: string | null;
     is_stale: boolean;
     clients_count: number;
+    /** Why Make default / Delete can't succeed (shown on the disabled action), or null. */
+    default_blocked: string | null;
+    delete_blocked: string | null;
 };
+
+/** A menu action with the reason it is unavailable underneath. */
+function ActionLabel({
+    label,
+    reason,
+}: {
+    label: string;
+    reason: string | null;
+}) {
+    return (
+        <span className="grid gap-0.5">
+            <span>{label}</span>
+            {reason && (
+                <span className="text-xs text-muted-foreground">{reason}</span>
+            )}
+        </span>
+    );
+}
 
 type Props = {
     currencies: CurrencyRow[];
@@ -61,6 +82,8 @@ type Props = {
     manualStaleAfterDays: number;
     canManageRates: boolean;
     hasAutoRates: boolean;
+    /** When automatic rates are next fetched (ISO), or null when every rate is manual. */
+    nextUpdate: string | null;
 };
 
 /** 1,234,567.89 in the currency's own display, e.g. "Rs 12,34,567.89". */
@@ -69,9 +92,8 @@ const SAMPLE_AMOUNT = 123456789;
 export default function CurrenciesIndex({
     currencies,
     reviews,
-    staleAfterDays,
-    manualStaleAfterDays,
     canManageRates,
+    nextUpdate,
     hasAutoRates,
 }: Props) {
     const [deleting, setDeleting] = useState<CurrencyRow | null>(null);
@@ -104,13 +126,34 @@ export default function CurrenciesIndex({
             },
         );
 
+    const staleLabel = (currency: CurrencyRow): string => {
+        const days = daysSince(
+            currency.rate_source === 'manual'
+                ? currency.rate_updated_at
+                : currency.rate_checked_at,
+        );
+
+        return days === null
+            ? 'Never updated'
+            : `Not updated for ${days} day${days === 1 ? '' : 's'}`;
+    };
+
+    const staleBadge = (currency: CurrencyRow) =>
+        currency.is_stale ? (
+            <StatusBadge
+                status="stale"
+                label={staleLabel(currency)}
+                tone="warning"
+            />
+        ) : null;
+
     const columns: DataTableColumn<CurrencyRow>[] = [
         {
             key: 'code',
             header: 'Currency',
             primary: true,
             cell: (currency) => (
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-2">
                     <span className="font-mono">{currency.code}</span>
                     <span className="font-normal text-muted-foreground">
                         {currency.name}
@@ -118,6 +161,8 @@ export default function CurrenciesIndex({
                     {currency.is_default && (
                         <Badge variant="secondary">Default</Badge>
                     )}
+                    {/* The source column is hidden on phones; keep the warning visible. */}
+                    <span className="md:hidden">{staleBadge(currency)}</span>
                 </span>
             ),
         },
@@ -126,20 +171,30 @@ export default function CurrenciesIndex({
             header: 'Shown as',
             hideOnMobile: true,
             cell: (currency) => (
-                <span className="text-muted-foreground tabular-nums">
+                <span className="whitespace-nowrap text-muted-foreground tabular-nums">
                     {formatMoney(SAMPLE_AMOUNT, currency.code)}
                 </span>
             ),
         },
         {
             key: 'rate',
-            header: base ? `Rate per 1 ${base.code}` : 'Rate',
+            header: 'Rate',
             align: 'right',
-            cell: (currency) => (
-                <span className="font-mono tabular-nums">
-                    {formatRate(currency.exchange_rate)}
-                </span>
-            ),
+            cell: (currency) =>
+                currency.is_default || !base ? (
+                    <span className="text-muted-foreground">Default</span>
+                ) : (
+                    <span
+                        className="whitespace-nowrap tabular-nums"
+                        title={`1 ${base.code} = ${formatRate(currency.exchange_rate)} ${currency.code}`}
+                    >
+                        {ratePair(
+                            currency.exchange_rate,
+                            base.code,
+                            currency.code,
+                        )}
+                    </span>
+                ),
         },
         {
             key: 'source',
@@ -151,13 +206,7 @@ export default function CurrenciesIndex({
                 ) : (
                     <span className="flex flex-wrap items-center gap-2">
                         <span>{currency.rate_source_label}</span>
-                        {currency.is_stale && (
-                            <StatusBadge
-                                status="stale"
-                                label={`Not updated for ${currency.rate_source === 'manual' ? manualStaleAfterDays : staleAfterDays}+ days`}
-                                tone="warning"
-                            />
-                        )}
+                        {staleBadge(currency)}
                     </span>
                 ),
         },
@@ -173,6 +222,7 @@ export default function CurrenciesIndex({
             key: 'clients',
             header: 'Clients',
             align: 'right',
+            hideOnMobile: true,
             cell: (currency) => (
                 <span className="tabular-nums">{currency.clients_count}</span>
             ),
@@ -181,7 +231,6 @@ export default function CurrenciesIndex({
             key: 'actions',
             header: <span className="sr-only">Actions</span>,
             align: 'right',
-            hideOnMobile: true,
             cell: (currency) => (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -193,34 +242,34 @@ export default function CurrenciesIndex({
                             <MoreHorizontal />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent align="end" className="w-64">
                         <DropdownMenuItem asChild>
                             <Link href={CurrencyController.edit(currency.id)}>
                                 Edit
                             </Link>
                         </DropdownMenuItem>
-                        {!currency.is_default && (
+                        {canManageRates && (
                             <>
-                                {canManageRates && (
-                                    <DropdownMenuItem
-                                        onSelect={() => setPromoting(currency)}
-                                    >
-                                        Make default
-                                    </DropdownMenuItem>
-                                )}
-                                {canManageRates && (
-                                    <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                            variant="destructive"
-                                            onSelect={() =>
-                                                setDeleting(currency)
-                                            }
-                                        >
-                                            Delete
-                                        </DropdownMenuItem>
-                                    </>
-                                )}
+                                <DropdownMenuItem
+                                    disabled={currency.default_blocked !== null}
+                                    onSelect={() => setPromoting(currency)}
+                                >
+                                    <ActionLabel
+                                        label="Make default"
+                                        reason={currency.default_blocked}
+                                    />
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    variant="destructive"
+                                    disabled={currency.delete_blocked !== null}
+                                    onSelect={() => setDeleting(currency)}
+                                >
+                                    <ActionLabel
+                                        label="Delete"
+                                        reason={currency.delete_blocked}
+                                    />
+                                </DropdownMenuItem>
                             </>
                         )}
                     </DropdownMenuContent>
@@ -235,7 +284,19 @@ export default function CurrenciesIndex({
             <Page>
                 <PageHeader
                     title="Currencies"
-                    description="How amounts are shown in each currency, and the exchange rates used to convert prices."
+                    description={
+                        <>
+                            How amounts are shown in each currency, and the
+                            exchange rates used to convert prices.
+                            {nextUpdate && (
+                                <>
+                                    {' '}
+                                    Next automatic update{' '}
+                                    <DateTime value={nextUpdate} relative />.
+                                </>
+                            )}
+                        </>
+                    }
                     actions={
                         <>
                             {canManageRates && (
@@ -299,26 +360,9 @@ export default function CurrenciesIndex({
                                             <span className="font-mono">
                                                 {review.currency}
                                             </span>
-                                            <span className="font-mono tabular-nums">
-                                                {formatRate(
-                                                    review.current_rate,
-                                                )}
-                                            </span>
-                                            <ArrowRight
-                                                className="size-4 text-muted-foreground"
-                                                aria-label="to"
-                                            />
-                                            <span className="font-mono tabular-nums">
-                                                {formatRate(
-                                                    review.proposed_rate,
-                                                )}
-                                            </span>
-                                            <StatusBadge
-                                                status="review"
-                                                tone="warning"
-                                                label={formatPercentChange(
-                                                    review.change_percent,
-                                                )}
+                                            <RateChange
+                                                review={review}
+                                                defaultCode={base?.code ?? ''}
                                             />
                                         </span>
                                         <span className="text-sm text-muted-foreground">

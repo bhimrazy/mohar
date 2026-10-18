@@ -19,6 +19,9 @@ use InvalidArgumentException;
  */
 class ApplyExchangeRate
 {
+    /** Relative change below which a new rate is ignored. */
+    public const NEGLIGIBLE = '0.00000001';
+
     public function __construct(private ActivityLogger $activity) {}
 
     /**
@@ -40,7 +43,7 @@ class ApplyExchangeRate
             $locked = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
             $old = Decimal::round((string) $locked->exchange_rate, Currency::RATE_SCALE);
 
-            if (Decimal::compare($old, $rate) === 0) {
+            if (self::isNegligible($old, $rate)) {
                 return false;
             }
 
@@ -70,6 +73,17 @@ class ApplyExchangeRate
         $currency->refresh();
 
         return $changed;
+    }
+
+    /**
+     * A change smaller than 1e-8 of the rate (feed rounding noise) is not a change: no history or audit row.
+     */
+    public static function isNegligible(string $old, string $new): bool
+    {
+        $difference = Decimal::abs(Decimal::subtract($new, $old));
+
+        return Decimal::compare($difference, '0') === 0
+            || (Decimal::isPositive($old) && Decimal::compare($difference, Decimal::multiply($old, self::NEGLIGIBLE)) < 0);
     }
 
     /**

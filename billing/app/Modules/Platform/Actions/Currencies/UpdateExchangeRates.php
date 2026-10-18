@@ -163,7 +163,7 @@ class UpdateExchangeRates
             $current = Decimal::round((string) $locked->exchange_rate, Currency::RATE_SCALE);
             $locked->forceFill(['rate_checked_at' => CarbonImmutable::now()])->save();
 
-            if (Decimal::compare($current, $proposed) === 0) {
+            if (ApplyExchangeRate::isNegligible($current, $proposed)) {
                 ExchangeRateReview::closePending($locked->code);
 
                 return ['unchanged', null];

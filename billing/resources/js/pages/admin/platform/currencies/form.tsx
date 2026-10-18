@@ -1,9 +1,10 @@
 import { Form, Link, router } from '@inertiajs/react';
-import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
 import { Head } from '@/components/app/head';
 import CurrencyController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/CurrencyController';
 import ExchangeRateController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ExchangeRateController';
+import PriceConversionController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/PriceConversionController';
+import { RateChange } from '@/components/currencies/rate-change';
 import { DateTime } from '@/components/app/date';
 import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';
@@ -15,8 +16,13 @@ import { TimeSeriesChart } from '@/components/app/time-series-chart';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
-import { UnsavedChangesGuard } from '@/hooks/use-unsaved-changes-warning';
-import { formatPercentChange, formatRate } from '@/lib/exchange-rates';
+import { UnsavedChangesGuard } from '@/components/app/unsaved-changes-guard';
+import {
+    daysSince,
+    formatRate,
+    rateInCurrency,
+    ratePair,
+} from '@/lib/exchange-rates';
 import type { RateReview } from '@/lib/exchange-rates';
 import { groupNumber } from '@/lib/money';
 
@@ -49,8 +55,17 @@ type Props = {
     sources?: Source[];
     roundings?: { value: string; label: string }[];
     history?: { x: string; y: number }[];
+    changes?: RateChangeRow[];
     review?: RateReview | null;
     canManageRates?: boolean;
+};
+
+type RateChangeRow = {
+    effective_at: string;
+    old: string | null;
+    new: string;
+    source: string;
+    by: string | null;
 };
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -71,6 +86,7 @@ export default function CurrencyForm({
     sources = [],
     roundings = [],
     history = [],
+    changes = [],
     review = null,
     canManageRates = false,
 }: Props) {
@@ -85,6 +101,17 @@ export default function CurrencyForm({
     const [source, setSource] = useState(currency?.rate_source ?? MANUAL);
     const [deciding, setDeciding] = useState(false);
     const selectedSource = sources.find((item) => item.key === source);
+    const staleDays = currency
+        ? daysSince(
+              currency.rate_source === MANUAL
+                  ? currency.rate_updated_at
+                  : currency.rate_checked_at,
+          )
+        : null;
+    const staleLabel =
+        staleDays === null
+            ? 'Never updated'
+            : `Not updated for ${staleDays} day${staleDays === 1 ? '' : 's'}`;
     const sample = (minor: number) =>
         `${minor < 0 ? '−' : ''}${display.prefix}${groupNumber(Math.abs(minor), 2, display.format)}${display.suffix}`;
 
@@ -144,21 +171,11 @@ export default function CurrencyForm({
                             )
                         }
                     >
-                        <p className="flex flex-wrap items-center gap-2 font-mono text-lg tabular-nums">
-                            {formatRate(review.current_rate)}
-                            <ArrowRight
-                                className="size-4 text-muted-foreground"
-                                aria-label="to"
-                            />
-                            {formatRate(review.proposed_rate)}
-                            <StatusBadge
-                                status="review"
-                                tone="warning"
-                                label={formatPercentChange(
-                                    review.change_percent,
-                                )}
-                            />
-                        </p>
+                        <RateChange
+                            review={review}
+                            defaultCode={defaultCode}
+                            className="text-lg font-medium"
+                        />
                     </SectionCard>
                 )}
 
@@ -311,7 +328,7 @@ export default function CurrencyForm({
                                             htmlFor="exchange_rate"
                                             label={`Starting exchange rate (per 1 ${defaultCode})`}
                                             error={errors.exchange_rate}
-                                            hint="Up to 12 decimal places. Choose an automatic source after creating the currency."
+                                            hint={`How many units of this currency make 1 ${defaultCode}, e.g. 151.94 for NPR. You can choose an automatic source next.`}
                                             className="sm:col-span-2"
                                         >
                                             <Input
@@ -319,7 +336,8 @@ export default function CurrencyForm({
                                                 name="exchange_rate"
                                                 inputMode="decimal"
                                                 className="font-mono"
-                                                defaultValue="1"
+                                                required
+                                                placeholder="151.94"
                                                 aria-invalid={Boolean(
                                                     errors.exchange_rate,
                                                 )}
@@ -334,15 +352,21 @@ export default function CurrencyForm({
                                             className="mt-1 font-medium tabular-nums"
                                             aria-live="polite"
                                         >
-                                            {sample(123456789)}
+                                            <span className="whitespace-nowrap">
+                                                {sample(123456789)}
+                                            </span>
                                             <span className="mx-2 text-muted-foreground">
                                                 ·
                                             </span>
-                                            {sample(-120000)}
+                                            <span className="whitespace-nowrap">
+                                                {sample(-120000)}
+                                            </span>
                                             <span className="mx-2 text-muted-foreground">
                                                 ·
                                             </span>
-                                            {sample(999)}
+                                            <span className="whitespace-nowrap">
+                                                {sample(999)}
+                                            </span>
                                         </p>
                                     </div>
                                 </div>
@@ -366,13 +390,22 @@ export default function CurrencyForm({
                                     description={`Units of ${currency.code} per 1 ${defaultCode}. Changes here move converted prices, so they need your password.`}
                                     footer={
                                         canManageRates && (
-                                            <Button
-                                                type="submit"
-                                                disabled={processing}
-                                            >
-                                                {processing && <Spinner />}
-                                                Save rate settings
-                                            </Button>
+                                            <>
+                                                <Button variant="ghost" asChild>
+                                                    <Link
+                                                        href={PriceConversionController.show()}
+                                                    >
+                                                        Preview converted prices
+                                                    </Link>
+                                                </Button>
+                                                <Button
+                                                    type="submit"
+                                                    disabled={processing}
+                                                >
+                                                    {processing && <Spinner />}
+                                                    Save rate settings
+                                                </Button>
+                                            </>
                                         )
                                     }
                                 >
@@ -414,8 +447,8 @@ export default function CurrencyForm({
                                                 error={errors.exchange_rate}
                                                 hint={
                                                     currency.is_stale
-                                                        ? 'This rate has not changed for a long time. Check that it is still right.'
-                                                        : 'Up to 12 decimal places.'
+                                                        ? `${staleLabel}. Check that it is still right.`
+                                                        : `Units of ${currency.code} per 1 ${defaultCode}, up to 12 decimal places.`
                                                 }
                                             >
                                                 <Input
@@ -436,15 +469,20 @@ export default function CurrencyForm({
                                                 <span className="text-sm font-medium">
                                                     Current rate
                                                 </span>
-                                                <span className="flex flex-wrap items-center gap-2 font-mono tabular-nums">
-                                                    {formatRate(
+                                                <span
+                                                    className="flex flex-wrap items-center gap-2 tabular-nums"
+                                                    title={`1 ${defaultCode} = ${formatRate(currency.exchange_rate)} ${currency.code}`}
+                                                >
+                                                    {ratePair(
                                                         currency.exchange_rate,
+                                                        defaultCode,
+                                                        currency.code,
                                                     )}
                                                     {currency.is_stale && (
                                                         <StatusBadge
                                                             status="stale"
                                                             tone="warning"
-                                                            label="Stale"
+                                                            label={staleLabel}
                                                         />
                                                     )}
                                                 </span>
@@ -502,22 +540,63 @@ export default function CurrencyForm({
                     </Form>
                 )}
 
-                {currency && !currency.is_default && history.length > 0 && (
+                {currency && !currency.is_default && (
                     <SectionCard
                         title="Rate history"
-                        description="The rate in force at the end of each day, last 90 days."
+                        description={`Units of ${currency.code} per 1 ${defaultCode} in force at the end of each day, last 90 days.`}
                     >
-                        <TimeSeriesChart
-                            series={[
-                                {
-                                    name: `${currency.code} per 1 ${defaultCode}`,
-                                    points: history,
-                                },
-                            ]}
-                            yScale="fit"
-                            showLegend={false}
-                            label={`${currency.code} per 1 ${defaultCode}, last 90 days`}
-                        />
+                        {history.length > 0 ? (
+                            <TimeSeriesChart
+                                series={[
+                                    {
+                                        name: `${currency.code} per 1 ${defaultCode}`,
+                                        points: history,
+                                    },
+                                ]}
+                                yScale="fit"
+                                curve="step"
+                                showLegend={false}
+                                label={`${currency.code} per 1 ${defaultCode}, last 90 days`}
+                            />
+                        ) : (
+                            <p className="text-sm text-muted-foreground">
+                                No rate changes yet. The chart starts with the
+                                first change.
+                            </p>
+                        )}
+                        {changes.length > 0 && (
+                            <ul className="mt-4 divide-y border-t text-sm">
+                                {changes.map((change) => (
+                                    <li
+                                        key={`${change.effective_at}-${change.new}`}
+                                        className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2"
+                                    >
+                                        <span
+                                            className="tabular-nums"
+                                            title={`${change.old ? formatRate(change.old) : '—'} → ${formatRate(change.new)}`}
+                                        >
+                                            {change.old
+                                                ? `${rateInCurrency(change.old, currency.code)} → `
+                                                : ''}
+                                            {rateInCurrency(
+                                                change.new,
+                                                currency.code,
+                                            )}
+                                        </span>
+                                        <span className="text-muted-foreground">
+                                            {change.source}
+                                            {change.by
+                                                ? ` · ${change.by}`
+                                                : ''}{' '}
+                                            ·{' '}
+                                            <DateTime
+                                                value={change.effective_at}
+                                            />
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </SectionCard>
                 )}
 

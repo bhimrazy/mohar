@@ -141,7 +141,7 @@ test('a converting gateway shows the amount it will charge, and the payment uses
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
         ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['conversion'] === [
             'amount' => 1_344_000, 'currency' => 'NPR', 'rate' => 134.4, 'from' => 'USD',
-            'label' => 'You\'ll pay Rs 13,440.00 on Khalti ($1.00 = Rs 134.40).',
+            'label' => "You'll pay Rs\u{00A0}13,440.00 on Khalti ($1.00 = Rs\u{00A0}134.40).",
         ]));
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect();

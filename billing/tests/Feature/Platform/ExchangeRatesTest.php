@@ -184,7 +184,7 @@ test('"Update rates now" fetches each source once and reports the outcome', func
     FakeRateSource::$fetches = 0;
 
     $this->post(route('admin.platform.currencies.rates.refresh'))->assertRedirect()
-        ->assertInertiaFlash('toast', ['type' => 'success', 'message' => 'Updated: INR, NPR.']);
+        ->assertInertiaFlash('toast', ['type' => 'success', 'message' => 'Rates checked. Updated: INR, NPR.']);
 
     expect(FakeRateSource::$fetches)->toBe(1);
 });
@@ -360,4 +360,28 @@ test('sensitive rate actions need a recent password, and core.currencies.* never
     $this->get(route('admin.platform.settings.edit', 'exchange_rates'))->assertRedirect(route('password.confirm'));
 
     expect($review->fresh()->status)->toBe('pending')->and($inr->fresh()->is_default)->toBeFalse();
+});
+
+test('a change below 1e-8 of the rate is noise: no history, audit or review', function () {
+    FakeRateSource::quote(['INR' => '84.00000025', 'NPR' => '134.4']);
+
+    $result = app(UpdateExchangeRates::class)->handle();
+
+    expect($result['unchanged'])->toBe(['INR', 'NPR'])
+        ->and(rateOf('INR'))->toBe('84.000000000000')
+        ->and(ExchangeRateHistory::query()->count())->toBe(0)
+        ->and(DB::table('activity_log')->where('event', 'currency.rate_changed')->exists())->toBeFalse();
+
+    FakeRateSource::quote(['INR' => '84.0001', 'NPR' => '134.4']); // 1.2e-6 relative: a real change
+    expect(app(UpdateExchangeRates::class)->handle()['updated'])->toBe(['INR']);
+});
+
+test('"Update rates now" mentions rates still waiting for approval', function () {
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
+    FakeRateSource::quote(['INR' => '84', 'NPR' => '150']);
+    app(UpdateExchangeRates::class)->handle();
+
+    $this->post(route('admin.platform.currencies.rates.refresh'))
+        ->assertInertiaFlash('toast', ['type' => 'warning', 'message' => 'Rates checked. Unchanged: INR. Waiting for your approval: NPR.']);
 });

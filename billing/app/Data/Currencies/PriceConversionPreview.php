@@ -19,10 +19,12 @@ final readonly class PriceConversionPreview
         public int $manual,
         public array $samples,
         public bool $automatic = false,
+        /** Settings section with the module's automatic-conversion setting. */
+        public ?string $settingsSection = null,
     ) {}
 
     /**
-     * @return array{key: string, label: string, changes: int, unchanged: int, manual: int, automatic: bool, samples: list<array{item: string, currency: string, period: string, before: int|null, after: int}>}
+     * @return array{key: string, label: string, changes: int, unchanged: int, manual: int, automatic: bool, settings_section: string|null, samples: list<array{item: string, currency: string, period: string, before: int|null, after: int}>}
      */
     public function toArray(): array
     {
@@ -33,6 +35,7 @@ final readonly class PriceConversionPreview
             'unchanged' => $this->unchanged,
             'manual' => $this->manual,
             'automatic' => $this->automatic,
+            'settings_section' => $this->settingsSection,
             'samples' => array_map(fn (PriceChange $change): array => $change->toArray(), $this->samples),
         ];
     }

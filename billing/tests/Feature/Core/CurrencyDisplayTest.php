@@ -61,8 +61,11 @@ test('the display migration moves old seed defaults to Rs and lakh grouping but 
 
     $migration->up();
 
-    $rows = DB::table('currencies')->orderBy('code')->get(['code', 'prefix', 'format'])->keyBy('code');
+    $rows = DB::table('currencies')->orderBy('code')->get(['code', 'prefix', 'format', 'price_rounding'])->keyBy('code');
     expect($rows['USD']->format)->toBe('1,234.56')
+        ->and($rows['USD']->price_rounding)->toBe('none')
+        ->and($rows['INR']->price_rounding)->toBe('whole')
+        ->and($rows['NPR']->price_rounding)->toBe('whole')
         ->and($rows['INR']->format)->toBe('1,23,456.78')
         ->and($rows['NPR']->prefix)->toBe('Rs ')
         ->and($rows['NPR']->format)->toBe('1.234,56'); // staff-customised format kept

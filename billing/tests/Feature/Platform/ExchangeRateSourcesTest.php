@@ -55,7 +55,7 @@ test('Nepal Rastra Bank rates use the latest day and the buy/sell mid per unit',
     });
 });
 
-test('the NRB rate type setting picks the buying, selling or mid rate', function (string $type, string $usd, string $inr) {
+test('the NRB rate type setting picks the buying, selling or mid rate', function (string $type, string $usd, string $inr, string $phrase) {
     Http::fake(['www.nrb.org.np/*' => Http::response(rateFixture('nrb-rates.json'))]);
     app(Settings::class)->set('platform.nrb_rate_type', $type);
 
@@ -63,11 +63,11 @@ test('the NRB rate type setting picks the buying, selling or mid rate', function
 
     expect($snapshot->rates['USD']['base'])->toBe($usd)
         ->and($snapshot->rates['INR']['base'])->toBe($inr)
-        ->and(app(NrbRateSource::class)->description())->toContain(strtolower(NrbRateSource::RATE_TYPES[$type]));
+        ->and(app(NrbRateSource::class)->description())->toContain($phrase);
 })->with([
-    'mid (default)' => ['mid', '152.250000000000', '160.075000000000'],
-    'buy' => ['buy', '151.95', '160.00'],
-    'sell' => ['sell', '152.55', '160.15'],
+    'mid (default)' => ['mid', '152.250000000000', '160.075000000000', 'the mid rate'],
+    'buy' => ['buy', '151.95', '160.00', 'the buying rate'],
+    'sell' => ['sell', '152.55', '160.15', 'the selling rate'],
 ]);
 
 test('malformed responses raise a readable error', function (string $source, string $body) {

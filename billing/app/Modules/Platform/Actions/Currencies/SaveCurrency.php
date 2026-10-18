@@ -140,11 +140,7 @@ class SaveCurrency
             return;
         }
 
-        // Changing the default rebases every rate, so any invoice, quote or transaction in any currency locks it.
-        $locked = Currency::query()->orderBy('code')->pluck('code')
-            ->contains(fn (string $code): bool => $this->invoices->hasDocumentsInCurrency($code));
-
-        if ($locked) {
+        if ($this->documentsExist()) {
             throw ValidationException::withMessages(['currency' => __('The default currency cannot change once invoices or transactions exist.')]);
         }
 
@@ -195,6 +191,53 @@ class SaveCurrency
     /**
      * @throws ValidationException when the currency is the default, or clients, documents or prices use it
      */
+    /**
+     * Changing the default rebases every rate, so any invoice, quote or transaction in any currency locks it.
+     */
+    public function documentsExist(): bool
+    {
+        return Currency::query()->orderBy('code')->pluck('code')
+            ->contains(fn (string $code): bool => $this->invoices->hasDocumentsInCurrency($code));
+    }
+
+    /**
+     * Why this currency can't become the default (short, for a disabled action), or null.
+     */
+    public function defaultBlocker(Currency $currency, bool $documentsExist): ?string
+    {
+        return match (true) {
+            $currency->is_default => __('Already the default'),
+            $documentsExist => __('Not possible once invoices or payments exist'),
+            default => null,
+        };
+    }
+
+    /**
+     * Why this currency can't be deleted (short, for a disabled action), or null.
+     */
+    public function deleteBlocker(Currency $currency, int $clients): ?string
+    {
+        if ($currency->is_default) {
+            return __('The default currency can\'t be deleted');
+        }
+
+        if ($clients > 0) {
+            return trans_choice('{1} In use by 1 client|[2,*] In use by :count clients', $clients);
+        }
+
+        if ($this->invoices->hasDocumentsInCurrency($currency->code)) {
+            return __('Used by invoices or payments');
+        }
+
+        foreach ($this->converters->all() as $converter) {
+            if ($converter->usesCurrency($currency->code)) {
+                return __('Has prices: :prices', ['prices' => $converter->label()]);
+            }
+        }
+
+        return null;
+    }
+
     public function delete(Currency $currency): void
     {
         if ($currency->is_default) {

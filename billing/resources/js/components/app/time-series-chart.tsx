@@ -37,6 +37,8 @@ type TimeSeriesChartProps = {
     stacked?: boolean;
     /** "zero" starts the y axis at 0 (totals); "fit" zooms to the data range (rates, prices). */
     yScale?: 'zero' | 'fit';
+    /** "step" for values that hold until they change (an exchange rate in force). */
+    curve?: 'smooth' | 'step';
     showLegend?: boolean;
     className?: string;
     /** Accessible name, e.g. "Income, last 12 months". */
@@ -84,6 +86,7 @@ export function TimeSeriesChart({
     formatX: customFormatX,
     stacked = false,
     yScale = 'zero',
+    curve = 'smooth',
     showLegend = series.length > 1,
     className,
     label,
@@ -231,7 +234,7 @@ export function TimeSeriesChart({
                         <Area
                             key={key}
                             dataKey={key}
-                            type="monotone"
+                            type={curve === 'step' ? 'stepAfter' : 'monotone'}
                             stroke={`var(--color-${key})`}
                             strokeWidth={index === 0 ? 2 : 1.5}
                             strokeDasharray={index === 0 ? undefined : '4 4'}

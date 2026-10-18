@@ -101,4 +101,29 @@ class ExchangeRateStatus
 
         return $points;
     }
+
+    /**
+     * The latest rate changes, newest first: when, old → new, source and who (null = automatic).
+     *
+     * @return list<array{effective_at: string, old: string|null, new: string, source: string, by: string|null}>
+     */
+    public function recentChanges(Currency $currency, int $limit = 8): array
+    {
+        $rows = ExchangeRateHistory::query()->with('user:id,name')->where('currency', $currency->code)
+            ->orderByDesc('effective_at')->orderByDesc('id')->limit($limit + 1)->get();
+        $changes = [];
+
+        foreach ($rows->take($limit)->values() as $index => $row) {
+            $previous = $rows->get($index + 1);
+            $changes[] = [
+                'effective_at' => $row->effective_at->toIso8601String(),
+                'old' => $previous !== null ? (string) $previous->rate : null,
+                'new' => (string) $row->rate,
+                'source' => $row->source,
+                'by' => $row->user?->name,
+            ];
+        }
+
+        return $changes;
+    }
 }

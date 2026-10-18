@@ -33,6 +33,11 @@ class ConvertTldPrices implements PriceConverter
         return 'Domain (TLD) prices';
     }
 
+    public function settingsSection(): ?string
+    {
+        return 'domains_conversion';
+    }
+
     public function automatic(): bool
     {
         return (bool) $this->settings->get('domains.auto_convert_prices', false);
@@ -87,7 +92,7 @@ class ConvertTldPrices implements PriceConverter
             }
         }, $unchanged, $manual);
 
-        return new PriceConversionPreview($this->key(), $this->label(), $changes + $this->orphans($default)->count(), $unchanged, $manual, $sampled, $this->automatic());
+        return new PriceConversionPreview($this->key(), $this->label(), $changes + $this->orphans($default)->count(), $unchanged, $manual, $sampled, $this->automatic(), $this->settingsSection());
     }
 
     /**

@@ -244,3 +244,23 @@ test('after the rate-precision migration, many non-default currencies coexist an
         ->and(Currency::query()->where('is_default', false)->count())->toBe(2)
         ->and(fn () => Currency::factory()->euro()->create(['is_default' => true]))->toThrow(UniqueConstraintViolationException::class);
 });
+
+test('the list says why Make default and Delete are unavailable, and refusals show as an error toast', function () {
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
+    Currency::factory()->create();
+    $npr = Currency::factory()->npr()->create();
+    $inr = Currency::factory()->inr()->create();
+    Client::factory()->count(2)->create(['currency' => 'NPR']);
+
+    $this->get(route('admin.platform.currencies.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('currencies.0.default_blocked', 'Already the default')
+        ->where('currencies.0.delete_blocked', 'The default currency can\'t be deleted')
+        ->where('currencies.1.code', 'INR')->where('currencies.1.default_blocked', null)->where('currencies.1.delete_blocked', null)
+        ->where('currencies.2.code', 'NPR')->where('currencies.2.delete_blocked', 'In use by 2 clients'));
+
+    $this->delete(route('admin.platform.currencies.destroy', $npr))
+        ->assertSessionHasErrors('currency')
+        ->assertInertiaFlash('toast', ['type' => 'error', 'message' => 'Clients use this currency. Move them to another currency first.']);
+    expect($inr->exists)->toBeTrue();
+});

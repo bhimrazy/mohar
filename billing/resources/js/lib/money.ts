@@ -273,36 +273,61 @@ export function formatMoney(
     );
 }
 
-/** Compact amounts for chart axes and dense summaries: "$48K", "₹12L", "Rs 1.2L". */
+/** Suffixes for compact amounts, largest first: Indian (lakh, crore) and international. */
+const INDIAN_UNITS: [number, string][] = [
+    [1e7, 'Cr'],
+    [1e5, 'L'],
+    [1e3, 'K'],
+];
+const INTERNATIONAL_UNITS: [number, string][] = [
+    [1e9, 'B'],
+    [1e6, 'M'],
+    [1e3, 'K'],
+];
+
+/** 11.7 → "11.7", 2.0 → "2": at most one decimal, never locale-dependent. */
+function compactNumber(value: number, units: [number, string][]): string {
+    for (let index = 0; index < units.length; index++) {
+        const [size, suffix] = units[index];
+
+        if (value >= size) {
+            const scaled = Math.round((value / size) * 10) / 10;
+            const larger = units[index - 1];
+
+            // Rounding can reach the next unit (99,960 → "100K"); show that unit instead ("1L").
+            if (larger && scaled * size >= larger[0]) {
+                return `${Math.round((value / larger[0]) * 10) / 10}${larger[1]}`;
+            }
+
+            return `${scaled}${suffix}`;
+        }
+    }
+
+    return String(Math.round(value * 10) / 10);
+}
+
+/**
+ * Compact amounts for chart axes and dense summaries: "$48K", "$1.2M", "₹11.7L", "₹1.2Cr", "Rs 7.5L".
+ * Our own suffixes (K/L/Cr for Indian grouping, K/M/B otherwise), never the browser's locale abbreviations
+ * (CLDR en-IN writes thousand as "T", which reads as trillion).
+ */
 export function formatMoneyCompact(
     amountMinor: number,
     currency: string,
     locale?: string,
 ): string {
     const code = currency.toUpperCase();
-    const display = locale ? null : currencyFormat(code);
+    const display = currencyFormat(code);
+    const indian = display
+        ? display.format === '1,23,456.78'
+        : (locale ?? localeForCurrency(code)) === 'en-IN';
+    const number = compactNumber(
+        Math.abs(fromMinor(amountMinor)),
+        indian ? INDIAN_UNITS : INTERNATIONAL_UNITS,
+    );
+    const sign = signOf(amountMinor, false);
 
-    try {
-        if (display) {
-            const number = new Intl.NumberFormat(
-                display.format === '1,23,456.78' ? 'en-IN' : DEFAULT_LOCALE,
-                { notation: 'compact', maximumFractionDigits: 1 },
-            ).format(Math.abs(fromMinor(amountMinor)));
-
-            return `${signOf(amountMinor, false)}${display.prefix}${number}${display.suffix}`;
-        }
-
-        return new Intl.NumberFormat(locale ?? localeForCurrency(code), {
-            style: 'currency',
-            currency: code,
-            currencyDisplay: 'narrowSymbol',
-            notation: 'compact',
-            maximumFractionDigits: 1,
-        })
-            .format(fromMinor(amountMinor))
-            .replace('-', MINUS)
-            .replace(/\u00a0/g, ' ');
-    } catch {
-        return formatMoney(amountMinor, code, locale);
-    }
+    return display
+        ? `${sign}${display.prefix}${number}${display.suffix}`
+        : `${sign}${currencySymbol(code)}${number}`;
 }
