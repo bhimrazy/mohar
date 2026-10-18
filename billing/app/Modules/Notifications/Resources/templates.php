@@ -147,7 +147,7 @@ MD.$signOff),
     $client('service.welcome.shared_hosting', 'product', 'Welcome: shared hosting', 'Your hosting for {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your hosting is ready
 
-{{ service.product_name }} for {{ service.domain }} is active. Sign in to see your login details.
+{{ service.product_name }} for {{ service.domain }} is active. Sign in to see your username and set a password.
 
 | Domain | {{ service.domain }} |
 |---|---|
@@ -159,14 +159,14 @@ Point your domain to these nameservers:
 
 {% for nameserver in service.nameservers %}- {{ nameserver }}
 {% endfor %}
-[View login details]({{ service.url }})
+[Open service]({{ service.url }})
 
 For your security we never send passwords by email.
 MD.$signOff),
     $client('service.welcome.reseller_hosting', 'product', 'Welcome: reseller hosting', 'Your reseller account is ready', <<<'MD'
 # Your reseller account is ready
 
-{{ service.product_name }} is active. Sign in to see your login details.
+{{ service.product_name }} is active. Sign in to see your username and set a password.
 
 | Username | {{ service.username }} |
 |---|---|
@@ -176,21 +176,21 @@ Nameservers for your customers:
 
 {% for nameserver in service.nameservers %}- {{ nameserver }}
 {% endfor %}
-[View login details]({{ service.url }})
+[Open service]({{ service.url }})
 
 For your security we never send passwords by email.
 MD.$signOff),
     $client('service.welcome.server', 'product', 'Welcome: server', 'Your server {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your server is online
 
-{{ service.product_name }} is ready to use. Sign in to see the root login details.
+{{ service.product_name }} is ready to use. Sign in to see your username and set a password.
 
 | Hostname | {{ service.domain }} |
 |---|---|
 | Primary IP | {{ service.dedicated_ip | default(service.server_ip) }} |
 | Username | {{ service.username }} |
 
-[View login details]({{ service.url }})
+[Open service]({{ service.url }})
 
 For your security we never send passwords by email.
 MD.$signOff),
