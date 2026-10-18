@@ -73,6 +73,9 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
   the audit diff, and a blank submission keeps the stored value.
 - Module credentials (gateways, registrars, servers) are encrypted at rest with Laravel's encrypter, never cached in
   plaintext, and never sent to the browser. Tests assert that no secret value appears in any rendered page.
+- Secret fields are never written to the session: they are excluded from flashed old input on validation
+  errors, driven by the `SettingField` secret flag rather than a list of names. (Added 2026-10-18 from the #65
+  review.)
 - Tokens in URLs (invitations, password resets) are hashed at rest, single-use, expiring, and served with
   `Referrer-Policy: no-referrer`.
 
