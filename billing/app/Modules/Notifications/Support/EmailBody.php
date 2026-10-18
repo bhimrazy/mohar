@@ -13,7 +13,9 @@ use Illuminate\Mail\Markdown;
  * Turns a rendered template body into the blocks of the branded layout (design §3), by the template conventions:
  *  - "# Heading" is the title; the paragraphs before the key facts (or the button) are the opening, card 1;
  *  - the first table is the key-facts block (label | value rows);
- *  - the first paragraph holding only a link is the primary button, the second one the secondary link;
+ *  - a line of the template's own text that holds only a link is the primary button, the next one the secondary
+ *    link. Only the template source declares them (markActions() tags those links with a per-render token before
+ *    merge fields are filled in), so a link in a client's message or any merged value never becomes a button;
  *  - what follows the facts or the button is the record's notes, card 2.
  * The plain-text part is written text built from the same blocks: lists as "- ", links as "text (url)", facts as
  * aligned "Label  value" rows, never Markdown or HTML.
@@ -29,9 +31,11 @@ final class EmailBody
     }
 
     /**
+     * @param  string|null  $actionToken  the token markActions() put on the template's own button links; null = none
+     * @param  bool  $actionTables  framework mail only: its <x-mail::button> table is the button
      * @return array{title: string|null, intro: string, action: array{url: string, label: string}|null, secondary: array{url: string, label: string}|null, facts: list<array{0: string, 1: string}>, notes: string}
      */
-    public static function parts(string $html): array
+    public static function parts(string $html, ?string $actionToken = null, bool $actionTables = false): array
     {
         $document = self::document($html);
         $nodes = array_values(array_filter(
@@ -46,7 +50,7 @@ final class EmailBody
 
             if ($name === 'h1' && $title === null) {
                 $title = self::inline((string) $node->textContent);
-            } elseif ($secondary === null && ($link = self::buttonLink($node)) !== null) {
+            } elseif ($secondary === null && ($link = self::buttonLink($node, $actionToken, $actionTables)) !== null) {
                 $action === null ? $action = $link : $secondary = $link;
                 $actionAt ??= $index;
             } elseif ($node instanceof Element && $name === 'table' && $facts === [] && ($rows = self::factRows($node)) !== []) {
@@ -69,18 +73,28 @@ final class EmailBody
             }
         }
 
-        return ['title' => $title, 'intro' => implode("\n", $intro), 'action' => $action, 'secondary' => $secondary, 'facts' => $facts, 'notes' => implode("\n", $notes)];
+        // A marked link that is not a button (a third one, or inside other text) is an ordinary link.
+        $unmark = fn (string $markup): string => $actionToken === null ? $markup : str_replace('#'.$actionToken, '', $markup);
+
+        return [
+            'title' => $title,
+            'intro' => $unmark(implode("\n", $intro)),
+            'action' => $action,
+            'secondary' => $secondary,
+            'facts' => array_map(fn (array $row): array => [$unmark($row[0]), $unmark($row[1])], $facts),
+            'notes' => $unmark(implode("\n", $notes)),
+        ];
     }
 
     /**
-     * The text part's blocks from the text render of a body (Markdown with unescaped values, possibly holding
-     * HTML from raw fields such as a ticket reply).
+     * The text part's blocks, from the same rendered (escaped, and for guest mail sanitised) HTML as the HTML part:
+     * merge values stay literal text, and a link the HTML dropped is dropped here too, keeping its text.
      *
      * @return array{title: string|null, intro: string, action: array{url: string, label: string}|null, secondary: array{url: string, label: string}|null, facts: list<array{0: string, 1: string}>, notes: string}
      */
-    public static function textParts(string $markdown): array
+    public static function textParts(string $html, ?string $actionToken = null): array
     {
-        $parts = self::parts(self::html($markdown));
+        $parts = self::parts($html, $actionToken);
 
         return [
             ...$parts,
@@ -88,6 +102,27 @@ final class EmailBody
             'notes' => self::toText($parts['notes']),
             'facts' => array_map(fn (array $row): array => [self::toText($row[0]), self::toText($row[1])], $parts['facts']),
         ];
+    }
+
+    /**
+     * Tags the links on the template's own action lines (a line that, apart from {% %} tags, holds only Markdown
+     * links) with the per-render token, before any merge field is filled in. Only these can become buttons.
+     */
+    public static function markActions(string $source, string $token): string
+    {
+        // A Markdown link whose target may hold merge fields ({{ invoice.url }}).
+        $target = '(?:\{\{.*?\}\}|[^)\s{])*';
+        $link = '\[[^\]\n]*\]\('.$target.'\)';
+
+        return (string) preg_replace_callback('/^.*$/m', function (array $line) use ($link, $target, $token): string {
+            $bare = trim((string) preg_replace('/\{%.*?%\}/', '', $line[0]));
+
+            if ($bare === '' || preg_match('/^(?:'.$link.'\s*)+$/', $bare) !== 1) {
+                return $line[0];
+            }
+
+            return (string) preg_replace('/(\[[^\]\n]*\]\('.$target.')\)/', '$1#'.$token.')', $line[0]);
+        }, $source);
     }
 
     /**
@@ -145,11 +180,12 @@ final class EmailBody
     }
 
     /**
-     * A paragraph holding only one link, or the layout's own button table.
+     * A paragraph holding only one link that the template declared as its action (marked with the token), or, in
+     * framework mail, its button table.
      *
      * @return array{url: string, label: string}|null
      */
-    private static function buttonLink(Node $node): ?array
+    private static function buttonLink(Node $node, ?string $actionToken, bool $actionTables): ?array
     {
         if (! $node instanceof Element) {
             return null;
@@ -158,16 +194,28 @@ final class EmailBody
         $name = strtolower($node->localName);
         $link = null;
 
-        if ($name === 'table' && in_array('action', preg_split('/\s+/', (string) $node->getAttribute('class')) ?: [], true)) {
+        if ($name === 'table' && $actionTables && in_array('action', preg_split('/\s+/', (string) $node->getAttribute('class')) ?: [], true)) {
             $link = $node->querySelector('a');
-        } elseif ($name === 'p') {
+        } elseif ($name === 'p' && $actionToken !== null) {
             $elements = array_values(array_filter(iterator_to_array($node->childNodes), fn (Node $child): bool => $child instanceof Element || trim((string) $child->textContent) !== ''));
             $link = count($elements) === 1 && $elements[0] instanceof Element && strtolower($elements[0]->localName) === 'a' ? $elements[0] : null;
         }
 
-        $url = $link?->getAttribute('href');
+        $url = trim((string) $link?->getAttribute('href'));
 
-        return $link === null || $url === null || trim($url) === '' ? null : ['url' => trim($url), 'label' => self::inline((string) $link->textContent)];
+        if ($link === null || $url === '') {
+            return null;
+        }
+
+        if (! $actionTables || $name === 'p') {
+            if (! str_ends_with($url, '#'.$actionToken)) {
+                return null;
+            }
+
+            $url = substr($url, 0, -strlen('#'.$actionToken));
+        }
+
+        return $url === '' ? null : ['url' => $url, 'label' => self::inline((string) $link->textContent)];
     }
 
     /**
@@ -183,7 +231,8 @@ final class EmailBody
             $cells = array_values(array_filter(iterator_to_array($row->childNodes), fn (Node $cell): bool => $cell instanceof Element));
             $html = array_map(fn (Element $cell): string => trim((string) $cell->innerHTML), $cells);
 
-            if (implode('', array_map('strip_tags', $html)) === '') {
+            // A fact without a value (an optional field that is empty) is left out.
+            if (trim(strip_tags($html[count($html) - 1] ?? '')) === '') {
                 continue;
             }
 

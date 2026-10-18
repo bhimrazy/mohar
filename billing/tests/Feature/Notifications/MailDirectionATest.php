@@ -76,7 +76,7 @@ it('names the overdue invoice, its amount and a pay button in the suspension ema
     Mail::fake();
     fakeMergeFields([
         'service' => ['product_name' => 'Business Hosting', 'domain' => 'sharma.test', 'suspension_reason' => 'overdue'],
-        'service_open_invoice' => [...$this->invoice, 'number' => 'INV-1906', 'balance' => 'Rs 12,769.57', 'due_date' => now()->subDays(9)->toDateString()],
+        'service_overdue_invoice' => [...$this->invoice, 'client_id' => $this->client->id, 'number' => 'INV-1906', 'balance' => 'Rs 12,769.57', 'due_date' => now()->subDays(9)->toDateString()],
     ]);
 
     app(SendEventEmails::class)->handle(new ServiceSuspended(5, $this->client->id, 'overdue'));

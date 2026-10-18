@@ -130,6 +130,7 @@ class EmailTemplateController extends Controller
     public function toggle(EmailTemplate $template): RedirectResponse
     {
         $this->authorize('notifications.templates.manage');
+        abort_if($template->isAlwaysSent(), 422, __('Account and security emails are always sent.'));
         $template->update(['is_enabled' => ! $template->is_enabled]);
         $this->activity->log($template->is_enabled ? 'Email template enabled' : 'Email template disabled', $template, properties: ['key' => $template->key]);
         Inertia::flash('toast', ['type' => 'success', 'message' => $template->is_enabled ? __('Template enabled.') : __('Template disabled — these emails are logged as suppressed.')]);
@@ -188,7 +189,7 @@ class EmailTemplateController extends Controller
         ])]));
 
         try {
-            $composed = $this->composer->compose($draft, $locale, $this->samples->build($template->audience === TemplateAudience::Staff));
+            $composed = $this->composer->compose($draft, $locale, $this->samples->build($template->audience === TemplateAudience::Staff, $template->key));
         } catch (TemplateSyntaxError $error) {
             return response()->json(['error' => $error->getMessage(), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
         }
@@ -214,7 +215,7 @@ class EmailTemplateController extends Controller
         $mailer->send(new EmailRequest(
             $template->key,
             [new Recipient($user->email, $user->name, staffId: $user->id)],
-            $this->samples->build($template->audience === TemplateAudience::Staff),
+            $this->samples->build($template->audience === TemplateAudience::Staff, $template->key),
             'test|'.Str::uuid(),
             relatedType: 'email_template',
             relatedId: $template->id,
@@ -241,6 +242,7 @@ class EmailTemplateController extends Controller
                 'audience' => $template->audience->value,
                 'is_system' => $template->is_system,
                 'is_enabled' => $template->is_enabled,
+                'always_sent' => $template->isAlwaysSent(),
                 'from_name' => $template->from_name,
                 'from_email' => $template->from_email,
                 'cc' => implode(', ', $template->cc ?? []),
@@ -277,7 +279,8 @@ class EmailTemplateController extends Controller
     {
         return [
             'name' => $request->string('name')->toString(),
-            'is_enabled' => $request->boolean('is_enabled', true),
+            // Account and security mail can't be switched off.
+            'is_enabled' => $request->route('template') instanceof EmailTemplate && $request->route('template')->isAlwaysSent() ? true : $request->boolean('is_enabled', true),
             'plain_text_only' => $request->boolean('plain_text_only'),
             'from_name' => $request->filled('from_name') ? $request->string('from_name')->toString() : null,
             'from_email' => $request->filled('from_email') ? $request->string('from_email')->toString() : null,

@@ -3,14 +3,15 @@
 namespace App\Modules\Platform\Support;
 
 use App\Contracts\Notifications\SystemMailer;
+use App\Enums\SystemMailOutcome;
 use App\Models\User;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use Illuminate\Support\Facades\Notification;
-use Illuminate\Support\Str;
 
 /**
- * Account security notices through the editable email templates (SystemMailer), with the SecurityNotice
- * notification as the fallback when the template system can't take them (Notifications module absent).
+ * Account security notices through the editable email templates (SystemMailer). A recipient the template system
+ * can't serve (Notifications module absent, template not installed) gets the SecurityNotice notification instead;
+ * one it refused gets nothing by another path.
  */
 final class AccountMail
 {
@@ -19,30 +20,23 @@ final class AccountMail
     /**
      * @param  iterable<User|string>  $recipients  logins or plain addresses
      * @param  array<string, string>  $notice  merge fields under "notice" (account, email, actor, …)
+     * @param  string  $subject  what changed (e.g. "client:5|user:9"); with the notice and the minute it makes the
+     *                           message key, so a retried request never sends the same notice twice
      * @param  list<string>  $fallbackLines  plain lines for the fallback notification
      */
-    public function notice(string $templateKey, iterable $recipients, array $notice, string $fallbackSubject, array $fallbackLines, ?int $clientId = null): void
+    public function notice(string $templateKey, iterable $recipients, array $notice, string $subject, string $fallbackSubject, array $fallbackLines, ?int $clientId = null): void
     {
-        $list = [];
+        $occurrence = $templateKey.'|'.sha1(json_encode([$subject, $notice, now()->format('YmdHi')], JSON_THROW_ON_ERROR));
 
         foreach ($recipients as $recipient) {
-            $list[] = $recipient;
-        }
+            $outcome = $this->mailer->send($templateKey, $recipient, ['notice' => $notice], $occurrence, $clientId);
 
-        if ($list === [] || $this->mailer->send($templateKey, $list, ['notice' => $notice], $templateKey.'|'.Str::uuid(), $clientId)) {
-            return;
-        }
+            if ($outcome !== SystemMailOutcome::Unavailable) {
+                continue;
+            }
 
-        $notification = new SecurityNotice($fallbackSubject, $fallbackLines);
-        $users = array_values(array_filter($list, fn (User|string $recipient): bool => $recipient instanceof User));
-        $addresses = array_values(array_filter($list, 'is_string'));
-
-        if ($users !== []) {
-            Notification::send($users, $notification);
-        }
-
-        if ($addresses !== []) {
-            Notification::route('mail', $addresses)->notify($notification);
+            $notification = new SecurityNotice($fallbackSubject, $fallbackLines);
+            $recipient instanceof User ? $recipient->notify($notification) : Notification::route('mail', $recipient)->notify($notification);
         }
     }
 }

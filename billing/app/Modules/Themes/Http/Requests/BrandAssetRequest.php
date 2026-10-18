@@ -23,6 +23,7 @@ class BrandAssetRequest extends FormRequest
     {
         return match ($this->route('kind')) {
             'favicon' => ['file' => ['required', File::types(['png', 'ico'])->max(128), 'dimensions:max_width=512,max_height=512']],
+            'logo-email' => ['file' => ['required', File::image()->types(['png', 'jpg', 'jpeg'])->max(512), 'dimensions:min_height=16,max_width=2000,max_height=1000']],
             'mark' => ['file' => ['required', File::image()->types(['png', 'webp'])->max(256), 'dimensions:min_width=32,max_width=1024,max_height=1024,ratio=1']],
             default => ['file' => ['required', File::image()->types(['png', 'jpg', 'jpeg', 'webp'])->max(512), 'dimensions:min_height=16,max_width=2000,max_height=1000']],
         };

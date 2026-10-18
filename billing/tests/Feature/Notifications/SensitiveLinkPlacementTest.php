@@ -217,7 +217,7 @@ it('masks the guest link in the written text part, after lists and links become 
 
     expect(keyOnlyInSystemButton($html))->toBeTrue()
         ->and(substr_count($text, 'GUESTKEY'))->toBe(1)
-        ->and($text)->toContain('- Your link: ••••', '- Open it ••••')->not->toContain('<li>', '<a ', '</');
+        ->and($text)->toContain('- Your link: ••••', '- Open it (••••)')->not->toContain('<li>', '<a ', '</');
 });
 
 it('masks the guest\'s own link pasted into a staff reply, and still sends', function () {

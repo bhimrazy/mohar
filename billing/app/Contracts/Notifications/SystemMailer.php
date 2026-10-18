@@ -2,21 +2,22 @@
 
 namespace App\Contracts\Notifications;
 
+use App\Enums\SystemMailOutcome;
 use App\Models\User;
 
 /**
  * Sends one of the editable email templates for mail that no domain event carries: invitations and account security
- * notices raised by Platform. Core binds a null implementation; the Notifications module binds the real one. A
- * caller sends its own fallback when this returns false, so the mail is never lost when Notifications is absent.
+ * notices raised by Platform. Core binds a null implementation (always Unavailable); the Notifications module binds
+ * the real one. A caller may send its own fallback only on Unavailable, never on Refused.
  */
 interface SystemMailer
 {
     /**
-     * @param  list<User|string>  $recipients  logins or plain addresses
-     * @param  array<string, mixed>  $context  merge fields; a one-time link is an App\Data\Notifications\SensitiveValue
-     * @param  string  $occurrenceKey  identifies this occurrence, so a retry never sends twice
+     * @param  User|string  $recipient  a login or a plain address
+     * @param  array<string, mixed>  $context  merge fields; a one-time link is an App\Data\Notifications\SensitiveValue,
+     *                                         dates may be Carbon instances (shown in the one mail format)
+     * @param  string  $occurrenceKey  stable for this message, so a retry never sends it twice
      * @param  bool  $carriesSecret  the mail holds a one-time link: never copied to anyone
-     * @return bool true when the template system took the mail for every recipient (queued, or suppressed on purpose)
      */
-    public function send(string $templateKey, array $recipients, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): bool;
+    public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome;
 }

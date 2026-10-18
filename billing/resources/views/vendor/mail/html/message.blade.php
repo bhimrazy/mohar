@@ -5,12 +5,15 @@
     final HTML, `raw`, with a system-computed `frame`) and framework notifications (Markdown slot, no frame).
     Brand data comes from BrandProvider; colours from MailPalette.
 --}}
-@props(['preheader' => null, 'preferencesUrl' => null, 'raw' => false, 'frame' => null, 'supportEmail' => null, 'subject' => null])
+@props(['preheader' => null, 'preferencesUrl' => null, 'raw' => false, 'frame' => null, 'supportEmail' => null, 'subject' => null, 'actionToken' => null, 'notes' => null])
 @php
     $palette = \App\Modules\Notifications\Mail\MailPalette::current();
     $l = $palette->light;
     $frame ??= new \App\Modules\Notifications\Mail\MailFrame;
-    $parts = \App\Modules\Notifications\Support\EmailBody::parts($raw ? (string) $slot : (string) Illuminate\Mail\Markdown::parse((string) $slot));
+    // Buttons come only from the template's own action lines (marked with $actionToken) or, in framework mail, from
+    // its <x-mail::button>; never from a link in merged or client content.
+    $parts = \App\Modules\Notifications\Support\EmailBody::parts($raw ? (string) $slot : (string) Illuminate\Mail\Markdown::parse((string) $slot), $actionToken, actionTables: ! $raw);
+    $parts['notes'] = trim($parts['notes']."\n".(string) $notes);
     $systemAction = isset($action) && trim((string) $action) !== '' ? (string) $action : null;
     // A system button (ticket link) is the action; a link the template adds next to it becomes the quiet link.
     $secondary = $systemAction !== null ? ($parts['action'] ?? $parts['secondary']) : $parts['secondary'];
@@ -26,12 +29,10 @@
 
     $brandProvider = app(\App\Contracts\Branding\BrandProvider::class);
     $brand = $brandProvider->brand();
+    // The host's brand only (product standards 2026-10-18): its opt-in email logo (opaque, so it survives colour
+    // inversion), else its uploaded mark beside the name as live text, else the name alone. Never the product's mark.
     $logo = $brandProvider->emailLogoUrl();
-    // The bundled wordmark is replaced by the mark plus the name as live text, which stays readable when a client
-    // force-inverts colours; an uploaded raster logo is used as it is.
-    $uploadedLogo = $logo !== null && ! str_ends_with((string) parse_url($logo, PHP_URL_PATH), '/brand/logo.png') ? $logo : null;
-    $markLight = asset('brand/email/mark-light.png');
-    $markDark = asset('brand/email/mark-dark.png');
+    $mark = $brand->emailMark;
 
     $text = fn (string $colour, string $size = '16px', string $line = '24px'): string => "margin:0;font-size:{$size};line-height:{$line};color:{$colour};";
     $card = 'width:100%;background-color:'.$l['card'].';border-radius:16px;border-collapse:separate;';
@@ -40,14 +41,13 @@
 <x-mail::layout :preheader="$preheader" :subject="$subject" :palette="$palette">
 {{-- Brand --}}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding:0 0 20px;">
-@if ($uploadedLogo !== null)
-<img class="brand-logo" src="{{ $uploadedLogo }}" alt="{{ $brand->name }}" height="32" class="logo-l" style="display:block;height:32px;width:auto;max-width:220px;border:0;color:{{ $l['strong'] }};font-size:18px;font-weight:700;line-height:32px;">
-@if ($brand->emailLogoDark)
-<!--[if !mso]><!--><div class="logo-d" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="brand-logo" src="{{ $brand->emailLogoDark }}" alt="{{ $brand->name }}" height="32" style="display:block;height:32px;width:auto;max-width:220px;border:0;"></div><!--<![endif]-->
-@endif
+@if ($logo !== null)
+<img class="brand-logo" src="{{ $logo }}" alt="{{ $brand->name }}" height="40" style="display:block;height:40px;width:auto;max-width:240px;border:0;color:{{ $l['strong'] }};font-size:18px;font-weight:700;line-height:40px;">
 @else
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" style="padding-right:10px;"><img src="{{ $markLight }}" width="28" height="28" alt="" class="brand-logo logo-l" style="display:block;width:28px;height:28px;border:0;"><!--[if !mso]><!--><div class="logo-d" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="brand-logo" src="{{ $markDark }}" width="28" height="28" alt="" style="display:block;width:28px;height:28px;border:0;"></div><!--<![endif]--></td>
+@if ($mark !== null)
+<td valign="middle" style="padding-right:10px;"><img class="brand-logo" src="{{ $mark }}" width="28" height="28" alt="" style="display:block;width:28px;height:28px;border:0;border-radius:6px;"></td>
+@endif
 <td valign="middle" class="tx-strong brand-name" style="font-size:18px;line-height:28px;font-weight:700;letter-spacing:-.01em;color:{{ $l['strong'] }};">{{ $brand->name }}</td>
 </tr></table>
 @endif
@@ -138,6 +138,7 @@
 @endforeach
 @foreach ($frame->lines['totals'] as $total)
 @if ($total['total'])
+<tr><td colspan="2" style="padding:0;height:10px;font-size:0;line-height:0;">&nbsp;</td></tr>
 <tr><td class="tx-strong bd" style="padding:12px 12px 4px 0;border-top:2px solid {{ $l['strong'] }};font-size:16px;line-height:24px;font-weight:700;color:{{ $l['strong'] }};">{{ $total['label'] }}</td><td class="tx-strong bd" align="right" style="padding:12px 0 4px;border-top:2px solid {{ $l['strong'] }};font-size:16px;line-height:24px;font-weight:700;color:{{ $l['strong'] }};text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;">{{ $total['amount'] }}</td></tr>
 @else
 <tr><td class="tx-muted" style="padding:8px 12px 0 0;font-size:15px;line-height:22px;color:{{ $l['muted'] }};">{{ $total['label'] }}</td><td class="tx-body" align="right" style="padding:8px 0 0;font-size:15px;line-height:22px;color:{{ $l['body'] }};text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;">{{ $total['amount'] }}</td></tr>

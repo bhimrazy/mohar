@@ -16,7 +16,7 @@
  */
 
 // Client mail greets the reader by first name after the title (design §3 block 4).
-$greet = static fn (string $body): string => (string) preg_replace('/^(# [^\n]*\n\n)/', "\$1Hi {{ recipient.first_name }},\n\n", $body, 1);
+$greet = static fn (string $body): string => (string) preg_replace('/^(# [^\n]*\n\n)/', "\$1{% if recipient.first_name %}Hi {{ recipient.first_name }},{% else %}Hello,{% endif %}\n\n", $body, 1);
 $client = static fn (string $key, string $type, string $name, string $subject, string $body): array => [
     'key' => $key, 'type' => $type, 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $greet($body),
 ];
@@ -67,16 +67,16 @@ Hello {{ user.first_name }}, confirm that this email address is yours so we can 
 If you didn't create an account with {{ company.name }}, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
     $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You\'re invited to a {{ company.name }} client account', 'You\'re invited', 'Accept invitation', <<<'MD'
-Hello {{ user.first_name }}, you've been given access to a {{ company.name }} client account. Accept the invitation to choose your password and sign in.
+Hello {{ user.first_name }}, you've been given access to a {{ company.name }} client account. Accept the invitation to choose your password and log in.
 
-The link works until {{ auth.expires_at }}. After that, use "Forgot password" on the sign-in page to get a new one.
+The link works until {{ auth.expires_at }}. After that, use "Forgot your password?" on the login page to get a new one.
 
 If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
-    $client('auth.new_login_alert', 'general', 'New sign-in alert', 'New sign-in to your {{ company.name }} account', <<<'MD'
-# New sign-in to your account
+    $client('auth.new_login_alert', 'general', 'New login alert', 'New login to your {{ company.name }} account', <<<'MD'
+# New login to your account
 
-We noticed a new sign-in to {{ user.email }}.
+We noticed a new login to {{ user.email }}.
 
 | IP address | {{ auth.ip }} |
 |---|---|
@@ -89,7 +89,7 @@ MD),
     $client('auth.login_added', 'general', 'Login added to your account', 'A login was added to your {{ company.name }} account', <<<'MD'
 # A login was added to your account
 
-{{ notice.email }} can now sign in to the {{ notice.account }} account.
+{{ notice.email }} can now log in to the {{ notice.account }} account.
 
 | Account | {{ notice.account }} |
 |---|---|
@@ -103,7 +103,7 @@ MD),
     $client('auth.access_granted', 'general', 'Access to a client account', 'You now have access to {{ notice.account }}', <<<'MD'
 # You have access to {{ notice.account }}
 
-Our team gave your login access to the {{ notice.account }} account. Sign in as usual to see it.
+Our team gave your login access to the {{ notice.account }} account. Log in as usual to see it.
 
 [Open the client area]({{ system.client_area_url }})
 
@@ -121,10 +121,10 @@ Ownership of the {{ notice.account }} account was transferred to {{ notice.email
 
 If you didn't expect this, contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
 MD),
-    $client('auth.two_factor_reset', 'general', 'Two-step sign-in reset', 'Two-step sign-in was turned off on your {{ company.name }} account', <<<'MD'
-# Two-step sign-in was reset
+    $client('auth.two_factor_reset', 'general', 'Two-factor authentication reset', 'Two-factor authentication was turned off on your {{ company.name }} account', <<<'MD'
+# Two-factor authentication was reset
 
-Our team turned off two-step sign-in on your account, for example after a lost phone. Set it up again from your security settings.
+Our team turned off two-factor authentication on your account, for example after a lost phone. Set it up again from your security settings.
 
 [Open security settings]({{ system.client_area_url }})
 
@@ -197,7 +197,7 @@ MD.$signOff),
     $client('service.welcome.shared_hosting', 'product', 'Welcome: shared hosting', 'Your hosting for {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your hosting is ready
 
-{{ service.product_name }} for {{ service.domain }} is active. Sign in to see your username and set a password.
+{{ service.product_name }} for {{ service.domain }} is active. Log in to see your username and set a password.
 
 | Domain | {{ service.domain }} |
 |---|---|
@@ -216,7 +216,7 @@ MD.$signOff),
     $client('service.welcome.reseller_hosting', 'product', 'Welcome: reseller hosting', 'Your reseller account is ready', <<<'MD'
 # Your reseller account is ready
 
-{{ service.product_name }} is active. Sign in to see your username and set a password.
+{{ service.product_name }} is active. Log in to see your username and set a password.
 
 | Username | {{ service.username }} |
 |---|---|
@@ -233,7 +233,7 @@ MD.$signOff),
     $client('service.welcome.server', 'product', 'Welcome: server', 'Your server {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your server is online
 
-{{ service.product_name }} is ready to use. Sign in to see your username and set a password.
+{{ service.product_name }} is ready to use. Log in to see your username and set a password.
 
 | Hostname | {{ service.domain }} |
 |---|---|
@@ -417,7 +417,7 @@ MD.$signOff),
     $client('invoice.refunded', 'invoice', 'Refund issued', 'Your refund from {{ company.name }}: {{ refund.amount }} for invoice {{ invoice.number }}', <<<'MD'
 # Refund issued
 
-We've refunded part or all of invoice {{ invoice.number }}. Depending on your bank, it can take a few days to appear.
+We've refunded {{ refund.amount }} for invoice {{ invoice.number }}. Depending on your bank, it can take a few days to appear.
 
 | Refund | {{ refund.amount }} |
 |---|---|
@@ -444,10 +444,10 @@ Add a new one so renewals continue without interruption.
 
 [Update payment method]({{ system.client_area_url }})
 MD.$signOff),
-    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note from {{ company.name }} for invoice {{ invoice.number }}', <<<'MD'
+    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note from {{ company.name }}: {{ credit_note.amount }} for invoice {{ invoice.number }}', <<<'MD'
 # Credit note issued
 
-We've issued a credit note against invoice {{ invoice.number }}.
+We've issued a credit note for {{ credit_note.amount }} against invoice {{ invoice.number }}. The amount is now credit on your account.
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
@@ -579,9 +579,9 @@ MD.$signOff),
     $client('ticket.unregistered_bounce', 'support', 'Email from an unknown sender', 'Your email was not received', <<<'MD'
 # We couldn't accept your email
 
-We only accept support email from registered addresses. Sign in to open a ticket.
+We only accept support email from registered addresses. Log in to open a ticket.
 
-[Sign in]({{ system.client_area_url }})
+[Log in]({{ system.client_area_url }})
 MD.$signOff),
     $client('ticket.replies_only_bounce', 'support', 'Department accepts replies only', 'Your email was not received', <<<'MD'
 # We couldn't accept your email
@@ -617,22 +617,22 @@ MD),
 
 {{ ticket.requester_name }} opened "{{ ticket.subject }}" in {{ ticket.department }}.
 
+[Open ticket]({{ ticket.admin_url }})
+
 | Priority | {{ ticket.priority }} |
 |---|---|
 | Department | {{ ticket.department }} |
 
-{{ reply.body_html | raw }}
-
-[Open ticket]({{ ticket.admin_url }})
+<blockquote>{{ reply.body_html | raw }}</blockquote>
 MD),
     $staff('staff.ticket_client_reply', 'Client replied to a ticket', '[#{{ ticket.number }}] Client reply: {{ ticket.subject }}', <<<'MD'
 # Client reply on #{{ ticket.number }}
 
 {{ reply.author_name }} replied to "{{ ticket.subject }}".
 
-{{ reply.body_html | raw }}
-
 [Open ticket]({{ ticket.admin_url }})
+
+<blockquote>{{ reply.body_html | raw }}</blockquote>
 MD),
     $staff('staff.ticket_assigned', 'Ticket assigned to you', '[#{{ ticket.number }}] Assigned to you: {{ ticket.subject }}', <<<'MD'
 # Ticket #{{ ticket.number }} is yours
@@ -646,9 +646,9 @@ MD),
 
 {{ reply.author_name }} mentioned you in a note on ticket #{{ ticket.number }}.
 
-{{ reply.body_html | raw }}
-
 [Open ticket]({{ ticket.admin_url }})
+
+<blockquote>{{ reply.body_html | raw }}</blockquote>
 MD),
     $staff('staff.ticket_department_changed', 'Ticket moved to your department', '[#{{ ticket.number }}] Moved to {{ ticket.department }}', <<<'MD'
 # Ticket moved to {{ ticket.department }}
@@ -678,10 +678,10 @@ The {{ failure.action }} action failed for {{ domain.domain }} ({{ client.full_n
 |---|---|
 | Error | {{ failure.error }} |
 MD),
-    $staff('staff.domain_sync_report', 'Domain sync report', 'Domain sync: {{ sync.change_count }} changes, {{ sync.error_count }} errors', <<<'MD'
+    $staff('staff.domain_sync_report', 'Domain sync report', 'Domain sync report: changes {{ sync.change_count }}, errors {{ sync.error_count }}', <<<'MD'
 # Domain sync report
 
-The registrar sync found {{ sync.change_count }} change(s) and {{ sync.error_count }} error(s).
+The registrar sync finished. Changes: {{ sync.change_count }}. Errors: {{ sync.error_count }}.
 
 {% for line in sync.lines %}- {{ line }}
 {% endfor %}
@@ -734,19 +734,19 @@ Hello, you've been invited to join the {{ company.name }} team in the admin area
 
 The invitation works until {{ auth.expires_at }}. If you weren't expecting it, you can ignore this email.
 MD),
-    $staff('staff.two_factor_reset', 'Staff two-step sign-in reset', 'Two-step sign-in was reset on your staff account', <<<'MD'
-# Two-step sign-in was reset
+    $staff('staff.two_factor_reset', 'Staff two-factor authentication reset', 'Two-factor authentication was reset on your staff account', <<<'MD'
+# Two-factor authentication was reset
 
-{{ notice.actor }} turned off two-step sign-in on your staff account. Set it up again the next time you sign in.
+{{ notice.actor }} turned off two-factor authentication on your staff account. Set it up again the next time you log in.
 
 If you didn't expect this, tell another administrator straight away.
 
 [Open admin area]({{ system.admin_url }})
 MD),
-    $staff('staff.email_changed', 'Staff sign-in email changed', 'Your staff sign-in email was changed', <<<'MD'
-# Your sign-in email was changed
+    $staff('staff.email_changed', 'Staff login email changed', 'Your staff login email was changed', <<<'MD'
+# Your login email was changed
 
-{{ notice.actor }} changed the sign-in email of your staff account.
+{{ notice.actor }} changed the login email of your staff account.
 
 | From | {{ notice.old_email }} |
 |---|---|
@@ -764,10 +764,10 @@ If you didn't expect this, review the change in the activity log.
 
 [Open admin area]({{ system.admin_url }})
 MD),
-    $staff('staff.login_failures', 'Repeated failed staff sign-ins', 'Repeated failed sign-ins for {{ security.email }}', <<<'MD'
-# Repeated failed sign-ins
+    $staff('staff.login_failures', 'Repeated failed staff logins', 'Repeated failed logins for {{ security.email }}', <<<'MD'
+# Repeated failed logins
 
-The staff account {{ security.email }} had {{ security.failures }} failed sign-in attempts. It may be under attack.
+The staff account {{ security.email }} had {{ security.failures }} failed login attempts. It may be under attack.
 
 [Open admin area]({{ system.admin_url }})
 MD),
@@ -789,12 +789,12 @@ We stopped sending events to this endpoint after {{ webhook.consecutive_failures
 
 [Open endpoint]({{ webhook.admin_url }})
 MD),
-    $staff('staff.template_render_failed', 'Email template failed to render', 'Email template {{ template.key }} failed to render', <<<'MD'
+    $staff('staff.template_render_failed', 'Email template failed to render', 'Email template "{{ template.name }}" failed to render', <<<'MD'
 # Email template error
 
-Emails using {{ template.key }} are failing until the template is fixed.
+Emails using "{{ template.name }}" are failing until the template is fixed.
 
-| Template | {{ template.key }} |
+| Template | {{ template.name }} |
 |---|---|
 | Error | {{ template.error }} |
 
@@ -811,18 +811,18 @@ $preheaders = [
     'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
     'auth.user_invitation' => 'Accept to choose your password and see this account\'s invoices, services and tickets.',
     'auth.new_login_alert' => 'From {{ auth.ip }} on {{ system.today | date }}. Not you? Change your password now.',
-    'auth.login_added' => '{{ notice.email }} can now sign in to {{ notice.account }}. Not expected? Remove the login.',
-    'auth.access_granted' => 'Sign in as usual to see {{ notice.account }}.',
+    'auth.login_added' => '{{ notice.email }} can now log in to {{ notice.account }}. Not expected? Remove the login.',
+    'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
     'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
     'auth.two_factor_reset' => 'Set it up again from your security settings.',
-    'client.welcome' => 'Your account is ready. Sign in to order services, pay invoices and get help.',
+    'client.welcome' => 'Your account is ready. Log in to order services, pay invoices and get help.',
     'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',
     'quote.delivered' => '{{ quote.subject }}. Valid until {{ quote.valid_until | date }}. Accept it online to place the order.',
     'affiliate.activated' => 'Share your link and earn commission on every referred order.',
     'affiliate.withdrawal_processed' => 'It can take a few working days to reach you.',
-    'service.welcome.shared_hosting' => 'Sign in to see your details and nameservers. Point your domain to us to go live.',
-    'service.welcome.reseller_hosting' => 'Sign in to your control panel to create your first customer account.',
-    'service.welcome.server' => 'Sign in to see your details. Change the password after your first sign-in.',
+    'service.welcome.shared_hosting' => 'Log in to see your details and nameservers. Point your domain to us to go live.',
+    'service.welcome.reseller_hosting' => 'Log in to your control panel to create your first customer account.',
+    'service.welcome.server' => 'Log in to see your details. Change the password after your first login.',
     'service.welcome.other' => 'Everything you need to get started is in the client area.',
     'service.suspended' => '{% if invoice.number %}Pay invoice {{ invoice.number }} to restore it.{% else %}Reply to this email and we\'ll help restore it.{% endif %} Your data is kept safe.',
     'service.unsuspended' => 'Everything is back as it was. Thanks for sorting this out.',

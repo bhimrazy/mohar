@@ -116,22 +116,23 @@ class EmailComposer
         $action = $actionPath !== null ? data_get($context, $actionPath) : null;
         $isTicketOwner = $this->isTicketOwner($context);
         $labelContext = SecretTemplatePolicy::textContext($context);
-        $context = SecretTemplatePolicy::prepareContext($context);
+        $context = SecretTemplatePolicy::neutraliseUntrusted(SecretTemplatePolicy::prepareContext($context));
         $options = $this->options($locale, $context);
+        // Only the template's own action lines can become buttons: they are tagged before any value is filled in.
+        $actionToken = 'zzbtn'.bin2hex(random_bytes(12));
 
         $renderedSubject = $this->engine->render($subject, $context, false, $options);
-        $html = $this->engine->render($body, $context, true, $options);
-        $text = $this->engine->render($body, $context, false, $options);
+        $html = $this->engine->render(EmailBody::markActions($body, $actionToken), $context, true, $options);
         $bodyHtml = EmailBody::html($html->output);
-        $textParts = EmailBody::textParts($text->output);
         $preview = $this->preheader((string) $preheader, $context, $options) ?? EmailBody::preheader($bodyHtml);
-        $frame = $this->framer->frame($templateKey, $context);
+        $frame = $this->framer->frame($templateKey, $context, $locale);
         $url = $action instanceof SensitiveValue ? $action->value : (is_string($action) ? $action : '');
         $warnings = array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings]));
         $subjectLine = $this->subjectLine($renderedSubject->output);
-        $layout = fn (string $subject, ?string $preheader): array => ['subject' => $subject, 'preheader' => $preheader, 'frame' => $frame, 'preferencesUrl' => $preferencesUrl, 'supportEmail' => $supportEmail];
+        $layout = fn (string $subject, ?string $preheader): array => ['subject' => $subject, 'preheader' => $preheader, 'frame' => $frame, 'preferencesUrl' => $preferencesUrl, 'supportEmail' => $supportEmail, 'actionToken' => $actionToken];
 
         if ($url === '') {
+            $textParts = EmailBody::textParts($bodyHtml, $actionToken);
             $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($bodyHtml, $layout($subjectLine, $preview));
             $wrappedText = $this->wrapText($textParts, $layout($subjectLine, $preview));
 
@@ -141,6 +142,7 @@ class EmailComposer
         $label = trim($this->engine->render(SecretTemplatePolicy::plainCopy((string) $actionLabel), $labelContext, false, $options)->output) ?: __('View your ticket');
 
         if (! $action instanceof SensitiveValue) {
+            $textParts = EmailBody::textParts($bodyHtml, $actionToken);
             [$sentHtml, $sentText] = $this->withSystemAction($bodyHtml, $textParts, $url, $label, $plainTextOnly, $layout($subjectLine, $preview));
 
             return new ComposedEmail($subjectLine, $sentHtml, $sentText, $sentHtml, $sentText, false, $warnings);
@@ -152,7 +154,8 @@ class EmailComposer
         $subjectLine = $this->subjectLine(SecretTemplatePolicy::maskValues($renderedSubject->output, [$secret]));
         $preview = $preview === null ? null : SecretTemplatePolicy::maskValues($preview, [$secret]);
         $bodyHtml = SecretTemplatePolicy::sanitizeStaffHtml($bodyHtml, [$secret]);
-        $textParts = self::maskParts($textParts, [$secret]);
+        // The text part comes from the sanitised HTML: a link dropped there is dropped here too.
+        $textParts = self::maskParts(EmailBody::textParts($bodyHtml, $actionToken), [$secret]);
 
         if (! SecretTemplatePolicy::isAllowedLink($url)) {
             $this->blocked((string) $templateKey, 'The ticket link is not on APP_URL.');
@@ -319,21 +322,23 @@ class EmailComposer
         $preheader = $plain($translation->preheader);
         $first = array_slice($paragraphs, 0, 1);
         $rest = array_slice($paragraphs, 1);
+        $textParts = ['title' => $heading !== '' ? $heading : null, 'intro' => implode("\n\n", $first), 'action' => null, 'secondary' => null, 'facts' => [], 'notes' => implode("\n\n", $rest)];
+        $paragraphHtml = fn (array $list): string => implode("\n", array_map(fn (string $paragraph): string => '<p>'.nl2br(e($paragraph), false).'</p>', $list));
         $layout = [
             'subject' => $subject,
             'preheader' => $preheader !== '' ? $preheader : ($first[0] ?? null),
-            'frame' => $this->framer->frame($template->key, $textContext),
+            'frame' => $this->framer->frame($template->key, $textContext, $translation->locale),
             'preferencesUrl' => null,
             'supportEmail' => $supportEmail,
+            'notes' => $paragraphHtml($rest),
         ];
-        $textParts = ['title' => $heading !== '' ? $heading : null, 'intro' => implode("\n\n", $first), 'action' => null, 'secondary' => null, 'facts' => [], 'notes' => implode("\n\n", $rest)];
-        $paragraphHtml = fn (array $list): string => implode("\n", array_map(fn (string $paragraph): string => '<p>'.nl2br(e($paragraph), false).'</p>', $list));
 
-        $build = function (string $link) use ($heading, $label, $first, $rest, $template, $layout, $textParts, $paragraphHtml): array {
-            $html = ($heading !== '' ? '<h1>'.e($heading).'</h1>'."\n" : '').$paragraphHtml($first)."\n".EmailBody::button($link, $label)."\n".$paragraphHtml($rest);
+        // The button goes into the layout's system action slot; the remaining paragraphs are the record card's notes.
+        $build = function (string $link) use ($heading, $label, $first, $template, $layout, $textParts, $paragraphHtml): array {
+            $html = ($heading !== '' ? '<h1>'.e($heading).'</h1>'."\n" : '').$paragraphHtml($first);
 
             return [
-                $template->plain_text_only ? null : $this->wrapHtml((string) preg_replace("/\n{2,}/", "\n", $html), $layout),
+                $template->plain_text_only ? null : $this->wrapHtml($html, $layout, EmailBody::button($link, $label)),
                 $this->wrapText($textParts, $layout, $label.': '.$link),
             ];
         };

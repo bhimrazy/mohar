@@ -3,19 +3,21 @@
 namespace App\Modules\Notifications\Services;
 
 use App\Contracts\Notifications\SystemMailer;
+use App\Enums\SystemMailOutcome;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Notifications\Data\EmailRequest;
-use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Enums\EmailStatus;
-use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Support\MailClock;
 use Carbon\CarbonInterface;
 use Throwable;
 
 /**
  * SystemMailer bound by the Notifications module: invitations and account security notices go out as editable,
- * logged, branded templates. Returns false (the caller sends its fallback) when nothing could be queued.
+ * logged, branded templates. A message the template system refused (a one-time link that failed its checks, a
+ * template that failed to render) is Refused, so no other path sends it; only a template that isn't installed is
+ * Unavailable.
  */
 class TemplatedSystemMailer implements SystemMailer
 {
@@ -25,39 +27,46 @@ class TemplatedSystemMailer implements SystemMailer
         private MergeContext $context,
     ) {}
 
-    public function send(string $templateKey, array $recipients, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): bool
+    public function send(string $templateKey, User|string $recipient, array $context, string $occurrenceKey, ?int $clientId = null, bool $carriesSecret = false): SystemMailOutcome
     {
+        if (! EmailTemplate::query()->where('key', $templateKey)->exists()) {
+            return SystemMailOutcome::Unavailable;
+        }
+
         try {
             $client = $clientId !== null ? Client::query()->find($clientId) : null;
-            $resolved = $this->recipients->unique(array_values(array_filter(array_map(
-                fn (User|string $recipient): ?Recipient => $recipient instanceof User
-                    ? $this->recipients->user($recipient->id, $recipient->is_staff ? null : $client)
-                    : ($this->recipients->addresses([$recipient], $client)[0] ?? null),
-                $recipients,
-            ))));
+            $resolved = $recipient instanceof User
+                ? $this->recipients->user($recipient->id, $recipient->is_staff ? null : $client)
+                : ($this->recipients->addresses([$recipient], $client)[0] ?? null);
 
-            if ($resolved === []) {
-                return false;
+            if ($resolved === null) {
+                return SystemMailOutcome::Unavailable;
             }
 
             $messages = $this->mailer->send(new EmailRequest(
                 $templateKey,
-                $resolved,
+                [$resolved],
                 [...$this->context->client($clientId), ...self::withDates($context)],
                 $occurrenceKey,
                 $clientId,
                 'user',
-                null,
+                $recipient instanceof User ? $recipient->id : null,
                 carriesSecret: $carriesSecret,
             ));
         } catch (Throwable $exception) {
             report($exception);
 
-            return false;
+            // Fail closed for mail with a one-time link: an unexpected error is never a reason to send it another way.
+            return $carriesSecret ? SystemMailOutcome::Refused : SystemMailOutcome::Unavailable;
         }
 
-        return $messages !== [] && count($messages) === count($resolved)
-            && array_filter($messages, fn (EmailMessage $message): bool => $message->status === EmailStatus::Failed) === [];
+        $message = $messages[0] ?? null;
+
+        return match (true) {
+            $message === null => SystemMailOutcome::Unavailable,
+            $message->status === EmailStatus::Failed => SystemMailOutcome::Refused,
+            default => SystemMailOutcome::Taken,
+        };
     }
 
     /**

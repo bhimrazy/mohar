@@ -20,7 +20,6 @@ class DefaultBrandProvider implements BrandProvider
             logoDark: asset('brand/logo-dark.svg'),
             mark: asset('brand/mark.svg'),
             favicon: asset('favicon.svg'),
-            emailLogoDark: is_file(public_path('brand/logo-dark.png')) ? asset('brand/logo-dark.png') : null,
         );
     }
 
@@ -33,6 +32,7 @@ class DefaultBrandProvider implements BrandProvider
 
     public function emailLogoUrl(): ?string
     {
-        return is_file(public_path('brand/logo.png')) ? asset('brand/logo.png') : null;
+        // Customer mail shows the host's name, never the product's own logo.
+        return null;
     }
 }

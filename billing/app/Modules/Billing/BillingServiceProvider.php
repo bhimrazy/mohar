@@ -33,6 +33,7 @@ use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -320,6 +321,22 @@ class BillingServiceProvider extends ModuleServiceProvider
     }
 
     /**
+     * The oldest payable invoice past its due date with a live line for the item, as merge fields; [] when none.
+     *
+     * @return array<string, mixed>
+     */
+    private function overdueInvoiceFor(BillableType $type, int $billableId): array
+    {
+        $invoice = Invoice::query()->with('items')
+            ->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable()))
+            ->whereDate('due_date', '<', app(BusinessCalendar::class)->today()->toDateString())
+            ->whereHas('items', fn ($items) => $items->where('type', $type->value)->where('billable_id', $billableId)->whereNull('cancelled_at'))
+            ->orderBy('due_date')->orderBy('id')->first();
+
+        return $invoice === null ? [] : $this->invoiceMergeFields($invoice);
+    }
+
+    /**
      * The invoice as email merge fields: amounts formatted in its currency, and the lines, discount and taxes for the
      * "what you're paying for" block.
      *
@@ -340,6 +357,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             'balance' => $money($invoice->balance),
             'balance_minor' => $invoice->balance,
             'amount_paid' => $money($invoice->amount_paid),
+            'amount_paid_minor' => $invoice->amount_paid,
             'subtotal' => $money($invoice->subtotal),
             'discount' => $invoice->discount_total > 0 ? $money(-$invoice->discount_total) : null,
             'credit_applied' => $invoice->credit_applied > 0 ? $money($invoice->credit_applied) : null,
@@ -367,15 +385,9 @@ class BillingServiceProvider extends ModuleServiceProvider
 
         $registry->register('invoice', fn (int $id): array => $this->invoiceMergeFields(Invoice::query()->with('items')->findOrFail($id)));
 
-        // The oldest open invoice that bills a service (its overdue invoice, for the suspension email); [] when none.
-        $registry->register('service_open_invoice', function (int $serviceId): array {
-            $invoice = Invoice::query()->with('items')
-                ->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable()))
-                ->whereHas('items', fn ($items) => $items->where('type', BillableType::Service->value)->where('billable_id', $serviceId)->whereNull('cancelled_at'))
-                ->orderBy('due_date')->orderBy('id')->first();
-
-            return $invoice === null ? [] : $this->invoiceMergeFields($invoice);
-        });
+        // The oldest overdue invoice that bills a service or one of its add-ons (for the suspension email); [] when none.
+        $registry->register('service_overdue_invoice', fn (int $serviceId): array => $this->overdueInvoiceFor(BillableType::Service, $serviceId));
+        $registry->register('service_addon_overdue_invoice', fn (int $addonId): array => $this->overdueInvoiceFor(BillableType::ServiceAddon, $addonId));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

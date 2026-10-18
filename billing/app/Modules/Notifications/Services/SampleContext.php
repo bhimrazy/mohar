@@ -18,12 +18,14 @@ class SampleContext
     public function __construct(private MergeContext $context) {}
 
     /**
+     * @param  string|null  $templateKey  the template previewed, so the sample fits it (an overdue notice's invoice is overdue)
      * @return array<string, mixed>
      */
-    public function build(bool $forStaff = false): array
+    public function build(bool $forStaff = false, ?string $templateKey = null): array
     {
         $today = MailClock::today();
-        $due = CarbonImmutable::parse($today)->addDays(14)->toDateString();
+        // Overdue notices preview an invoice that is overdue, everything else one due in two weeks.
+        $due = CarbonImmutable::parse($today)->addDays(str_starts_with((string) $templateKey, 'invoice.overdue') ? -7 : 14)->toDateString();
         $period = [CarbonImmutable::parse($today)->addDays(14)->toDateString(), CarbonImmutable::parse($today)->addDays(14)->addYear()->subDay()->toDateString()];
 
         return [
@@ -107,7 +109,8 @@ class SampleContext
                 'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
                 'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
             ],
-            'template' => ['key' => 'invoice.created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
+            'credit_note' => ['amount' => '$10.00'],
+            'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
         ];
     }
 
@@ -121,7 +124,7 @@ class SampleContext
         $groups = match ($type) {
             TemplateType::General => ['client', 'user', 'auth', 'order', 'quote', 'affiliate', 'notice'],
             TemplateType::Product => ['client', 'service', 'cancellation'],
-            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund'],
+            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'credit_note'],
             TemplateType::Domain => ['client', 'domain', 'domains'],
             TemplateType::Support => ['ticket', 'reply'],
             TemplateType::Admin => ['staff', 'client', 'order', 'service', 'domain', 'ticket', 'reply', 'invoice', 'failure', 'sync', 'automation', 'security', 'webhook', 'template', 'auth', 'cancellation', 'affiliate', 'notice'],

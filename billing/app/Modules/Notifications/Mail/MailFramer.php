@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Mail;
 
+use App\Contracts\Branding\BrandProvider;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Support\MailClock;
 
@@ -12,13 +13,16 @@ use App\Modules\Notifications\Support\MailClock;
  */
 final class MailFramer
 {
-    public function __construct(private Settings $settings) {}
+    private string $locale = 'en';
+
+    public function __construct(private Settings $settings, private BrandProvider $brand) {}
 
     /**
      * @param  array<string, mixed>  $context
      */
-    public function frame(?string $templateKey, array $context): MailFrame
+    public function frame(?string $templateKey, array $context, string $locale = 'en'): MailFrame
     {
+        $this->locale = $locale;
         $key = (string) $templateKey;
         $family = strstr($key, '.', true) ?: $key;
 
@@ -47,7 +51,7 @@ final class MailFramer
     {
         $dueDate = $this->string($context, 'invoice.due_date');
         $days = MailClock::daysFromToday($dueDate);
-        $due = MailClock::date($dueDate);
+        $due = $this->date($dueDate);
         $paid = strtolower((string) data_get($context, 'invoice.status')) === 'paid';
         $auto = $key === 'invoice.created_autocharge';
 
@@ -88,7 +92,7 @@ final class MailFramer
             amountLabel: self::text('Amount paid'),
             statusTone: $settled ? 'success' : 'warning',
             statusLabel: $settled ? self::text('Paid') : self::text('Part paid'),
-            statusWhen: MailClock::date($this->string($context, 'payment.date')),
+            statusWhen: $this->date($this->string($context, 'payment.date')),
             document: true,
             downloads: $this->invoiceDownload($context),
             lines: $this->lines($context, self::text('What you paid for'), self::text('Total'), receipt: true),
@@ -103,11 +107,11 @@ final class MailFramer
     {
         return new MailFrame(
             label: self::text('Refund from :company', ['company' => $this->legalName()]),
-            amount: $key === 'invoice.refunded' ? $this->string($context, 'refund.amount') : null,
-            amountLabel: self::text('Refunded'),
+            amount: $this->string($context, $key === 'invoice.refunded' ? 'refund.amount' : 'credit_note.amount'),
+            amountLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit'),
             statusTone: 'info',
             statusLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit issued'),
-            statusWhen: MailClock::date(MailClock::today()),
+            statusWhen: $this->date(MailClock::today()),
             document: true,
             downloads: $this->invoiceDownload($context),
             reason: $this->billingReason($context),
@@ -119,7 +123,7 @@ final class MailFramer
      */
     private function quote(array $context): MailFrame
     {
-        $validUntil = MailClock::date($this->string($context, 'quote.valid_until'));
+        $validUntil = $this->date($this->string($context, 'quote.valid_until'));
 
         return new MailFrame(
             label: self::text('Quote from :company', ['company' => $this->legalName()]),
@@ -141,7 +145,7 @@ final class MailFramer
             label: self::text('Order #:number', ['number' => $this->string($context, 'order.number')]),
             statusTone: 'success',
             statusLabel: self::text('Order received'),
-            statusWhen: MailClock::date($this->string($context, 'order.date')),
+            statusWhen: $this->date($this->string($context, 'order.date')),
         );
     }
 
@@ -174,7 +178,7 @@ final class MailFramer
      */
     private function domain(string $key, array $context): MailFrame
     {
-        $expiry = MailClock::date($this->string($context, 'domain.expiry_date'));
+        $expiry = $this->date($this->string($context, 'domain.expiry_date'));
 
         [$tone, $label, $when] = match ($key) {
             'domain.registration_confirmation' => ['success', self::text('Registered'), $expiry !== null ? self::text('until :date', ['date' => $expiry]) : null],
@@ -226,9 +230,9 @@ final class MailFramer
             'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
             'auth.user_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
-            'auth.password_changed' => ['warning', self::text('Password changed'), MailClock::date(MailClock::today())],
-            'auth.new_login_alert' => ['warning', self::text('New sign-in'), MailClock::date(MailClock::today())],
-            default => ['info', self::text('Account change'), MailClock::date(MailClock::today())],
+            'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailClock::today())],
+            'auth.new_login_alert' => ['warning', self::text('New sign-in'), $this->date(MailClock::today())],
+            default => ['info', self::text('Account change'), $this->date(MailClock::today())],
         };
 
         return new MailFrame(label: self::text('Account security'), statusTone: $tone, statusLabel: $label, statusWhen: $when, security: true);
@@ -281,8 +285,8 @@ final class MailFramer
                 continue;
             }
 
-            $start = MailClock::date($item['period_start'] ?? null);
-            $end = MailClock::date($item['period_end'] ?? null);
+            $start = $this->date($item['period_start'] ?? null);
+            $end = $this->date($item['period_end'] ?? null);
             $lines[] = ['name' => $item['description'], 'meta' => $start !== null && $end !== null ? $start.' – '.$end : null, 'amount' => $item['amount']];
         }
 
@@ -293,7 +297,8 @@ final class MailFramer
             ...array_map(fn (mixed $tax): array => ['label' => (string) data_get($tax, 'label'), 'amount' => is_string(data_get($tax, 'amount')) ? data_get($tax, 'amount') : null, 'total' => false], (array) data_get($context, 'invoice.taxes', [])),
             // "Total due" only when nothing is paid yet; otherwise the balance line says what is due.
             ['label' => $partlyPaid ? self::text('Total') : $totalLabel, 'amount' => $this->string($context, 'invoice.total'), 'total' => true],
-            ['label' => self::text('Credit applied'), 'amount' => $this->string($context, 'invoice.credit_applied'), 'total' => false],
+            ['label' => self::text('Paid'), 'amount' => (int) data_get($context, 'invoice.amount_paid_minor', 0) > 0 && $this->string($context, 'invoice.amount_paid') !== null ? '−'.$this->string($context, 'invoice.amount_paid') : null, 'total' => false],
+            ['label' => self::text('Credit applied'), 'amount' => $this->string($context, 'invoice.credit_applied') !== null ? '−'.$this->string($context, 'invoice.credit_applied') : null, 'total' => false],
             $receipt || $partlyPaid ? ['label' => $receipt ? self::text('Still to pay') : self::text('Balance due'), 'amount' => $this->string($context, 'invoice.balance'), 'total' => false] : null,
         ], fn (?array $row): bool => $row !== null && is_string($row['amount']) && $row['amount'] !== ''));
 
@@ -328,7 +333,7 @@ final class MailFramer
     {
         $name = $this->settings->get('billing.seller.legal_name') ?: $this->settings->get('core.company_name');
 
-        return is_string($name) && trim($name) !== '' ? trim($name) : (string) config('app.name');
+        return is_string($name) && trim($name) !== '' ? trim($name) : $this->brand->brand()->name;
     }
 
     /**
@@ -357,5 +362,13 @@ final class MailFramer
     private static function choice(string $key, int $number, array $replace = []): string
     {
         return trans_choice($key, $number, $replace);
+    }
+
+    /**
+     * A date in the date setting's format, in the recipient's language and company time.
+     */
+    private function date(mixed $value): ?string
+    {
+        return MailClock::date($value, null, $this->locale);
     }
 }

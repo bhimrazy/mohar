@@ -30,6 +30,7 @@ type Template = {
     audience: string;
     is_system: boolean;
     is_enabled: boolean;
+    always_sent?: boolean;
     from_name: string | null;
     from_email: string | null;
     cc: string;
@@ -608,16 +609,23 @@ export default function TemplateEditor({
                                         />
                                     </Field>
                                 </div>
-                                <SwitchField
-                                    id="is_enabled"
-                                    label="Enabled"
-                                    description="Disabled templates are logged as suppressed instead of sent."
-                                    checked={form.data.is_enabled}
-                                    onCheckedChange={(checked) =>
-                                        form.setData('is_enabled', checked)
-                                    }
-                                    disabled={readOnly}
-                                />
+                                {template?.always_sent ? (
+                                    <p className="text-sm text-muted-foreground">
+                                        Account and security emails are always
+                                        sent and can't be switched off.
+                                    </p>
+                                ) : (
+                                    <SwitchField
+                                        id="is_enabled"
+                                        label="Enabled"
+                                        description="Disabled templates are logged as suppressed instead of sent."
+                                        checked={form.data.is_enabled}
+                                        onCheckedChange={(checked) =>
+                                            form.setData('is_enabled', checked)
+                                        }
+                                        disabled={readOnly}
+                                    />
+                                )}
                                 <SwitchField
                                     id="plain_text_only"
                                     label="Plain text only"

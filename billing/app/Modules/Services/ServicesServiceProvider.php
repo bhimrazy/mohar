@@ -289,6 +289,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 'registration_date' => $service->registration_date->toDateString(),
                 'next_due_date' => $service->next_due_date?->toDateString(),
                 'suspension_reason' => $service->suspension_reason,
+                'addon_ids' => $service->addons()->pluck('id')->all(),
                 'dedicated_ip' => $service->dedicated_ip,
                 'server_hostname' => $service->server?->hostname,
                 'server_ip' => $service->server?->ip_address,

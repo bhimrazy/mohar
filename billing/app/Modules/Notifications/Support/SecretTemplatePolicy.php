@@ -3,6 +3,7 @@
 namespace App\Modules\Notifications\Support;
 
 use App\Data\Notifications\SensitiveValue;
+use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
@@ -240,6 +241,41 @@ final class SecretTemplatePolicy
         }
 
         return $allowed;
+    }
+
+    /**
+     * Single-line values a client, guest or account holder types (ticket subjects, names, company names). Mail
+     * clients turn web addresses in them into links, in the HTML and the text part, so URL-like text is defanged.
+     */
+    public const UNTRUSTED_TEXT_FIELDS = [
+        'ticket.subject', 'ticket.requester_name', 'reply.author_name', 'client.first_name', 'client.last_name',
+        'client.full_name', 'client.company_name', 'recipient.name', 'recipient.first_name', 'user.first_name',
+        'notice.account', 'notice.actor', 'cancellation.reason',
+    ];
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, mixed>
+     */
+    public static function neutraliseUntrusted(array $context): array
+    {
+        foreach (self::UNTRUSTED_TEXT_FIELDS as $path) {
+            $value = data_get($context, $path);
+
+            if (is_string($value) && $value !== '') {
+                data_set($context, $path, self::defang($value));
+            }
+        }
+
+        return $context;
+    }
+
+    /**
+     * "evil.test/login" → "evil[.]test/login", "https://x" → "https[:]//x": readable, but no mail client links it.
+     */
+    public static function defang(string $text): string
+    {
+        return (string) preg_replace_callback(self::urlPattern(), fn (array $match): string => str_replace(['://', '.', '。', '．', '｡'], ['[:]//', '[.]', '[.]', '[.]', '[.]'], $match[0]), $text);
     }
 
     /**
@@ -503,18 +539,7 @@ final class SecretTemplatePolicy
      */
     public static function accountLinkProblem(): ?string
     {
-        $url = (string) config('app.url');
-        $parts = parse_url($url);
-
-        if (! is_array($parts) || ! isset($parts['host'])) {
-            return __('APP_URL ":url" has no host, so password-reset, verification and invitation emails are held. Set APP_URL to the public https:// address.', ['url' => $url]);
-        }
-
-        if (app()->isProduction() && strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
-            return __('APP_URL is ":url": in production account links must use https://, so password-reset, verification and invitation emails are held. Set APP_URL to the https:// address.', ['url' => $url]);
-        }
-
-        return null;
+        return AccountLinks::problem();
     }
 
     /**

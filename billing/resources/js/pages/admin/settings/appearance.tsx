@@ -71,8 +71,49 @@ type AppearanceProps = {
     brand: Brand;
     companyName: string;
     companySettingsUrl: string | null;
-    uploads: Record<'logo-light' | 'logo-dark' | 'mark' | 'favicon', boolean>;
+    uploads: Record<BrandKind, boolean>;
+    emailLogo: string | null;
 };
+
+type BrandKind = 'logo-light' | 'logo-dark' | 'mark' | 'favicon' | 'logo-email';
+
+/**
+ * Email clients don't show WebP, and some invert colours: the mark is sent to the server as PNG, and the email logo
+ * as PNG flattened onto white (opaque, so it reads in every mode).
+ */
+async function prepareForEmail(kind: BrandKind, file: File): Promise<File> {
+    const flatten = kind === 'logo-email';
+
+    if (!flatten && !(kind === 'mark' && file.type === 'image/webp')) {
+        return file;
+    }
+
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+        return file;
+    }
+
+    if (flatten) {
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    context.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/png'),
+    );
+
+    return blob
+        ? new File([blob], file.name.replace(/\.[a-z]+$/i, '') + '.png', {
+              type: 'image/png',
+          })
+        : file;
+}
 
 const AREAS = [
     {
@@ -249,7 +290,7 @@ function BrandRow({
     uploaded,
     dark = false,
 }: {
-    kind: 'logo-light' | 'logo-dark' | 'mark' | 'favicon';
+    kind: BrandKind;
     title: string;
     hint: string;
     url: string | null;
@@ -260,12 +301,13 @@ function BrandRow({
     const [uploading, setUploading] = useState(false);
     const [error, setError] = useState<string | undefined>();
 
-    const upload = (file: File | undefined) => {
-        if (!file) {
+    const upload = async (selected: File | undefined) => {
+        if (!selected) {
             return;
         }
 
         setUploading(true);
+        const file = await prepareForEmail(kind, selected);
         router.post(
             BrandAssetController.store.url(kind),
             { file },
@@ -422,6 +464,7 @@ export default function AppearanceSettings({
     companyName,
     companySettingsUrl,
     uploads,
+    emailLogo,
 }: AppearanceProps) {
     const [values, setValues] = useState(settings);
     const [renaming, setRenaming] = useState<ThemeRow | null>(null);
@@ -777,6 +820,13 @@ export default function AppearanceSettings({
                                 hint="Square, up to 512×512 px."
                                 url={brand.favicon}
                                 uploaded={uploads.favicon}
+                            />
+                            <BrandRow
+                                kind="logo-email"
+                                title="Email logo (optional)"
+                                hint="Shown at the top of every email instead of your mark and name. Transparent areas are filled with white so it stays readable in dark mode."
+                                url={emailLogo}
+                                uploaded={uploads['logo-email']}
                             />
                         </div>
                         <BrandPreview brand={brand} />

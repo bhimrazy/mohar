@@ -65,7 +65,7 @@ class UpdateStaff
 
         if ($emailChanged) {
             // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
-            $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], __('Your staff sign-in email was changed'), [
+            $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
             ]);
 

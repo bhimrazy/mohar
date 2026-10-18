@@ -16,6 +16,14 @@ class TemplatedMail extends Mailable
     /** @var array<string, string> */
     public const AUTOMATIC_HEADERS = ['Auto-Submitted' => 'auto-generated', 'X-Auto-Response-Suppress' => 'All'];
 
+    /** Templates that carry a message a person wrote (a staff reply): not automatic mail. */
+    public const PERSON_WRITTEN = ['ticket.reply', 'ticket.opened_by_staff'];
+
+    public static function isAutomatic(?string $templateKey): bool
+    {
+        return $templateKey !== null && ! in_array($templateKey, self::PERSON_WRITTEN, true);
+    }
+
     /**
      * @param  string|null  $htmlBody  null for plain-text-only templates
      */

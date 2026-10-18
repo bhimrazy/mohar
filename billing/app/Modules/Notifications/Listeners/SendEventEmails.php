@@ -241,7 +241,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         data_set($context, 'service.suspension_reason', $overdue ? __('Overdue invoice') : null);
 
         if ($overdue) {
-            $invoice = $this->context->resolve('service_open_invoice', $event->serviceId);
+            $invoice = $this->overdueInvoice($event->serviceId, $event->clientId, $event->reason === 'addon_overdue' ? array_values(array_map('intval', (array) data_get($context, 'service.addon_ids', []))) : []);
             $context = [...$context, ...($invoice === [] ? [] : $this->invoiceContextFrom(['invoice' => [...$invoice, 'balance_due' => true]]))];
         }
 
@@ -656,6 +656,23 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         }
 
         return $this->recipients->unique($recipients);
+    }
+
+    /**
+     * The oldest overdue invoice of the account that bills the service (or, for an add-on suspension, its add-ons).
+     *
+     * @param  list<int>  $addonIds
+     * @return array<string, mixed>
+     */
+    private function overdueInvoice(int $serviceId, int $clientId, array $addonIds): array
+    {
+        $candidates = array_filter([
+            $this->context->resolve('service_overdue_invoice', $serviceId),
+            ...array_map(fn (int $addonId): array => $this->context->resolve('service_addon_overdue_invoice', $addonId), $addonIds),
+        ], fn (array $invoice): bool => $invoice !== [] && (int) ($invoice['client_id'] ?? 0) === $clientId);
+        usort($candidates, fn (array $a, array $b): int => strcmp((string) ($a['due_date'] ?? ''), (string) ($b['due_date'] ?? '')));
+
+        return $candidates[0] ?? [];
     }
 
     /**

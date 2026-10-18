@@ -54,7 +54,7 @@ class ResetStaffTwoFactor
         $this->activity->log('Two-factor authentication reset for a staff member', $staff, properties: ['email' => $staff->email], event: 'staff.two_factor_reset');
         // Also tell any address the account used in the last 30 days: after an admin email change,
         // the current address may belong to whoever made that change.
-        $this->mail->notice('staff.two_factor_reset', array_values(array_unique([$staff->email, ...$this->recentEmails($staff)])), ['actor' => $actor->name], __('Your two-factor authentication was reset'), [
+        $this->mail->notice('staff.two_factor_reset', array_values(array_unique([$staff->email, ...$this->recentEmails($staff)])), ['actor' => $actor->name], 'staff:'.$staff->id, __('Your two-factor authentication was reset'), [
             __(':actor reset two-factor authentication on your staff account. Set it up again the next time you sign in.', ['actor' => $actor->name]),
         ]);
         TwoFactorReset::dispatch($staff->id, $actor->id);

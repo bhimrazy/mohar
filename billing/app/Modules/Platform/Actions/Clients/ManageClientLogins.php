@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Actions\Clients;
 
 use App\Contracts\Notifications\SystemMailer;
 use App\Data\Notifications\SensitiveValue;
+use App\Enums\SystemMailOutcome;
 use App\Events\Core\TwoFactorReset;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -45,6 +46,11 @@ class ManageClientLogins
 
         $created = $user === null;
 
+        // A new login is invited with a one-time link: refuse before creating anything when no link could be mailed.
+        if ($created && ($problem = AccountLinks::problem()) !== null) {
+            throw ValidationException::withMessages(['email' => __('Invitation not sent: the link host isn\'t your site address. :problem', ['problem' => $problem])]);
+        }
+
         $user = DB::transaction(function () use ($client, $user, $email, $name, $permissions): User {
             $user ??= User::query()->create(['name' => $name, 'email' => $email, 'password' => Str::password(32)]);
             $client->users()->attach($user, ['is_owner' => false, 'permissions' => json_encode($permissions)]);
@@ -55,14 +61,14 @@ class ManageClientLogins
         $this->activity->log('Login added to the account', $user, $client->id, ['email' => $email, 'permissions' => $permissions, 'new_login' => $created], 'client.user_added');
 
         $owners = $client->users()->wherePivot('is_owner', true)->get()->reject(fn (User $owner): bool => $owner->is($user));
-        $this->mail->notice('auth.login_added', $owners, ['account' => $client->display_name, 'email' => $email], __('A login was added to your account'), [
+        $this->mail->notice('auth.login_added', $owners, ['account' => $client->display_name, 'email' => $email], 'client:'.$client->id.'|user:'.$user->id, __('A login was added to your account'), [
             __(':email can now sign in to the :account account.', ['email' => $email, 'account' => $client->display_name]),
         ], $client->id);
 
         if ($created) {
             $this->sendInvitation($user, $client);
         } else {
-            $this->mail->notice('auth.access_granted', [$user], ['account' => $client->display_name], __('You were given access to a client account'), [
+            $this->mail->notice('auth.access_granted', [$user], ['account' => $client->display_name], 'client:'.$client->id.'|user:'.$user->id, __('You were given access to a client account'), [
                 __('Our team gave you access to the :account account.', ['account' => $client->display_name]),
             ], $client->id);
         }
@@ -71,7 +77,12 @@ class ManageClientLogins
     }
 
     /**
-     * The invitation for a new login: its link is a password-reset link, so accepting it sets the password.
+     * The invitation for a new login: its link is a password-reset link, so accepting it sets the password. When the
+     * template system refuses it (its link failed the checks) nothing is sent by any other path: the refusal is a
+     * security event and staff see it on the form. Laravel's notification is used only when no template system is
+     * there to take it.
+     *
+     * @throws ValidationException
      */
     private function sendInvitation(User $user, Client $client): void
     {
@@ -79,12 +90,18 @@ class ManageClientLogins
         $url = AccountLinks::passwordReset($user, $token);
         $broker = (string) config('auth.defaults.passwords', 'users');
 
-        $sent = $this->mailer->send('auth.user_invitation', [$user], [
+        $outcome = $this->mailer->send('auth.user_invitation', $user, [
             'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
             'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))],
         ], 'invite|'.$user->id.'|'.hash('sha256', $token), $client->id, carriesSecret: true);
 
-        if (! $sent) {
+        if ($outcome === SystemMailOutcome::Refused) {
+            $this->activity->log('Invitation not sent: its link failed the security check', $user, $client->id, ['email' => $user->email], 'security');
+
+            throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send a password reset to this login.')]);
+        }
+
+        if ($outcome === SystemMailOutcome::Unavailable) {
             $user->sendPasswordResetNotification($token);
         }
     }
@@ -118,8 +135,8 @@ class ManageClientLogins
 
         $lines = [__('Ownership of the :account account was transferred to :email.', ['account' => $client->display_name, 'email' => $user->email])];
         $notice = ['account' => $client->display_name, 'email' => $user->email];
-        $this->mail->notice('auth.owner_changed', $previousOwners->reject(fn (User $owner): bool => $owner->is($user)), $notice, __('Your account has a new owner'), $lines, $client->id);
-        $this->mail->notice('auth.owner_changed', [$user], $notice, __('You are now the account owner'), $lines, $client->id);
+        $this->mail->notice('auth.owner_changed', $previousOwners->reject(fn (User $owner): bool => $owner->is($user)), $notice, 'client:'.$client->id.'|owner:'.$user->id, __('Your account has a new owner'), $lines, $client->id);
+        $this->mail->notice('auth.owner_changed', [$user], $notice, 'client:'.$client->id.'|owner:'.$user->id, __('You are now the account owner'), $lines, $client->id);
     }
 
     /**
@@ -136,7 +153,7 @@ class ManageClientLogins
         $user->forceFill(['two_factor_secret' => null, 'two_factor_recovery_codes' => null, 'two_factor_confirmed_at' => null])->save();
 
         $this->activity->log('Two-factor authentication reset for a client login', $user, $client->id, ['email' => $user->email], 'client.user_two_factor_reset');
-        $this->mail->notice('auth.two_factor_reset', [$user], ['account' => $client->display_name], __('Your two-factor authentication was reset'), [
+        $this->mail->notice('auth.two_factor_reset', [$user], ['account' => $client->display_name], 'client:'.$client->id.'|user:'.$user->id, __('Your two-factor authentication was reset'), [
             __('Our team reset two-factor authentication on your account. Set it up again from your security settings.'),
         ], $client->id);
         TwoFactorReset::dispatch($user->id, $actor->id);

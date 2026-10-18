@@ -28,7 +28,7 @@ class UpdateSettings
             ->filter(fn (User $user): bool => $user->role !== null && in_array('*', $user->role->permissions, true));
 
         $actor = request()->user()->name ?? __('Someone');
-        $this->mail->notice('staff.settings_changed', $admins, ['section' => $title, 'actor' => $actor, 'changes' => implode(', ', $keys)], __(':title settings were changed', ['title' => $title]), [
+        $this->mail->notice('staff.settings_changed', $admins, ['section' => $title, 'actor' => $actor, 'changes' => implode(', ', $keys)], 'settings:'.$title, __(':title settings were changed', ['title' => $title]), [
             __(':actor changed: :keys.', ['actor' => $actor, 'keys' => implode(', ', $keys)]),
         ]);
     }

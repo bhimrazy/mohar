@@ -5,6 +5,7 @@ use App\Data\Branding\Brand;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Themes\Support\BrandAssets;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Facades\Storage;
@@ -52,7 +53,7 @@ it('shows the mark and name for a renamed brand without its own logo', function 
             ->where('brand.logoLight', null));
 });
 
-it('prefers uploaded assets and serves them for PDFs and email', function () {
+it('prefers uploaded assets and serves them for PDFs, with the mark for email', function () {
     actingAsStaff(['themes.manage']);
 
     $this->post(route('admin.appearance.brand.store', 'logo-light'), ['file' => fakePng('logo.png', 300, 80)])->assertRedirect();
@@ -62,7 +63,9 @@ it('prefers uploaded assets and serves them for PDFs and email', function () {
     expect($provider->brand()->logoLight)->toContain('/branding/logo-light')
         ->and($provider->brand()->logoDark)->toBe($provider->brand()->logoLight)
         ->and($provider->brand()->mark)->toContain('/branding/mark')
-        ->and($provider->emailLogoUrl())->toContain('/branding/logo-light')
+        // The site logo is not the email logo: email uses the uploaded mark (raster) beside the name, or an opt-in email logo.
+        ->and($provider->emailLogoUrl())->toBeNull()
+        ->and($provider->brand()->emailMark)->toContain('/branding/mark')
         ->and($provider->logoDataUri())->toStartWith('data:image/png;base64,');
 });
 
@@ -101,12 +104,27 @@ it('brands the mail layout header and footer', function () {
         ->not->toContain('Laravel');
 });
 
-it('uses the raster default mark and the brand name as text in email for the default brand', function () {
+it('shows only the host brand in email: the name alone by default, no product mark or tagline', function () {
+    app(Settings::class)->set('core.company_name', 'Himalaya Cloud');
+
     $html = (string) (new MailMessage)->line('Hello')->render();
 
-    // The name is live text so it stays readable when a mail client force-inverts colours.
-    expect($html)->toContain(asset('brand/email/mark-light.png'), asset('brand/email/mark-dark.png'))
-        ->toMatch('#class="tx-strong brand-name"[^>]*>'.preg_quote(config('app.name'), '#').'</td>#');
+    expect(config('themes.tagline'))->toBe('')
+        ->and($html)->toMatch('#class="tx-strong brand-name"[^>]*>Himalaya Cloud</td>#')
+        ->not->toContain('brand/mark', 'brand/logo', 'sealed and settled', ' · </');
+});
+
+it('uses the host\'s uploaded mark beside the name, and the opt-in email logo instead of both', function () {
+    actingAsStaff(['themes.manage']);
+    $this->post(route('admin.appearance.brand.store', 'mark'), ['file' => fakePng('mark.png', 128, 128)])->assertRedirect();
+
+    expect((string) (new MailMessage)->line('Hello')->render())->toContain(route('branding.show', ['kind' => 'mark', 'v' => app(BrandAssets::class)->version('mark')]), 'brand-name');
+
+    $this->post(route('admin.appearance.brand.store', 'logo-email'), ['file' => fakePng('logo.png', 300, 80)])->assertRedirect();
+    $html = (string) (new MailMessage)->line('Hello')->render();
+
+    expect($html)->toContain(route('branding.show', ['kind' => 'logo-email', 'v' => app(BrandAssets::class)->version('logo-email')]))
+        ->not->toContain('brand-name');
 });
 
 it('falls back to config and public assets without the Themes module', function () {

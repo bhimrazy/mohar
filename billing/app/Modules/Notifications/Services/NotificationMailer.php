@@ -207,6 +207,7 @@ class NotificationMailer
             $this->recipients->staff(StaffCategory::System),
             ['template' => [
                 'key' => $template->key,
+                'name' => $template->name,
                 'error' => $error->getMessage(),
                 'admin_url' => $this->mergeContext->link('admin.notifications.templates.edit', $template->id),
             ]],

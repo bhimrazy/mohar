@@ -21,7 +21,8 @@ interface BrandProvider
     public function logoDataUri(bool $dark = false): ?string;
 
     /**
-     * An absolute URL to a raster logo for email clients (most don't render SVG); null = use the name.
+     * The host's opt-in email logo: a raster image saved on an opaque background, so it reads in light, dark and
+     * colour-inverting mail clients. Null = the email shows the uploaded mark (if any) and the name as text.
      */
     public function emailLogoUrl(): ?string;
 }

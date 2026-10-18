@@ -31,7 +31,7 @@ Our GSTIN is 27AABCM4321K1Z2. GST is split into CGST and SGST because we and you
 Need a purchase order number or a different billing address on this invoice? Reply and we’ll reissue it.
 
 --
-Mohar · Web hosting billing, sealed and settled.
+Mohar
 Mohar Cloud Pvt. Ltd., Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India
 Questions? Reply to this email or write to support@example.com
 Help centre: https://billing.example.com/support

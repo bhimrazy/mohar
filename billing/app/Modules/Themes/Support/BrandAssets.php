@@ -19,7 +19,7 @@ use Throwable;
  */
 class BrandAssets implements BrandProvider
 {
-    public const KINDS = ['logo-light', 'logo-dark', 'mark', 'favicon'];
+    public const KINDS = ['logo-light', 'logo-dark', 'mark', 'favicon', 'logo-email'];
 
     public const DISK = 'objects';
 
@@ -41,24 +41,10 @@ class BrandAssets implements BrandProvider
             mark: $this->url('mark') ?? $this->defaultUrl('mark'),
             favicon: $this->url('favicon') ?? $this->defaultUrl('favicon'),
             customised: ! $default || $this->tagline() !== $this->defaultTagline() || array_filter(array_map($this->path(...), self::KINDS)) !== [],
-            emailLogoDark: $this->emailLogoDarkUrl(),
             accent: $this->accent('primary'),
             accentForeground: $this->accent('primary-foreground'),
+            emailMark: in_array(self::mime((string) $this->path('mark')), ['image/png', 'image/jpeg'], true) ? $this->url('mark') : null,
         );
-    }
-
-    /**
-     * A raster dark-mode logo for email: the uploaded dark logo when PNG/JPEG, else the default one.
-     */
-    public function emailLogoDarkUrl(): ?string
-    {
-        if (in_array(self::mime((string) $this->path('logo-dark')), ['image/png', 'image/jpeg'], true)) {
-            return $this->url('logo-dark');
-        }
-
-        $default = (string) config('themes.defaults.logo-email-dark');
-
-        return $this->path('logo-light') === null && $this->name() === $this->defaultName() && $default !== '' && is_file(public_path($default)) ? asset($default) : null;
     }
 
     /**
@@ -103,14 +89,9 @@ class BrandAssets implements BrandProvider
 
     public function emailLogoUrl(): ?string
     {
-        // Email clients render PNG/JPEG reliably; WebP and SVG often not.
-        if (in_array(self::mime((string) $this->path('logo-light')), ['image/png', 'image/jpeg'], true)) {
-            return $this->url('logo-light');
-        }
-
-        $default = (string) config('themes.defaults.logo-email');
-
-        return $this->name() === $this->defaultName() && $default !== '' && is_file(public_path($default)) ? asset($default) : null;
+        // Opt-in: the host uploads an email logo (flattened onto white when uploaded). The product's own logo is
+        // never used in customer mail.
+        return $this->url('logo-email');
     }
 
     public function name(): string
