@@ -53,7 +53,6 @@ is a switch blocker in the parity studies.
 
 ## Decisions pending from the owner
 
-- Email template direction: A, B or C (design review page, Emails section).
 - Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
 - Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
 - Repository settings: branch protection and required checks on `develop` and `main`.
