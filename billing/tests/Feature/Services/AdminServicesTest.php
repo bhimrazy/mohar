@@ -65,6 +65,7 @@ test('global search finds services by domain and username', function () {
     $byUsername = app(GlobalSearch::class)->search('zzuser', $user);
 
     expect(collect($results)->firstWhere('group', 'Services')['results'][0]['href'])->toBe(route('admin.services.services.show', $service))
+        ->and(collect($results)->firstWhere('group', 'Services')['results'][0]['subtitle'])->toEndWith(' · '.ucfirst($service->status->value))
         ->and(collect($byUsername)->firstWhere('group', 'Services')['results'])->toHaveCount(1);
 });
 

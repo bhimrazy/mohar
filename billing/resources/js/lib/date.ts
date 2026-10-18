@@ -30,6 +30,64 @@ export function parseDate(
     return Number.isNaN(date.getTime()) ? null : { date, dateOnly };
 }
 
+const MONTHS = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+];
+
+/**
+ * The patterns Settings → Company → Date format may hold. Must match the keys of
+ * App\\Modules\\Core\\Support\\DateFormats::OPTIONS (a Pest test compares them).
+ */
+export const DATE_FORMATS = new Set([
+    'M j, Y',
+    'j M Y',
+    'Y-m-d',
+    'd/m/Y',
+    'm/d/Y',
+    'd.m.Y',
+]);
+
+/** The shared `dateFormat` prop, when it is one of DATE_FORMATS. */
+let dateFormatSetting: string | null = null;
+
+/** Applies the date format setting; anything not on the list uses the locale format. */
+export function setDateFormat(format: string | null | undefined): void {
+    dateFormatSetting = format && DATE_FORMATS.has(format) ? format : null;
+}
+
+/** Formats with the PHP-style tokens the date format setting offers: Y m n d j M. */
+export function formatWithPattern(
+    date: Date,
+    pattern: string,
+    utc: boolean,
+): string {
+    const year = utc ? date.getUTCFullYear() : date.getFullYear();
+    const month = utc ? date.getUTCMonth() : date.getMonth();
+    const day = utc ? date.getUTCDate() : date.getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const tokens: Record<string, string> = {
+        Y: String(year),
+        m: pad(month + 1),
+        n: String(month + 1),
+        d: pad(day),
+        j: String(day),
+        M: MONTHS[month],
+    };
+
+    return pattern.replace(/[YmndjM]/g, (token) => tokens[token]);
+}
+
 export function formatDate(
     value: string | Date,
     format: DateFormat = 'date',
@@ -39,6 +97,18 @@ export function formatDate(
 
     if (!parsed) {
         return '';
+    }
+
+    if (dateFormatSetting && format !== 'time') {
+        const day = formatWithPattern(
+            parsed.date,
+            dateFormatSetting,
+            parsed.dateOnly,
+        );
+
+        return format === 'datetime' && !parsed.dateOnly
+            ? `${day}, ${new Intl.DateTimeFormat(locale, formatOptions.time).format(parsed.date)}`
+            : day;
     }
 
     return new Intl.DateTimeFormat(locale, {

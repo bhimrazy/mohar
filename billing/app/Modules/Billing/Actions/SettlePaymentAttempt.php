@@ -26,7 +26,10 @@ class SettlePaymentAttempt
         private BillingSettings $settings,
     ) {}
 
-    public function handle(PaymentAttempt $attempt): AttemptStatus
+    /**
+     * @param  bool  $interactive  a customer's browser is waiting (return route): one quick provider try, no retries
+     */
+    public function handle(PaymentAttempt $attempt, bool $interactive = false): AttemptStatus
     {
         if (! $attempt->status->isOpen()) {
             return $attempt->status;
@@ -38,7 +41,7 @@ class SettlePaymentAttempt
             return $attempt->status;
         }
 
-        $result = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef());
+        $result = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef($interactive));
         $raw = GatewayLogger::redact($result->raw);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
@@ -61,7 +64,7 @@ class SettlePaymentAttempt
                 LookupResult::SUCCEEDED => $this->succeed($attempt, $result),
                 LookupResult::FAILED, LookupResult::CANCELLED => $attempt->status = AttemptStatus::Failed,
                 LookupResult::EXPIRED => $attempt->status = AttemptStatus::Expired,
-                LookupResult::AMBIGUOUS => $attempt->status = AttemptStatus::Ambiguous,
+                LookupResult::AMBIGUOUS => $this->review($attempt, is_string($result->raw['error'] ?? null) ? 'Provider: '.$result->raw['error'] : 'The provider could not confirm the payment yet'),
                 LookupResult::REFUNDED, LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Refunded at the provider before it was recorded here'),
                 default => $this->stillPending($attempt, $result->status),
             };

@@ -1,6 +1,6 @@
 # Payments — Nepal gateway drivers (design, v1)
 
-Status: research + design, no code · Owner: Billing (payments) · Refines `billing.md` §6 · Docs read 2026-10-17
+Status: Khalti and eSewa built (`app/Modules/PaymentsNepal`, see §8); ConnectIPS, Fonepay and IME Pay designed only · Owner: Billing (payments) · Refines `billing.md` §6 · Docs read 2026-10-17, re-verified 2026-10-18
 Clean-room: written from the providers' public developer docs (see §7) in our own words. All keys, ids and
 signatures below are **fake** unless marked "UAT (public)". Nothing here was copied from SDKs.
 
@@ -46,7 +46,7 @@ Our side of every flow is the same. `initiate` creates a `payment_attempt` (§3.
 eSewa `transaction_uuid` and Fonepay `PRN` 3–25). The return URL is
 `GET /billing/gateways/{key}/return?ref=<reference>`. It is **never authoritative**: it always ends in `lookup()`.
 
-### 2.1 Khalti — KPG-2 Web Checkout (P1)
+### 2.1 Khalti — KPG-2 Web Checkout (P1, built — deviations in §8.2)
 
 ```mermaid
 sequenceDiagram
@@ -89,7 +89,7 @@ total_amount, mobile, purchase_order_id, purchase_order_name`. None of it is sig
   or cards). New live merchants are capped at NPR 200 per transaction until KYC. The sandbox sometimes returns "Fee
   not found", which is a merchant fee configuration problem, not ours.
 
-### 2.2 eSewa — ePay v2 (P1)
+### 2.2 eSewa — ePay v2 (P1, built — deviations in §8.3)
 
 ```mermaid
 sequenceDiagram
@@ -306,7 +306,7 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
 
 ### 3.4 Refunds
 
-Khalti declares `refund` and `partial_refund` and uses the existing `refund(Gateway, Transaction, Money)`.
+Khalti declares `refund` (and `partial_refund` only once its unit is proven, see §8.2) and uses the existing `refund(Gateway, Transaction, Money)`.
 Every other driver omits `refund`. Staff then use `record_only` / `to_credit` (§4.7) after refunding in the
 provider portal, and the UI shows "Refund in the eSewa/ConnectIPS portal first."
 
@@ -316,33 +316,38 @@ A lookup on an already-paid attempt that reports Refunded / FULL_REFUND does **n
 creates a staff todo with a "record refund" action, so a refund made in the provider portal does not leave the
 customer with credit they never had.
 
+**Deferred (CTO, 2026-10-18): issue #27.** v1 never looks up an attempt again once it is paid, so a refund made in the
+provider portal after payment is not detected yet. Attempts refunded _before_ we saw them do go to staff review.
+
 ## 4. Security checklist
 
-- [ ] Secrets (Khalti key, eSewa secret, ConnectIPS password + PEM, Fonepay secret) stay only in `gateways.config`
+- [x] Secrets (Khalti key, eSewa secret, ConnectIPS password + PEM, Fonepay secret) stay only in `gateways.config`
       (encrypted). They are never in `.env` per tenant, logs, `raw`, exceptions or Inertia props.
-- [ ] Logs and `raw` go through a redactor: drop `Authorization`, `TOKEN`, `signature`, `DV`, `dataValidation`,
+- [x] Logs and `raw` go through a redactor: drop `Authorization`, `TOKEN`, `signature`, `DV`, `dataValidation`,
       `password`, and mask `mobile`/`Msisdn` (keep the last 3 digits). `gateway_log` stores the redacted payload plus
       the result.
-- [ ] Mark paid **only** from `lookup()`, never from return params, even ones with a valid HMAC.
-- [ ] Guard amount (minor units, after normalising `"1,130.0"`/`"500"`/`1000.00`), currency (NPR) and our reference
+- [x] Mark paid **only** from `lookup()`, never from return params, even ones with a valid HMAC.
+- [x] Guard amount (minor units, after normalising `"1,130.0"`/`"500"`/`1000.00`), currency (NPR) and our reference
       against the **stored attempt**, not against the request or the current invoice balance.
-- [ ] Replay: the unique `(gateway, provider_txn_id)` index plus a locked attempt state machine means a replayed
+- [x] Replay: the unique `(gateway, provider_txn_id)` index plus a locked attempt state machine means a replayed
       success URL is a no-op. Return routes are bound by `reference` + gateway, so a token for invoice A can't settle B.
-- [ ] Compare signatures with `hash_equals`. Rebuild them from the provider's `signed_field_names`, never from a
+- [x] Compare signatures with `hash_equals`. Rebuild them from the provider's `signed_field_names`, never from a
       fixed list, and reject any unknown signed field.
-- [ ] CSRF exemption applies only to the provider return POST route (and the existing webhook route). It is never
+- [x] CSRF exemption applies only to the provider return POST route (and the existing webhook route). It is never
       applied to `initiate`.
-- [ ] IP allow-list: no provider publishes callback ranges, and there are no server callbacks in v1, so this is
+- [x] IP allow-list: no provider publishes callback ranges, and there are no server callbacks in v1, so this is
       N/A. Restrict **egress** instead (Khalti, eSewa and NCHL hosts; IME port 7979).
-- [ ] Outbound HTTP: connect timeout 5s, total 15s, `retry(2)` on lookups only (never on initiate or refund
-      without a fresh reference), TLS verification on, and a pinned host per environment from config (never taken from
-      user input).
-- [ ] Sandbox and live keys are separate. The sandbox toggle switches endpoints, and the admin shows a "SANDBOX"
+- [x] Outbound HTTP: connect timeout 5s, total 15s, `retry(2)` on background lookups only (never on initiate, refund
+      or the customer's return, which makes one try with a 6 s timeout), TLS verification on, and a pinned host per
+      environment from config (never taken from user input). Pinning chooses which hosts we call; it is not an egress
+      firewall.
+- [x] Sandbox and live keys are separate. The sandbox toggle switches endpoints, and the admin shows a "SANDBOX"
       badge on the gateway and on the invoice payment rows.
-- [ ] The open redirect is closed: `return_url`/`success_url` are built server-side from route names, and the
-      reference is validated against `[a-z0-9-]{3,20}`.
-- [ ] Rate limits are not published by any provider. Apply our own: throttle the return route (60/min/IP), allow at
-      most 1 lookup per attempt per minute, and back off on 5xx or `code:0`.
+- [x] The open redirect is closed: `return_url`/`success_url` are built server-side from route names, and the
+      reference is validated against `[a-z0-9-]{3,40}` (the attempt reference is 26 characters, see §8.4).
+- [x] Rate limits are not published by any provider. Apply our own: throttle the return route (60/min/IP), allow at
+      most 1 lookup per attempt per minute, back off on 5xx or `code:0`, and limit client pay requests (single and
+      batch) to 10 per minute per user, since each can open a provider session with the merchant key.
 
 ## 5. Testing strategy
 
@@ -387,7 +392,7 @@ for auto-capture. **Global:** **Stripe** (PaymentIntents + signed webhooks; cove
 USD and INR; not available to Nepal-domiciled entities). **PayPal** (Orders v2 + webhooks; USD; not for NP
 merchants).
 
-## 7. Sources (read 2026-10-17)
+## 7. Sources (read 2026-10-17; Khalti and eSewa re-read 2026-10-18)
 
 - eSewa ePay v2 — https://developer.esewa.com.np/pages/Epay (no version stamp; footer © 2009–2026);
   test credentials https://developer.esewa.com.np/pages/Test-credentials ; token payments https://developer.esewa.com.np/pages/Token
@@ -400,3 +405,158 @@ merchants).
   https://github.com/mukezhz/pay-np (fonepay/, imepay/, connectips/, hamropay/)
 - PayPal/NRB context — https://pradhanlaw.com/publications/nepal-rastra-banks-notice-relating-to-foreign-payment-system ,
   https://www.nepalitelecom.com/paypal-in-nepal
+
+- eSewa page sources were read from the site's own page API (`/api/pages/Epay`, `/api/pages/Test-credentials`,
+  `/api/pages/Intent`) because the HTML is rendered client-side. UAT behaviour in §8.3 was observed with the public
+  UAT merchant (`EPAYTEST`) on 2026-10-18. No payment was completed and no real money moved.
+
+## 8. Build notes (v1, 2026-10-18)
+
+### 8.1 What was built and where
+
+- **Module `app/Modules/PaymentsNepal`** (an extension, not part of Billing). It holds `Drivers/KhaltiDriver.php`,
+  `Drivers/EsewaDriver.php`, `Support/ProviderHttp` (pinned hosts per mode, 5 s connect timeout,
+  `billing.gateways.http_timeout_seconds` total, retries only on lookups), `Support/NprAmount` (exact paisa ↔ rupee
+  strings, no floats), and `Config/payments_nepal.php` (endpoints, minimums, TTLs). The service provider registers
+  both drivers with `GatewayRegistry`. The module imports only `App\Contracts|Data|Support` and Core, which the
+  architecture test enforces. It has no migration, routes or settings of its own. Credentials live in Billing's
+  encrypted `gateways.config`.
+- **This differs from §3.1's packaging** (`Billing/Drivers/Gateways/Nepal`). The contracts and DTOs had already moved
+  to `app/Contracts/Billing` and `app/Data/Billing`, so a separate module needed no new kernel decision.
+- **Shared Billing changes** made for these drivers:
+    - The FormPost checkout is now a full page load. Before, the SPA document's CSP `form-action 'self'` would have
+      blocked eSewa's form in every browser. The new `client.invoices.checkout` page adds exactly the provider's
+      origin through `SecurityHeaders::allowFormAction()`.
+    - Sandbox mode follows `App\Support\Billing\SandboxPolicy`, the same rule as the sandbox card driver. A gateway
+      in sandbox mode can't be activated in production, isn't offered to clients there, and can't be charged.
+    - Required settings must be filled before a gateway is activated.
+    - A failed initiate closes the attempt with a safe message.
+    - Review round 1:
+        - The customer's return makes one quick lookup (`PaymentAttemptRef::$interactive`, 3 s connect and 6 s
+          total), and anything inconclusive is left to the poller, which keeps the retries.
+        - Client pay requests are limited per user (`throttle:billing-pay`, 10 per minute).
+        - The provider form is stored per attempt and served once.
+        - The form page fails closed for a sandbox attempt once test money is not allowed.
+        - An `AMBIGUOUS` lookup records its reason for staff.
+    - Product review (round 2):
+        - **Payment in progress** (`Billing\Support\PaymentInProgress`). An open attempt (pending or under review)
+          shows on the client invoice and the admin invoice until it settles. It shows the provider, amount and
+          start time, and a "Check status" link that runs the quick lookup (staff get "Check now").
+        - While the attempt can still complete at the provider (before `expires_at`), the client pay panel is
+          hidden and a second start is refused, under the invoice lock. After that, "Pay a different way" appears.
+        - **Methods that can't take the invoice** (below a provider's minimum, above its maximum, or wrong currency)
+          are listed but disabled, with the reason ("Khalti needs at least Rs. 10.00."), and are never preselected.
+        - **Failed starts:** after a failed start, the chosen method stays selected and the error appears under it.
+        - **Conversion before redirect:** a converting gateway shows "You'll pay … on Khalti (1 USD = …)", using the
+          same `GatewayCharger::hostedCharge()` that the attempt is created with.
+        - **Refund guidance (§3.4)** in the admin refund dialog, before the password step-up, covering three cases:
+            - no refund API (eSewa): refund in the merchant portal, then record it here;
+            - full only (Khalti while partial refunds are off): the gateway option is offered only for the full
+              original payment, and a partial amount switches to "record";
+            - refunds the provider may refuse (Khalti bank-funded payments).
+        - Each hosted gateway's admin form has a one-line Refunds note. Admin transaction rows carry the SANDBOX
+          badge of a gateway in sandbox mode.
+    - New optional contract `ConnectionTester` with DTO `ConnectionCheck`, used by the admin "Test connection" button.
+- **Not built (follow-ups):**
+    - ConnectIPS: needs NCHL onboarding and PFX → PEM signing, and its `TXNID` max of 20 characters requires a short
+      provider reference (see §8.4).
+    - Fonepay and IME Pay.
+    - §3.5 out-of-band refunds after payment: deferred to issue #27.
+    - eSewa Intent (the mobile-app deeplink flow, see §8.3).
+
+### 8.2 Khalti: what the official docs say today vs this spec
+
+- **Link lifetime:** the docs say 60 minutes by default in production, but the sample response shows
+  `expires_in: 1800` (30 minutes). The attempt takes Khalti's own `expires_at` from the initiate response (or now +
+  `expires_in`), so the invoice stays locked exactly as long as the Khalti link can still be paid. The configured 60
+  minutes is only the fallback when the response has no plausible expiry (between 1 minute and 24 hours ahead). An
+  `Initiated` lookup never unlocks the invoice early, because the link could still be paid.
+- **Status casing:** the lookup table spells it `Partially refunded`, the status table `Partially Refunded`. Status
+  matching is case-insensitive. The docs also say `Canceled` and `Failed` should be treated as failures, although
+  neither is a listed status. We map both to cancelled. Any unknown status goes to staff review: the docs say "hold
+  and contact Khalti".
+- **Lookup of an unknown pidx** answers `{"detail": "Not found.", "error_key": "validation_error"}`. We treat an
+  HTTP 404 with no `status` as not found. 401/403/429/5xx keep the attempt open and retry later, and any other 4xx
+  without a status goes to review.
+- **Refunds:** the docs give no method or headers. We send `POST` with `Authorization: Key …` and an empty body for
+  a full refund, which has no unit question.
+- **Partial refunds are off** (`payments_nepal.khalti.partial_refunds`, default `false`; turning it on is a
+  reviewed change in `Config/payments_nepal.php`, not an environment switch). While the flag is off, the driver does not advertise `partial_refund`: Billing offers staff only a full
+  gateway refund or a recorded partial one, and the driver refuses a partial amount anyway. When the flag is on,
+  `{amount}` is sent in **paisa**. The docs say paisa, but their only examples are `50.00` and `75.00`. If Khalti read
+  the value as rupees, a refund would be 100 times too large.
+    - **Keep the flag off until the unit is proven** with a partial refund in the Khalti sandbox (dev.khalti.com, test
+      merchant from test-admin.khalti.com). Record the request and response here.
+    - Not yet proven (2026-10-18): the sandbox needs a merchant account with phone/OTP sign-up, which isn't available
+      to this build. Khalti returns no refund id, so the refund transaction
+      keeps no gateway reference. Bank-funded payments also need the payer's `mobile`. We never store it in full (it is
+      masked to the last 3 digits), so those refunds are declined by Khalti and must be made in the portal and then
+      recorded.
+- **Lookup auth errors:** 401/403 (for example a key rotated after the payment started) send the attempt to staff
+  review with the reason. It stays open and is polled again, so it settles once the key is fixed. 429 and 5xx stay
+  transient.
+- **Connection test:** Khalti has no ping endpoint. We look up a made-up pidx: 401 means the key was rejected, and
+  400/404 means it was accepted.
+- **`purchase_order_id`:** no length limit is documented. We send our 26-character attempt reference.
+
+### 8.3 eSewa: what the official docs and UAT say today vs this spec
+
+- **Amount strings:** whole rupees are sent without decimals (`1130`), other amounts with two (`1130.50`), matching
+  eSewa's own examples. §2.2's example used `1130.00`. UAT accepted both forms, and the signature is computed over
+  exactly the posted string.
+- **Status check:** it echoes back the `total_amount` we query with, as a JSON number (`1130.5`). A different amount
+  answers `NOT_FOUND` (we observed this in UAT), and so does an unknown product code. So the echoed amount alone
+  proves nothing. We always query with the amount stored on the attempt, and compare the echoed amount,
+  `transaction_uuid` and `product_code`. A booked but unpaid session answers `PENDING`.
+- **Bad signature:** the form endpoint answers HTTP 400 `{"code":"ES104","message":"Invalid payload signature."}`.
+  A good one redirects (302) to `rc-epay.esewa.com.np/epay?bookingId=…`, which is the same origin as the form, so the
+  CSP `form-action` origin also covers the redirect. The connection test relies on this: it books an unpaid signed
+  session (amount Rs 10, which simply expires), because the status API is unauthenticated and can't verify
+  credentials.
+- **Test credentials:** the dedicated page now lists eSewa IDs 9806800001–9806800005. The ePay page still shows the
+  older 9711111111/2/3. The UAT secret and `EPAYTEST` are unchanged. The public UAT key appears in the admin help
+  text only by name, not as a value.
+- **Intent payments** (`/api/client/intent/payment/book`, now marked "Recommended") are a mobile-app deeplink flow
+  with a server callback. eSewa's own guidance sends desktop browsers to ePay web. v1 uses ePay v2 everywhere; Intent
+  for mobile browsers is a follow-up and would bring a real callback.
+- **`transaction_uuid` length:** none is documented. UAT accepted 40 characters, and we send 26.
+
+### 8.4 Reference format
+
+The shared attempt reference is a 26-character random base32 string (`PaymentAttempt::newReference()`, chosen in
+review so public return URLs can't be enumerated). It is not `inv-<invoice>-a<n>` as §2 proposed. Khalti and eSewa
+accept it. ConnectIPS (`TXNID` ≤ 20) and Fonepay (`PRN` 3–25) will need a short per-attempt provider reference
+stored in `provider_ref`.
+
+### 8.5 Status mapping as built
+
+| Ours (LookupResult) | Khalti                                     | eSewa                         | Attempt becomes                                              |
+| ------------------- | ------------------------------------------ | ----------------------------- | ------------------------------------------------------------ |
+| succeeded           | Completed                                  | COMPLETE                      | succeeded (after the amount/currency/txn guards)             |
+| pending             | Pending, Initiated                         | PENDING                       | pending; staff review after TTL + grace                      |
+| not_found           | HTTP 404 (unknown pidx)                    | NOT_FOUND                     | pending; expired after TTL + grace                           |
+| ambiguous           | any other status                           | AMBIGUOUS, unknown, other txn | ambiguous (staff review, never auto-failed)                  |
+| cancelled           | User canceled (HTTP 400), Canceled, Failed | CANCELED                      | failed                                                       |
+| expired             | Expired (HTTP 400)                         | —                             | expired                                                      |
+| refunded / partial  | Refunded, Partially refunded               | FULL_REFUND, PARTIAL_REFUND   | ambiguous: "refunded at the provider before it was recorded" |
+| retryable           | 401/403/429/5xx, unreachable               | `code: 0`, 5xx, unreachable   | unchanged, polled again                                      |
+
+### 8.6 Provider logos (owner decision 2026-10-18)
+
+Drivers ship their provider's official logo through the optional `ProvidesLogo` contract (`GatewayLogo` DTO:
+light-background URL, optional dark-background URL, alt text). The client pay panel and the admin gateway screens
+show it, and fall back to the text name when a driver has none. The files are served from `public/images/gateways/`
+and are byte-identical to their sources (scaled only, in CSS: 40 px high including the files' own padding on checkout, 32 px in the admin list).
+
+| File                                       | Source (official)                                                                                                                                                                                             | Fetched    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `khalti.svg`                               | Khalti's developer docs logo: `https://github.com/khalti/docs.khalti.com/blob/8766d60d39ef9e931bd2377e7fd6173694c7ab8f/overrides/.icons/img/khalti_logo.svg` (the logo `mkdocs.yml` sets for docs.khalti.com) | 2026-10-18 |
+| `esewa.png` (for light backgrounds)        | eSewa developer site: `https://developer.esewa.com.np/assets/img/esewa-logo-dark.png`                                                                                                                         | 2026-10-18 |
+| `esewa-on-dark.png` (for dark backgrounds) | eSewa developer site: `https://developer.esewa.com.np/assets/img/esewa-logo-light.png`                                                                                                                        | 2026-10-18 |
+
+- **Brand guidelines:** `khalti.com/logo/` redirects to `campaigns.khalti.com/brandbook/`, whose host no longer
+  resolves. eSewa's developer site publishes no logo rules and has no SVG. Until either provider supplies a brand
+  kit, we use the files unmodified, scale them only, keep their own padding as clear space, and show each variant on
+  the background it was made for.
+- **Follow-up:** ask both merchant teams (merchant@khalti.com, eSewa merchant support) for their brand kits and
+  usage terms.

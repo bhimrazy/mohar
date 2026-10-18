@@ -6,6 +6,8 @@ import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import PreviewLayout from '@/layouts/preview-layout';
 import PublicLayout from '@/layouts/public-layout';
+import { showsPublicPageInClientArea } from '@/lib/layout-area';
+import { applySharedFormatting } from '@/lib/shared-formatting';
 import SettingsLayout from '@/layouts/settings/layout';
 
 // The brand name comes from Settings → Appearance (shared `brand` prop); the
@@ -19,9 +21,13 @@ router.on('navigate', (event) => {
     brandName = brand?.name || brandName;
 });
 
+router.on('beforeUpdate', (event) => {
+    applySharedFormatting(event.detail.page.props);
+});
+
 void createInertiaApp({
     title: (title) => (title ? `${title} · ${brandName}` : brandName),
-    layout: (name) => {
+    layout: (name, page) => {
         switch (true) {
             case name === 'welcome':
                 return null;
@@ -29,6 +35,8 @@ void createInertiaApp({
                 return PreviewLayout;
             case name.startsWith('auth/'):
                 return AuthLayout;
+            case showsPublicPageInClientArea(name, page.props):
+                return AppLayout;
             case name.startsWith('public/'):
                 return PublicLayout;
             case name.startsWith('settings/'):
@@ -38,7 +46,9 @@ void createInertiaApp({
         }
     },
     strictMode: true,
-    withApp(app) {
+    withApp(app, { page }) {
+        applySharedFormatting(page.props);
+
         return (
             <TooltipProvider delayDuration={0}>
                 {app}

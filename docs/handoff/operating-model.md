@@ -7,19 +7,21 @@ subagents, integrates their branches and merges. Subagents do the module work an
 
 Definitions live in `.claude/agents/`. Pass the role's file name as `subagent_type` when launching.
 
-| Role                 | Agent file           | Model   | Writes code | Used for                                                         |
-| -------------------- | -------------------- | ------- | ----------- | ---------------------------------------------------------------- |
-| CTO                  | main session         | —       | kernel only | plans, briefs, integration, shared kernel, merges, owner updates |
-| Product manager      | `product-manager`    | inherit | no (docs)   | module specs with acceptance criteria, from public docs          |
-| Principal designer   | `principal-designer` | opus    | yes (UI)    | design system, themes, brand, UI reviews                         |
-| Module engineer      | `module-engineer`    | inherit | yes         | one module per worktree, end to end, draft PR                    |
-| DevOps engineer      | `devops-engineer`    | inherit | yes         | CI, Docker, Postgres, dependency policy, observability           |
-| Review board         | `review-board`       | opus    | no          | correctness, contracts, portability, AI-slop on every code PR    |
-| Security reviewer    | `security-reviewer`  | opus    | no          | PRs touching auth, money, uploads, webhooks, external input      |
-| QA + design reviewer | `qa-design-reviewer` | opus    | no          | acceptance-criteria coverage, exploratory run, UI quality        |
-| Re-reviewer          | `re-reviewer`        | opus    | no          | verifies every round-1 blocking/medium item after fixes          |
-| AI-slop reviewer     | `slop-reviewer`      | opus    | no          | docs/infra PRs and handoff docs (folded into the board for code) |
-| Product reviewer     | `product-reviewer`   | opus    | small fixes | the owner's eyes: product standards, directions, WHMCS parity    |
+| Role                 | Agent file            | Model   | Writes code  | Used for                                                               |
+| -------------------- | --------------------- | ------- | ------------ | ---------------------------------------------------------------------- |
+| CTO                  | main session          | —       | kernel only  | plans, briefs, integration, shared kernel, merges, owner updates       |
+| Product manager      | `product-manager`     | inherit | no (docs)    | module specs with acceptance criteria, from public docs                |
+| Principal designer   | `principal-designer`  | opus    | yes (UI)     | design system, themes, brand, UI reviews                               |
+| Module engineer      | `module-engineer`     | inherit | yes          | one module per worktree, end to end, draft PR                          |
+| DevOps engineer      | `devops-engineer`     | inherit | yes          | CI, Docker, Postgres, dependency policy, observability                 |
+| Review board         | `review-board`        | opus    | no           | correctness, contracts, portability, AI-slop on every code PR          |
+| Security reviewer    | `security-reviewer`   | opus    | no           | PRs touching auth, money, uploads, webhooks, external input            |
+| QA + design reviewer | `qa-design-reviewer`  | opus    | no           | acceptance-criteria coverage, exploratory run, UI quality              |
+| Re-reviewer          | `re-reviewer`         | opus    | no           | verifies every round-1 blocking/medium item after fixes                |
+| AI-slop reviewer     | `slop-reviewer`       | opus    | no           | docs/infra PRs and handoff docs (folded into the board for code)       |
+| Product reviewer     | `product-reviewer`    | opus    | small fixes  | the owner's eyes: product standards, directions, WHMCS parity          |
+| Database reviewer    | `database-reviewer`   | opus    | small fixes  | schema, indexes, queries, locking, migrations, PostgreSQL parity       |
+| Principal architect  | `principal-architect` | opus    | ADRs, kernel | boundaries, shared kernel, extension model, cross-cutting design, ADRs |
 
 Reviewers are read-only. All agents run as the same GitHub account, so reviews are posted with
 `gh pr review <n> --comment` (approval is not possible); the verdict line in the comment is the gate.
@@ -31,7 +33,8 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The
    engineer commits in small steps, pushes, and opens a draft PR into `develop` with gates green.
 4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer` + `product-reviewer`
-   (every user-facing PR), plus `security-reviewer`
+   (every user-facing PR), `database-reviewer` (every PR with migrations, models or
+   non-trivial queries), `principal-architect` (every PR that changes the shared kernel), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.
@@ -62,8 +65,9 @@ $H npm run build
 $H php artisan test --compact                        # full Pest suite, SQLite
 ```
 
-PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private container on a free port and use
-`DB_PORT=<port> composer test:pgsql` (see `billing/docs/devops/local-setup.md`). CI is a single job
+PostgreSQL runs in CI on every non-draft PR. To run it locally, use the one shared server with a database per worktree:
+`eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)" && composer test:pgsql` (server `mohar-pg` on 127.0.0.1:55432,
+in-memory data; `scripts/pg.sh --stop` stops it). Don't start private PostgreSQL containers. CI is a single job
 (`billing/docs/devops/ci.md`) that took 3.5–5.5 minutes per run on 2026-10-18; keep it a single job.
 
 ## Integration rules
@@ -81,11 +85,17 @@ PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private 
 
 ## Machine limits (GitHub Codespace)
 
-- 4 vCPU, 15 GB RAM, 32 GB disk. No swap.
+- 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
+  9 GB of it is the base image. `/vscode` (VS Code server) is a separate disk. `/tmp` is a separate large
+  disk (about 100 GB free) that a codespace restart wipes: use it for disposable caches only (the npm
+  cache lives in `/tmp/npm-cache`), never for work.
 - `scripts/heavy.sh` allows 3 heavy commands machine-wide (`HEAVY_SLOTS`), at low CPU/IO priority.
 - `scripts/resource-monitor.sh <log>` logs load, memory, disk and top processes every 30 s. Start it in
   the background at the start of each session; slow down (fewer agents) when load stays above 4.
-- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). Remove worktrees once merged.
+- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). `scripts/storage-cleanup.sh` (dry run by
+  default, `--apply` to act) removes worktrees whose PR is merged and that are clean and pushed, clears stale
+  Laravel caches, prunes stopped containers and dangling images, and clears the npm cache only when free
+  space is low. Run it in a background loop every 30 minutes during long sessions.
 - Dev servers: give each agent its own port range (8100–8299) and stop servers by port PID
   (`ss -ltnp | grep :<port>`). Never `pkill -f`; it can match the calling shell.
 - `/tmp` scratch space is wiped when the session restarts. Keep anything reusable in the repo or in

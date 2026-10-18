@@ -14,9 +14,28 @@ use Symfony\Component\HttpFoundation\Response;
  * stamps on its tags (Vite::useCspNonce()); inline scripts in Blade must carry nonce="{{ Vite::cspNonce() }}".
  * While the Vite dev server runs (public/hot), its origin is allowed for scripts, styles and HMR sockets.
  * Responses that already set a header (e.g. Referrer-Policy: no-referrer on token pages) keep theirs.
+ * A page that must POST a form to a payment provider (eSewa, ConnectIPS) names that one origin with
+ * allowFormAction(); it is added to form-action for that response only.
  */
 class SecurityHeaders
 {
+    private const FORM_ACTION_ATTRIBUTE = 'security_headers.form_action';
+
+    /**
+     * Allow this response's document to submit a form to the origin of $url (https only; anything else is ignored).
+     */
+    public static function allowFormAction(Request $request, string $url): void
+    {
+        $parts = parse_url($url);
+
+        if (($parts['scheme'] ?? null) !== 'https' || ! isset($parts['host']) || preg_match('/^[a-z0-9.-]+$/i', $parts['host']) !== 1) {
+            return;
+        }
+
+        $origin = 'https://'.strtolower($parts['host']).(isset($parts['port']) ? ':'.$parts['port'] : '');
+        $request->attributes->set(self::FORM_ACTION_ATTRIBUTE, $origin);
+    }
+
     /**
      * @param  Closure(Request): Response  $next
      */
@@ -27,7 +46,7 @@ class SecurityHeaders
         $response = $next($request);
 
         $headers = [
-            'Content-Security-Policy' => $this->contentSecurityPolicy($nonce),
+            'Content-Security-Policy' => $this->contentSecurityPolicy($nonce, $request->attributes->get(self::FORM_ACTION_ATTRIBUTE)),
             'X-Frame-Options' => 'DENY',
             'X-Content-Type-Options' => 'nosniff',
             'Referrer-Policy' => 'strict-origin-when-cross-origin',
@@ -48,8 +67,9 @@ class SecurityHeaders
         return $response;
     }
 
-    private function contentSecurityPolicy(string $nonce): string
+    private function contentSecurityPolicy(string $nonce, mixed $formAction = null): string
     {
+        $formOrigin = is_string($formAction) && $formAction !== '' ? ' '.$formAction : '';
         $dev = $this->viteDevServer();
         $devSocket = $dev === null ? '' : ' '.preg_replace('#^http#', 'ws', $dev);
         $devOrigin = $dev === null ? '' : " {$dev}";
@@ -64,7 +84,7 @@ class SecurityHeaders
             "connect-src 'self'{$devOrigin}{$devSocket}",
             "object-src 'none'",
             "base-uri 'self'",
-            "form-action 'self'",
+            "form-action 'self'{$formOrigin}",
             "frame-ancestors 'none'",
         ]);
     }

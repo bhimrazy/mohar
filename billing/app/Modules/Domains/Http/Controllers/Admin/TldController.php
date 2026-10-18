@@ -42,6 +42,7 @@ class TldController extends Controller
                 ...(new TldResource($tld))->resolve(),
                 'price' => $prices->get($tld->id)?->only(['register', 'transfer', 'renew']),
             ])->values(),
+            'registrarNames' => app(RegistrarManager::class)->names(),
             'canManage' => request()->user()?->hasPermission('domains.tlds.manage') ?? false,
         ]);
     }
@@ -99,6 +100,7 @@ class TldController extends Controller
     {
         return [
             'registrars' => $registrars->keys(),
+            'registrarNames' => $registrars->names(),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'defaultCurrency' => Currency::default()->code,
             'groups' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),

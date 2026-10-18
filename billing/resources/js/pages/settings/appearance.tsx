@@ -1,4 +1,5 @@
-import { Head, router, usePage } from '@inertiajs/react';
+import { router, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import AppearanceTabs from '@/components/appearance-tabs';
 import Heading from '@/components/heading';
 import { Label } from '@/components/ui/label';

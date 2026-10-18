@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     CreditCard,
     Download,
@@ -23,6 +24,7 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { FormDialog } from '@/components/billing/form-dialog';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
+import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
 import { SelectField } from '@/components/billing/select-field';
 import type {
     GatewayOption,
@@ -31,6 +33,8 @@ import type {
     Transaction,
 } from '@/components/billing/types';
 import { humanize, toDecimalInput } from '@/components/billing/types';
+import type { PaymentInProgressData } from '@/components/billing/types';
+import { parseMoneyInput } from '@/lib/money';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -62,6 +66,7 @@ import {
     index,
     updateDetails,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
+import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 
@@ -69,6 +74,7 @@ type Props = {
     invoice: Invoice;
     transactions: Transaction[];
     credit_available: number;
+    payment_in_progress: PaymentInProgressData | null;
     gateways: GatewayOption[];
     pay_methods: PayMethod[];
     can: { manage: boolean; payments: boolean; refunds: boolean };
@@ -85,9 +91,16 @@ function RefundDialog({
     transaction: Transaction;
     gateways: GatewayOption[];
 }) {
-    const canRefundAtGateway =
-        gateways.find((gateway) => gateway.value === transaction.gateway)
-            ?.refund ?? false;
+    const option = gateways.find(
+        (gateway) => gateway.value === transaction.gateway,
+    );
+    const name = option?.label ?? 'the gateway';
+    const canRefundAtGateway = option?.refund ?? false;
+    // A gateway without partial refunds can only refund the whole original payment through its API.
+    const fullOnly = canRefundAtGateway && !option?.partial_refund;
+    const isFullRefund = (input: string) =>
+        transaction.refundable_remaining === transaction.amount_in &&
+        parseMoneyInput(input) === transaction.amount_in;
 
     return (
         <FormDialog
@@ -113,77 +126,117 @@ function RefundDialog({
             moneyFields={['amount']}
             initial={{
                 amount: toDecimalInput(transaction.refundable_remaining),
-                mode: canRefundAtGateway ? 'gateway' : 'record_only',
+                mode:
+                    canRefundAtGateway &&
+                    (!fullOnly ||
+                        transaction.refundable_remaining ===
+                            transaction.amount_in)
+                        ? 'gateway'
+                        : 'record_only',
                 reverse_effects: false,
                 description: '',
             }}
         >
-            {(form) => (
-                <div className="grid gap-4">
-                    <Field
-                        className="content-start"
-                        htmlFor="refund-amount"
-                        label="Amount"
-                        error={form.errors.amount}
-                    >
-                        <Input
-                            id="refund-amount"
-                            inputMode="decimal"
-                            value={form.data.amount}
-                            onChange={(event) =>
-                                form.setData('amount', event.target.value)
-                            }
-                            aria-invalid={!!form.errors.amount}
-                        />
-                    </Field>
-                    <Field
-                        className="content-start"
-                        htmlFor="refund-mode"
-                        label="Refund to"
-                        error={form.errors.mode}
-                    >
-                        <SelectField
-                            id="refund-mode"
-                            value={form.data.mode}
-                            onChange={(value) => form.setData('mode', value)}
-                            options={[
-                                ...(canRefundAtGateway
-                                    ? [
-                                          {
-                                              value: 'gateway',
-                                              label: 'Original payment method (gateway)',
-                                          },
-                                      ]
-                                    : []),
-                                {
-                                    value: 'record_only',
-                                    label: 'Record only (refunded outside the system)',
-                                },
-                                { value: 'to_credit', label: 'Account credit' },
-                            ]}
-                        />
-                    </Field>
-                    <div className="flex items-start gap-2">
-                        <Checkbox
-                            id="refund-reverse"
-                            checked={form.data.reverse_effects}
-                            onCheckedChange={(checked) =>
-                                form.setData(
-                                    'reverse_effects',
-                                    checked === true,
-                                )
-                            }
-                        />
-                        <Label
-                            htmlFor="refund-reverse"
-                            className="leading-snug font-normal"
+            {(form) => {
+                const gatewayAllowed =
+                    canRefundAtGateway &&
+                    (!fullOnly || isFullRefund(form.data.amount));
+                const guidance = !canRefundAtGateway
+                    ? `${name} can't refund through the API. Refund in the ${name} merchant portal first, then record it here.`
+                    : !gatewayAllowed
+                      ? `${name} refunds only the full payment through the API. Refund part of it in the ${name} merchant portal, then record it here.`
+                      : `If ${name} refuses (for example a payment made from a bank account), refund it in the ${name} merchant portal and record it here.`;
+
+                return (
+                    <div className="grid gap-4">
+                        {transaction.gateway && (
+                            <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
+                                {guidance}
+                            </p>
+                        )}
+                        <Field
+                            className="content-start"
+                            htmlFor="refund-amount"
+                            label="Amount"
+                            error={form.errors.amount}
                         >
-                            Reverse what the payment granted (roll back service
-                            due dates, affiliate commission)
-                        </Label>
+                            <Input
+                                id="refund-amount"
+                                inputMode="decimal"
+                                value={form.data.amount}
+                                onChange={(event) => {
+                                    const amount = event.target.value;
+                                    // A partial amount can't go through a full-only gateway: switch to recording it.
+                                    const keepGateway =
+                                        !fullOnly || isFullRefund(amount);
+
+                                    form.setData({
+                                        ...form.data,
+                                        amount,
+                                        mode:
+                                            form.data.mode === 'gateway' &&
+                                            !keepGateway
+                                                ? 'record_only'
+                                                : form.data.mode,
+                                    });
+                                }}
+                                aria-invalid={!!form.errors.amount}
+                            />
+                        </Field>
+                        <Field
+                            className="content-start"
+                            htmlFor="refund-mode"
+                            label="Refund to"
+                            error={form.errors.mode}
+                        >
+                            <SelectField
+                                id="refund-mode"
+                                value={form.data.mode}
+                                onChange={(value) =>
+                                    form.setData('mode', value)
+                                }
+                                options={[
+                                    ...(gatewayAllowed
+                                        ? [
+                                              {
+                                                  value: 'gateway',
+                                                  label: 'Original payment method (gateway)',
+                                              },
+                                          ]
+                                        : []),
+                                    {
+                                        value: 'record_only',
+                                        label: 'Record only (refunded outside the system)',
+                                    },
+                                    {
+                                        value: 'to_credit',
+                                        label: 'Account credit',
+                                    },
+                                ]}
+                            />
+                        </Field>
+                        <div className="flex items-start gap-2">
+                            <Checkbox
+                                id="refund-reverse"
+                                checked={form.data.reverse_effects}
+                                onCheckedChange={(checked) =>
+                                    form.setData(
+                                        'reverse_effects',
+                                        checked === true,
+                                    )
+                                }
+                            />
+                            <Label
+                                htmlFor="refund-reverse"
+                                className="leading-snug font-normal"
+                            >
+                                Reverse what the payment granted (roll back
+                                service due dates, affiliate commission)
+                            </Label>
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            }}
         </FormDialog>
     );
 }
@@ -192,6 +245,7 @@ export default function InvoiceShow({
     invoice,
     transactions,
     credit_available,
+    payment_in_progress,
     gateways,
     pay_methods,
     can,
@@ -229,7 +283,19 @@ export default function InvoiceShow({
         {
             key: 'gateway',
             header: 'Gateway',
-            cell: (txn) => gatewayName(txn.gateway),
+            cell: (txn) => (
+                <span className="flex items-center gap-2">
+                    {gatewayName(txn.gateway)}
+                    {gateways.find((gateway) => gateway.value === txn.gateway)
+                        ?.sandbox && (
+                        <StatusBadge
+                            status="sandbox"
+                            tone="warning"
+                            label="Sandbox"
+                        />
+                    )}
+                </span>
+            ),
         },
         {
             key: 'reference',
@@ -487,6 +553,34 @@ export default function InvoiceShow({
 
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="grid content-start gap-4 lg:col-span-2">
+                        {payment_in_progress && (
+                            <PaymentInProgressCard
+                                attempt={payment_in_progress}
+                                staff
+                                actions={
+                                    can.payments &&
+                                    payment_in_progress.id !== null ? (
+                                        <Button
+                                            variant="outline"
+                                            onClick={() =>
+                                                router.post(
+                                                    checkAttempt.url(
+                                                        payment_in_progress.id ??
+                                                            0,
+                                                    ),
+                                                    {},
+                                                    { preserveScroll: true },
+                                                )
+                                            }
+                                        >
+                                            Check now
+                                        </Button>
+                                    ) : (
+                                        <></>
+                                    )
+                                }
+                            />
+                        )}
                         <SectionCard
                             title="Line items"
                             flush

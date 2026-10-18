@@ -38,6 +38,24 @@ class RegistrarManager
     }
 
     /**
+     * Display names by driver key, for selects and tables. Reads driver metadata only: the
+     * driver is not configured, so no account query and no credential decryption.
+     *
+     * @return array<string, string>
+     */
+    public function names(): array
+    {
+        $names = [];
+
+        foreach ($this->drivers as $key => $definition) {
+            $driver = $definition instanceof Closure ? $definition() : app($definition);
+            $names[$key] = $driver->name();
+        }
+
+        return $names;
+    }
+
+    /**
      * A configured driver instance. Throws for unknown keys.
      */
     public function driver(string $key): Registrar

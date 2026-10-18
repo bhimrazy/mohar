@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Coins, MoreHorizontal, Plus } from 'lucide-react';
 import { useState } from 'react';
 import CurrencyController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/CurrencyController';

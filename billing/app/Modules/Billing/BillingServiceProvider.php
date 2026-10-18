@@ -44,10 +44,13 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 
 class BillingServiceProvider extends ModuleServiceProvider
 {
@@ -83,6 +86,11 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
+        // signed-in user so one account can't get the key throttled or flagged at the provider.
+        RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
+            ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
         // Step-up middleware is owned by Platform; provide the same contract when Platform isn't installed.
         $router = $this->app->make(Router::class);
@@ -302,6 +310,9 @@ class BillingServiceProvider extends ModuleServiceProvider
      * Money-moving and security-relevant permissions: never granted by wildcards (only explicitly or by "*"),
      * and their routes require a recent password confirmation (password.recent).
      */
+    /** Client pay requests (invoice and batch) per user per minute. */
+    public const PAY_REQUESTS_PER_MINUTE = 10;
+
     public const SENSITIVE_PERMISSIONS = [
         'billing.refunds.manage',
         'billing.payments.manage',

@@ -1,4 +1,5 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import TicketController from '@/actions/App/Modules/Support/Http/Controllers/Admin/TicketController';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';

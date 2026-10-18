@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import TldController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/TldController';
 import { Field } from '@/components/app/field';
@@ -49,6 +50,7 @@ type Props = {
     tld: Tld | null;
     prices: PriceRow[];
     registrars: string[];
+    registrarNames: Record<string, string>;
     currencies: string[];
     defaultCurrency: string;
     groups: { id: number; name: string }[];
@@ -62,6 +64,7 @@ const decimal = (amount: number | null) =>
 function SettingsForm({
     tld,
     registrars,
+    registrarNames,
     badges,
     defaultCurrency,
     canManage,
@@ -200,7 +203,7 @@ function SettingsForm({
                                         key={registrar}
                                         value={registrar}
                                     >
-                                        {registrar}
+                                        {registrarNames[registrar] ?? registrar}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -308,6 +311,7 @@ export default function TldForm(props: Props) {
                 <SettingsForm
                     tld={tld}
                     registrars={props.registrars}
+                    registrarNames={props.registrarNames}
                     badges={props.badges}
                     defaultCurrency={props.defaultCurrency}
                     canManage={props.canManage}

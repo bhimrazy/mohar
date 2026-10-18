@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Events\Billing\GatewayConfigurationChanged;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
@@ -11,6 +12,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Support\Billing\SandboxPolicy;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -56,6 +58,10 @@ class ConfigureGateway
             }
         }
 
+        if ($attributes['is_active']) {
+            $this->assertActivatable($driver, $config);
+        }
+
         foreach ($attributes as $attribute => $value) {
             if ($gateway->getAttribute($attribute) != $value || ! $gateway->exists) {
                 $changes[$attribute] = ['from' => $gateway->exists ? $gateway->getAttribute($attribute) : null, 'to' => $value];
@@ -76,5 +82,28 @@ class ConfigureGateway
 
             return $gateway;
         });
+    }
+
+    /**
+     * An active gateway needs its required settings, and never runs in sandbox mode where test money is not
+     * allowed (production): sandbox credentials would otherwise mark real invoices paid with test payments.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function assertActivatable(GatewayDriver $driver, array $config): void
+    {
+        foreach ($driver->settingsFields() as $field) {
+            if ($field['type'] === 'boolean') {
+                continue;
+            }
+
+            if (($field['required'] ?? false) && trim((string) ($config[$field['key']] ?? '')) === '') {
+                throw new BillingException(__(':field is required to activate this gateway.', ['field' => $field['label']]));
+            }
+        }
+
+        if (! SandboxPolicy::allowed() && filter_var($config['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            throw new BillingException(__('Sandbox mode can\'t be used in production. Turn it off and enter live credentials.'));
+        }
     }
 }

@@ -1,4 +1,5 @@
 import { parseMoneyInput } from '@/lib/money';
+import type { GatewayLogoData } from './gateway-logo';
 
 /**
  * Billing page props as sent by app/Modules/Billing/Http/Resources/*.
@@ -154,6 +155,34 @@ export type ClientGatewayOption = {
     instructions: string | null;
     vault_url: string | null;
     sandbox?: boolean;
+    logo?: GatewayLogoData | null;
+    show_name?: boolean;
+    /** Why this method can't take this invoice (shown, and the method is disabled). */
+    unavailable_reason?: string | null;
+    /** What the customer pays at the provider when it charges in another currency. */
+    conversion?: {
+        amount: number;
+        currency: string;
+        rate: number;
+        from: string;
+    } | null;
+};
+
+/** A hosted payment started and not yet confirmed (client and staff invoice pages). */
+export type PaymentInProgressData = {
+    id: number | null;
+    reference: string;
+    gateway: string;
+    gateway_name: string;
+    logo: GatewayLogoData | null;
+    amount: number;
+    currency: string;
+    status: 'pending' | 'ambiguous';
+    started_at: string | null;
+    expires_at: string | null;
+    check_url: string;
+    can_pay_another_way: boolean;
+    review_reason: string | null;
 };
 
 export type PaymentOptions = {
@@ -166,6 +195,8 @@ export type PaymentOptions = {
 
 export type GatewayOption = {
     value: string;
+    partial_refund?: boolean;
+    sandbox?: boolean;
     label: string;
     capture?: boolean;
     refund?: boolean;

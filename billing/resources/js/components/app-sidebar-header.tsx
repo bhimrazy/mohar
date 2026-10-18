@@ -4,10 +4,11 @@ import { CommandPalette } from '@/components/app/command-palette';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { usePageBreadcrumbs } from '@/hooks/use-page-breadcrumbs';
 import type { BreadcrumbItem as BreadcrumbItemType } from '@/types';
 
 export function AppSidebarHeader({
-    breadcrumbs = [],
+    breadcrumbs: declared = [],
     actions,
 }: {
     breadcrumbs?: BreadcrumbItemType[];
@@ -15,6 +16,7 @@ export function AppSidebarHeader({
     actions?: ReactNode;
 }) {
     const { area } = usePage().props;
+    const breadcrumbs = usePageBreadcrumbs(declared);
 
     return (
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-sm transition-[width,height] ease-linear md:rounded-t-(--shell-radius) md:px-6">

@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { FormEvent } from 'react';
 import { Field } from '@/components/app/field';

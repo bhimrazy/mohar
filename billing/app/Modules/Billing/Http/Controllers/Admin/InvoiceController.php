@@ -17,6 +17,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
@@ -89,7 +90,7 @@ class InvoiceController extends Controller
         return to_route('admin.billing.invoices.show', $invoice);
     }
 
-    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit): Response
+    public function show(Request $request, Invoice $invoice, CreditLedgerService $credit, PaymentInProgress $inProgress): Response
     {
         $this->authorize('billing.invoices.view');
 
@@ -100,6 +101,7 @@ class InvoiceController extends Controller
             'invoice' => new InvoiceResource($invoice),
             'transactions' => TransactionResource::collection($invoice->transactions()->get()),
             'credit_available' => $credit->balance($invoice->client_id, $invoice->currency)->amount,
+            'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice, staff: true) : null,
             'gateways' => $this->gatewayOptions(),
             'pay_methods' => PayMethodResource::collection(PayMethod::query()->where('client_id', $invoice->client_id)->usable()->orderByDesc('is_default')->orderBy('id')->get()
                 ->filter(fn (PayMethod $method): bool => $method->isUsable() && $this->gateways->supports($method->gateway, GatewayDriver::CAPTURE))->values()),
@@ -189,12 +191,18 @@ class InvoiceController extends Controller
      */
     private function gatewayOptions(): array
     {
-        return array_values(array_map(fn (GatewayDriver $driver): array => [
-            'value' => $driver->key(),
-            'label' => $this->gateways->gateway($driver->key())->display_name,
-            'capture' => $driver->supports(GatewayDriver::CAPTURE),
-            'refund' => $driver->supports(GatewayDriver::REFUND),
-        ], $this->gateways->drivers()));
+        return array_values(array_map(function (GatewayDriver $driver): array {
+            $model = $this->gateways->gateway($driver->key());
+
+            return [
+                'value' => $driver->key(),
+                'label' => $model->display_name,
+                'capture' => $driver->supports(GatewayDriver::CAPTURE),
+                'refund' => $driver->supports(GatewayDriver::REFUND),
+                'partial_refund' => $driver->supports(GatewayDriver::PARTIAL_REFUND),
+                'sandbox' => $this->gateways->isSandbox($model),
+            ];
+        }, $this->gateways->drivers()));
     }
 
     /**

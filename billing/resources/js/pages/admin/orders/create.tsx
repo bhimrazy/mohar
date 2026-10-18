@@ -1,4 +1,5 @@
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import OrderController from '@/actions/App/Modules/Orders/Http/Controllers/Admin/OrderController';
 import { decimalAmount } from '@/components/orders/decimal-amount';
 import { Field } from '@/components/app/field';

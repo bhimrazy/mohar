@@ -20,6 +20,7 @@ use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Modules\Billing\Services\Tax\TaxMath;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\Billing\SandboxPolicy;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Request;
@@ -60,9 +61,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
      */
     public static function enabled(): bool
     {
-        $configured = config('billing_sandbox.enabled');
-
-        return $configured === null || $configured === '' ? ! app()->isProduction() : filter_var($configured, FILTER_VALIDATE_BOOLEAN);
+        return SandboxPolicy::allowed();
     }
 
     public function key(): string
