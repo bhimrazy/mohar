@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 Route::adminArea(function (): void {
     Route::get('appearance', [AppearanceController::class, 'edit'])->name('appearance.edit');
     Route::put('appearance', [AppearanceController::class, 'update'])->name('appearance.update');
+    Route::put('appearance/brand', [AppearanceController::class, 'updateBrand'])->name('appearance.brand.update');
     Route::delete('appearance/brand', [BrandAssetController::class, 'reset'])->name('appearance.brand.reset');
     Route::post('appearance/brand/{kind}', [BrandAssetController::class, 'store'])
         ->whereIn('kind', BrandAssets::KINDS)->name('appearance.brand.store');
@@ -30,5 +31,4 @@ Route::adminArea(function (): void {
     Route::put('appearance/preference', ThemePreferenceController::class)->name('appearance.preference');
 });
 
-Route::get('branding/{kind}', [BrandAssetController::class, 'show'])
-    ->whereIn('kind', BrandAssets::KINDS)->name('branding.show');
+// GET /branding/{kind} is registered in ThemesServiceProvider, outside the "web" middleware group.
