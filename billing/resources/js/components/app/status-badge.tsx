@@ -35,6 +35,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     'customer-reply': 'warning',
     grace: 'warning',
     'partially-paid': 'warning',
+    'payment-pending': 'warning',
     scheduled: 'warning',
     review: 'warning',
     identified: 'warning',

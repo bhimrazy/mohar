@@ -5,16 +5,6 @@
 
 export const DEFAULT_LOCALE = 'en-US';
 
-/** Display locale per currency when the caller does not pass one (INR uses lakh grouping). */
-const CURRENCY_LOCALES: Record<string, string> = {
-    INR: 'en-IN',
-    NPR: 'en-IN',
-};
-
-export function localeForCurrency(currency: string): string {
-    return CURRENCY_LOCALES[currency.toUpperCase()] ?? DEFAULT_LOCALE;
-}
-
 const formatters = new Map<string, Intl.NumberFormat>();
 
 function getFormatter(
@@ -101,18 +91,27 @@ export type FormatMoneyOptions = {
 /**
  * formatMoney(129900, 'USD') → "$1,299.00"
  * formatMoney(-500, 'EUR', 'de-DE') → "-5,00 €"
- * formatMoney(10000000, 'INR') → "₹1,00,000.00" (locale defaults per currency)
  */
+/**
+ * Grouping convention per currency when no locale is given: INR and NPR use Indian lakh/crore grouping
+ * (₹12,34,567.89); everything else the default locale.
+ */
+export function localeForCurrency(currency: string): string {
+    return ['INR', 'NPR'].includes(currency.toUpperCase())
+        ? 'en-IN'
+        : DEFAULT_LOCALE;
+}
+
 export function formatMoney(
     amountMinor: number,
     currency: string,
-    locale: string = localeForCurrency(currency),
+    locale?: string,
     options: FormatMoneyOptions = {},
 ): string {
     const code = currency.toUpperCase();
     const formatter = getFormatter(
         code,
-        locale,
+        locale ?? localeForCurrency(code),
         options.signed ? 'exceptZero' : 'auto',
     );
     const value = fromMinor(amountMinor);
