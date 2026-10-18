@@ -161,11 +161,6 @@ class BillingSeeder extends Seeder
     }
 
     /**
-     * India (GST intra-/inter-state, B2B GSTIN) and Nepal (VAT 13%) customers in their own currencies.
-     *
-     * @param  \Closure(Client, list<InvoiceLineData>, CarbonImmutable, ?string): Invoice  $issue
-     */
-    /**
      * India (GST intra-/inter-state, B2B GSTIN) and Nepal (VAT 13%) demo customers in their own currencies.
      *
      * @return list<array{client: Client, amount: int}>

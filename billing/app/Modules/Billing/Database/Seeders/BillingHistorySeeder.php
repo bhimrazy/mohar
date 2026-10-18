@@ -43,6 +43,11 @@ class BillingHistorySeeder extends Seeder
 
     public function run(Invoicer $invoicer, ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund): void
     {
+        // Demo data only: never fabricate billing history in a live install.
+        if (app()->isProduction()) {
+            return;
+        }
+
         $previous = CarbonImmutable::getTestNow();
         $today = CarbonImmutable::today();
         mt_srand(2026);
