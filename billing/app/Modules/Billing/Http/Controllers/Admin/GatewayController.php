@@ -2,15 +2,19 @@
 
 namespace App\Modules\Billing\Http\Controllers\Admin;
 
+use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\GatewayDriver;
+use App\Data\Billing\ConnectionCheck;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ConfigureGateway;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Http\Requests\Admin\GatewayRequest;
+use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class GatewayController extends Controller
 {
@@ -45,6 +49,7 @@ class GatewayController extends Controller
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'replacements' => array_values(array_map(fn (GatewayDriver $other): array => ['value' => $other->key(), 'label' => $this->gateways->gateway($other->key())->display_name], array_filter($this->gateways->drivers(), fn (GatewayDriver $other): bool => $other->key() !== $gateway))),
             'webhook_url' => $driver->supports(GatewayDriver::WEBHOOK) ? route('billing.webhooks', $gateway) : null,
+            'can_test_connection' => $driver instanceof ConnectionTester,
         ]);
     }
 
@@ -67,6 +72,29 @@ class GatewayController extends Controller
     }
 
     /**
+     * Check the saved credentials with the provider (drivers implementing ConnectionTester). Moves no money and
+     * changes nothing, so it needs no password step-up; it is throttled because it calls the provider.
+     */
+    public function test(string $gateway, GatewayLogger $log): RedirectResponse
+    {
+        $this->authorize('billing.gateways.manage');
+        $driver = $this->gateways->driver($gateway);
+        abort_unless($driver instanceof ConnectionTester, 404);
+
+        try {
+            $check = $driver->testConnection($this->gateways->config($gateway));
+        } catch (Throwable $exception) {
+            report($exception);
+            $check = new ConnectionCheck(false, __('Couldn\'t reach the provider. Try again in a minute.'));
+        }
+
+        $log->log($gateway, 'request', $check->ok ? 'connection test ok' : 'connection test failed', ['message' => $check->message]);
+        Inertia::flash('toast', ['type' => $check->ok ? 'success' : 'error', 'message' => $check->message]);
+
+        return back();
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function present(GatewayDriver $driver): array
@@ -83,7 +111,8 @@ class GatewayController extends Controller
             'sort_order' => $model->sort_order,
             'convert_to_currency' => $model->convert_to_currency,
             'capabilities' => $driver->capabilities(),
-            'sandbox' => str_starts_with($driver->key(), 'sandbox'),
+            'sandbox' => $this->gateways->isSandbox($model),
+            'logo' => $this->gateways->logo($driver->key()),
         ];
     }
 }

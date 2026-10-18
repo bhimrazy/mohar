@@ -13,6 +13,8 @@ return [
     |
     */
 
+    // The same switch allows provider sandbox modes (Khalti dev.khalti.com, eSewa UAT) through
+    // App\Support\Billing\SandboxPolicy: forcing it on in production (e.g. a demo host) lets those run there too.
     'enabled' => env('BILLING_SANDBOX_ENABLED'),
 
 ];
