@@ -1,10 +1,18 @@
 import { Link } from '@inertiajs/react';
 import { ArrowDownRight, ArrowRight, ArrowUpRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { Href } from '@/types/app';
+
+// Recharts is only fetched by pages that actually draw a sparkline.
+const Sparkline = lazy(() =>
+    import('@/components/app/sparkline').then((module) => ({
+        default: module.Sparkline,
+    })),
+);
 
 export type StatTrend = {
     /** Pre-formatted change, e.g. "12%" or "+$1,200". */
@@ -23,15 +31,23 @@ type StatCardProps = {
     icon?: LucideIcon;
     href?: Href;
     loading?: boolean;
+    /** Recent values, drawn as a sparkline under the figure. */
+    sparkline?: number[];
+    /** Highlights money at risk (overdue) with the danger tone on the icon. */
+    tone?: 'default' | 'danger' | 'warning';
     className?: string;
 };
 
+function trendIsGood(trend: StatTrend): boolean | null {
+    if (trend.direction === 'flat') {
+        return null;
+    }
+
+    return (trend.direction === 'up') === (trend.upIsGood ?? true);
+}
+
 function TrendBadge({ trend }: { trend: StatTrend }) {
-    const upIsGood = trend.upIsGood ?? true;
-    const isGood =
-        trend.direction === 'flat'
-            ? null
-            : (trend.direction === 'up') === upIsGood;
+    const isGood = trendIsGood(trend);
     const Icon =
         trend.direction === 'up'
             ? ArrowUpRight
@@ -42,10 +58,10 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
     return (
         <span
             className={cn(
-                'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
-                isGood === true && 'text-emerald-700 dark:text-emerald-400',
-                isGood === false && 'text-red-700 dark:text-red-400',
-                isGood === null && 'text-muted-foreground',
+                'inline-flex items-center gap-0.5 rounded-badge px-1.5 py-0.5 text-xs font-medium tabular-nums',
+                isGood === true && 'bg-success-subtle text-success-text',
+                isGood === false && 'bg-danger-subtle text-danger-text',
+                isGood === null && 'bg-muted text-muted-foreground',
             )}
         >
             <Icon className="size-3.5" aria-hidden="true" />
@@ -61,6 +77,12 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
     );
 }
 
+const ICON_TONES = {
+    default: 'bg-muted text-muted-foreground',
+    danger: 'bg-danger-subtle text-danger-text',
+    warning: 'bg-warning-subtle text-warning-text',
+} as const;
+
 export function StatCard({
     label,
     value,
@@ -69,39 +91,64 @@ export function StatCard({
     icon: Icon,
     href,
     loading = false,
+    sparkline,
+    tone = 'default',
     className,
 }: StatCardProps) {
+    const sparkColor =
+        trend && trendIsGood(trend) === false
+            ? 'var(--danger)'
+            : 'var(--chart-1)';
+
     const body = (
         <>
-            <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-muted-foreground">{label}</span>
+            <div className="flex min-h-10 items-start justify-between gap-2">
+                <span
+                    className="line-clamp-2 text-sm text-muted-foreground"
+                    title={label}
+                >
+                    {label}
+                </span>
                 {Icon && (
-                    <Icon
-                        className="size-4 text-muted-foreground"
-                        aria-hidden="true"
-                    />
+                    <span
+                        className={cn(
+                            'grid size-7 place-items-center rounded-md',
+                            ICON_TONES[tone],
+                        )}
+                    >
+                        <Icon className="size-4" aria-hidden="true" />
+                    </span>
                 )}
             </div>
             {loading ? (
                 <Skeleton className="h-8 w-28" />
             ) : (
-                <div className="text-2xl font-semibold tracking-tight tabular-nums">
+                <div className="font-display font-numeric text-xl leading-tight sm:text-2xl">
                     {value}
                 </div>
             )}
             {(hint || trend) && !loading && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                     {trend && <TrendBadge trend={trend} />}
                     {hint && <span className="truncate">{hint}</span>}
                 </div>
+            )}
+            {sparkline && sparkline.length > 1 && !loading && (
+                <Suspense fallback={<div className="mt-1 h-10" />}>
+                    <Sparkline
+                        values={sparkline}
+                        color={sparkColor}
+                        className="mt-1"
+                    />
+                </Suspense>
             )}
         </>
     );
 
     const classes = cn(
-        'flex flex-col gap-2 rounded-xl border bg-card p-4 text-card-foreground shadow-xs',
+        'flex flex-col gap-2 rounded-xl border bg-card p-(--stat-p) text-card-foreground elevation-card',
         href &&
-            'transition-colors hover:bg-muted/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+            'group/stat cursor-pointer transition-[border-color,box-shadow] hover:border-primary/35 hover:elevation-hover focus-visible:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
         className,
     );
 

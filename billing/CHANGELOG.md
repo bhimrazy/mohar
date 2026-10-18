@@ -18,6 +18,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
 
+### Themes & brand
+
+- Themes module: theme token schema (`billing-theme` v1, `ThemeSchema`) and `ThemeRegistry` kernel for
+  presets from modules or theme packs. Four presets ship: Calm Fintech (default), Operator Pro, Hosting Warm and
+  Enterprise Slate. CSS variables are generated per theme version and injected with the CSP nonce.
+- Admin → Settings → Appearance (`themes.manage`): theme per area (admin, client area, storefront), default
+  density, optional per-staff theme/density. Custom themes come from an editor with a light/dark live preview
+  and a WCAG AA contrast guard that blocks saving. JSON export/import is strictly validated. Rename and delete
+  are supported, and a theme that is in use cannot be deleted.
+- Brand (Mohar by default): name, tagline, logos (light/dark), mark and favicon, with uploads on the objects
+  disk (SVG rejected) and reset to default. `BrandProvider` contract for pages, mail layout and invoice PDFs.
+  Default SVG logos, favicon.ico and apple-touch icon replace the starter-kit logo.
+- UI: shadcn Chart (Recharts 3.10.1) with themed area/bar charts and KPI sparklines; sidebar with collapsible
+  groups, badges, ⌘K command palette and quick-create; admin dashboard renders kernel widgets, deferred widgets
+  and "Needs attention" todos.
+
 ### Services
 
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted

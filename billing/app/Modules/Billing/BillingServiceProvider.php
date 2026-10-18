@@ -188,22 +188,27 @@ class BillingServiceProvider extends ModuleServiceProvider
         $dashboard->widget('admin', 'billing.income_chart', 'chart', function (?User $user) use ($currency): array {
             $code = $currency();
             $start = CarbonImmutable::today()->subDays(29);
+            // Net income per currency and day; the dashboard offers a currency switch when several have activity.
             $daily = Transaction::query()
-                ->where('currency', $code)
                 ->where('occurred_at', '>=', $start)
                 ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback])
-                ->get(['occurred_at', 'amount_in', 'amount_out'])
-                ->groupBy(fn (Transaction $transaction): string => $transaction->occurred_at->toDateString())
-                ->map(fn ($day): int => (int) $day->sum(fn (Transaction $transaction): int => $transaction->amount_in - $transaction->amount_out));
+                ->get(['currency', 'occurred_at', 'amount_in', 'amount_out'])
+                ->groupBy('currency')
+                ->map(fn ($rows) => $rows
+                    ->groupBy(fn (Transaction $transaction): string => $transaction->occurred_at->toDateString())
+                    ->map(fn ($day): int => (int) $day->sum(fn (Transaction $transaction): int => $transaction->amount_in - $transaction->amount_out)));
+            $series = fn (string $currencyCode): array => [['name' => 'Net income', 'points' => array_map(
+                fn (int $offset): array => ['x' => $date = $start->addDays($offset)->toDateString(), 'y' => $daily->get($currencyCode)?->get($date) ?? 0],
+                range(0, 29),
+            )]];
+            $codes = array_values(array_unique([$code, ...$daily->keys()->map(fn ($key): string => (string) $key)->all()]));
 
             return [
                 'title' => 'Income, last 30 days',
-                'kind' => 'bar',
+                'kind' => 'line',
                 'currency' => $code,
-                'series' => [['name' => 'Net income', 'points' => array_map(
-                    fn (int $offset): array => ['x' => $date = $start->addDays($offset)->toDateString(), 'y' => $daily[$date] ?? 0],
-                    range(0, 29),
-                )]],
+                'series' => $series($code),
+                'currencies' => array_combine($codes, array_map($series, $codes)),
                 'href' => route('admin.billing.transactions.index'),
             ];
         }, 'billing.transactions.view', 40, 'lg', deferred: true);

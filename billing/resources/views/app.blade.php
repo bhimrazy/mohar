@@ -22,16 +22,25 @@
         {{-- Inline style to set the HTML background color based on our theme in app.css --}}
         <style nonce="{{ Vite::cspNonce() }}">
             html {
-                background-color: oklch(1 0 0);
+                background-color: var(--background, #ffffff);
             }
 
             html.dark {
-                background-color: oklch(0.145 0 0);
+                background-color: var(--background, #12151d);
             }
         </style>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        {{-- Active theme tokens (Themes module, validated + cached); see ThemeStylesheet. --}}
+        @isset($themeStyle)
+            <style id="theme-tokens" nonce="{{ Vite::cspNonce() }}">{!! $themeStyle !!}</style>
+        @endisset
+
+        @if (! empty($brandFavicon))
+            <link rel="icon" href="{{ $brandFavicon }}">
+        @else
+            <link rel="icon" href="/favicon.ico" sizes="any">
+            <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+        @endif
         <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
         @fonts
@@ -39,7 +48,7 @@
         @viteReactRefresh
         @vite(['resources/css/app.css', 'resources/js/app.tsx', "resources/js/pages/{$page['component']}.tsx"])
         <x-inertia::head>
-            <title>{{ config('app.name', 'Laravel') }}</title>
+            <title>{{ $brandName ?? config('app.name') }}</title>
         </x-inertia::head>
     </head>
     <body class="font-sans antialiased">

@@ -31,9 +31,7 @@ export function Money({
             className={cn(
                 'whitespace-nowrap tabular-nums',
                 tone === 'ledger' && amount === 0 && 'text-muted-foreground',
-                tone === 'ledger' &&
-                    amount < 0 &&
-                    'text-red-700 dark:text-red-400',
+                tone === 'ledger' && amount < 0 && 'text-danger-text',
                 className,
             )}
         >

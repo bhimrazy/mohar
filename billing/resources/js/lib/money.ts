@@ -122,5 +122,26 @@ export function formatMoney(
     // Use a true minus sign (U+2212) so negatives align in tabular columns.
     const normalized = formatted.replace('-', '−');
 
-    return options.showCode && formatter ? `${normalized} ${code}` : normalized;
+    // Some locales already print the ISO code (e.g. "NPR 1,200.00"); never print it twice.
+    return options.showCode && formatter && !normalized.includes(code)
+        ? `${normalized} ${code}`
+        : normalized;
+}
+
+/** Compact amounts for chart axes and dense summaries: "$48K", "₹12L" (en-IN), "NPR 1.2M". */
+export function formatMoneyCompact(
+    amountMinor: number,
+    currency: string,
+    locale: string = DEFAULT_LOCALE,
+): string {
+    try {
+        return new Intl.NumberFormat(locale, {
+            style: 'currency',
+            currency: currency.toUpperCase(),
+            notation: 'compact',
+            maximumFractionDigits: 1,
+        }).format(fromMinor(amountMinor));
+    } catch {
+        return formatMoney(amountMinor, currency, locale);
+    }
 }

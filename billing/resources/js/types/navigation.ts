@@ -19,6 +19,15 @@ export type ServerNavItem = {
     href: string;
     icon: string;
     active: boolean;
+    /** Count shown next to the item (e.g. tickets awaiting reply); null/0 hides it. */
+    badge?: number | null;
+};
+
+/** Admin quick-create action (Navigation::quickActions()). */
+export type QuickAction = {
+    title: string;
+    href: string;
+    icon: string;
 };
 
 export type ServerNavGroup = {
