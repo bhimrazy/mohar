@@ -1,0 +1,219 @@
+<?php
+
+namespace App\Modules\Notifications\Services;
+
+use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Notifications\Data\Recipient;
+use Illuminate\Support\Facades\Route;
+use Throwable;
+
+/**
+ * Builds the plain-array context templates render against (spec §4). Entity data comes from the
+ * merge-field resolvers other modules register in MergeFieldRegistry; nothing here reads their tables.
+ */
+class MergeContext
+{
+    /**
+     * Paths whose values are secrets: sent to the recipient, but replaced by •••• in the stored log copy.
+     */
+    public const SECRET_PATHS = ['service.password', 'auth.reset_url', 'auth.verify_url', 'auth.invite_url'];
+
+    public function __construct(
+        private MergeFieldRegistry $registry,
+        private BrandProvider $brand,
+        private Settings $settings,
+    ) {}
+
+    /**
+     * company, system and signature — available to every template.
+     *
+     * @return array<string, mixed>
+     */
+    public function base(bool $forStaff = false): array
+    {
+        $brand = $this->brand->brand();
+
+        return [
+            'company' => [
+                'name' => $brand->name,
+                'url' => (string) config('app.url'),
+                'logo_url' => $this->brand->emailLogoUrl(),
+                'email' => (string) $this->settings->get('core.company_email', config('mail.from.address')),
+                'pay_to_text' => (string) $this->settings->get('billing.pay_to_text', ''),
+            ],
+            'system' => array_filter([
+                'client_area_url' => $this->link('client.dashboard'),
+                'admin_url' => $forStaff ? $this->link('admin.dashboard') : null,
+                'today' => now()->toDateString(),
+            ], fn (mixed $value): bool => $value !== null),
+            'signature' => (string) $this->settings->get('notifications.signature', ''),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function recipient(Recipient $recipient): array
+    {
+        return [
+            'recipient' => ['name' => $recipient->name, 'first_name' => $recipient->firstName(), 'email' => $recipient->email],
+            ...($recipient->isStaff() ? ['staff' => ['first_name' => $recipient->firstName(), 'email' => $recipient->email]] : []),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function client(?int $clientId): array
+    {
+        if ($clientId === null) {
+            return [];
+        }
+
+        $client = Client::query()->find($clientId);
+
+        if ($client === null) {
+            return [];
+        }
+
+        return ['client' => [
+            ...$this->resolve('client', $clientId),
+            'id' => $client->id,
+            'first_name' => $client->first_name,
+            'last_name' => $client->last_name,
+            'full_name' => trim($client->first_name.' '.$client->last_name),
+            'company_name' => $client->company_name,
+            'email' => $client->email,
+            'currency' => $client->currency,
+            'country' => $client->country,
+            'language' => $client->language,
+            'admin_url' => $this->link('admin.clients.show', $client->id),
+        ]];
+    }
+
+    /**
+     * Entity fields from the module that owns it, or [] when that module is not installed.
+     *
+     * @return array<string, mixed>
+     */
+    public function resolve(string $entity, ?int $id): array
+    {
+        if ($id === null || ! $this->registry->has($entity)) {
+            return [];
+        }
+
+        try {
+            return $this->registry->resolve($entity, $id);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [];
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function invoice(?int $invoiceId): array
+    {
+        $invoice = $this->resolve('invoice', $invoiceId);
+
+        if ($invoice === []) {
+            return [];
+        }
+
+        $invoice['balance_due'] = strtolower((string) ($invoice['status'] ?? '')) !== 'paid';
+
+        return ['invoice' => $invoice];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function order(?int $orderId): array
+    {
+        $order = $this->resolve('order', $orderId);
+
+        return $order === [] ? [] : ['order' => [...$order, 'admin_url' => $this->link('admin.orders.show', $orderId)]];
+    }
+
+    /**
+     * The service with product and (when Services exposes it) one-time credentials for welcome emails.
+     *
+     * @return array<string, mixed>
+     */
+    public function service(?int $serviceId, bool $withCredentials = false): array
+    {
+        $service = $this->resolve('service', $serviceId);
+
+        if ($service === []) {
+            return [];
+        }
+
+        $service['id'] = $service['service_id'] ?? $serviceId;
+        $service['admin_url'] = $this->link('admin.services.services.show', $serviceId);
+
+        if ($withCredentials) {
+            $service['password'] = $this->resolve('service_credentials', $serviceId)['password'] ?? null;
+        }
+
+        return ['service' => $service];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function domain(?int $domainId): array
+    {
+        $domain = $this->resolve('domain', $domainId);
+
+        return $domain === [] ? [] : ['domain' => [...$domain, 'id' => $domainId, 'renew_url' => $this->link('client.domains.show', $domainId)]];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function ticket(?int $ticketId, ?int $replyId = null): array
+    {
+        $ticket = $this->resolve('ticket', $ticketId);
+
+        if ($ticket === []) {
+            return [];
+        }
+
+        $reply = $this->resolve('ticket_reply', $replyId);
+
+        return ['ticket' => $ticket, 'reply' => $reply === [] ? ['author_name' => '', 'body_html' => '', 'excerpt' => ''] : $reply];
+    }
+
+    /**
+     * Copy of the context with every secret replaced by the redaction marker.
+     *
+     * @param  array<string, mixed>  $context
+     * @return array{0: array<string, mixed>, 1: bool} [redacted context, whether anything was redacted]
+     */
+    public function redact(array $context): array
+    {
+        $redacted = false;
+
+        foreach (self::SECRET_PATHS as $path) {
+            if (filled(data_get($context, $path))) {
+                data_set($context, $path, '••••');
+                $redacted = true;
+            }
+        }
+
+        return [$context, $redacted];
+    }
+
+    /**
+     * A named route when its module is installed, else null (modules can be disabled per install).
+     */
+    public function link(string $name, mixed $parameters = []): ?string
+    {
+        return Route::has($name) ? route($name, $parameters) : null;
+    }
+}
