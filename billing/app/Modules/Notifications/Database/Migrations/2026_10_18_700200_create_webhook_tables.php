@@ -20,7 +20,7 @@ return new class extends Migration
             $table->unsignedInteger('consecutive_failures')->default(0);
             $table->string('disabled_reason')->nullable();
             $table->timestamp('last_success_at')->nullable();
-            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('created_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->timestamps();
         });
 
@@ -41,6 +41,8 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['event_id', 'webhook_endpoint_id']);
             $table->index('created_at');
+            $table->index(['webhook_endpoint_id', 'created_at']);  // endpoint delivery log (also covers the FK)
+            $table->index(['status', 'next_attempt_at']);          // notifications:retry-webhooks
         });
     }
 
