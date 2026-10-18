@@ -27,6 +27,21 @@ enum ModuleCommandName: string
     }
 
     /**
+     * What a successful run did, for the activity log: "Account created".
+     */
+    public function pastTense(): string
+    {
+        return match ($this) {
+            self::Create => 'Account created',
+            self::Suspend => 'Account suspended',
+            self::Unsuspend => 'Account unsuspended',
+            self::Terminate => 'Account terminated',
+            self::ChangePackage => 'Package changed',
+            self::ChangePassword => 'Password changed',
+        };
+    }
+
+    /**
      * The status a successful run moves the service to, or null when the status does not change.
      */
     public function targetStatus(): ?ServiceStatus

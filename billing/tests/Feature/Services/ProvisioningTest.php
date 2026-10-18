@@ -65,6 +65,7 @@ test('creating a pending service picks a server, generates credentials and activ
         ->and($service->activated_at)->not->toBeNull()
         ->and($this->kit->driver->callsFor('create'))->toHaveCount(1);
     Event::assertDispatched(ServiceActivated::class, fn (ServiceActivated $event) => $event->serviceId === $service->id);
+    $this->assertDatabaseHas('activity_log', ['description' => 'Account created for shop.example.com', 'subject_id' => $service->id]);
 });
 
 test('least full picks the server with the lowest fill ratio', function () {
