@@ -179,16 +179,22 @@ test('create is not called again when a previous attempt never reported back', f
     Event::assertDispatched(ProvisioningFailed::class);
 });
 
-test('after staff verify, a retry creates the account', function () {
+test('only a staff retry of the verify item creates the account after an unknown outcome', function () {
+    actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
     $this->kit->priceBook->addProduct(11, 'Starter');
     $service = Service::factory()->pending()->create(['product_id' => 11, 'server_id' => Server::factory()->create()->id]);
     ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'log', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'status' => ModuleCommand::RUNNING]);
     RunModuleCommand::dispatch($service->id, 'create');
 
-    RunModuleCommand::dispatch($service->id, 'create', initiator: 'staff:1', lockRetries: 1);
+    RunModuleCommand::dispatch($service->id, 'create', lockRetries: 1);
+    expect($this->kit->driver->callsFor('create'))->toBeEmpty();
+
+    $this->post(route('admin.services.module-log.retry', ModuleQueueItem::query()->sole()))->assertSessionHasNoErrors();
 
     expect($service->refresh()->status)->toBe(ServiceStatus::Active)
-        ->and($this->kit->driver->callsFor('create'))->toHaveCount(1);
+        ->and($this->kit->driver->callsFor('create'))->toHaveCount(1)
+        ->and(ModuleQueueItem::query()->sole()->status->value)->toBe('resolved')
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->where('status', ModuleCommand::UNKNOWN)->exists())->toBeFalse();
 });
 
 test('a job that dies mid-create opens a verify item instead of retrying', function () {

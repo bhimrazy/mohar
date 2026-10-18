@@ -86,7 +86,8 @@ test('revealing credentials is a POST that is audited and never cached', functio
     $staff = actingAsStaff(['services.services.view', 'services.services.credentials']);
     $service = Service::factory()->onServer()->create(['password' => 'Visible-Pass1']);
 
-    $this->post(route('admin.services.services.credentials', $service))
+    $this->withSession(['auth.password_confirmed_at' => time()])
+        ->post(route('admin.services.services.credentials', $service))
         ->assertOk()
         ->assertJson(['username' => $service->username, 'password' => 'Visible-Pass1'])
         ->assertHeader('Cache-Control', 'no-store, private');
@@ -101,7 +102,8 @@ test('credentials cannot be revealed without the reveal permission', function ()
     actingAsStaff(['services.services.view', 'services.services.manage']);
     $service = Service::factory()->onServer()->create();
 
-    $this->post(route('admin.services.services.credentials', $service))->assertForbidden();
+    $this->withSession(['auth.password_confirmed_at' => time()])
+        ->post(route('admin.services.services.credentials', $service))->assertForbidden();
     $this->assertDatabaseMissing('activity_log', ['description' => 'Service credentials revealed']);
 });
 
