@@ -9,6 +9,7 @@ use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
@@ -19,6 +20,7 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\BillingAutomation;
@@ -317,27 +319,62 @@ class BillingServiceProvider extends ModuleServiceProvider
             ])->all()), 'billing.invoices.view');
     }
 
+    /**
+     * The invoice as email merge fields: amounts formatted in its currency, and the lines, discount and taxes for the
+     * "what you're paying for" block.
+     *
+     * @return array<string, mixed>
+     */
+    private function invoiceMergeFields(Invoice $invoice): array
+    {
+        $money = fn (int $amount): string => app(MoneyFormatter::class)->format(Money::of($amount, $invoice->currency));
+        $rate = fn (string $value): string => rtrim(rtrim($value, '0'), '.');
+
+        return [
+            'client_id' => $invoice->client_id,
+            'id' => $invoice->id,
+            'number' => $invoice->displayNumber(),
+            'status' => $invoice->displayStatus(),
+            'currency' => $invoice->currency,
+            'total' => $money($invoice->total),
+            'balance' => $money($invoice->balance),
+            'balance_minor' => $invoice->balance,
+            'amount_paid' => $money($invoice->amount_paid),
+            'subtotal' => $money($invoice->subtotal),
+            'discount' => $invoice->discount_total > 0 ? $money(-$invoice->discount_total) : null,
+            'credit_applied' => $invoice->credit_applied > 0 ? $money($invoice->credit_applied) : null,
+            'taxes' => array_values(array_filter([
+                $invoice->tax1_amount !== 0 && $invoice->tax1_name ? ['label' => $invoice->tax1_name.' '.$rate($invoice->tax1_rate).'%', 'amount' => $money($invoice->tax1_amount)] : null,
+                $invoice->tax2_amount !== 0 && $invoice->tax2_name ? ['label' => $invoice->tax2_name.' '.$rate($invoice->tax2_rate).'%', 'amount' => $money($invoice->tax2_amount)] : null,
+            ])),
+            'items' => $invoice->items->whereNull('cancelled_at')->sortBy('sort_order')->map(fn (InvoiceItem $item): array => [
+                'description' => $item->description,
+                'period_start' => $item->period_start?->toDateString(),
+                'period_end' => $item->period_end?->toDateString(),
+                'amount' => $money($item->amount),
+            ])->values()->all(),
+            'issue_date' => $invoice->issue_date?->toDateString(),
+            'due_date' => $invoice->due_date?->toDateString(),
+            'payment_gateway' => $invoice->payment_gateway,
+            'url' => route('client.invoices.show', $invoice),
+            'pdf_url' => route('client.invoices.pdf', $invoice),
+        ];
+    }
+
     private function registerMergeFields(): void
     {
         $registry = $this->app->make(MergeFieldRegistry::class);
 
-        $registry->register('invoice', function (int $id): array {
-            $invoice = Invoice::query()->findOrFail($id);
+        $registry->register('invoice', fn (int $id): array => $this->invoiceMergeFields(Invoice::query()->with('items')->findOrFail($id)));
 
-            return [
-                'client_id' => $invoice->client_id,
-                'id' => $invoice->id,
-                'number' => $invoice->displayNumber(),
-                'status' => $invoice->displayStatus(),
-                'currency' => $invoice->currency,
-                'total' => app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
-                'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
-                'amount_paid' => app(MoneyFormatter::class)->format(Money::of($invoice->amount_paid, $invoice->currency)),
-                'issue_date' => $invoice->issue_date?->toDateString(),
-                'due_date' => $invoice->due_date?->toDateString(),
-                'payment_gateway' => $invoice->payment_gateway,
-                'url' => route('client.invoices.show', $invoice),
-            ];
+        // The oldest open invoice that bills a service (its overdue invoice, for the suspension email); [] when none.
+        $registry->register('service_open_invoice', function (int $serviceId): array {
+            $invoice = Invoice::query()->with('items')
+                ->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable()))
+                ->whereHas('items', fn ($items) => $items->where('type', BillableType::Service->value)->where('billable_id', $serviceId)->whereNull('cancelled_at'))
+                ->orderBy('due_date')->orderBy('id')->first();
+
+            return $invoice === null ? [] : $this->invoiceMergeFields($invoice);
         });
 
         $registry->register('quote', function (int $id): array {
