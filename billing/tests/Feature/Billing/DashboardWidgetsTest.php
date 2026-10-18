@@ -5,6 +5,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -169,4 +170,18 @@ test('the four money KPIs are flagged for the top row', function () {
     expect($widgets['billing.income']['primary'])->toBeTrue()
         ->and($widgets['billing.unpaid']['primary'])->toBeTrue()
         ->and($widgets['billing.overdue']['primary'])->toBeTrue();
+});
+
+test('income days follow the company timezone: a payment at 01:45 in Kathmandu counts on that local day', function () {
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu'); // UTC+5:45
+    $this->travelTo('2026-10-17 20:00:00');                          // 2026-10-18 01:45 local
+    payInvoice(issueInvoice($this->usd, [7_000]), 7_000);
+    $this->travelTo('2026-10-18 06:00:00');                          // 11:45 local, same local day
+
+    $widgets = collect(app(Dashboard::class)->resolveWidgets('admin', billingStaff()))->keyBy('key');
+    $chart = collect(app(Dashboard::class)->resolveWidgets('admin', billingStaff(), deferred: true))->firstWhere('key', 'billing.income_chart');
+
+    expect($widgets['billing.income']['money']['amount'])->toBe(7_000)
+        ->and($widgets['billing.income']['hint'])->toBe('Oct 1–18 vs. Sep 1–18')
+        ->and(collect($chart['ranges']['30d']['series'][0]['points'])->last())->toBe(['x' => '2026-10-18', 'y' => 7_000]);
 });

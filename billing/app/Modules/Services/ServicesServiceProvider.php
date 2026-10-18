@@ -12,6 +12,7 @@ use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
 use App\Modules\Services\Actions\GenerateRenewals;
@@ -109,7 +110,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Services', 'admin.services.index', 'Server', 'Services', 10, 'services.services.view', 'admin.services.services.*'));
         $navigation->add('admin', new NavItem('Servers', 'admin.services.servers.index', 'Boxes', 'Services', 20, 'services.servers.view', 'admin.services.serve*'));
         $navigation->add('admin', new NavItem('Cancellation requests', 'admin.services.cancellations.index', 'Inbox', 'Services', 30, 'services.cancellations.manage', 'admin.services.cancellations.*',
-            badge: fn (?User $user): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count()));
+            badge: fn (?User $user): int => RequestMemo::remember('services.open_cancellations', fn (): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count())));
         $navigation->add('admin', new NavItem('Module log', 'admin.services.module-log.index', 'Activity', 'Services', 40, 'services.module_log.view', 'admin.services.module-log.*'));
         $navigation->add('client', new NavItem('My services', 'client.services.index', 'Server', 'Services', 10, activePattern: 'client.services.*'));
         $navigation->add('admin-client', new NavItem('Services', 'admin.services.index', 'Server', order: 20, permission: 'services.services.view'));
@@ -160,7 +161,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
         $dashboard->todo('admin', 'services.cancellations', fn (?User $user): array => [
             'label' => 'Cancellation requests to review',
-            'count' => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count(),
+            'count' => RequestMemo::remember('services.open_cancellations', fn (): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count()),
             'href' => route('admin.services.cancellations.index'),
             'tone' => 'warning',
             'icon' => 'Inbox',

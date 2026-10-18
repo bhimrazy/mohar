@@ -83,21 +83,22 @@ class CoreDashboard
     }
 
     /**
-     * New clients per week for the last 12 weeks (bucketed in PHP: portable across databases).
+     * New clients per week for the last 12 weeks, in the company's calendar (bucketed in PHP over one column).
      *
      * @return array<string, mixed>
      */
     private function signups(): array
     {
-        $start = CarbonImmutable::now()->startOfWeek()->subWeeks(11);
+        $calendar = app(BusinessCalendar::class);
+        $start = $calendar->today()->startOfWeek()->subWeeks(11);
         $weeks = [];
 
         for ($week = 0; $week < 12; $week++) {
             $weeks[$start->addWeeks($week)->toDateString()] = 0;
         }
 
-        Client::query()->where('created_at', '>=', $start)->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks): void {
-            $key = CarbonImmutable::parse($createdAt)->startOfWeek()->toDateString();
+        Client::query()->where('created_at', '>=', $calendar->startOfDayUtc($start))->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks, $calendar): void {
+            $key = CarbonImmutable::parse((string) $calendar->localDate($createdAt))->startOfWeek()->toDateString();
 
             if (array_key_exists($key, $weeks)) {
                 $weeks[$key]++;

@@ -9,12 +9,14 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Support\BusinessCalendar;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Dashboard\Trend;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Billing's admin dashboard: income / outstanding / overdue KPIs, the income chart (12 months vs. the previous
@@ -42,7 +44,7 @@ class BillingDashboard
     /** Weekly points on the KPI sparklines. */
     private const WEEKS = 12;
 
-    public function __construct(private BillingSettings $settings) {}
+    public function __construct(private BillingSettings $settings, private BusinessCalendar $calendar) {}
 
     public function register(Dashboard $dashboard): void
     {
@@ -58,7 +60,7 @@ class BillingDashboard
 
         $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
             'label' => 'Unpaid invoices due today',
-            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', CarbonImmutable::today()->toDateString())->count(),
+            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', $this->calendar->today()->toDateString())->count(),
             'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
             'tone' => 'warning',
             'icon' => 'CalendarClock',
@@ -89,7 +91,7 @@ class BillingDashboard
     private function incomeCard(): array
     {
         $data = $this->dataset();
-        $today = CarbonImmutable::today();
+        $today = $this->calendar->today();
         $monthStart = $today->startOfMonth();
         $previousStart = $monthStart->subMonth();
         $previousEnd = $previousStart->day(min($today->day, $previousStart->daysInMonth));
@@ -148,7 +150,7 @@ class BillingDashboard
         $data = $this->dataset();
 
         $view = function (array $book): array {
-            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays(CarbonImmutable::today());
+            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays($this->calendar->today());
 
             return [
                 'trend' => Trend::percent($book['overdue'], $book['overdue_month_ago'], upIsGood: false),
@@ -183,7 +185,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = CarbonImmutable::today();
+        $today = $this->calendar->today();
 
         $view = function (array $daily, string $currency) use ($today): array {
             $months = $this->monthlyComparison($daily, $today, $currency);
@@ -223,7 +225,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = CarbonImmutable::today();
+        $today = $this->calendar->today();
         $amounts = [];
 
         foreach ($data['income'] as $code => $daily) {
@@ -433,7 +435,7 @@ class BillingDashboard
      */
     private function snapshots(array $invoices, int $outstanding, int $overdue): array
     {
-        $today = CarbonImmutable::today();
+        $today = $this->calendar->today();
         $at = function (CarbonImmutable $date) use ($invoices): array {
             $day = $date->toDateString();
             $sums = [0, 0];
@@ -585,13 +587,14 @@ class BillingDashboard
      */
     private function dataset(): array
     {
-        $today = CarbonImmutable::today();
+        $today = $this->calendar->today();
 
         /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
-        return Cache::remember('dashboard.billing.'.$today->toDateString(), self::CACHE_SECONDS, fn (): array => [
-            'income' => $this->incomeByDay($today->startOfMonth()->subMonths(23)),
+        // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
+        return Cache::remember('dashboard.billing.'.$this->calendar->timezone().'.'.$today->toDateString(), self::CACHE_SECONDS, fn (): array => [
+            'income' => $this->incomeByDay($this->calendar->startOfDayUtc($today->startOfMonth()->subMonths(23))),
             'receivables' => $this->receivables($today),
-            'tax' => $this->taxCollected($today->startOfMonth()),
+            'tax' => $this->taxCollected($this->calendar->startOfDayUtc($today->startOfMonth())),
         ]);
     }
 
@@ -602,12 +605,19 @@ class BillingDashboard
     {
         $income = [];
 
-        // date() is accepted by SQLite, MySQL and PostgreSQL alike.
+        // Summed per currency and company-local day in SQL: one row per day, never the raw transactions.
+        // Literal SQL per driver with the zone bound as a parameter; GROUP BY position works on all three.
+        $select = match (DB::getDriverName()) {
+            'pgsql' => "currency, date((occurred_at at time zone 'UTC') at time zone ?) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out",
+            'mysql', 'mariadb' => "currency, date(convert_tz(occurred_at, '+00:00', ?)) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out",
+            default => 'currency, date(occurred_at, ?) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out',
+        };
+
         Transaction::query()
             ->whereIn('type', self::INCOME_TYPES)
             ->where('occurred_at', '>=', $since)
-            ->selectRaw('currency, date(occurred_at) as day, sum(amount_in) as amount_in, sum(amount_out) as amount_out')
-            ->groupByRaw('currency, date(occurred_at)')
+            ->selectRaw($select, [$this->calendar->sqlZoneArgument()])
+            ->groupByRaw('1, 2')
             ->toBase()
             ->get()
             ->each(function (object $row) use (&$income): void {
@@ -627,7 +637,7 @@ class BillingDashboard
      */
     private function receivables(CarbonImmutable $today): array
     {
-        $since = $today->subWeeks(self::WEEKS)->subDay();
+        $since = $this->calendar->startOfDayUtc($today->subWeeks(self::WEEKS)->subDay());
         $columns = ['id', 'currency', 'status', 'issue_date', 'due_date', 'paid_at', 'cancelled_at', 'total', 'balance'];
         $base = fn () => Invoice::query()->whereNotNull('issue_date')->toBase();
         $rows = $base()->whereIn('status', InvoiceStatus::payable())->get($columns)
@@ -659,8 +669,8 @@ class BillingDashboard
             $invoices[$code][] = [
                 'issue_date' => (string) $date($row->issue_date),
                 'due_date' => $dueDate,
-                'paid_at' => $isPayable ? null : $date($row->paid_at),
-                'cancelled_at' => $isPayable ? null : $date($row->cancelled_at),
+                'paid_at' => $isPayable ? null : $this->calendar->localDate($row->paid_at),
+                'cancelled_at' => $isPayable ? null : $this->calendar->localDate($row->cancelled_at),
                 'amount' => $isPayable ? (int) $row->balance : (int) $row->total,
                 'counts_overdue' => ! $isPayable || $row->status === InvoiceStatus::Unpaid->value,
             ];

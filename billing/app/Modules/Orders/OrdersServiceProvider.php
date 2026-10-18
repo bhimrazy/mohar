@@ -14,6 +14,7 @@ use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
 use App\Modules\Core\Support\Like;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Actions\CancelStalePendingOrders;
 use App\Modules\Orders\Actions\PruneExpiredCarts;
@@ -129,7 +130,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', 'Orders', 10, 'orders.orders.view', 'admin.orders.*',
-            badge: fn (?User $user): ?int => Order::query()->where('status', OrderStatus::Pending)->count() ?: null));
+            badge: fn (?User $user): ?int => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()) ?: null));
         $navigation->add('admin-create', new NavItem('New order', 'admin.orders.create', 'ShoppingCart', order: 20, permission: 'orders.orders.create'));
         $navigation->add('admin', new NavItem('Promotions', 'admin.promotions.index', 'Percent', 'Orders', 20, 'orders.promotions.manage', 'admin.promotions.*'));
         $navigation->add('client', new NavItem('Order history', 'client.orders.index', 'Receipt', 'Orders', 10, null, 'client.orders.*'));
@@ -139,7 +140,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $dashboard = $this->app->make(Dashboard::class);
         $dashboard->card('admin', 'orders.pending', fn (?User $user): array => [
             'label' => 'Pending orders',
-            'value' => Order::query()->where('status', OrderStatus::Pending)->count(),
+            'value' => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'icon' => 'ShoppingCart',
         ], 'orders.orders.view', 20, mirrorsTodo: true);
@@ -171,7 +172,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
 
         $dashboard->todo('admin', 'orders.pending', fn (?User $user): array => [
             'label' => 'Orders awaiting review',
-            'count' => Order::query()->where('status', OrderStatus::Pending)->count(),
+            'count' => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'tone' => 'warning',
             'icon' => 'ShoppingCart',

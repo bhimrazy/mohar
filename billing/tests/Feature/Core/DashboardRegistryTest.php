@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Support\RequestMemo;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Dashboard\Trend;
 
@@ -72,4 +73,17 @@ test('cards that mirror a to-do are returned by resolve() but skipped by resolve
     expect($dashboard->resolveWidgets('admin', $user))->toBe([])
         ->and($runs)->toBe(0)
         ->and($dashboard->resolve('admin', $user)[0])->toMatchArray(['key' => 'x.pending', 'mirrorsTodo' => true, 'value' => 2]);
+});
+
+test('a nav badge and its to-do share one count per request', function () {
+    $calls = 0;
+    $count = function () use (&$calls): int {
+        $calls++;
+
+        return 3;
+    };
+
+    expect(RequestMemo::remember('test.count', $count))->toBe(3)
+        ->and(RequestMemo::remember('test.count', $count))->toBe(3)
+        ->and($calls)->toBe(1);
 });

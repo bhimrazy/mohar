@@ -294,11 +294,15 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - Budget: one visit makes about 50 queries for first paint and about 24 for the deferred request (all
   modules and permissions, cold cache), with no growth per row. `DashboardQueryCountTest` holds the ceilings
   (60 and 32).
-- **Calendars.** Orders buckets days in the company timezone (`system.timezone`, window computed locally then
-  converted to UTC). Billing, Core sign-ups, Services MRR and the Automation page bucket in the application
-  timezone (UTC), each consistent with its own window, so none undercounts; but on a company east or west of
-  UTC, income days and order days are different calendars. Follow-up: a company clock for Billing's series
-  (and `date()` buckets offset to it).
+- **Calendars.** Every series buckets days in the company timezone (`system.timezone`): Orders through its
+  `CompanyClock`; Billing and Core sign-ups through Core's `BusinessCalendar` (local today; local midnight
+  converted to UTC for query bounds). Billing sums income per currency and local day in SQL with literal
+  per-driver SQL and the zone as a bound parameter: PostgreSQL `date((occurred_at at time zone 'UTC') at time
+zone ?)` (exact, DST included), MySQL `convert_tz` and SQLite a `date(col, ?)` modifier (today's offset),
+  grouped by position (`GROUP BY 1, 2`). Due dates and automation run dates are calendar dates already.
+- **Shared counts.** A nav badge and its Needs attention item read one count per request through Core's
+  `RequestMemo` (stored on the request, so nothing leaks between requests): pending orders, open cancellation
+  requests, tickets awaiting reply. Currency rows are read once per request (`CurrencyRollup`, request-scoped).
 - Each widget is registered with its permission and hidden when the user lacks it. Widgets touch only their
   own module's tables; cross-module data goes through contracts (`PriceBook::product()` for product type).
 - Demo seeding: billing history extends to 24 months with gradual growth so the YoY comparison is

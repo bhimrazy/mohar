@@ -5,6 +5,7 @@ namespace App\Modules\Support;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
 use App\Modules\Support\Actions\PurgeInboundRaw;
@@ -74,7 +75,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', 'Support', 10, 'support.tickets.view', 'admin.support.tickets.*',
-            badge: fn (?User $user): ?int => $user !== null ? ($this->awaitingQuery($user)->count() ?: null) : null));
+            badge: fn (?User $user): ?int => $user !== null ? ($this->awaitingCount($user) ?: null) : null));
         $navigation->add('admin', new NavItem('Departments', 'admin.support.departments.index', 'Inbox', 'Support', 20, 'support.departments.manage', 'admin.support.departments.*'));
         $navigation->add('admin', new NavItem('Canned replies', 'admin.support.canned-replies.index', 'Mail', 'Support', 30, 'support.canned.manage', 'admin.support.canned-replies.*'));
         $navigation->add('admin', new NavItem('Knowledge base', 'admin.support.kb.articles.index', 'BookOpen', 'Support', 40, 'support.kb.manage', 'admin.support.kb.*'));
@@ -89,6 +90,14 @@ class SupportServiceProvider extends ModuleServiceProvider
 
         $navigation->add('admin-client', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', order: 50, permission: 'support.tickets.view'));
         $navigation->add('admin-create', new NavItem('New ticket', 'admin.support.tickets.create', 'LifeBuoy', order: 40, permission: 'support.tickets.open'));
+    }
+
+    /**
+     * Tickets awaiting a staff reply that this user can see; the nav badge and the to-do share one count per request.
+     */
+    private function awaitingCount(User $user): int
+    {
+        return RequestMemo::remember('support.awaiting.'.$user->id, fn (): int => $this->awaitingQuery($user)->count());
     }
 
     private function registerDashboard(): void
@@ -107,7 +116,7 @@ class SupportServiceProvider extends ModuleServiceProvider
 
         $dashboard->card('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Awaiting staff reply',
-            'value' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
+            'value' => $user !== null ? $this->awaitingCount($user) : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'icon' => 'Inbox',
         ], 'support.tickets.view', 51, mirrorsTodo: true);
@@ -137,7 +146,7 @@ class SupportServiceProvider extends ModuleServiceProvider
 
         $dashboard->todo('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Tickets awaiting staff reply',
-            'count' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
+            'count' => $user !== null ? $this->awaitingCount($user) : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'tone' => 'warning',
             'icon' => 'LifeBuoy',
