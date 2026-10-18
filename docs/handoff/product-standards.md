@@ -25,6 +25,11 @@ every item.
 ## Settings
 
 - Every setting changes behaviour; a setting nothing reads is a bug. (2026-10-18)
+- Company and business details are configurable in the admin panel (one company profile), not in server
+  config files. Only infrastructure (keys, URLs, database, queues) stays in the environment. (2026-10-18)
+- Destructive or high-impact actions ask for confirmation and state the consequence; irreversible deletes
+  need typed confirmation, sensitive actions need password step-up, and forms warn about unsaved
+  changes. (2026-10-18)
 - Settings use proper controls: selects, toggles, money inputs. Never ask for JSON, internal keys or
   minor units. (2026-10-18)
 
