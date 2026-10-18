@@ -58,7 +58,6 @@ type ThemeRow = ThemeOption & {
 
 type AppearanceProps = {
     settings: {
-        company_name: string;
         tagline: string;
         default_admin: string;
         default_client: string;
@@ -69,6 +68,8 @@ type AppearanceProps = {
     themes: ThemeRow[];
     densities: string[];
     brand: Brand;
+    companyName: string;
+    companySettingsUrl: string | null;
     uploads: Record<'logo-light' | 'logo-dark' | 'mark' | 'favicon', boolean>;
 };
 
@@ -417,6 +418,8 @@ export default function AppearanceSettings({
     themes,
     densities,
     brand,
+    companyName,
+    companySettingsUrl,
     uploads,
 }: AppearanceProps) {
     const [values, setValues] = useState(settings);
@@ -496,164 +499,196 @@ export default function AppearanceSettings({
                     </div>
                 )}
 
-                <Form
-                    {...AppearanceController.update.form()}
-                    options={{ preserveScroll: true }}
-                    className="grid gap-(--page-gap) lg:grid-cols-3"
-                >
-                    {({ errors, processing }) => (
-                        <>
-                            <SectionCard
-                                className="lg:col-span-2"
-                                title="Defaults"
-                                description="Which theme each area uses. Changes apply on the next page load."
-                                footer={
-                                    <Button type="submit" disabled={processing}>
-                                        {processing && <Spinner />}
-                                        Save appearance
-                                    </Button>
-                                }
-                            >
-                                <div className="grid gap-6 sm:grid-cols-2">
-                                    {AREAS.map((area) => (
+                <div className="grid items-start gap-(--page-gap) lg:grid-cols-3">
+                    <Form
+                        {...AppearanceController.update.form()}
+                        options={{ preserveScroll: true }}
+                        className="lg:col-span-2"
+                    >
+                        {({ errors, processing }) => (
+                            <>
+                                <SectionCard
+                                    className="lg:col-span-2"
+                                    title="Defaults"
+                                    description="Which theme each area uses. Changes apply on the next page load."
+                                    footer={
+                                        <Button
+                                            type="submit"
+                                            disabled={processing}
+                                        >
+                                            {processing && <Spinner />}
+                                            Save appearance
+                                        </Button>
+                                    }
+                                >
+                                    <div className="grid gap-6 sm:grid-cols-2">
+                                        {AREAS.map((area) => (
+                                            <Field
+                                                key={area.name}
+                                                htmlFor={area.name}
+                                                label={area.label}
+                                                hint={area.hint}
+                                                error={errors[area.name]}
+                                            >
+                                                <Select
+                                                    name={area.name}
+                                                    value={values[area.name]}
+                                                    onValueChange={(value) =>
+                                                        setValues({
+                                                            ...values,
+                                                            [area.name]: value,
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger
+                                                        id={area.name}
+                                                        className="w-full"
+                                                    >
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {themes.map((theme) => (
+                                                            <SelectItem
+                                                                key={theme.key}
+                                                                value={
+                                                                    theme.key
+                                                                }
+                                                            >
+                                                                {theme.name}
+                                                                {theme.custom
+                                                                    ? ' (custom)'
+                                                                    : ''}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </Field>
+                                        ))}
                                         <Field
-                                            key={area.name}
-                                            htmlFor={area.name}
-                                            label={area.label}
-                                            hint={area.hint}
-                                            error={errors[area.name]}
+                                            htmlFor="density"
+                                            label="Default density"
+                                            hint="Overrides the theme's table and card spacing."
+                                            error={errors.density}
                                         >
                                             <Select
-                                                name={area.name}
-                                                value={values[area.name]}
+                                                name="density"
+                                                value={values.density}
                                                 onValueChange={(value) =>
                                                     setValues({
                                                         ...values,
-                                                        [area.name]: value,
+                                                        density: value,
                                                     })
                                                 }
                                             >
                                                 <SelectTrigger
-                                                    id={area.name}
+                                                    id="density"
                                                     className="w-full"
                                                 >
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {themes.map((theme) => (
-                                                        <SelectItem
-                                                            key={theme.key}
-                                                            value={theme.key}
-                                                        >
-                                                            {theme.name}
-                                                            {theme.custom
-                                                                ? ' (custom)'
-                                                                : ''}
-                                                        </SelectItem>
-                                                    ))}
+                                                    {densities.map(
+                                                        (density) => (
+                                                            <SelectItem
+                                                                key={density}
+                                                                value={density}
+                                                            >
+                                                                {DENSITY_LABELS[
+                                                                    density
+                                                                ] ?? density}
+                                                            </SelectItem>
+                                                        ),
+                                                    )}
                                                 </SelectContent>
                                             </Select>
                                         </Field>
-                                    ))}
-                                    <Field
-                                        htmlFor="density"
-                                        label="Default density"
-                                        hint="Overrides the theme's table and card spacing."
-                                        error={errors.density}
-                                    >
-                                        <Select
-                                            name="density"
-                                            value={values.density}
-                                            onValueChange={(value) =>
-                                                setValues({
-                                                    ...values,
-                                                    density: value,
-                                                })
-                                            }
-                                        >
-                                            <SelectTrigger
-                                                id="density"
-                                                className="w-full"
-                                            >
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {densities.map((density) => (
-                                                    <SelectItem
-                                                        key={density}
-                                                        value={density}
-                                                    >
-                                                        {DENSITY_LABELS[
-                                                            density
-                                                        ] ?? density}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </Field>
-                                    <div className="flex items-start justify-between gap-4 rounded-lg border p-4 sm:col-span-2">
-                                        <div>
-                                            <label
-                                                htmlFor="allow_user_choice"
-                                                className="font-medium"
-                                            >
-                                                Let staff choose their own theme
-                                                and density
-                                            </label>
-                                            <p className="text-sm text-muted-foreground">
-                                                Saved per staff member from the
-                                                palette menu or their profile.
-                                                Clients always get the
-                                                client-area theme.
-                                            </p>
+                                        <div className="flex items-start justify-between gap-4 rounded-lg border p-4 sm:col-span-2">
+                                            <div>
+                                                <label
+                                                    htmlFor="allow_user_choice"
+                                                    className="font-medium"
+                                                >
+                                                    Let staff choose their own
+                                                    theme and density
+                                                </label>
+                                                <p className="text-sm text-muted-foreground">
+                                                    Each staff member picks
+                                                    theirs under Profile →
+                                                    Appearance. Clients always
+                                                    get the client-area theme.
+                                                </p>
+                                            </div>
+                                            <input
+                                                type="hidden"
+                                                name="allow_user_choice"
+                                                value={
+                                                    values.allow_user_choice
+                                                        ? '1'
+                                                        : '0'
+                                                }
+                                            />
+                                            <Switch
+                                                id="allow_user_choice"
+                                                checked={
+                                                    values.allow_user_choice
+                                                }
+                                                onCheckedChange={(checked) =>
+                                                    setValues({
+                                                        ...values,
+                                                        allow_user_choice:
+                                                            checked,
+                                                    })
+                                                }
+                                            />
                                         </div>
-                                        <input
-                                            type="hidden"
-                                            name="allow_user_choice"
-                                            value={
-                                                values.allow_user_choice
-                                                    ? '1'
-                                                    : '0'
-                                            }
-                                        />
-                                        <Switch
-                                            id="allow_user_choice"
-                                            checked={values.allow_user_choice}
-                                            onCheckedChange={(checked) =>
-                                                setValues({
-                                                    ...values,
-                                                    allow_user_choice: checked,
-                                                })
-                                            }
-                                        />
                                     </div>
-                                </div>
-                            </SectionCard>
-
+                                </SectionCard>
+                            </>
+                        )}
+                    </Form>
+                    <Form
+                        {...AppearanceController.updateBrand.form()}
+                        options={{ preserveScroll: true }}
+                    >
+                        {({ errors, processing }) => (
                             <SectionCard
                                 title="Brand"
                                 description="Shown in the sidebar, sign-in pages, browser titles, emails and invoices."
+                                footer={
+                                    <Button
+                                        type="submit"
+                                        variant="outline"
+                                        disabled={processing}
+                                    >
+                                        {processing && <Spinner />}
+                                        Save brand
+                                    </Button>
+                                }
                             >
                                 <div className="grid gap-5">
-                                    <Field
-                                        htmlFor="company_name"
-                                        label="Product or company name"
-                                        error={errors.company_name}
-                                    >
-                                        <Input
-                                            id="company_name"
-                                            name="company_name"
-                                            value={values.company_name}
-                                            maxLength={100}
-                                            onChange={(event) =>
-                                                setValues({
-                                                    ...values,
-                                                    company_name:
-                                                        event.target.value,
-                                                })
-                                            }
-                                        />
-                                    </Field>
+                                    <div className="grid gap-1.5">
+                                        <span className="text-sm font-medium">
+                                            Company name
+                                        </span>
+                                        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                                            <span className="truncate">
+                                                {companyName}
+                                            </span>
+                                            {companySettingsUrl && (
+                                                <a
+                                                    href={companySettingsUrl}
+                                                    className="shrink-0 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                                                >
+                                                    Edit in Settings
+                                                </a>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-muted-foreground">
+                                            Managed in Settings → Company, so
+                                            invoices, emails and this page
+                                            always agree.
+                                        </p>
+                                    </div>
                                     <Field
                                         htmlFor="tagline"
                                         label="Tagline"
@@ -664,21 +699,15 @@ export default function AppearanceSettings({
                                         <Input
                                             id="tagline"
                                             name="tagline"
-                                            value={values.tagline}
+                                            defaultValue={settings.tagline}
                                             maxLength={120}
-                                            onChange={(event) =>
-                                                setValues({
-                                                    ...values,
-                                                    tagline: event.target.value,
-                                                })
-                                            }
                                         />
                                     </Field>
                                 </div>
                             </SectionCard>
-                        </>
-                    )}
-                </Form>
+                        )}
+                    </Form>
+                </div>
 
                 <SectionCard
                     title="Themes"
@@ -710,7 +739,7 @@ export default function AppearanceSettings({
                                     </Button>
                                 }
                                 title="Reset the brand to the default?"
-                                description="Removes uploaded logos, mark and favicon and restores the default name and tagline."
+                                description="Removes the uploaded logos, mark and favicon and restores the default tagline. The company name is unchanged."
                                 confirmLabel="Reset brand"
                                 action={BrandAssetController.reset()}
                             />

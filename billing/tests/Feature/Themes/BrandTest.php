@@ -2,6 +2,7 @@
 
 use App\Contracts\Branding\BrandProvider;
 use App\Data\Branding\Brand;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\Settings;
 use Illuminate\Http\UploadedFile;
@@ -11,7 +12,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 beforeEach(function () {
     Storage::fake('objects');
-    config(['app.name' => 'Acme Billing']);
+    config(['app.name' => 'Acme Billing', 'core.company_name' => 'Acme Billing']);
 });
 
 function brand(): Brand
@@ -76,7 +77,7 @@ it('rejects a non-square mark and svg marks', function () {
     expect(brand()->mark)->toBe(asset('brand/mark.svg'));
 });
 
-it('resets uploads, name and tagline to the defaults', function () {
+it('resets uploads and tagline but leaves Core\'s company name alone', function () {
     actingAsStaff(['themes.manage']);
     app(Settings::class)->setMany(['core.company_name' => 'Other', 'themes.tagline' => 'Custom']);
     $this->post(route('admin.appearance.brand.store', 'favicon'), ['file' => fakePng('f.png', 32, 32)]);
@@ -85,7 +86,9 @@ it('resets uploads, name and tagline to the defaults', function () {
     $this->delete(route('admin.appearance.brand.reset'))->assertRedirect();
 
     Storage::disk('objects')->assertMissing($favicon);
-    expect(brand())->name->toBe('Acme Billing')->customised->toBeFalse()->favicon->toBe(asset('favicon.svg'));
+    expect(brand())->name->toBe('Other')->tagline->toBe(config('themes.tagline'))->favicon->toBe(asset('favicon.svg'))
+        ->and(app(Settings::class)->get('core.company_name'))->toBe('Other')
+        ->and(ActivityLog::query()->where('event', 'themes.brand_reset')->sole()->properties['removed'])->toBe(['favicon']);
 });
 
 it('brands the mail layout header and footer', function () {
@@ -111,18 +114,28 @@ it('falls back to config and public assets without the Themes module', function 
         ->and($brand->mark)->toBe(asset('brand/mark.svg'));
 });
 
-it('lets staff with themes.manage edit the tagline', function () {
+it('saves the tagline with its own form and audits it', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->put(route('admin.appearance.update'), [
-        'company_name' => 'Acme Billing',
-        'tagline' => 'Paid on time.',
-        'default_admin' => 'calm',
-        'default_client' => 'calm',
-        'default_public' => 'calm',
-        'density' => 'theme',
-        'allow_user_choice' => '1',
-    ])->assertRedirect();
+    $this->put(route('admin.appearance.brand.update'), ['tagline' => 'Paid on time.'])->assertRedirect();
 
-    expect(brand()->tagline)->toBe('Paid on time.');
+    expect(brand()->tagline)->toBe('Paid on time.')
+        ->and(ActivityLog::query()->where('event', 'themes.brand_updated')->sole()->properties['changes']['themes.tagline']['to'])->toBe('Paid on time.');
+});
+
+it('shows the company name read-only and links to Core settings', function () {
+    actingAsStaff(['themes.manage', 'core.settings.update']);
+    app(Settings::class)->set('core.company_name', 'Himalaya Cloud');
+
+    $this->get(route('admin.appearance.edit'))->assertInertia(fn (Assert $page) => $page
+        ->where('companyName', 'Himalaya Cloud')
+        ->where('companySettingsUrl', fn (?string $url) => $url === null || str_contains($url, '/settings/company')));
+
+    // The appearance form no longer writes Core's setting.
+    $this->put(route('admin.appearance.update'), [
+        'company_name' => 'Hijacked',
+        'default_admin' => 'calm', 'default_client' => 'calm', 'default_public' => 'calm',
+        'density' => 'theme', 'allow_user_choice' => '1',
+    ]);
+    expect(app(Settings::class)->get('core.company_name'))->toBe('Himalaya Cloud');
 });

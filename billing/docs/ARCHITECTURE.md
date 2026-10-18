@@ -147,8 +147,11 @@ Every permission you check must be registered; every tunable setting must be reg
 registration. Pages/emails/PDFs get the brand from `app(BrandProvider::class)->brand()` (name, tagline,
 logo/mark URLs) or `->logoDataUri()` for PDFs — never hard-code the product name. Uploaded logos,
 mark and favicon are stored on the private `objects` disk (shared across app servers) and served
-by `GET /branding/{kind}` with immutable cache headers and a content-hash query; SVG uploads are
-rejected (no sanitiser), while the shipped defaults in `public/brand/` are SVG.
+by `GET /branding/{kind}` — registered outside the `web` group (no session/cookies), immutable only
+for the current `?v=<content hash>`, otherwise a short-cached redirect to it. SVG uploads are
+rejected (no sanitiser); the shipped defaults in `public/brand/` are SVG. The brand name is Core's
+`core.company_name` (Settings → Company, `core.settings.update`, default `config('app.name')`);
+Appearance shows it read-only. Every Themes change is written to the activity log.
 Groups: General, Clients, Orders, Billing, Services, Domains, Support, Marketing, Reports, Setup.
 
 **Merge fields** — register `app(MergeFieldRegistry::class)->register('invoice', fn (int $id) => [...])`

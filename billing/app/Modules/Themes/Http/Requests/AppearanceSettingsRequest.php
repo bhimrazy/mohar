@@ -27,8 +27,6 @@ class AppearanceSettingsRequest extends FormRequest
         };
 
         return [
-            'company_name' => ['required', 'string', 'max:100'],
-            'tagline' => ['nullable', 'string', 'max:120'],
             'default_admin' => ['required', 'string', $exists],
             'default_client' => ['required', 'string', $exists],
             'default_public' => ['required', 'string', $exists],

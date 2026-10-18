@@ -71,7 +71,8 @@ class BrandAssets implements BrandProvider
 
     public function emailLogoUrl(): ?string
     {
-        if ($this->path('logo-light') !== null) {
+        // Email clients render PNG/JPEG reliably; WebP and SVG often not.
+        if (in_array(self::mime((string) $this->path('logo-light')), ['image/png', 'image/jpeg'], true)) {
             return $this->url('logo-light');
         }
 
@@ -82,8 +83,8 @@ class BrandAssets implements BrandProvider
 
     public function name(): string
     {
-        // Only an explicitly saved name counts; otherwise the product name (config('app.name')).
-        $name = $this->settings->all()['core.company_name'] ?? null;
+        // Core owns this setting (Settings → Company); its config default is the product name.
+        $name = $this->settings->get('core.company_name');
 
         return is_string($name) && trim($name) !== '' ? $name : $this->defaultName();
     }
@@ -122,15 +123,31 @@ class BrandAssets implements BrandProvider
     }
 
     /**
-     * Remove every upload and the custom name/tagline.
+     * Remove every upload and the custom tagline (the company name is Core's setting).
+     *
+     * @return list<string> kinds that had an upload
      */
-    public function reset(): void
+    public function reset(): array
     {
-        foreach (self::KINDS as $kind) {
+        $removed = array_values(array_filter(self::KINDS, fn (string $kind): bool => $this->path($kind) !== null));
+
+        foreach ($removed as $kind) {
             $this->delete($kind);
         }
 
-        $this->settings->setMany(['core.company_name' => null, 'themes.tagline' => null]);
+        $this->settings->set('themes.tagline', null);
+
+        return $removed;
+    }
+
+    /**
+     * The stored file's version (content hash), used to validate ?v= on /branding.
+     */
+    public function version(string $kind): ?string
+    {
+        $path = $this->path($kind);
+
+        return $path === null ? null : pathinfo($path, PATHINFO_FILENAME);
     }
 
     public function path(string $kind): ?string
@@ -144,7 +161,7 @@ class BrandAssets implements BrandProvider
     {
         $path = $this->path($kind);
 
-        return $path === null ? null : route('branding.show', ['kind' => $kind, 'v' => pathinfo($path, PATHINFO_FILENAME)]);
+        return $path === null ? null : route('branding.show', ['kind' => $kind, 'v' => $this->version($kind)]);
     }
 
     public static function mime(string $path): ?string

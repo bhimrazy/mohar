@@ -14,7 +14,7 @@ class DefaultBrandProvider implements BrandProvider
     public function brand(): Brand
     {
         return new Brand(
-            name: (string) config('app.name'),
+            name: (string) (app(Settings::class)->get('core.company_name') ?: config('app.name')),
             tagline: (string) config('themes.tagline', ''),
             logoLight: asset('brand/logo.svg'),
             logoDark: asset('brand/logo-dark.svg'),
