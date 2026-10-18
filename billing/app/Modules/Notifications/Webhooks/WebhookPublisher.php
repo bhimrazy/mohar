@@ -8,6 +8,7 @@ use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Support\EventKey;
+use Carbon\CarbonImmutable;
 
 /**
  * Turns a domain event into one delivery per subscribed endpoint (spec §8). The event id is derived
@@ -69,7 +70,8 @@ class WebhookPublisher
         foreach ($endpoints as $endpoint) {
             $delivery = WebhookDelivery::query()->firstOrCreate(
                 ['event_id' => $eventId, 'webhook_endpoint_id' => $endpoint->id],
-                ['event_type' => $type, 'payload' => $envelope, 'attempt' => 0, 'status' => WebhookDeliveryStatus::Pending],
+                // The lease: if the job below is lost, notifications:retry-webhooks takes the row again after it.
+                ['event_type' => $type, 'payload' => $envelope, 'attempt' => 0, 'status' => WebhookDeliveryStatus::Pending, 'next_attempt_at' => self::lease()],
             );
 
             if ($delivery->wasRecentlyCreated) {
@@ -79,6 +81,11 @@ class WebhookPublisher
         }
 
         return $created;
+    }
+
+    public static function lease(): CarbonImmutable
+    {
+        return now()->toImmutable()->addSeconds(max(30, (int) config('notifications.webhooks_dispatch_lease_seconds', 300)));
     }
 
     /**

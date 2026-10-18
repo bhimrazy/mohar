@@ -20,14 +20,25 @@ class PruneNotificationLogs
         $bodyDays = max(1, (int) $this->settings->get('notifications.email_log_body_retention_days', 365));
         $deliveryDays = max(1, (int) $this->settings->get('notifications.webhooks_delivery_retention_days', 30));
 
-        $purged = EmailMessage::query()
+        // Chunked so the first run after an import doesn't hold one huge UPDATE/DELETE (indexed on
+        // (body_purged_at, created_at) and created_at).
+        $purged = 0;
+        EmailMessage::query()
             ->whereNull('body_purged_at')
             ->where('created_at', '<', $today->subDays($bodyDays)->startOfDay())
-            ->update(['body_html' => null, 'body_text' => null, 'body_purged_at' => now()]);
+            ->select('id')
+            ->chunkById(1000, function ($messages) use (&$purged): void {
+                $purged += EmailMessage::query()->whereKey($messages->modelKeys())
+                    ->update(['body_html' => null, 'body_text' => null, 'body_purged_at' => now()]);
+            });
 
-        $deleted = WebhookDelivery::query()
-            ->where('created_at', '<', $today->subDays($deliveryDays)->startOfDay())
-            ->delete();
+        $deleted = 0;
+        do {
+            $ids = WebhookDelivery::query()
+                ->where('created_at', '<', $today->subDays($deliveryDays)->startOfDay())
+                ->orderBy('id')->limit(1000)->pluck('id');
+            $deleted += $ids->isEmpty() ? 0 : WebhookDelivery::query()->whereKey($ids->all())->delete();
+        } while ($ids->count() === 1000);
 
         return $purged + (int) $deleted;
     }

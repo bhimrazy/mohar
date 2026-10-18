@@ -7,10 +7,12 @@ use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Webhooks\WebhookSender;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
 
 /**
  * One attempt for one delivery, on the dedicated "webhooks" queue so slow receivers never hold up mail.
- * Retries are scheduled on the row (next_attempt_at) and dispatched by notifications:retry-webhooks.
+ * Retries are scheduled on the row (next_attempt_at) and dispatched by notifications:retry-webhooks, which
+ * also recovers attempts whose job was lost once their dispatch lease expires.
  */
 class DeliverWebhook implements ShouldQueue
 {
@@ -34,5 +36,15 @@ class DeliverWebhook implements ShouldQueue
         }
 
         $sender->attempt($delivery);
+    }
+
+    /**
+     * The job died (timeout, worker lost): make the row due again instead of waiting out its lease.
+     */
+    public function failed(?Throwable $exception = null): void
+    {
+        WebhookDelivery::query()->whereKey($this->deliveryId)
+            ->whereIn('status', [WebhookDeliveryStatus::Pending, WebhookDeliveryStatus::Failed])
+            ->update(['next_attempt_at' => now()]);
     }
 }

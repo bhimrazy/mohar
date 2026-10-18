@@ -160,7 +160,7 @@ class WebhookEndpointController extends Controller
         $this->authorize('notifications.webhooks.manage');
         abort_unless($delivery->webhook_endpoint_id === $endpoint->id, 404);
 
-        $delivery->update(['status' => WebhookDeliveryStatus::Pending, 'next_attempt_at' => null, 'attempt' => 0]);
+        $delivery->update(['status' => WebhookDeliveryStatus::Pending, 'next_attempt_at' => WebhookPublisher::lease(), 'attempt' => 0]);
         DeliverWebhook::dispatch($delivery->id);
         $this->activity->log('Webhook delivery resent', $endpoint, properties: ['event_id' => $delivery->event_id]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Delivery queued again.')]);

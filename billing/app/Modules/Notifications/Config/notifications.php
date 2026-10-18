@@ -1,8 +1,9 @@
 <?php
 
 /*
- * Notifications defaults (docs/product/notifications.md). Every key is read through
- * Settings::get('notifications.<key>'), so registered settings override these per install.
+ * Notifications defaults (docs/product/notifications.md). Keys registered as settings (NotificationsServiceProvider)
+ * are read through Settings::get('notifications.<key>') and can be changed per install; the rest (retry and
+ * backoff schedules, timeouts, leases, API version, the private-target switch) are config-only.
  */
 return [
     // §7 global switches
@@ -39,6 +40,8 @@ return [
     'webhooks_connect_timeout' => 5,
     'webhooks_timeout' => 10,
     'webhooks_secret_grace_hours' => 24,
+    // A dispatched attempt holds its row this long; if the job is lost, notifications:retry-webhooks takes it again.
+    'webhooks_dispatch_lease_seconds' => 300,
 
     // SSRF guard: never a UI setting, ignored in production. Only for local development against a
     // receiver on this machine (override this config value locally).
