@@ -40,8 +40,8 @@ git -C "$root" worktree list --porcelain | awk '/^worktree /{print $2}' | tail -
 
     app="$wt/billing"
     [ -d "$app/storage" ] || continue
-    run find "$app/storage/framework/views" -type f -name '*.php' -mmin +60 -delete
-    run find "$app/storage/framework/testing" -mindepth 1 -mmin +120 -delete
+    run find "$app/storage/framework/views" -type f -name '*.php' -mmin +60 ! -name .gitignore -delete
+    run find "$app/storage/framework/testing" -mindepth 1 -mmin +120 ! -name .gitignore -delete
     find "$app/storage/logs" -type f -name '*.log' -size +50M 2>/dev/null | while read -r log; do
         echo "  log over 50 MB: $log"
         run truncate -s 0 "$log"

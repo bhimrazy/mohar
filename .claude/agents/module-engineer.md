@@ -27,7 +27,8 @@ Rules:
   PermissionRegistry permissions; client-area data scoped through `ClientContext`.
 - UI uses theme tokens (no hard-coded colours) and existing shared components. Brand text comes from
   `BrandProvider`.
-- No new composer or npm packages without CTO approval.
+- No new composer or npm packages without CTO approval, and no `npx <package>` for anything not in the
+  lockfile (it downloads and runs unvetted code). Format with `npx vp check --fix`.
 - Heavy commands (`npm ci`, build, full suite, phpstan) go through `/workspaces/whmcs/scripts/heavy.sh`;
   `export XDEBUG_MODE=off`. Dev servers on the port range in your brief; stop them by port PID, never
   `pkill -f`.
