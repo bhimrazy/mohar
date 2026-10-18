@@ -60,7 +60,7 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
             $outcome = $execute->handle($this->serviceId, ModuleCommandName::from($this->command), $this->args, $this->initiator, $this->attempt);
         } catch (LockTimeoutException) {
             if ($this->lockRetries >= (int) config('services.module.lock_retries', 20)) {
-                $execute->abandon($this->serviceId, ModuleCommandName::from($this->command), $this->args, 'Another action kept this service busy; the command was not run.');
+                $execute->abandon($this->serviceId, ModuleCommandName::from($this->command), $this->args, 'Another action kept this service busy; the command was not run.', jobDied: false);
 
                 return;
             }

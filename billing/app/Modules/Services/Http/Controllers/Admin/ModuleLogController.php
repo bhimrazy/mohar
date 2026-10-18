@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Http\Controllers\Concerns\ConvertsServiceErrors;
@@ -75,7 +76,9 @@ class ModuleLogController extends Controller
         }
 
         $command = ModuleCommandName::from($item->command);
-        $outcome = $this->attempt(fn (): CommandOutcome => $commands->runNow($item->service, $command, $item->args ?? [], 'staff:'.$request->user()?->id));
+        // Retrying a "verify" item is the staff statement that the server was checked.
+        $args = [...($item->args ?? []), ...($item->kind === ModuleQueueItem::KIND_VERIFY ? ['verified' => true] : [])];
+        $outcome = $this->attempt(fn (): CommandOutcome => $commands->runNow($item->service, $command, $args, 'staff:'.$request->user()?->id));
 
         if (! $outcome->succeededNow()) {
             throw ValidationException::withMessages(['action' => __('Retry failed: :error', ['error' => $outcome->message])]);
@@ -103,6 +106,10 @@ class ModuleLogController extends Controller
         $this->authorize('services.module_log.manage');
 
         $item->update(['status' => $status, 'resolved_by' => $request->user()?->id]);
+
+        if ($item->kind === ModuleQueueItem::KIND_VERIFY) {
+            app(ExecuteModuleCommand::class)->acknowledgeUnknown($item->subject_id, ModuleCommandName::from($item->command));
+        }
         Inertia::flash('toast', ['type' => 'success', 'message' => $message]);
 
         return back();

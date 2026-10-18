@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $initiator
  * @property int $attempt
  * @property bool $success
- * @property string $status running|succeeded|failed|unknown
+ * @property string $status running|succeeded|failed|unknown|verified
  * @property string|null $error
  * @property array<string, mixed>|null $request
  * @property array<string, mixed>|null $response
@@ -45,6 +45,9 @@ class ModuleCommand extends Model
 
     /** The worker died or timed out mid-call: the remote outcome must be verified by staff. */
     public const UNKNOWN = 'unknown';
+
+    /** An unknown outcome that staff have since verified on the server. */
+    public const VERIFIED = 'verified';
 
     protected function casts(): array
     {

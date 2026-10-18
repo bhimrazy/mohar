@@ -72,10 +72,12 @@ class ExecuteModuleCommand
 
     /**
      * The job died, timed out or ran out of tries: record the failure without calling the driver.
+     * Only a job that died mid-call ($jobDied) marks running attempts as unknown; a job that merely
+     * waited for the lock must not touch a call another worker is still making.
      *
      * @param  array<string, mixed>  $args
      */
-    public function abandon(int $serviceId, ModuleCommandName $command, array $args, string $error): void
+    public function abandon(int $serviceId, ModuleCommandName $command, array $args, string $error, bool $jobDied = true): void
     {
         $service = Service::withTrashed()->find($serviceId);
 
@@ -83,7 +85,7 @@ class ExecuteModuleCommand
             return;
         }
 
-        if ($this->markUnfinishedAsUnknown($service->id, $command) > 0) {
+        if ($jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0) {
             $this->openQueueItem($service, $command, $args, "Outcome unknown: {$error}. Check the server before retrying.", 1, ModuleQueueItem::KIND_VERIFY);
         } else {
             $this->openQueueItem($service, $command, $args, $error, 1, ModuleQueueItem::KIND_FAILURE);
@@ -114,12 +116,18 @@ class ExecuteModuleCommand
             return CommandOutcome::skipped('The cancellation request is no longer open.');
         }
 
-        if ($command === ModuleCommandName::Create && $this->markUnfinishedAsUnknown($service->id, $command) > 0) {
-            $error = 'A previous create attempt did not finish; its outcome is unknown. Check the server, then retry or resolve.';
-            $this->openQueueItem($service, $command, $args, $error, $attempt, ModuleQueueItem::KIND_VERIFY);
-            ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+        if ($command === ModuleCommandName::Create && ! ($args['verified'] ?? false)) {
+            if ($this->awaitingVerification($service->id)) {
+                return CommandOutcome::skipped('A previous create has an unknown outcome and waits for staff verification.');
+            }
 
-            return CommandOutcome::failed($error);
+            if ($this->markUnfinishedAsUnknown($service->id, $command) > 0) {
+                $error = 'A previous create attempt did not finish; its outcome is unknown. Check the server, then retry or resolve.';
+                $this->openQueueItem($service, $command, $args, $error, $attempt, ModuleQueueItem::KIND_VERIFY);
+                ProvisioningFailed::dispatch($service->id, $service->client_id, $command->value, $error);
+
+                return CommandOutcome::failed($error);
+            }
         }
 
         $product = $this->catalog->product($service->product_id);
@@ -196,6 +204,21 @@ class ExecuteModuleCommand
         ]);
     }
 
+    /**
+     * Whether an earlier create has an unknown outcome that staff have not verified yet. While this
+     * holds, no path (automation, payment replays, the registry) may call the driver's create.
+     */
+    public function awaitingVerification(int $serviceId): bool
+    {
+        return ModuleQueueItem::query()
+            ->where('subject_type', ModuleQueueItem::SUBJECT_SERVICE)
+            ->where('subject_id', $serviceId)
+            ->where('command', ModuleCommandName::Create->value)
+            ->where('kind', ModuleQueueItem::KIND_VERIFY)
+            ->where('status', QueueStatus::Open->value)
+            ->exists();
+    }
+
     private function markUnfinishedAsUnknown(int $serviceId, ModuleCommandName $command): int
     {
         return ModuleCommand::query()
@@ -203,6 +226,18 @@ class ExecuteModuleCommand
             ->where('command', $command->value)
             ->where('status', ModuleCommand::RUNNING)
             ->update(['status' => ModuleCommand::UNKNOWN, 'error' => 'Worker stopped before the driver answered.']);
+    }
+
+    /**
+     * Staff checked the server: earlier attempts with an unknown outcome are no longer pending.
+     */
+    public function acknowledgeUnknown(int $serviceId, ModuleCommandName $command): void
+    {
+        ModuleCommand::query()
+            ->where('service_id', $serviceId)
+            ->where('command', $command->value)
+            ->where('status', ModuleCommand::UNKNOWN)
+            ->update(['status' => ModuleCommand::VERIFIED]);
     }
 
     private function requestIsOpen(int $requestId): bool
@@ -276,7 +311,12 @@ class ExecuteModuleCommand
                 ->where('subject_id', $serviceId)
                 ->where('command', $command->value)
                 ->where('status', QueueStatus::Open->value)
+                ->when($command === ModuleCommandName::Create && ! ($args['verified'] ?? false), fn ($query) => $query->where('kind', '!=', ModuleQueueItem::KIND_VERIFY))
                 ->update(['status' => QueueStatus::Resolved->value]);
+
+            if ($args['verified'] ?? false) {
+                $this->acknowledgeUnknown($serviceId, $command);
+            }
 
             return ['conflict' => null, 'events' => $events, 'client_id' => $service->client_id];
         });
