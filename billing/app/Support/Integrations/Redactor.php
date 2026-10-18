@@ -6,13 +6,17 @@ use Illuminate\Contracts\Support\Arrayable;
 use JsonSerializable;
 
 /**
- * Removes secrets from integration log payloads (gateway log, module log, registrar command log) and from messages
- * shown to staff: values under sensitive keys, card numbers, cPanel session tokens, and every known credential value
- * wherever it appears. The host redacts what drivers return; drivers never call this.
+ * Removes secrets from integration logs and from messages shown to staff. All rules live here; the host redacts what
+ * drivers return, and drivers never call this.
  *
- * Keys are split into words (`api_key`, `api-key`, `ApiKey` and `APIKey` all read as "api key"), and a key is
- * sensitive when one of its words, or a pair of adjacent words, names a secret. Matching whole words keeps
- * `author`, `country_code` and `keyword` visible.
+ * - redact(): module and registrar command logs. A key is sensitive when one of its words (`api_key`, `api-key`,
+ *   `ApiKey` and `APIKey` all read as "api key"), a pair of adjacent words, or a run-together spelling (`eppcode`,
+ *   `accesshash`) names a secret; a sensitive key hides its whole value. Matching whole words keeps `author`,
+ *   `country_code` and `keyword` visible. Known credential values, cPanel `cpsess…` tokens, and secret `name=value`
+ *   pairs or JSON inside strings are masked wherever they appear.
+ * - redactPayment(): payment provider payloads (gateway log, transaction and refund `raw`). Every leaf under a
+ *   card, number, token, secret, signature, password or expiry key is masked, null included, while nested objects are
+ *   walked so a card's brand and last 4 digits stay visible. Luhn-valid card numbers in text are masked.
  *
  * @api
  */
@@ -25,23 +29,40 @@ final class Redactor
     /** Longest raw driver output kept for staff and logs, in bytes. */
     public const EXCERPT_BYTES = 4096;
 
+    /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
+    private const MAX_DEPTH = 32;
+
     /** A key is sensitive when it is exactly one of these. */
-    private const SENSITIVE_KEYS = ['key', 'pw', 'pwd'];
+    private const SENSITIVE_KEYS = ['key', 'pw', 'pwd', 'dv', 'phpsessid'];
 
     /** ...or when one of its words is one of these. */
     private const SENSITIVE_WORDS = [
         'password', 'passwd', 'pass', 'passphrase', 'secret', 'token', 'auth', 'authorization', 'signature', 'hash',
-        'session', 'cookie', 'epp', 'otp', 'apikey', 'cvc', 'cvv', 'cvv2', 'pan', 'card', 'exp', 'expiry',
+        'hmac', 'session', 'sessions', 'cookie', 'cookies', 'credential', 'credentials', 'epp', 'otp', 'apikey', 'cvc',
+        'cvv', 'cvv2', 'pan', 'dv',
     ];
 
     /** ...or when two adjacent words are one of these pairs. */
     private const SENSITIVE_PAIRS = [
-        ['api', 'key'], ['private', 'key'], ['access', 'key'], ['license', 'key'], ['transfer', 'code'],
-        ['auth', 'code'], ['card', 'number'], ['account', 'number'],
+        ['api', 'key'], ['private', 'key'], ['access', 'key'], ['secret', 'key'], ['license', 'key'], ['licence', 'key'],
+        ['ssh', 'key'], ['signing', 'key'], ['encryption', 'key'], ['auth', 'key'], ['transfer', 'code'],
+        ['auth', 'code'], ['auth', 'info'], ['card', 'number'], ['account', 'number'], ['data', 'validation'],
     ];
+
+    /** ...or when the key, lowercased and with separators removed, contains one of these run-together spellings. */
+    private const RUN_TOGETHER = '/password|passwd|secret|token|apikey|signature|authorization|credential|eppcode|authcode|authinfo|authkey|accesshash|accesskey|privatekey|secretkey|hash|datavalidation/';
+
+    /** Payment payload keys (develop's gateway rule, plus `authorization`, `dv` and `dataValidation`, payments-nepal.md §4). */
+    private const PAYMENT_KEYS = '/card|pan|number|cvc|cvv|token|secret|signature|password|exp|authorization|datavalidation|^dv$/i';
+
+    /** Payment keys that look sensitive but are references staff need. */
+    private const PAYMENT_REFERENCES = ['txn_id', 'parent_txn_id'];
 
     /** Values that are secret wherever they appear, whatever the key (cPanel session tokens). */
     private const SENSITIVE_VALUE_PATTERNS = ['/cpsess\d+/'];
+
+    /** @var array<string, bool> */
+    private array $keyCache = [];
 
     /**
      * A sensitive key hides its whole value, nested arrays included. Null and empty values are kept, so the log
@@ -56,7 +77,33 @@ final class Redactor
      */
     public function redact(array $payload, array $secrets = [], array $sensitiveKeys = []): array
     {
-        return $this->redactWith($payload, $this->variants($secrets), array_map('strtolower', $sensitiveKeys));
+        return $this->redactWith($payload, $this->variants($secrets), array_map('strtolower', $sensitiveKeys), 0);
+    }
+
+    /**
+     * Payment provider payloads: mask every leaf under a payment-sensitive key (null included), walk nested arrays and
+     * objects, and mask Luhn-valid card numbers inside text.
+     *
+     * @param  array<array-key, mixed>  $payload
+     * @return array<array-key, mixed>
+     */
+    public function redactPayment(array $payload, int $depth = 0): array
+    {
+        foreach ($payload as $key => $value) {
+            $value = $this->unwrap($value);
+
+            if ($depth >= self::MAX_DEPTH && (is_array($value) || is_object($value))) {
+                $payload[$key] = self::MASK;
+            } elseif (is_array($value)) {
+                $payload[$key] = $this->redactPayment($value, $depth + 1);
+            } elseif (is_string($key) && ! in_array($key, self::PAYMENT_REFERENCES, true) && preg_match(self::PAYMENT_KEYS, $key) === 1) {
+                $payload[$key] = self::MASK;
+            } else {
+                $payload[$key] = is_string($value) ? $this->scrubCardNumbers($value) : $value;
+            }
+        }
+
+        return $payload;
     }
 
     /**
@@ -64,7 +111,7 @@ final class Redactor
      */
     public function maskValues(string $value, array $secrets): string
     {
-        return $this->maskString($value, $this->variants($secrets));
+        return $this->maskString($value, $this->variants($secrets), [], 0);
     }
 
     /**
@@ -75,10 +122,7 @@ final class Redactor
      */
     public function excerpt(string $raw, array $secrets = [], int $limit = self::EXCERPT_BYTES): string
     {
-        $decoded = json_decode($raw, true);
-        $safe = is_array($decoded)
-            ? (string) json_encode($this->redact($decoded, $secrets), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-            : $this->maskValues($raw, $secrets);
+        $safe = $this->maskValues($raw, $secrets);
 
         return strlen($safe) <= $limit ? $safe : mb_strcut($safe, 0, max(0, $limit - 3)).'...';
     }
@@ -94,7 +138,28 @@ final class Redactor
 
         $lower = strtolower($key);
 
-        if (in_array($lower, self::SENSITIVE_KEYS, true) || in_array($lower, $sensitiveKeys, true)) {
+        if ($sensitiveKeys !== [] && in_array($lower, $sensitiveKeys, true)) {
+            return true;
+        }
+
+        return $this->keyCache[$key] ??= $this->matchesSecretName($key, $lower);
+    }
+
+    /**
+     * Mask card-number-like digit runs (13 to 19 digits, Luhn-valid) inside free text such as provider messages.
+     */
+    public function scrubCardNumbers(string $value): string
+    {
+        return (string) preg_replace_callback('/\b(?:\d[ -]?){12,18}\d\b/', function (array $match): string {
+            $digits = (string) preg_replace('/\D/', '', $match[0]);
+
+            return $this->luhn($digits) ? self::CARD_MASK : $match[0];
+        }, $value);
+    }
+
+    private function matchesSecretName(string $key, string $lower): bool
+    {
+        if (in_array($lower, self::SENSITIVE_KEYS, true)) {
             return true;
         }
 
@@ -110,20 +175,7 @@ final class Redactor
             }
         }
 
-        // Run-together spellings (`newpassword`, `x_apitoken`) still count for the unambiguous long words.
-        return preg_match('/password|passwd|secret|token|apikey|signature|authorization/', $lower) === 1;
-    }
-
-    /**
-     * Mask card-number-like digit runs (13 to 19 digits, Luhn-valid) inside free text such as provider messages.
-     */
-    public function scrubCardNumbers(string $value): string
-    {
-        return (string) preg_replace_callback('/\b(?:\d[ -]?){12,18}\d\b/', function (array $match): string {
-            $digits = (string) preg_replace('/\D/', '', $match[0]);
-
-            return $this->luhn($digits) ? self::CARD_MASK : $match[0];
-        }, $value);
+        return preg_match(self::RUN_TOGETHER, implode('', $words)) === 1;
     }
 
     /**
@@ -132,7 +184,7 @@ final class Redactor
      * @param  list<string>  $sensitiveKeys
      * @return array<array-key, mixed>
      */
-    private function redactWith(array $payload, array $variants, array $sensitiveKeys): array
+    private function redactWith(array $payload, array $variants, array $sensitiveKeys, int $depth): array
     {
         $redacted = [];
 
@@ -146,8 +198,8 @@ final class Redactor
             }
 
             $redacted[$key] = match (true) {
-                is_array($value) => $this->redactWith($value, $variants, $sensitiveKeys),
-                is_string($value) => $this->maskString($value, $variants),
+                is_array($value) => $depth >= self::MAX_DEPTH ? self::MASK : $this->redactWith($value, $variants, $sensitiveKeys, $depth + 1),
+                is_string($value) => $this->maskString($value, $variants, $sensitiveKeys, $depth),
                 default => $value,
             };
         }
@@ -171,15 +223,35 @@ final class Redactor
     }
 
     /**
+     * Known secret values, cPanel session tokens, JSON documents and `name=value` pairs (query strings, form bodies,
+     * header-like text) inside a string.
+     *
      * @param  list<string>  $variants
+     * @param  list<string>  $sensitiveKeys
      */
-    private function maskString(string $value, array $variants): string
+    private function maskString(string $value, array $variants, array $sensitiveKeys, int $depth): string
     {
+        $trimmed = ltrim($value);
+
+        if ($trimmed !== '' && ($trimmed[0] === '{' || $trimmed[0] === '[') && $depth < self::MAX_DEPTH) {
+            $decoded = json_decode($value, true);
+
+            if (is_array($decoded)) {
+                return (string) json_encode($this->redactWith($decoded, $variants, $sensitiveKeys, $depth + 1), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            }
+        }
+
         if ($variants !== []) {
             $value = str_replace($variants, self::MASK, $value);
         }
 
-        return $this->scrubCardNumbers((string) preg_replace(self::SENSITIVE_VALUE_PATTERNS, self::MASK, $value));
+        $value = (string) preg_replace(self::SENSITIVE_VALUE_PATTERNS, self::MASK, $value);
+
+        return (string) preg_replace_callback(
+            '/(?<![A-Za-z0-9_.\-\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63})(\s*[=:]\s*)(?!\/\/)((?:(?:Bearer|Basic|Digest|Token|whm)\s+)?(?:"[^"]*"|[^\s&;,"]+))/i',
+            fn (array $match): string => $this->isSensitiveKey(rtrim($match[1], '[]'), $sensitiveKeys) ? $match[1].$match[2].self::MASK : $match[0],
+            $value,
+        );
     }
 
     /**

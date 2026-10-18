@@ -73,7 +73,7 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   to show staff (redacted, 4 KB).
 - `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
   resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
-  the checked IP, bypass proxies, follow no redirects. Drivers call it before they connect and never choose the
+  the checked IP and port (`CURLOPT_CONNECT_TO`), bypass proxies (`proxy: ''`), follow no redirects. Drivers call it before they connect and never choose the
   policy.
 
 Driver registries are kernel classes that extend `Support\Integrations\DriverRegistry`. They are bound as singletons in

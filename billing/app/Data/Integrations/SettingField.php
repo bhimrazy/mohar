@@ -3,6 +3,7 @@
 namespace App\Data\Integrations;
 
 use App\Enums\FieldType;
+use InvalidArgumentException;
 
 /**
  * One staff-configurable setting of an integration (gateway, provisioning driver, registrar). The settings form
@@ -10,9 +11,9 @@ use App\Enums\FieldType;
  *
  * A secret field never has a default: a default would ship a credential in code.
  *
- * A Select field may take its options from the remote system instead of $options: $optionsSource names where, for
- * example `remote:packages` (the packages a control panel offers, through the ListsPackages capability). The host
- * fills the select and falls back to free text when the remote system cannot be reached.
+ * A Select field may take its options from the remote system instead of $options: `$optionsSource = 'remote'` (the
+ * only value so far) asks the driver for them (ProvidesFieldOptions for provisioning drivers). The host fills the
+ * select and falls back to free text when the remote system cannot be reached.
  */
 final readonly class SettingField
 {
@@ -28,7 +29,17 @@ final readonly class SettingField
         public array $options = [],
         public string|int|bool|null $default = null,
         public ?string $optionsSource = null,
-    ) {}
+    ) {
+        if ($type->isSecret() && $default !== null) {
+            throw new InvalidArgumentException("The secret setting [{$key}] cannot have a default.");
+        }
+
+        if ($optionsSource !== null && $type !== FieldType::Select) {
+            throw new InvalidArgumentException("Only a select setting can take remote options; [{$key}] is {$type->value}.");
+        }
+    }
+
+    public const OPTIONS_REMOTE = 'remote';
 
     public function isSecret(): bool
     {
@@ -37,7 +48,8 @@ final readonly class SettingField
 
     /**
      * Read an array-shaped field: the gateway shape (`type: secret|secret_text|…`, `options` as value => label)
-     * or the older provisioning shape (`type: password`, `secret: bool`, `options` as a list of values).
+     * or the older provisioning shape (`type: password`, `secret: bool`, `options` as a list of values). Throws for
+     * a secret with a default or remote options on a non-select, like the constructor.
      *
      * @param  array{key: string, label: string, type?: string, secret?: bool, required?: bool, help?: string|null, options?: array<array-key, string>, default?: string|int|bool|null, options_source?: string|null}  $field
      */
@@ -45,7 +57,9 @@ final readonly class SettingField
     {
         $options = $field['options'] ?? [];
 
-        if (array_is_list($options)) {
+        // Only the older provisioning shape (recognised by its `secret` flag) lists bare values; a gateway map keyed
+        // 0..n ([0 => 'Off', 1 => 'On']) is a value => label map like any other.
+        if (array_key_exists('secret', $field) && array_is_list($options)) {
             $options = array_combine($options, $options);
         }
 
