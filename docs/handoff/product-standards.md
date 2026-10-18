@@ -73,7 +73,8 @@ every item.
 
 - The public site speaks for the host, not for the billing software. Storefront headlines and copy come from
   the host's own settings, never from the product's own tagline or marketing. Every public page (home, store,
-  help, announcements, status) shares one header and footer. (2026-10-18)
+  help, announcements, status) shares one header and footer, and the header lists what the host sells (Catalog
+  product groups, domains, support). (2026-10-18)
 - The product name and logo come from `BrandProvider` and are configurable; nothing hard-codes
   "Mohar" or "Laravel". (2026-10-17)
 - Colours are calm and easy on the eyes. No neon or harsh contrast, and both light and dark modes
