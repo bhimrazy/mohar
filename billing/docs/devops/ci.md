@@ -51,13 +51,14 @@ is exercised by `composer ci`); every process gets its own SQLite in-memory data
 
 ## Billable minutes per PR run
 
-| Design                                    | Jobs | Job durations                                                                        | Billable  |
-| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------ | --------- |
-| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s | **5 min** |
-| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                            | 3–4 min   |
-| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                | **2 min** |
-| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                               | **1 min** |
-| Draft PR / feature-branch push            | 0    | —                                                                                    | **0**     |
+| Design                                    | Jobs | Job durations                                                                        | Billable    |
+| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------ | ----------- |
+| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s | **5 min**   |
+| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                            | 3–4 min     |
+| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                | **2 min**   |
+| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)          | **4–6 min** |
+| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                               | **1 min**   |
+| Draft PR / feature-branch push            | 0    | —                                                                                    | **0**       |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
 (job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the
@@ -72,6 +73,6 @@ check (green via the in-job fast path) and branch protection never waits for a c
 ## Changing the workflow
 
 - Pin actions by SHA with the version comment on the same line; the dependency check enforces it
-  (`DEPENDENCY_POLICY.md`).
+  (`dependency-policy.md`).
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.

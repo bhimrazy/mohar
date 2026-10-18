@@ -1,6 +1,6 @@
 # Visual directions
 
-There are four candidate looks for the admin panel, the client area and (later) the storefront. Each one is a real theme in the app, so the CTO can compare them on working screens instead of mockups. Research is in [RESEARCH.md](RESEARCH.md).
+There are four candidate looks for the admin panel, the client area and (later) the storefront. Each one is a real theme in the app, so the CTO can compare them on working screens instead of mockups. Research is in [research.md](research.md).
 
 ## How to compare them
 

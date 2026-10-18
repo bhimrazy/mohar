@@ -1,7 +1,7 @@
 # Architecture & Engineering Conventions
 
 Read this before writing code. It is the contract between modules and between engineers.
-Product behaviour lives in `docs/product/<module>.md`; UI rules in `docs/design/DESIGN_SYSTEM.md`.
+Product behaviour lives in `docs/product/<module>.md`; UI rules in `docs/design/design-system.md`.
 
 ## Stack
 
@@ -210,14 +210,14 @@ composer deps:check                              # lockfiles, audits, 7-day depe
 ```
 
 Dependencies: exact pins, lockfiles as source of truth, nothing younger than 7 days, no new direct dependency
-without CTO approval — `docs/devops/DEPENDENCY_POLICY.md` (ADR 0007). CI design: `docs/devops/CI.md`.
+without CTO approval — `docs/devops/dependency-policy.md` (ADR 0007). CI design: `docs/devops/ci.md`.
 
 ## Git workflow
 
 - Integration branch: `develop` (`main` receives tagged releases). One branch per workstream: `feature/<module>`
   in its own worktree (`scripts/new-worktree.sh <module>`); Conventional Commits, small focused commits.
 - Before review: merge latest `develop`, all gates green; report CHANGELOG bullets and screenshots to the CTO
-  (the CTO maintains `CHANGELOG.md` and `docs/PROGRESS.md` to avoid merge conflicts).
+  (the CTO maintains `changelog.md` and `docs/progress.md` to avoid merge conflicts).
 - Every branch lands through a GitHub pull request into `develop` (`gh pr create --base develop`, template in
   `.github/pull_request_template.md`). Review gates, posted on the PR as review comments: Staff Engineer review →
   QA (runs the suite, adds missing tests) → AI-slop review → fixes by the author → CTO merge with a merge commit

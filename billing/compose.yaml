@@ -1,4 +1,4 @@
-# Local infrastructure. Start with: docker compose up -d   (docs/devops/LOCAL_SETUP.md)
+# Local infrastructure. Start with: docker compose up -d   (docs/devops/local-setup.md)
 services:
     rustfs:
         # S3-compatible object storage for attachments, invoice PDFs and exports (the "objects" disk).

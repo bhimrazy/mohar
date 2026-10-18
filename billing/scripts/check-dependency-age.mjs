@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dependency cooldown + pinning check (docs/devops/DEPENDENCY_POLICY.md).
+ * Dependency cooldown + pinning check (docs/devops/dependency-policy.md).
  *
  * Fails when anything we install was published less than MIN_RELEASE_AGE_DAYS (default 7) days ago:
  *   - Composer packages  (billing/composer.lock     → repo.packagist.org/p2 "time")
@@ -332,7 +332,7 @@ const enforced = violations.length + enforcedAge.length;
 if (enforced > 0) {
     fail(
         1,
-        `${enforced} dependency policy violation(s). See docs/devops/DEPENDENCY_POLICY.md (cooldown only: "security-exception" label + "Security-Exception: name@version" lines + CTO approval).`,
+        `${enforced} dependency policy violation(s). See docs/devops/dependency-policy.md (cooldown only: "security-exception" label + "Security-Exception: name@version" lines + CTO approval).`,
     );
 }
 console.log('Dependency policy: OK');
