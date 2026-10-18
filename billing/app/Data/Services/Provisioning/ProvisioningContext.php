@@ -10,9 +10,11 @@ final readonly class ProvisioningContext
 {
     /**
      * @param  array<string, mixed>  $productConfig  values of the driver's product config fields
-     * @param  array<int|string, mixed>  $configOptions  the service's configurable option selections (option id => value id or quantity)
-     * @param  array<string, mixed>  $customFields  custom field values by module key (else by field name)
-     * @param  list<string>  $secretValues  values of password-type custom fields, for redaction
+     * @param  array<string, mixed>  $configOptions  configurable options by module key: the selected value's module value,
+     *                                               or the quantity
+     * @param  array<string, mixed>  $customFields  custom field values by module key
+     * @param  list<string>  $secretValues  every Secret- or SecretText-typed value in $productConfig and $customFields,
+     *                                      for redaction
      */
     public function __construct(
         public ServiceSnapshot $service,

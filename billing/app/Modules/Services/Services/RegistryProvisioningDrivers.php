@@ -2,25 +2,38 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Contracts\Services\Provisioning\ProvidesFieldOptions;
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Data\Integrations\SettingField;
 use App\Data\Services\RemoteOptions;
-use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
+use App\Enums\FieldType;
+use App\Modules\Services\Models\Server;
+use App\Support\Integrations\Redactor;
+use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Support\Facades\Cache;
+use Throwable;
 
 /**
- * Exposes the installed provisioning drivers and their product config fields to other modules.
+ * Exposes the installed provisioning drivers (the kernel registry) and their product config fields to other modules.
  */
 class RegistryProvisioningDrivers implements ProvisioningDrivers
 {
-    public function __construct(private DriverRegistry $drivers) {}
+    /** Seconds a server's answer for a remote-filled field is reused. */
+    private const OPTIONS_TTL = 600;
+
+    public function __construct(
+        private ProvisioningDriverRegistry $drivers,
+        private ProvisioningSnapshots $snapshots,
+        private Redactor $redactor,
+    ) {}
 
     public function all(): array
     {
-        return array_values(array_map(fn (DriverMetadata $metadata): array => [
-            'key' => $metadata->key,
-            'label' => $metadata->name,
-            'config_fields' => $metadata->productConfigFields,
-        ], $this->drivers->all()));
+        return array_map(fn (string $key): array => [
+            'key' => $key,
+            'label' => $this->drivers->get($key)->name(),
+            'config_fields' => array_map($this->legacyField(...), $this->drivers->metadata($key)->productConfigFields),
+        ], $this->drivers->keys());
     }
 
     public function exists(string $key): bool
@@ -28,11 +41,76 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
         return $this->drivers->has($key);
     }
 
-    /**
-     * Work in progress (ADR 0009 PR B): answers once drivers move to the kernel registry.
-     */
     public function remoteOptions(string $driverKey, string $fieldKey, array $serverIds, bool $refresh = false): RemoteOptions
     {
-        return new RemoteOptions;
+        if (! $this->drivers->has($driverKey) || $serverIds === []) {
+            return new RemoteOptions;
+        }
+
+        $driver = $this->drivers->get($driverKey);
+        $field = collect($driver->metadata()->productConfigFields)->first(fn (SettingField $field): bool => $field->key === $fieldKey);
+
+        if (! $driver instanceof ProvidesFieldOptions || $field?->optionsSource !== SettingField::OPTIONS_REMOTE) {
+            return new RemoteOptions;
+        }
+
+        $answers = [];
+        $unreachable = [];
+
+        foreach (Server::query()->whereKey($serverIds)->where('driver', $driverKey)->orderBy('id')->get() as $server) {
+            $cacheKey = "services:field-options:{$driverKey}:{$fieldKey}:{$server->id}";
+
+            if ($refresh) {
+                Cache::forget($cacheKey);
+            }
+
+            $connection = $this->snapshots->connection($server);
+
+            try {
+                $answers[$server->id] = Cache::remember($cacheKey, self::OPTIONS_TTL, fn (): array => $driver->fieldOptions($connection, $fieldKey));
+            } catch (Throwable $exception) {
+                report(new \RuntimeException($this->redactor->maskValues($exception->getMessage(), $connection->secrets())));
+                $unreachable[$server->id] = $server->name;
+            }
+        }
+
+        $options = array_replace(...array_values($answers ?: [[]]));
+        $names = Server::query()->whereKey(array_keys($answers))->pluck('name', 'id')->all();
+        $missingOn = [];
+
+        foreach (array_keys($options) as $value) {
+            foreach ($answers as $serverId => $offered) {
+                if (! array_key_exists($value, $offered)) {
+                    $missingOn[(string) $value][$serverId] = (string) $names[$serverId];
+                }
+            }
+        }
+
+        return new RemoteOptions($options, $missingOn, $unreachable);
+    }
+
+    /**
+     * The documented ProvisioningDrivers field shape. A remote-filled select is a text input here until the product
+     * form loads its options (remoteOptions()), which is also the documented fallback when no server answers.
+     *
+     * @return array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}
+     */
+    private function legacyField(SettingField $field): array
+    {
+        $remote = $field->optionsSource !== null;
+
+        return [
+            'key' => $field->key,
+            'label' => $field->label,
+            'type' => match (true) {
+                $field->isSecret() => 'password',
+                $remote, $field->type === FieldType::String => 'text',
+                default => $field->type->value,
+            },
+            'required' => $field->required,
+            'secret' => $field->isSecret(),
+            ...($field->type === FieldType::Select && ! $remote ? ['options' => array_map('strval', array_keys($field->options))] : []),
+            ...($remote ? ['options_source' => (string) $field->optionsSource] : []),
+        ];
     }
 }

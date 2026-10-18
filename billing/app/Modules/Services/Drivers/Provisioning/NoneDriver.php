@@ -2,55 +2,61 @@
 
 namespace App\Modules\Services\Drivers\Provisioning;
 
-use App\Modules\Services\Models\Server;
+use App\Contracts\Services\Provisioning\ChangesPackage;
+use App\Contracts\Services\Provisioning\ChangesPassword;
+use App\Contracts\Services\Provisioning\ProvisioningDriver;
+use App\Data\Services\Provisioning\DriverMetadata;
+use App\Data\Services\Provisioning\DriverResult;
+use App\Data\Services\Provisioning\PreviousPackage;
+use App\Data\Services\Provisioning\ProvisioningContext;
 
 /**
  * Manual provisioning: every command succeeds without contacting anything; staff do the work.
  */
-class NoneDriver implements ProvisioningDriver
+class NoneDriver implements ChangesPackage, ChangesPassword, ProvisioningDriver
 {
+    public function key(): string
+    {
+        return 'none';
+    }
+
+    public function name(): string
+    {
+        return 'None (manual)';
+    }
+
     public function metadata(): DriverMetadata
     {
-        return new DriverMetadata('none', 'None (manual)', requiresServer: false, capabilities: [DriverMetadata::CHANGE_PACKAGE, DriverMetadata::CHANGE_PASSWORD]);
+        return new DriverMetadata(requiresServer: false);
     }
 
-    public function testConnection(Server $server): DriverResult
-    {
-        return DriverResult::ok('Manual servers have nothing to connect to.');
-    }
-
-    public function create(ServiceContext $context): DriverResult
+    public function create(ProvisioningContext $context): DriverResult
     {
         return DriverResult::ok('Marked as provisioned (manual).');
     }
 
-    public function suspend(ServiceContext $context, string $reason): DriverResult
+    public function suspend(ProvisioningContext $context, string $reason): DriverResult
     {
         return DriverResult::ok('Marked as suspended (manual).');
     }
 
-    public function unsuspend(ServiceContext $context): DriverResult
+    public function unsuspend(ProvisioningContext $context): DriverResult
     {
         return DriverResult::ok('Marked as active (manual).');
     }
 
-    public function terminate(ServiceContext $context): DriverResult
+    public function terminate(ProvisioningContext $context): DriverResult
     {
         return DriverResult::ok('Marked as terminated (manual).');
     }
 
-    public function changePackage(ServiceContext $context, array $previous): DriverResult
+    public function changePackage(ProvisioningContext $context, PreviousPackage $previous): DriverResult
     {
         return DriverResult::ok('Package change recorded (manual).');
     }
 
-    public function changePassword(ServiceContext $context, string $newPassword): DriverResult
+    public function changePassword(ProvisioningContext $context, #[\SensitiveParameter] string $newPassword): DriverResult
     {
         return DriverResult::ok('Password recorded (manual).');
-    }
-
-    public function usage(Server $server): array
-    {
-        return [];
     }
 }

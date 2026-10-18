@@ -30,8 +30,8 @@ test('an unknown type, or a secret flag on a type that cannot hold a secret, is 
 });
 
 test('a select can take its options from the remote system', function () {
-    $field = SettingField::fromArray(['key' => 'package', 'label' => 'Package', 'type' => 'select', 'options_source' => 'remote:packages']);
+    $field = SettingField::fromArray(['key' => 'package', 'label' => 'Package', 'type' => 'select', 'options_source' => 'remote']);
 
-    expect($field->optionsSource)->toBe('remote:packages')
-        ->and($field->toArray())->toMatchArray(['options_source' => 'remote:packages', 'options' => []]);
+    expect($field->optionsSource)->toBe('remote')
+        ->and($field->toArray())->toMatchArray(['options_source' => 'remote', 'options' => []]);
 });

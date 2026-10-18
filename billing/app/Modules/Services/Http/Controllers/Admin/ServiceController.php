@@ -101,7 +101,7 @@ class ServiceController extends Controller
                 ? ModuleCommandResource::collection($service->moduleCommands()->orderByDesc('id')->limit(15)->get())
                 : [],
             'usage' => $service->latestUsage?->only(['disk_used_mb', 'disk_limit_mb', 'bw_used_mb', 'bw_limit_mb', 'captured_at']),
-            'driver' => $presenter->driver($service)->toArray(),
+            'driver' => $presenter->driverProps($service),
             'commands' => $presenter->commands($service),
             'statusTargets' => $presenter->statusTargets($service),
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($service, $today)),

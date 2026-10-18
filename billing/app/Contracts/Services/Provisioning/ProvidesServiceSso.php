@@ -11,5 +11,9 @@ use App\Data\Services\Provisioning\SsoLink;
  */
 interface ProvidesServiceSso
 {
-    public function serviceSsoLink(ProvisioningContext $context): SsoLink;
+    /**
+     * @param  string|null  $target  a panel page the driver documents (e.g. its email or file manager); null or an unknown
+     *                               target opens the panel home
+     */
+    public function serviceSsoLink(ProvisioningContext $context, ?string $target = null): SsoLink;
 }

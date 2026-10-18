@@ -28,7 +28,7 @@ use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Enums\ServiceStatus;
-use App\Modules\Services\Exceptions\RetryableProvisioningException;
+use App\Support\Services\RetryableProvisioningException;
 use App\Modules\Services\Exceptions\ServiceActionException;
 use App\Modules\Services\Jobs\RunModuleCommand;
 use App\Modules\Services\Models\ModuleCommand;

@@ -45,7 +45,7 @@ abstract class DriverRegistry
      *
      * @return array<string, class-string>
      */
-    abstract protected function capabilities(): array;
+    abstract public function capabilities(): array;
 
     /**
      * @param  class-string<TDriver>|Closure(Container): TDriver  $driver

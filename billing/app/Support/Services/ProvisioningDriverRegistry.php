@@ -4,12 +4,12 @@ namespace App\Support\Services;
 
 use App\Contracts\Services\Provisioning\ChangesPackage;
 use App\Contracts\Services\Provisioning\ChangesPassword;
-use App\Contracts\Services\Provisioning\FindsAccounts;
 use App\Contracts\Services\Provisioning\ListsAccounts;
-use App\Contracts\Services\Provisioning\ListsPackages;
+use App\Contracts\Services\Provisioning\ProvidesFieldOptions;
 use App\Contracts\Services\Provisioning\ProvidesServerSso;
 use App\Contracts\Services\Provisioning\ProvidesServiceSso;
 use App\Contracts\Services\Provisioning\ProvisioningDriver;
+use App\Contracts\Services\Provisioning\ReconcilesCommands;
 use App\Contracts\Services\Provisioning\RenewsAccounts;
 use App\Contracts\Services\Provisioning\ReportsUsage;
 use App\Contracts\Services\Provisioning\TestsServerConnection;
@@ -26,7 +26,7 @@ use App\Support\Integrations\DriverRegistry;
  *
  * @extends DriverRegistry<ProvisioningDriver>
  */
-class ProvisioningDriverRegistry extends DriverRegistry
+final class ProvisioningDriverRegistry extends DriverRegistry
 {
     public const CHANGE_PACKAGE = 'change_package';
 
@@ -44,16 +44,16 @@ class ProvisioningDriverRegistry extends DriverRegistry
 
     public const RENEW = 'renew';
 
-    public const LIST_PACKAGES = 'list_packages';
+    public const FIELD_OPTIONS = 'field_options';
 
-    public const FIND_ACCOUNTS = 'find_accounts';
+    public const RECONCILE = 'reconcile';
 
     protected function contract(): string
     {
         return ProvisioningDriver::class;
     }
 
-    protected function capabilities(): array
+    public function capabilities(): array
     {
         return [
             self::CHANGE_PACKAGE => ChangesPackage::class,
@@ -64,8 +64,8 @@ class ProvisioningDriverRegistry extends DriverRegistry
             self::SERVER_SSO => ProvidesServerSso::class,
             self::LIST_ACCOUNTS => ListsAccounts::class,
             self::RENEW => RenewsAccounts::class,
-            self::LIST_PACKAGES => ListsPackages::class,
-            self::FIND_ACCOUNTS => FindsAccounts::class,
+            self::FIELD_OPTIONS => ProvidesFieldOptions::class,
+            self::RECONCILE => ReconcilesCommands::class,
         ];
     }
 

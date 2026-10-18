@@ -43,7 +43,8 @@ interface ProvisioningDriver extends IntegrationDriver
     public function create(ProvisioningContext $context): DriverResult;
 
     /**
-     * @param  string  $reason  why the service is suspended ("overdue", "staff", or a staff-typed reason)
+     * @param  string  $reason  why the service is suspended, as readable text the host builds and the panel records
+     *                          (e.g. "Overdue invoice")
      *
      * @throws RetryableProvisioningException
      */

@@ -2,7 +2,7 @@
 
 namespace App\Modules\Services\Http\Requests;
 
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
+use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -37,7 +37,7 @@ class ServerRequest extends FormRequest
             'ip_address' => ['nullable', 'ip'],
             'assigned_ips' => ['array', 'max:256'],
             'assigned_ips.*' => ['ip'],
-            'driver' => ['required', 'string', Rule::in(array_keys(app(DriverRegistry::class)->all()))],
+            'driver' => ['required', 'string', Rule::in(app(ProvisioningDriverRegistry::class)->keys())],
             'username' => ['nullable', 'string', 'max:255'],
             'password' => ['nullable', 'string', 'max:1000'],
             'api_token' => ['nullable', 'string', 'max:4000'],

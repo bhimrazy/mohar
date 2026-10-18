@@ -3,6 +3,7 @@
 namespace App\Data\Integrations;
 
 use App\Enums\FieldType;
+use InvalidArgumentException;
 
 /**
  * One staff-configurable setting of an integration (gateway, provisioning driver, registrar). The settings form
@@ -10,9 +11,9 @@ use App\Enums\FieldType;
  *
  * A secret field never has a default: a default would ship a credential in code.
  *
- * A Select field may take its options from the remote system instead of $options: $optionsSource names where, for
- * example `remote:packages` (the packages a control panel offers, through the ListsPackages capability). The host
- * fills the select and falls back to free text when the remote system cannot be reached.
+ * A Select field may take its options from the remote system instead of $options: `$optionsSource = 'remote'` (the
+ * only value so far) asks the driver for them (ProvidesFieldOptions for provisioning drivers). The host fills the
+ * select and falls back to free text when the remote system cannot be reached.
  */
 final readonly class SettingField
 {
@@ -28,7 +29,17 @@ final readonly class SettingField
         public array $options = [],
         public string|int|bool|null $default = null,
         public ?string $optionsSource = null,
-    ) {}
+    ) {
+        if ($type->isSecret() && $default !== null) {
+            throw new InvalidArgumentException("The secret setting [{$key}] cannot have a default.");
+        }
+
+        if ($optionsSource !== null && $type !== FieldType::Select) {
+            throw new InvalidArgumentException("Only a select setting can take remote options; [{$key}] is {$type->value}.");
+        }
+    }
+
+    public const OPTIONS_REMOTE = 'remote';
 
     public function isSecret(): bool
     {

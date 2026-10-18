@@ -2,11 +2,12 @@
 
 namespace App\Modules\Services\Actions;
 
-use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
+use App\Contracts\Services\Provisioning\ReportsUsage;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\UsageSnapshot;
+use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 use Throwable;
 
@@ -15,7 +16,7 @@ use Throwable;
  */
 class SyncUsage
 {
-    public function __construct(private DriverRegistry $drivers) {}
+    public function __construct(private ProvisioningDriverRegistry $drivers, private ProvisioningSnapshots $snapshots) {}
 
     public function handle(CarbonImmutable $today): int
     {
@@ -28,12 +29,12 @@ class SyncUsage
 
             $driver = $this->drivers->get($server->driver);
 
-            if (! $driver->metadata()->supports(DriverMetadata::USAGE)) {
+            if (! $driver instanceof ReportsUsage) {
                 return;
             }
 
             try {
-                $rows = $driver->usage($server);
+                $rows = $driver->usage($this->snapshots->connection($server));
             } catch (Throwable $exception) {
                 report($exception);
 

@@ -4,6 +4,7 @@ namespace App\Modules\Services\Jobs;
 
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Enums\ModuleCommandName;
+use App\Modules\Services\Services\ServiceDrivers;
 use App\Modules\Services\Support\CommandOutcome;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -18,7 +19,8 @@ use Throwable;
  * - Exactly one try per job: driver retries and lock waits are explicit re-dispatches (new attempt /
  *   lock-retry numbers), so a redelivered job after a worker crash never calls the driver again —
  *   it fails and failed() records a "verify outcome" item instead.
- * - timeout < per-service lock TTL < queue retry_after; a timeout fails the job (failOnTimeout).
+ * - timeout (the driver's command timeout within services.module.max_job_timeout_seconds) < per-service lock TTL
+ *   < queue retry_after; a timeout fails the job (failOnTimeout).
  * - Unique per (service, command, attempt, lock retry) so automation re-runs don't stack duplicates.
  * - The payload is encrypted because change_password carries the new password.
  */
@@ -46,7 +48,7 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
         public int $lockRetries = 0,
     ) {
         $this->onQueue('provisioning');
-        $this->timeout = (int) config('services.module.job_timeout_seconds', 60);
+        $this->timeout = app(ServiceDrivers::class)->jobTimeoutFor($serviceId);
     }
 
     public function uniqueId(): string

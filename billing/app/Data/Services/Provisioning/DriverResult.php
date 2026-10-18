@@ -7,7 +7,7 @@ use InvalidArgumentException;
 
 /**
  * Answer of a provisioning driver call. Use the named constructors: ok() (completed), fail() (rejected, or retryable
- * with `retryable: true`) and unknown().
+ * with `retryable: true`) and unknown(). Provisioning has no `pending` outcome yet; a later trailing flag would add it.
  *
  * $data is the only way a driver reports changes back, with the documented keys `username`, `password`,
  * `dedicated_ip` (strings) and `driver_data` (an array merged into the service's driver data). $request and $response
@@ -27,6 +27,7 @@ final readonly class DriverResult
         public bool $success,
         public ?string $message = null,
         public bool $retryable = false,
+        #[\SensitiveParameter]
         public array $data = [],
         public array $request = [],
         public array $response = [],

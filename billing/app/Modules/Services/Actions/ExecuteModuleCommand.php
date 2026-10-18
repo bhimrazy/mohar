@@ -2,30 +2,35 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Services\Provisioning\ChangesPackage;
+use App\Contracts\Services\Provisioning\ChangesPassword;
+use App\Contracts\Services\Provisioning\ProvisioningDriver;
+use App\Data\Services\Provisioning\DriverResult;
+use App\Data\Services\Provisioning\ProvisioningContext;
+use App\Enums\DriverOutcome;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Services\ServerCapacityExhausted;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
-use App\Modules\Services\Drivers\Provisioning\DriverResult;
-use App\Modules\Services\Drivers\Provisioning\ProvisioningDriver;
-use App\Modules\Services\Drivers\Provisioning\ServiceContext;
 use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Exceptions\NoServerCapacity;
-use App\Modules\Services\Exceptions\RetryableProvisioningException;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\CommandEffects;
+use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Modules\Services\Services\ServiceDrivers;
 use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\CommandOutcome;
 use App\Modules\Services\Support\ServerSelector;
 use App\Modules\Services\Support\ServiceSettings;
 use App\Modules\Services\Support\UsernameGenerator;
 use App\Support\Integrations\Redactor;
+use App\Support\Services\ProvisioningDriverRegistry;
+use App\Support\Services\RetryableProvisioningException;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -40,11 +45,16 @@ use Throwable;
  *   module-queue item is opened for staff instead (no double provisioning).
  * - The new status is written only if the transition is still legal on the locked row; otherwise a
  *   "reconcile" item is opened and local state is left alone.
+ * - A driver answer of unknown outcome (DriverResult::unknown()) is never retried: the attempt is logged as unknown
+ *   and a "verify" item is opened, which also blocks any further create until staff settle it.
+ * - Drivers receive a ProvisioningContext snapshot (ProvisioningSnapshots), never models.
  */
 class ExecuteModuleCommand
 {
     public function __construct(
-        private DriverRegistry $drivers,
+        private ProvisioningDriverRegistry $drivers,
+        private ServiceDrivers $serviceDrivers,
+        private ProvisioningSnapshots $snapshots,
         private ServerSelector $servers,
         private UsernameGenerator $usernames,
         private Redactor $redactor,
@@ -66,7 +76,7 @@ class ExecuteModuleCommand
      */
     public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1): CommandOutcome
     {
-        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds())
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($this->serviceDrivers->jobTimeoutFor($serviceId)))
             ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt));
     }
 
@@ -131,7 +141,7 @@ class ExecuteModuleCommand
         }
 
         $product = $this->catalog->product($service->product_id);
-        $driverKey = $product->provisioningDriver ?? $service->server->driver ?? 'none';
+        $driverKey = $this->serviceDrivers->keyFor($service);
         $started = hrtime(true);
         $log = null;
         $context = null;
@@ -139,15 +149,7 @@ class ExecuteModuleCommand
         try {
             $driver = $this->drivers->get($driverKey);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
-            $context = new ServiceContext(
-                $service,
-                $server,
-                ['id' => $service->client->id, 'name' => $service->client->display_name, 'email' => $service->client->email],
-                $product->driverConfig ?? [],
-                $service->config_options['selections'] ?? [],
-                $this->catalog->customFieldsByModuleKey($service->product_id, $service->custom_fields ?? []),
-                $this->catalog->secretCustomFieldValues($service->product_id, $service->custom_fields ?? []),
-            );
+            $context = $this->snapshots->context($service, $server, $product, $driver);
             $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt);
             $result = $this->call($driver, $context, $command, $args);
         } catch (RetryableProvisioningException $exception) {
@@ -163,10 +165,15 @@ class ExecuteModuleCommand
 
         $secrets = [...($context?->secrets() ?? []), ...(isset($args['password']) ? [(string) $args['password']] : [])];
         $error = $result->success ? null : $this->redactor->maskValues((string) $result->message, $secrets);
+        $outcome = $result->outcome();
 
         $attributes = [
             'success' => $result->success,
-            'status' => $result->success ? ModuleCommand::SUCCEEDED : ModuleCommand::FAILED,
+            'status' => match ($outcome) {
+                DriverOutcome::Completed => ModuleCommand::SUCCEEDED,
+                DriverOutcome::Unknown => ModuleCommand::UNKNOWN,
+                default => ModuleCommand::FAILED,
+            },
             'error' => $error,
             'request' => $this->redactor->redact($result->request, $secrets) ?: null,
             'response' => $this->redactor->redact($result->response, $secrets) ?: null,
@@ -179,15 +186,18 @@ class ExecuteModuleCommand
             $this->startLog($service, $driverKey, $command, $initiator, $attempt)->update($attributes);
         }
 
-        if ($result->success) {
+        if ($outcome === DriverOutcome::Completed) {
             return $this->succeeded($service->id, $command, $args, $result);
         }
 
-        if ($result->retryable && $attempt < $this->settings->maxAttempts()) {
+        if ($outcome === DriverOutcome::Retryable && $attempt < $this->settings->maxAttempts()) {
             return CommandOutcome::retry((string) $error, $this->settings->backoffBefore($attempt + 1));
         }
 
-        return $this->failed($service, $command, $args, (string) $error, $attempt);
+        $kind = $outcome === DriverOutcome::Unknown ? ModuleQueueItem::KIND_VERIFY : ModuleQueueItem::KIND_FAILURE;
+        $error = $outcome === DriverOutcome::Unknown ? "Outcome unknown: {$error} Check the server before retrying." : (string) $error;
+
+        return $this->failed($service, $command, $args, $error, $attempt, $kind);
     }
 
     private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt): ModuleCommand
@@ -258,7 +268,7 @@ class ExecuteModuleCommand
             $service->server()->associate($this->servers->select($serverGroupId, $driverKey));
         }
 
-        $service->username ??= $this->usernames->generate($service->domain, $service->server_id, $service->id);
+        $service->username ??= $this->usernames->generate($service->domain, $service->server_id, $service->id, $driver->metadata()->usernamePolicy);
         $service->password ??= $this->usernames->password();
         $service->save();
 
@@ -268,15 +278,29 @@ class ExecuteModuleCommand
     /**
      * @param  array<string, mixed>  $args
      */
-    private function call(ProvisioningDriver $driver, ServiceContext $context, ModuleCommandName $command, array $args): DriverResult
+    private function call(ProvisioningDriver $driver, ProvisioningContext $context, ModuleCommandName $command, array $args): DriverResult
     {
-        return match ($command) {
-            ModuleCommandName::Create => $driver->create($context),
-            ModuleCommandName::Suspend => $driver->suspend($context, (string) ($args['reason'] ?? 'staff')),
-            ModuleCommandName::Unsuspend => $driver->unsuspend($context),
-            ModuleCommandName::Terminate => $driver->terminate($context),
-            ModuleCommandName::ChangePackage => $driver->changePackage($context, (array) ($args['previous'] ?? [])),
-            ModuleCommandName::ChangePassword => $driver->changePassword($context, (string) ($args['password'] ?? '')),
+        return match (true) {
+            $command === ModuleCommandName::Create => $driver->create($context),
+            $command === ModuleCommandName::Suspend => $driver->suspend($context, $this->suspensionText((string) ($args['reason'] ?? 'staff'))),
+            $command === ModuleCommandName::Unsuspend => $driver->unsuspend($context),
+            $command === ModuleCommandName::Terminate => $driver->terminate($context),
+            $command === ModuleCommandName::ChangePackage && $driver instanceof ChangesPackage => $driver->changePackage($context, $this->snapshots->previousPackage((array) ($args['previous'] ?? []))),
+            $command === ModuleCommandName::ChangePassword && $driver instanceof ChangesPassword => $driver->changePassword($context, (string) ($args['password'] ?? '')),
+            default => DriverResult::fail(sprintf('The %s driver cannot %s; make the change on the server by hand.', $driver->name(), mb_strtolower($command->label()))),
+        };
+    }
+
+    /**
+     * The readable suspension reason a panel records (ProvisioningDriver::suspend()).
+     */
+    private function suspensionText(string $reason): string
+    {
+        return match ($reason) {
+            'overdue' => 'Overdue invoice',
+            'addon_overdue' => 'Overdue add-on invoice',
+            'staff' => 'Suspended by staff',
+            default => str_starts_with($reason, 'staff:') ? trim(substr($reason, 6)) : $reason,
         };
     }
 
@@ -337,10 +361,10 @@ class ExecuteModuleCommand
     /**
      * @param  array<string, mixed>  $args
      */
-    private function failed(Service $service, ModuleCommandName $command, array $args, string $error, int $attempt): CommandOutcome
+    private function failed(Service $service, ModuleCommandName $command, array $args, string $error, int $attempt, string $kind = ModuleQueueItem::KIND_FAILURE): CommandOutcome
     {
-        DB::transaction(function () use ($service, $command, $args, $error, $attempt): void {
-            $this->openQueueItem($service, $command, $args, $error, $attempt, ModuleQueueItem::KIND_FAILURE);
+        DB::transaction(function () use ($service, $command, $args, $error, $attempt, $kind): void {
+            $this->openQueueItem($service, $command, $args, $error, $attempt, $kind);
             $this->effects->failed($service, $command, $args, $error);
         });
 
