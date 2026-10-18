@@ -77,3 +77,45 @@ shapes are documented next to the method (ADR 0010).
   knowing which modules are installed.
 - Five dead gateway constants are deprecated rather than deleted. Removal waits for 2.0, or happens sooner within the
   pre-1.0 window if no external gateway exists by then.
+
+## Addendum A — Saved payment methods (proposed, 2026-10-18)
+
+Status: Proposed (module engineer, from the architecture review of #58). Applies to every gateway that stores a
+payment method for later charges: Stripe now; Razorpay (cards, UPI Autopay) and PayPal (vault) later. Design and
+field lists: `docs/product/payments-stripe.md` §7.
+
+### Rules
+
+1. **Hosted setup, authoritative completion.** A method is saved on the provider's own page through the opt-in
+   `HostedPayMethodSetup` interface (`setupTtl`, `beginSetup`, `completeSetup`, `cancelSetup`). Only
+   `completeSetup()` decides the result, and it retrieves the setup server-side. Browser parameters are hints.
+   Card, wallet, UPI or bank data never reach our servers.
+2. **State lives in a table.** Each setup is a `pay_method_setups` row with an explicit provider expiry, completed
+   once under a row lock (`pending → completed`). The browser return, the reconcile poller and staff can each
+   complete it. The row is the consent record (who, when, which session, the wording), and it outlives removal of
+   the method. The cache is never the only copy of payment state.
+3. **Opaque tokens, stored only by Billing.** A driver returns an opaque token plus display fields (`kind`, brand,
+   last 4, expiry, label). Billing encrypts and stores it and never parses it. A charge uses only a stored token,
+   selected by a client-scoped `pay_method_id`, never a token from a request.
+4. **One provider customer per client, gateway and mode** (`gateway_customers`, unique on those three). The driver
+   receives the ref and may return a replacement when the provider lost it.
+5. **Charges are recorded before the call.** A charge of a stored method creates a `payment_attempts` row first
+   and passes its reference (`ChargeRequest::$attemptReference`). The driver derives its idempotency key from that
+   reference. An unknown outcome stays pending, and is resolved by repeating the identical request (or by
+   `lookup()` by reference) and never by a fresh charge. Settlement uses the attempt's stored amount, currency and
+   rate (`CallbackEvent::ATTEMPT_UPDATED`).
+6. **Every charge says who started it** (`ChargeRequest::$merchantInitiated`). Customer-initiated charges that need
+   authentication fall back to the hosted payment page. Merchant-initiated ones stop retrying and raise
+   `PaymentAuthenticationRequired`. Billing decides what follows; Notifications only renders the message.
+7. **Revocation is its own capability** (`RevokesStoredTokens`), called best effort from a queued job when a method
+   is removed or a client is erased.
+8. **Consistency checks.** A test asserts that every `HostedPayMethodSetup` driver also declares `CAPTURE`.
+   Billing offers "Add a method" only when both hold. Kernel additions are listed in the kernel changelog and the
+   API snapshot (ADR 0010).
+
+### Consequences
+
+- Razorpay and PayPal map onto begin → redirect → authoritative complete without contract changes. RBI e-mandates
+  add a trailing `?Money $maxAmount` to `PayMethodSetupRequest` when Razorpay lands.
+- Two Billing tables and three columns on `payment_attempts`. One more poller pass (setups) in
+  `billing:reconcile-payments`.
