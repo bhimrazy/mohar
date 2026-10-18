@@ -1,0 +1,124 @@
+<?php
+
+namespace App\Modules\Notifications;
+
+use App\Models\User;
+use App\Modules\Notifications\Actions\PruneNotificationLogs;
+use App\Modules\Notifications\Enums\EmailStatus;
+use App\Modules\Notifications\Listeners\PublishEventWebhooks;
+use App\Modules\Notifications\Listeners\SendEventEmails;
+use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Models\WebhookEndpoint;
+use App\Modules\Notifications\Rendering\TemplateEngine;
+use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Notifications\Webhooks\HostResolver;
+use App\Support\Automation\Automation;
+use App\Support\Dashboard\Dashboard;
+use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Navigation\Navigation;
+use App\Support\Navigation\NavItem;
+use App\Support\Permissions\PermissionRegistry;
+use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingsRegistry;
+use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\Event;
+
+class NotificationsServiceProvider extends ModuleServiceProvider
+{
+    /** Permissions that can exfiltrate data or hijack mail (BCC on password resets, arbitrary webhook URLs). */
+    public const SENSITIVE_PERMISSIONS = ['notifications.templates.manage', 'notifications.webhooks.manage'];
+
+    public function moduleKey(): string
+    {
+        return 'notifications';
+    }
+
+    protected function registerModule(): void
+    {
+        $this->app->singleton(TemplateCatalog::class);
+        $this->app->bind(TemplateEngine::class);
+        $this->app->singleton(HostResolver::class);
+    }
+
+    protected function schedule(Schedule $schedule): void
+    {
+        $schedule->command('notifications:retry-webhooks')->everyMinute()->withoutOverlapping()->onOneServer();
+    }
+
+    protected function bootModule(): void
+    {
+        Event::subscribe(SendEventEmails::class);
+        Event::subscribe(PublishEventWebhooks::class);
+
+        $this->registerNavigation();
+        $this->registerDashboard();
+        $this->registerPermissions();
+        $this->registerSettings();
+
+        $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle($today));
+    }
+
+    private function registerNavigation(): void
+    {
+        $navigation = $this->app->make(Navigation::class);
+        $navigation->add('admin', new NavItem('Email templates', 'admin.notifications.templates.index', 'Mail', 'Setup', 40, 'notifications.templates.view', 'admin.notifications.templates.*'));
+        $navigation->add('admin', new NavItem('Email log', 'admin.notifications.emails.index', 'Inbox', 'Setup', 41, 'notifications.log.view', 'admin.notifications.emails.*'));
+        $navigation->add('admin', new NavItem('Staff email alerts', 'admin.notifications.subscriptions.edit', 'UserCog', 'Setup', 42, 'notifications.subscriptions.manage', 'admin.notifications.subscriptions.*'));
+        $navigation->add('admin', new NavItem('Webhooks', 'admin.notifications.webhooks.index', 'Webhook', 'Setup', 43, 'notifications.webhooks.manage', 'admin.notifications.webhooks.*'));
+        $navigation->add('admin-client', new NavItem('Emails', 'admin.notifications.emails.index', 'Mail', order: 80, permission: 'notifications.log.view'));
+
+        $navigation->add('client', new NavItem('Email preferences', 'client.notifications.preferences.edit', 'Mail', 'Setup', 91, null, 'client.notifications.preferences.*'));
+        $navigation->add('client', new NavItem('Email history', 'client.notifications.emails.index', 'Inbox', 'Setup', 92, null, 'client.notifications.emails.*'));
+    }
+
+    private function registerDashboard(): void
+    {
+        $dashboard = $this->app->make(Dashboard::class);
+
+        $dashboard->todo('admin', 'notifications.failed_emails', fn (?User $user): array => [
+            'label' => 'Emails that failed in the last 24 hours',
+            'count' => EmailMessage::query()->where('status', EmailStatus::Failed)->where('updated_at', '>=', now()->subDay())->count(),
+            'href' => route('admin.notifications.emails.index', ['status' => EmailStatus::Failed->value]),
+            'tone' => 'danger',
+        ], 'notifications.log.view', 40);
+
+        $dashboard->todo('admin', 'notifications.disabled_webhooks', fn (?User $user): array => [
+            'label' => 'Disabled webhook endpoints',
+            'count' => WebhookEndpoint::query()->where('is_active', false)->whereNotNull('disabled_reason')->count(),
+            'href' => route('admin.notifications.webhooks.index'),
+            'tone' => 'warning',
+        ], 'notifications.webhooks.manage', 41);
+    }
+
+    private function registerPermissions(): void
+    {
+        $this->app->make(PermissionRegistry::class)->register('Notifications', [
+            'notifications.templates.view' => 'View and preview email templates',
+            'notifications.templates.manage' => 'Edit, create and delete email templates (incl. CC/BCC and sender)',
+            'notifications.log.view' => 'View the email log',
+            'notifications.log.resend' => 'Resend emails from the log',
+            'notifications.send' => 'Send emails to clients',
+            'notifications.subscriptions.manage' => 'Choose which staff roles receive which alerts',
+            'notifications.webhooks.manage' => 'Manage webhook endpoints, secrets and deliveries',
+            'notifications.settings.manage' => 'Manage email & notification settings',
+        ], sensitive: self::SENSITIVE_PERMISSIONS);
+    }
+
+    private function registerSettings(): void
+    {
+        $this->app->make(SettingsRegistry::class)->section('notifications', 'Email & notifications', [
+            new SettingDefinition('notifications.mail_disabled', 'Stop sending email', 'boolean', 'Messages are still logged, with status "suppressed".'),
+            new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses.', rules: ['max:500']),
+            new SettingDefinition('notifications.signature', 'Email signature', 'text', 'Inserted where templates use {{ signature }}.', rules: ['max:2000']),
+            new SettingDefinition('notifications.default_locale', 'Default email language', help: 'Locale code used when a client has no translation, e.g. en.', rules: ['required', 'max:10', 'alpha_dash']),
+            new SettingDefinition('notifications.client_can_manage_preferences', 'Clients can manage their email preferences', 'boolean'),
+            new SettingDefinition('notifications.notify_client_changes', 'Email staff when clients change their details', 'boolean'),
+            new SettingDefinition('notifications.daily_summary', 'Email the daily automation summary', 'boolean'),
+            new SettingDefinition('notifications.email_log_body_retention_days', 'Keep email bodies for (days)', 'integer', rules: ['min:1', 'max:3650']),
+            new SettingDefinition('notifications.webhooks_max_attempts', 'Webhook attempts before giving up', 'integer', rules: ['min:1', 'max:8']),
+            new SettingDefinition('notifications.webhooks_disable_after_consecutive_failures', 'Disable a webhook endpoint after (consecutive failures)', 'integer', rules: ['min:1', 'max:1000']),
+            new SettingDefinition('notifications.webhooks_delivery_retention_days', 'Keep webhook deliveries for (days)', 'integer', rules: ['min:1', 'max:365']),
+        ], 'notifications.settings.manage');
+    }
+}
