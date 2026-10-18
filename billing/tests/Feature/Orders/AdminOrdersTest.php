@@ -334,6 +334,17 @@ describe('staff orders', function () {
             ->and($order->items()->sole()->item_type)->toBe(OrderItemType::Service);
     });
 
+    it('validates the price override and billing cycle strictly', function () {
+        actingAsStaff(['orders.orders.create']);
+
+        $this->post(route('admin.orders.store'), [
+            'client_id' => $this->client->id, 'product_id' => 1, 'cycle' => 'weekly',
+            'price_override' => '1e3', 'payment_gateway' => 'bank_transfer',
+        ])->assertSessionHasErrors(['cycle', 'price_override' => 'Enter a price like 10 or 12.50.']);
+
+        expect(Order::query()->count())->toBe(0);
+    });
+
     it('forbids staff without the create permission', function () {
         actingAsStaff(['orders.orders.view']);
 

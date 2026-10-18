@@ -13,7 +13,7 @@ return [
     /** Due date of the first invoice = order date + N days. */
     'initial_invoice_grace_days' => 0,
 
-    /** Where checkout sends the customer: complete_page | invoice | gateway (falls back to the complete page when no invoice page exists). */
+    /** Where checkout sends the customer: complete_page | invoice (falls back to the complete page when no invoice page exists). */
     'checkout_redirect' => 'invoice',
 
     /** Move a pending order to active when its invoice is paid and the fraud check passed. */

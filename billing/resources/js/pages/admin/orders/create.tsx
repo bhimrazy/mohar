@@ -1,5 +1,6 @@
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import OrderController from '@/actions/App/Modules/Orders/Http/Controllers/Admin/OrderController';
+import { decimalAmount } from '@/components/orders/decimal-amount';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
 import { Money } from '@/components/app/money';
@@ -114,6 +115,20 @@ export default function CreateOrder({
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
+        form.clearErrors('price_override');
+
+        const override =
+            form.data.price_override.trim() === ''
+                ? ''
+                : decimalAmount(form.data.price_override);
+
+        if (override === null) {
+            form.setError('price_override', 'Enter a price like 10 or 12.50.');
+
+            return;
+        }
+
+        form.transform((data) => ({ ...data, price_override: override }));
         form.submit(OrderController.store());
     };
 

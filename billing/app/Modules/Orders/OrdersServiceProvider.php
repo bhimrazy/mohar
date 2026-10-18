@@ -13,6 +13,7 @@ use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
+use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Actions\CancelStalePendingOrders;
 use App\Modules\Orders\Actions\PruneExpiredCarts;
@@ -191,7 +192,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->app->make(SettingsRegistry::class)->section('orders', 'Orders', [
             new SettingDefinition('orders.require_tos', 'Require terms of service acceptance at checkout', 'boolean'),
             new SettingDefinition('orders.tos_url', 'Terms of service URL', 'string', rules: ['nullable', 'url', 'max:255']),
-            new SettingDefinition('orders.checkout_redirect', 'After checkout, send customers to', 'select', options: ['complete_page' => 'Order confirmation page', 'invoice' => 'Invoice', 'gateway' => 'Payment gateway']),
+            new SettingDefinition('orders.checkout_redirect', 'After checkout, send customers to', 'select', options: ['complete_page' => 'Order confirmation page', 'invoice' => 'Invoice']),
             new SettingDefinition('orders.initial_invoice_grace_days', 'Days until the first invoice is due', 'integer', rules: ['min:0', 'max:90']),
             new SettingDefinition('orders.cart_ttl_days', 'Days a cart is kept', 'integer', rules: ['min:1', 'max:365']),
             new SettingDefinition('orders.allow_checkout_notes', 'Let customers add notes at checkout', 'boolean'),
@@ -216,7 +217,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->make(GlobalSearch::class)->provider('Orders', fn (string $term): array => array_values(Order::query()
             ->with('client')
-            ->whereLike('number', '%'.$term.'%')
+            ->where(fn ($query) => Like::where($query, 'number', Like::contains($term)))
             ->orderByDesc('id')
             ->limit(5)
             ->get()

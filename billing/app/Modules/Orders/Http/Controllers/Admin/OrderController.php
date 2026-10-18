@@ -138,7 +138,7 @@ class OrderController extends Controller
             key: CartItem::newKey(),
             kind: CartItemKind::Product,
             productId: $request->integer('product_id'),
-            cycle: BillingCycle::tryFrom($request->string('cycle')->toString()) ?? BillingCycle::Monthly,
+            cycle: BillingCycle::from($request->string('cycle')->toString()),
             domainMode: $request->input('domain_mode') ?: null,
             domainName: $request->filled('domain_name') ? $request->string('domain_name')->lower()->toString() : null,
             eppCode: $request->input('epp_code') ?: null,

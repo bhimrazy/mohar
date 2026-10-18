@@ -5,14 +5,34 @@ import { StorefrontHero } from '@/components/orders/storefront-hero';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cycleLabel, cycleSuffix, lowestMonthly } from '@/lib/billing-cycles';
+import {
+    cycleLabel,
+    cycleMonths,
+    cycleSuffix,
+    lowestMonthly,
+} from '@/lib/billing-cycles';
 import store from '@/routes/store';
-import type { StoreGroup, StoreProduct } from '@/types/orders';
+import type { PriceRow, StoreGroup, StoreProduct } from '@/types/orders';
 
 type Props = {
     groups: StoreGroup[];
     currency: string;
 };
+
+/** Percentage saved against paying monthly for the same period (0 when not cheaper). */
+function savingFor(rows: PriceRow[], row: PriceRow): number {
+    const monthly = rows.find((candidate) => candidate.cycle === 'monthly');
+    const months = cycleMonths(row.cycle);
+
+    if (!monthly || !months || months === 1 || monthly.recurring === 0) {
+        return 0;
+    }
+
+    return Math.max(
+        0,
+        Math.round((1 - row.recurring / (monthly.recurring * months)) * 100),
+    );
+}
 
 function ProductCard({
     product,
@@ -83,6 +103,11 @@ function ProductCard({
                         <span className="flex items-center gap-2 text-muted-foreground">
                             <Check className="size-3.5" aria-hidden="true" />
                             {cycleLabel(row.cycle)}
+                            {savingFor(product.pricing, row) > 0 && (
+                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+                                    Save {savingFor(product.pricing, row)}%
+                                </span>
+                            )}
                         </span>
                         <span className="tabular-nums">
                             <Money amount={row.recurring} currency={currency} />

@@ -84,6 +84,13 @@ it('validates promotion input', function () {
     ]);
 });
 
+it('rejects amounts that are not plain decimals', function (string $value) {
+    actingAsStaff(['orders.promotions.manage']);
+
+    $this->post(route('admin.promotions.store'), promotionPayload(['type' => 'fixed', 'value' => $value, 'min_cart_amount' => $value]))
+        ->assertSessionHasErrors(['value' => 'Enter an amount like 10 or 12.50.', 'min_cart_amount' => 'Enter an amount like 50 or 49.99.']);
+})->with(['exponent' => '1e3', 'three decimals' => '12.345', 'negative' => '-5', 'separator' => '1,000']);
+
 it('updates a promotion', function () {
     actingAsStaff(['orders.promotions.manage']);
     $promotion = Promotion::factory()->create(['code' => 'OLD']);

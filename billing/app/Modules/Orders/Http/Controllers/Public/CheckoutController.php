@@ -15,6 +15,7 @@ use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\CustomerResolver;
 use App\Modules\Orders\Services\InvoiceLinks;
+use App\Modules\Orders\Support\Countries;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -28,14 +29,6 @@ class CheckoutController extends Controller
     public const SESSION_KEY = 'orders.checkout_key';
 
     public const SESSION_LAST_ORDER = 'orders.last_order';
-
-    /** @var array<string, string> */
-    private const COUNTRIES = [
-        'US' => 'United States', 'CA' => 'Canada', 'GB' => 'United Kingdom', 'IE' => 'Ireland', 'DE' => 'Germany',
-        'FR' => 'France', 'NL' => 'Netherlands', 'ES' => 'Spain', 'IT' => 'Italy', 'SE' => 'Sweden',
-        'PL' => 'Poland', 'AU' => 'Australia', 'NZ' => 'New Zealand', 'IN' => 'India', 'SG' => 'Singapore',
-        'JP' => 'Japan', 'BR' => 'Brazil', 'ZA' => 'South Africa',
-    ];
 
     public function __construct(
         private CartManager $carts,
@@ -69,7 +62,8 @@ class CheckoutController extends Controller
             'tos_url' => $this->settings->get('orders.tos_url') ?: null,
             'allow_notes' => (bool) $this->settings->get('orders.allow_checkout_notes', true),
             'idempotency_key' => $this->checkoutKey($request),
-            'countries' => collect(self::COUNTRIES)->map(fn (string $label, string $code): array => ['value' => $code, 'label' => $label])->values(),
+            'countries' => Countries::CODES,
+            'default_country' => $this->settings->get('core.default_country'),
             'login_url' => route('login'),
             'register_url' => Route::has('register') ? route('register') : null,
             ...$this->carts->storeProps($request),

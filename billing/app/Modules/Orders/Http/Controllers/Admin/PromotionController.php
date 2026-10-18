@@ -6,6 +6,7 @@ use App\Contracts\Catalog\PriceBook;
 use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Like;
 use App\Modules\Orders\Enums\PromotionType;
 use App\Modules\Orders\Http\Requests\PromotionRequest;
 use App\Modules\Orders\Http\Resources\PromotionResource;
@@ -23,7 +24,7 @@ class PromotionController extends Controller
         $this->authorize('orders.promotions.manage');
 
         $promotions = Promotion::query()
-            ->when($request->filled('search'), fn ($query) => $query->whereLike('code', '%'.$request->string('search')->trim()->toString().'%'))
+            ->when($request->filled('search'), fn ($query) => Like::where($query, 'code', Like::contains($request->string('search')->trim()->toString())))
             ->when($request->input('state') === 'active', fn ($query) => $query->whereNull('expired_at'))
             ->when($request->input('state') === 'expired', fn ($query) => $query->whereNotNull('expired_at'))
             ->orderByDesc('id')

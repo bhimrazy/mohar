@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { cycleLabel, cycleSuffix } from '@/lib/billing-cycles';
+import { cn } from '@/lib/utils';
 import store from '@/routes/store';
 import type { PricedCart, PricedItem } from '@/types/orders';
 
@@ -67,10 +68,32 @@ function CartItemCard({
             <ul className="mt-3 grid gap-1 text-sm">
                 {item.lines.map((line) => (
                     <li key={line.key} className="grid gap-0.5">
+                        {line.kind === 'product' &&
+                            line.breakdown.length > 1 &&
+                            line.breakdown.map((part, index) => (
+                                <div
+                                    key={part.label}
+                                    className={cn(
+                                        'flex justify-between gap-4 text-xs text-muted-foreground',
+                                        index > 0 && 'pl-3',
+                                    )}
+                                >
+                                    <span className="min-w-0 truncate">
+                                        {index === 0 ? 'Base plan' : part.label}
+                                    </span>
+                                    <Money
+                                        amount={part.recurring}
+                                        currency={currency}
+                                        signed={index > 0}
+                                    />
+                                </div>
+                            ))}
                         <div className="flex justify-between gap-4 text-muted-foreground">
                             <span className="min-w-0 truncate">
                                 {line.kind === 'product'
-                                    ? 'Plan'
+                                    ? line.breakdown.length > 1
+                                        ? 'Plan total'
+                                        : 'Plan'
                                     : line.description}
                             </span>
                             <span className="tabular-nums">

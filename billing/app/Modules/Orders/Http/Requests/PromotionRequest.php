@@ -12,6 +12,9 @@ use Illuminate\Validation\Rule;
 
 class PromotionRequest extends FormRequest
 {
+    /** Plain decimal amounts only (no exponents or separators): 12, 12.5, 12.50. */
+    public const DECIMAL = 'regex:/^\d{1,8}(\.\d{1,2})?$/';
+
     public function authorize(): bool
     {
         return $this->user()?->can('orders.promotions.manage') ?? false;
@@ -28,7 +31,7 @@ class PromotionRequest extends FormRequest
         return [
             'code' => ['required', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique(Promotion::class, 'code')->ignore($promotion?->id)],
             'type' => ['required', Rule::enum(PromotionType::class)],
-            'value' => ['required', 'numeric', 'min:0', 'max:99999999', Rule::when($this->input('type') === PromotionType::Percent->value, ['max:100'])],
+            'value' => ['required', self::DECIMAL, Rule::when($this->input('type') === PromotionType::Percent->value, ['numeric', 'max:100'])],
             'recurring' => ['boolean'],
             'recur_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'applies_to_products' => ['nullable', 'array'],
@@ -50,7 +53,7 @@ class PromotionRequest extends FormRequest
             'existing_clients_only' => ['boolean'],
             'lifetime' => ['boolean'],
             'allow_upgrades' => ['boolean'],
-            'min_cart_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'min_cart_amount' => ['nullable', self::DECIMAL],
             'discount_setup_fee' => ['boolean'],
             'admin_notes' => ['nullable', 'string', 'max:2000'],
         ];
@@ -70,6 +73,8 @@ class PromotionRequest extends FormRequest
     {
         return [
             'code.regex' => __('Use letters, numbers, dashes and underscores only.'),
+            'value.regex' => __('Enter an amount like 10 or 12.50.'),
+            'min_cart_amount.regex' => __('Enter an amount like 50 or 49.99.'),
             'value.max' => $this->input('type') === PromotionType::Percent->value ? __('A percentage cannot exceed 100.') : __('Enter a smaller amount.'),
             'expires_on.after_or_equal' => __('The expiry date must be on or after the start date.'),
         ];

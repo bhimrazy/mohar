@@ -1,6 +1,14 @@
 import { Head, Link, useForm } from '@inertiajs/react';
-import { AlertTriangle, Lock, LogIn, UserRound } from 'lucide-react';
-import { useState } from 'react';
+import {
+    AlertTriangle,
+    CreditCard,
+    Lock,
+    LogIn,
+    Mail,
+    ShieldCheck,
+    UserRound,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
 import CheckoutController from '@/actions/App/Modules/Orders/Http/Controllers/Public/CheckoutController';
 import { Field } from '@/components/app/field';
 import { Money } from '@/components/app/money';
@@ -33,7 +41,9 @@ type Props = {
     tos_url: string | null;
     allow_notes: boolean;
     idempotency_key: string;
-    countries: SelectOption[];
+    countries: string[];
+    default_country: string | null;
+    support_email: string | null;
     login_url: string;
 };
 
@@ -62,6 +72,8 @@ export default function Checkout({
     allow_notes: allowNotes,
     idempotency_key: idempotencyKey,
     countries,
+    default_country: defaultCountry,
+    support_email: supportEmail,
     login_url: loginUrl,
 }: Props) {
     const [mode, setMode] = useState<'register' | 'login'>('register');
@@ -75,11 +87,18 @@ export default function Checkout({
         last_name: '',
         company_name: '',
         email: '',
-        country: '',
+        country: defaultCountry ?? '',
         password: '',
         password_confirmation: '',
     });
     const errors = form.errors as Record<string, string | undefined>;
+    const countryOptions = useMemo(() => {
+        const names = new Intl.DisplayNames(['en'], { type: 'region' });
+
+        return countries
+            .map((code) => ({ value: code, label: names.of(code) ?? code }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+    }, [countries]);
     const guest = account === null && blockedReason === null;
 
     const submit = (event: React.FormEvent) => {
@@ -249,7 +268,7 @@ export default function Checkout({
                                                     <SelectValue placeholder="Choose a country" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {countries.map(
+                                                    {countryOptions.map(
                                                         (country) => (
                                                             <SelectItem
                                                                 key={
@@ -467,6 +486,45 @@ export default function Checkout({
                                     {form.processing && <Spinner />}
                                     Place order
                                 </Button>
+                                <ul className="grid gap-1.5 text-xs text-muted-foreground">
+                                    <li className="flex items-center gap-2">
+                                        <ShieldCheck
+                                            className="size-3.5 shrink-0"
+                                            aria-hidden="true"
+                                        />
+                                        Secure, encrypted checkout. You pay the
+                                        invoice after ordering.
+                                    </li>
+                                    {gateways.length > 0 && (
+                                        <li className="flex items-center gap-2">
+                                            <CreditCard
+                                                className="size-3.5 shrink-0"
+                                                aria-hidden="true"
+                                            />
+                                            Accepted:{' '}
+                                            {gateways
+                                                .map((gateway) => gateway.label)
+                                                .join(', ')}
+                                        </li>
+                                    )}
+                                    {supportEmail && (
+                                        <li className="flex items-center gap-2">
+                                            <Mail
+                                                className="size-3.5 shrink-0"
+                                                aria-hidden="true"
+                                            />
+                                            <span>
+                                                Questions?{' '}
+                                                <a
+                                                    href={`mailto:${supportEmail}`}
+                                                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                                                >
+                                                    {supportEmail}
+                                                </a>
+                                            </span>
+                                        </li>
+                                    )}
+                                </ul>
                             </div>
                         }
                     />

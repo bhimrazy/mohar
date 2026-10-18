@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Models;
 
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Like;
 use App\Modules\Orders\Database\Factories\OrderFactory;
 use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Enums\OrderKind;
@@ -175,8 +176,8 @@ class Order extends Model
         }
 
         $query->where(function (Builder $query) use ($term): void {
-            $query->whereLike('number', '%'.$term.'%')
-                ->orWhereHas('client', fn (Builder $client) => $client->search($term));
+            Like::where($query, 'number', Like::contains($term));
+            $query->orWhereHas('client', fn (Builder $client) => $client->search($term));
         });
     }
 }

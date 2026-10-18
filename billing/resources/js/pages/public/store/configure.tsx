@@ -844,7 +844,8 @@ export default function Configure({
                                 Summary
                             </h2>
                             <p className="text-sm text-muted-foreground">
-                                {cycleLabel(form.data.cycle)} billing
+                                Billed{' '}
+                                {cycleLabel(form.data.cycle).toLowerCase()}
                             </p>
                         </div>
                         <ul

@@ -41,7 +41,7 @@ export default function Complete({
                             #{order.number}
                         </span>{' '}
                         was placed on <DateTime value={order.created_at} />.
-                        We've emailed you a confirmation and your invoice.
+                        You'll receive a confirmation by email.
                     </p>
                 </header>
 
@@ -75,11 +75,7 @@ export default function Complete({
                                     )}
                                 </span>
                                 <Money
-                                    amount={
-                                        item.first_amount +
-                                        item.setup_fee -
-                                        item.discount_amount
-                                    }
+                                    amount={item.first_amount + item.setup_fee}
                                     currency={order.currency}
                                 />
                             </li>
@@ -87,6 +83,15 @@ export default function Complete({
                     </ul>
                     <Separator />
                     <dl className="grid gap-2 px-5 py-4 text-sm">
+                        <div className="flex justify-between">
+                            <dt className="text-muted-foreground">Subtotal</dt>
+                            <dd>
+                                <Money
+                                    amount={order.subtotal}
+                                    currency={order.currency}
+                                />
+                            </dd>
+                        </div>
                         {order.discount_total > 0 && (
                             <div className="flex justify-between">
                                 <dt className="text-muted-foreground">

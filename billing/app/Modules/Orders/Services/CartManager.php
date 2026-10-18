@@ -160,11 +160,12 @@ class CartManager
     /**
      * Props every public store page needs: the cart badge and the guest currency switcher.
      *
-     * @return array{cart_count: int, currencies: list<string>, can_switch_currency: bool}
+     * @return array{cart_count: int, currencies: list<string>, can_switch_currency: bool, support_email: ?string}
      */
     public function storeProps(Request $request): array
     {
         return [
+            'support_email' => $this->settings->get('core.company_email') ?: null,
             'cart_count' => count($this->find($request)->items ?? []),
             'currencies' => array_values(Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code')->all()),
             'can_switch_currency' => $request->user() === null,

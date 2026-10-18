@@ -4,6 +4,7 @@ namespace App\Modules\Orders\Http\Requests;
 
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Orders\Support\Countries;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -40,7 +41,7 @@ class CheckoutRequest extends FormRequest
                 'last_name' => ['required', 'string', 'max:255'],
                 'company_name' => ['nullable', 'string', 'max:255'],
                 'email' => ['required', 'string', 'email', 'max:255', Rule::unique(User::class, 'email')],
-                'country' => ['nullable', 'string', 'size:2'],
+                'country' => ['nullable', 'string', Rule::in(Countries::CODES)],
                 'password' => ['required', 'string', Password::default(), 'confirmed'],
             ];
         }
@@ -57,6 +58,14 @@ class CheckoutRequest extends FormRequest
             'accept_tos.accepted' => __('Accept the terms of service to place your order.'),
             'payment_gateway.required' => __('Choose a payment method.'),
             'email.unique' => __('An account with this email already exists. Log in to continue.'),
+            'email.required' => __('Enter your email address.'),
+            'email.email' => __('Enter a valid email address, like name@example.com.'),
+            'first_name.required' => __('Enter your first name.'),
+            'last_name.required' => __('Enter your last name.'),
+            'password.required' => __('Choose a password.'),
+            'password.confirmed' => __('The passwords do not match.'),
+            'country.in' => __('Choose a country from the list.'),
+            'idempotency_key.required' => __('Reload the page and try again.'),
         ];
     }
 
@@ -64,6 +73,10 @@ class CheckoutRequest extends FormRequest
     {
         if ($this->filled('email')) {
             $this->merge(['email' => mb_strtolower(trim((string) $this->input('email')))]);
+        }
+
+        if ($this->filled('country')) {
+            $this->merge(['country' => strtoupper(trim((string) $this->input('country')))]);
         }
     }
 

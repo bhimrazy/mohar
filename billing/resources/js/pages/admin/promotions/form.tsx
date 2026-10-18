@@ -35,6 +35,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { decimalAmount } from '@/components/orders/decimal-amount';
 import { fromMinor } from '@/lib/money';
 import type { SelectOption } from '@/types/app';
 import type { Promotion } from '@/types/orders';
@@ -185,6 +186,37 @@ export default function PromotionFormPage({
 
     const submit = (event: React.FormEvent) => {
         event.preventDefault();
+        form.clearErrors('value', 'min_cart_amount');
+
+        const value =
+            form.data.type === 'free_setup'
+                ? '0.00'
+                : decimalAmount(form.data.value);
+        const minCart =
+            form.data.min_cart_amount.trim() === ''
+                ? ''
+                : decimalAmount(form.data.min_cart_amount);
+
+        if (value === null) {
+            form.setError('value', 'Enter an amount like 10 or 12.50.');
+        }
+
+        if (minCart === null) {
+            form.setError(
+                'min_cart_amount',
+                'Enter an amount like 50 or 49.99.',
+            );
+        }
+
+        if (value === null || minCart === null) {
+            return;
+        }
+
+        form.transform((data) => ({
+            ...data,
+            value,
+            min_cart_amount: minCart,
+        }));
         form.submit(
             editing
                 ? PromotionController.update(promotion.id)

@@ -41,14 +41,25 @@ export default function ClientOrderShow({
             align: 'right',
             cell: (item) => (
                 <Money
-                    amount={
-                        item.first_amount +
-                        item.setup_fee -
-                        item.discount_amount
-                    }
+                    amount={item.first_amount + item.setup_fee}
                     currency={order.currency}
                 />
             ),
+        },
+        {
+            key: 'discount',
+            header: 'Discount',
+            align: 'right',
+            hideOnMobile: true,
+            cell: (item) =>
+                item.discount_amount ? (
+                    <Money
+                        amount={-item.discount_amount}
+                        currency={order.currency}
+                    />
+                ) : (
+                    '—'
+                ),
         },
         {
             key: 'renews',

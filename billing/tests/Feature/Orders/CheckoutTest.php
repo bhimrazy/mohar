@@ -42,7 +42,7 @@ it('registers a new client, places the order and signs them in', function () {
         'email' => 'Ada@Example.com',
         'password' => 'password',
         'password_confirmation' => 'password',
-        'country' => 'gb',
+        'country' => 'GB',
     ]));
 
     $order = Order::query()->sole();
@@ -71,6 +71,22 @@ it('does not create the account when the order fails', function () {
 
     expect(User::query()->count())->toBe(0)->and(Client::query()->count())->toBe(0);
     $this->assertGuest();
+});
+
+it('accepts any ISO country, including India and Nepal, and rejects unknown codes', function () {
+    Currency::factory()->create();
+    $cart = OrdersFakes::cartFor(null, [OrdersFakes::productItem(1)]);
+    $payload = fn (string $country) => checkoutPayload([
+        'first_name' => 'Ada', 'last_name' => 'L', 'email' => "ada-{$country}@example.com",
+        'password' => 'password', 'password_confirmation' => 'password', 'country' => $country,
+    ]);
+
+    $this->withSession([CartManager::SESSION_TOKEN => $cart->token])->post(route('store.checkout.store'), $payload('XX'))
+        ->assertSessionHasErrors(['country' => 'Choose a country from the list.']);
+    $this->withSession([CartManager::SESSION_TOKEN => $cart->token])->post(route('store.checkout.store'), $payload('NP'))
+        ->assertSessionHasNoErrors();
+
+    expect(Client::query()->sole()->country)->toBe('NP');
 });
 
 it('asks guests whose email is registered to log in', function () {

@@ -23,6 +23,7 @@ type PublicPageProps = {
     currency?: string;
     currencies?: string[];
     can_switch_currency?: boolean;
+    support_email?: string | null;
 };
 
 type NavLink = { label: string; href: string; active: boolean };
@@ -50,9 +51,11 @@ function useNavLinks(): NavLink[] {
 function CurrencySwitcher({
     currency,
     currencies,
+    className,
 }: {
     currency: string;
     currencies: string[];
+    className?: string;
 }) {
     return (
         <Select
@@ -68,7 +71,7 @@ function CurrencySwitcher({
             <SelectTrigger
                 aria-label="Currency"
                 size="sm"
-                className="w-[5.5rem]"
+                className={cn('w-[5.5rem]', className)}
             >
                 <SelectValue />
             </SelectTrigger>
@@ -84,7 +87,7 @@ function CurrencySwitcher({
 }
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
-    const { name, auth, ...props } = usePage<PublicPageProps>().props;
+    const { brand, auth, ...props } = usePage<PublicPageProps>().props;
     const links = useNavLinks();
     const cartCount = props.cart_count;
     const showCurrency =
@@ -95,20 +98,21 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
     return (
         <div className="flex min-h-svh flex-col bg-background text-foreground">
             <header className="sticky top-0 z-30 border-b bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-                <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-4 px-4 md:px-6">
+                <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4 md:px-6">
                     <Link
                         href={home()}
-                        className="flex items-center gap-2 rounded-md font-semibold focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                        aria-label={`${brand} home`}
+                        className="flex shrink-0 items-center gap-2 rounded-md font-semibold focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                     >
                         <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
                             <AppLogoIcon className="size-5 fill-current" />
                         </span>
-                        <span className="hidden sm:inline">{name}</span>
+                        <span className="hidden md:inline">{brand}</span>
                     </Link>
 
                     <nav
                         aria-label="Main"
-                        className="flex items-center gap-1 text-sm"
+                        className="flex min-w-0 items-center text-sm"
                     >
                         {links.map((link) => (
                             <Link
@@ -116,7 +120,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 href={link.href}
                                 aria-current={link.active ? 'page' : undefined}
                                 className={cn(
-                                    'rounded-md px-3 py-2 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+                                    'rounded-md px-2 py-2 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:px-3',
                                     link.active && 'text-foreground',
                                 )}
                             >
@@ -125,11 +129,12 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                         ))}
                     </nav>
 
-                    <div className="ml-auto flex items-center gap-2">
+                    <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
                         {showCurrency && (
                             <CurrencySwitcher
                                 currency={props.currency as string}
                                 currencies={props.currencies ?? []}
+                                className="hidden sm:flex"
                             />
                         )}
 
@@ -184,33 +189,55 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
 
             <footer className="border-t bg-muted/30">
                 <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
-                    <p>
-                        © {new Date().getFullYear()} {name}. All prices exclude
-                        tax unless stated.
-                    </p>
-                    <nav
-                        aria-label="Footer"
-                        className="flex flex-wrap gap-x-5 gap-y-2"
-                    >
-                        <Link
-                            href={store.index.url()}
-                            className="hover:text-foreground"
+                    <div className="space-y-1">
+                        <p>
+                            © {new Date().getFullYear()} {brand}. All prices
+                            exclude tax unless stated.
+                        </p>
+                        {props.support_email && (
+                            <p>
+                                Questions?{' '}
+                                <a
+                                    href={`mailto:${props.support_email}`}
+                                    className="font-medium text-foreground underline-offset-4 hover:underline"
+                                >
+                                    {props.support_email}
+                                </a>
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                        {showCurrency && (
+                            <CurrencySwitcher
+                                currency={props.currency as string}
+                                currencies={props.currencies ?? []}
+                                className="sm:hidden"
+                            />
+                        )}
+                        <nav
+                            aria-label="Footer"
+                            className="flex flex-wrap gap-x-5 gap-y-2"
                         >
-                            Store
-                        </Link>
-                        <Link
-                            href={store.domains.url()}
-                            className="hover:text-foreground"
-                        >
-                            Domains
-                        </Link>
-                        <Link
-                            href={auth.user ? dashboard() : login()}
-                            className="hover:text-foreground"
-                        >
-                            {auth.user ? 'Client area' : 'Log in'}
-                        </Link>
-                    </nav>
+                            <Link
+                                href={store.index.url()}
+                                className="hover:text-foreground"
+                            >
+                                Store
+                            </Link>
+                            <Link
+                                href={store.domains.url()}
+                                className="hover:text-foreground"
+                            >
+                                Domains
+                            </Link>
+                            <Link
+                                href={auth.user ? dashboard() : login()}
+                                className="hover:text-foreground"
+                            >
+                                {auth.user ? 'Client area' : 'Log in'}
+                            </Link>
+                        </nav>
+                    </div>
                 </div>
             </footer>
         </div>
