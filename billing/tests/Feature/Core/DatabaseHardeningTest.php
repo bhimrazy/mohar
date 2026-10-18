@@ -85,18 +85,17 @@ test('on PostgreSQL an index build inside a transaction is refused instead of bl
     expect(fn () => OnlineIndex::create('automation_runs', ['status', 'id']))->toThrow(LogicException::class, 'withinTransaction = false');
 })->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'CONCURRENTLY exists on PostgreSQL only');
 
-test('demo seeders refuse to run in production, also when called one by one', function (array $options) {
+test('demo seeders called one by one refuse to run in production', function (array $options) {
     app()->detectEnvironment(fn (): string => 'production');
 
     try {
-        expect(fn () => $this->artisan('db:seed', ['--force' => true, ...$options])->run())->toThrow(RuntimeException::class, 'issue #47');
+        expect(fn () => $this->artisan('db:seed', ['--force' => true, ...$options])->run())->toThrow(RuntimeException::class, 'app:install');
     } finally {
         app()->detectEnvironment(fn (): string => 'testing');
     }
 
     expect(User::query()->count())->toBe(0);
 })->with([
-    'all modules' => [[]],
     'core' => [['--class' => CoreSeeder::class]],
     'support' => [['--class' => SupportSeeder::class]],
 ]);

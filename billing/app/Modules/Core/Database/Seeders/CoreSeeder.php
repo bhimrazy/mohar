@@ -3,33 +3,25 @@
 namespace App\Modules\Core\Database\Seeders;
 
 use App\Models\User;
+use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
-use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
+use Illuminate\Support\Facades\DB;
 
+/**
+ * Demo accounts: admin@example.com (Full Administrator) and demo@example.com with the password "password", plus
+ * demo clients. The currencies and system roles come from the same installers `app:install` runs, so the demo
+ * and a production install never drift; they are repeated here for `db:seed --class=CoreSeeder`.
+ */
 class CoreSeeder extends DemoSeeder
 {
-    public function run(): void
+    public function run(DefaultCurrencies $currencies, SystemRoles $roles): void
     {
-        // Primary currencies: USD (default), INR, NPR. Starting rates are the ECB (INR) and Nepal Rastra Bank (NPR)
-        // rates of 2026-10-18; the daily rate update keeps them current.
-        Currency::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'exchange_rate' => 1, 'is_default' => true]);
-        Currency::query()->firstOrCreate(['code' => 'INR'], ['name' => 'Indian Rupee', 'prefix' => '₹', 'format' => '1,23,456.78', 'exchange_rate' => '94.964898', 'price_rounding' => 'whole']);
-        Currency::query()->firstOrCreate(['code' => 'NPR'], ['name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'format' => '1,23,456.78', 'exchange_rate' => '151.940000', 'price_rounding' => 'whole']);
+        DB::transaction(fn () => $currencies->install());
+        DB::transaction(fn () => $roles->install());
 
-        // System roles are kept in sync on every seed (explicit lists; sensitive permissions are never wildcard-granted).
-        $roles = [
-            'Full Administrator' => ['Unrestricted access to everything.', ['*']],
-            'Billing' => ['Clients, orders, invoices and billing reports.', ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'orders.*', 'reports.*']],
-            'Support' => ['Tickets plus read access to clients, services and domains.', ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view']],
-            'Sales' => ['Read clients and orders, accept orders, manage quotes.', ['core.clients.view', 'orders.orders.view', 'orders.orders.accept', 'billing.quotes.view', 'billing.quotes.manage']],
-        ];
-
-        foreach ($roles as $name => [$description, $permissions]) {
-            Role::query()->updateOrCreate(['name' => $name], ['description' => $description, 'permissions' => $permissions, 'is_system' => true]);
-        }
-
-        $admin = Role::query()->where('name', 'Full Administrator')->sole();
+        $admin = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->sole();
 
         User::query()->firstOrCreate(['email' => 'admin@example.com'], [
             'name' => 'Admin',
