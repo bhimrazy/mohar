@@ -10,10 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Server ports.** A cPanel server cannot be saved with a plain-HTTP port (2082, 2086, 2095) or any port below 1024
   other than 443; WHM is reached on 2087, or 443 behind a proxy. A trusted certificate pin must be a base64 SHA-256.
-- **Usernames are unique per server.** A migration adds a unique index on `services (server_id, username)` (built
-  without a write lock on PostgreSQL). It fails if two services on one server already share a username; rename one
-  first.
-
+- **Usernames are unique per server among live services.** A migration adds a partial unique index on
+  `services (server_id, username)` for pending, active and suspended services that are not deleted (built without a
+  write lock on PostgreSQL). Terminated, cancelled and deleted services may share a name with a live one, since the
+  panel frees it on removal. The migration fails only if two live services on one server share a username; rename one
+  first. Generated and renamed usernames now treat only live services as taken.
 - **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
   currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
   held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
