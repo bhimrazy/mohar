@@ -3,6 +3,7 @@
 namespace App\Modules\Notifications\Services;
 
 use App\Modules\Notifications\Enums\TemplateType;
+use App\Modules\Notifications\Support\SupportAddresses;
 
 /**
  * Fictional data for previews and test sends (spec §9, acceptance criterion 20). It covers every merge
@@ -22,7 +23,8 @@ class SampleContext
 
         return [
             ...$this->context->base($forStaff),
-            'support' => ['email' => 'support@example.test', 'url' => url('/client/support/tickets')],
+            // The real support address when configured, so previews match the footer.
+            'support' => ['email' => app(SupportAddresses::class)->general() ?? 'support@example.test', 'url' => url('/client/support/tickets')],
             'recipient' => ['name' => 'Ann Example', 'first_name' => 'Ann', 'email' => 'ann@example.test'],
             'client' => [
                 'id' => 1042, 'first_name' => 'Ann', 'last_name' => 'Example', 'full_name' => 'Ann Example',
