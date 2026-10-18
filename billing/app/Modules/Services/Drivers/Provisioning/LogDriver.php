@@ -100,6 +100,7 @@ class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Provi
             ],
             serverFields: [
                 new SettingField('region', 'Region (demo)', help: 'Shown on the module log only.'),
+                new SettingField('webhook_secret', 'Webhook secret (demo)', FieldType::Secret, help: 'Stored encrypted; never shown again.'),
             ],
         );
     }

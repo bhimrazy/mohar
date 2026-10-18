@@ -133,7 +133,7 @@ export function SettingFieldInput({
             optional={!field.required}
             hint={
                 field.secret && secretStored
-                    ? 'A value is stored. Leave empty to keep it.'
+                    ? 'Stored encrypted. Leave blank to keep it.'
                     : (field.help ?? undefined)
             }
             error={error}
