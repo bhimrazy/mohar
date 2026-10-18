@@ -8,7 +8,8 @@
 #   1. Remove a worktree only when its branch's PR is MERGED, the worktree is clean and nothing is unpushed.
 #   2. Clear Laravel compiled views (untouched for 1h) and test scratch (untouched for 2h) in every
 #      worktree, so running suites are never disturbed; truncate logs over 50 MB.
-#   3. Remove stopped containers older than 2 hours and dangling Docker images.
+#   3. Remove stopped containers older than 2 hours, dangling images, and tagged images that no container
+#      uses and nothing in compose.yaml or .github references.
 #   4. git gc --auto on the main repository.
 #   5. Clear the npm cache only when free space is below LOW_SPACE_GB (default 4).
 set -uo pipefail
@@ -51,6 +52,15 @@ if command -v docker >/dev/null 2>&1; then
     echo "- docker: stopped containers older than 2h and dangling images"
     run docker container prune -f --filter "until=2h"
     run docker image prune -f
+    # Tagged images no container uses and nothing in compose or CI references (e.g. an extra Postgres version).
+    referenced="$(grep -rhoE '[a-z0-9./_-]+:[0-9A-Za-z._-]+' "$root/billing/compose.yaml" "$root/.github" 2>/dev/null | sort -u)"
+    in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"
+    docker images --format '{{.Repository}}:{{.Tag}}' | grep -v '<none>' | while read -r image; do
+        if ! grep -qxF "$image" <<<"$referenced" && ! grep -qxF "$image" <<<"$in_use"; then
+            echo "  unused image: $image"
+            run docker rmi "$image"
+        fi
+    done
 fi
 
 echo "- git gc --auto"
