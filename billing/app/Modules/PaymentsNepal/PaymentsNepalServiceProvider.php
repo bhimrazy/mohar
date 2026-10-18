@@ -3,6 +3,7 @@
 namespace App\Modules\PaymentsNepal;
 
 use App\Contracts\Billing\GatewayRegistry;
+use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Support\Modules\ModuleServiceProvider;
 
@@ -23,6 +24,7 @@ class PaymentsNepalServiceProvider extends ModuleServiceProvider
         // Fires for every new registry instance (also when Billing rebuilds it), and at once if one exists already.
         $this->callAfterResolving(GatewayRegistry::class, function (GatewayRegistry $registry): void {
             $registry->register($this->app->make(KhaltiDriver::class));
+            $registry->register($this->app->make(EsewaDriver::class));
         });
     }
 }
