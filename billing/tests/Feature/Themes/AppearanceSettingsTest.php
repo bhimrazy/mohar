@@ -7,20 +7,20 @@ use Inertia\Testing\AssertableInertia as Assert;
 it('requires the themes.manage permission', function () {
     actingAsStaff(['core.clients.view']);
 
-    $this->get(route('admin.settings.appearance'))->assertForbidden();
-    $this->put(route('admin.settings.appearance.update'), [])->assertForbidden();
+    $this->get(route('admin.appearance.edit'))->assertForbidden();
+    $this->put(route('admin.appearance.update'), [])->assertForbidden();
 });
 
 it('keeps client users out of the appearance settings', function () {
     $this->actingAs(User::factory()->create());
 
-    $this->get(route('admin.settings.appearance'))->assertForbidden();
+    $this->get(route('admin.appearance.edit'))->assertForbidden();
 });
 
 it('lists presets with usages and the current settings', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->get(route('admin.settings.appearance'))
+    $this->get(route('admin.appearance.edit'))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/settings/appearance')
@@ -34,14 +34,14 @@ it('lists presets with usages and the current settings', function () {
 it('saves per-area defaults, density, staff choice and the company name', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->put(route('admin.settings.appearance.update'), [
+    $this->put(route('admin.appearance.update'), [
         'company_name' => 'Himalaya Cloud',
         'default_admin' => 'operator',
         'default_client' => 'warm',
         'default_public' => 'slate',
         'density' => 'compact',
         'allow_user_choice' => '0',
-    ])->assertRedirect(route('admin.settings.appearance'));
+    ])->assertRedirect(route('admin.appearance.edit'));
 
     $settings = app(Settings::class);
     expect($settings->get('themes.default_admin'))->toBe('operator')
@@ -55,7 +55,7 @@ it('saves per-area defaults, density, staff choice and the company name', functi
 it('rejects unknown themes and densities', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->put(route('admin.settings.appearance.update'), [
+    $this->put(route('admin.appearance.update'), [
         'company_name' => 'Acme',
         'default_admin' => 'does-not-exist',
         'default_client' => 'calm',

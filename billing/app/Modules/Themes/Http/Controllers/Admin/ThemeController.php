@@ -46,7 +46,7 @@ class ThemeController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" saved.', ['name' => $theme->name])]);
 
-        return to_route('admin.settings.themes.edit', $theme);
+        return to_route('admin.appearance.themes.edit', $theme);
     }
 
     public function edit(Theme $theme): Response
@@ -66,7 +66,7 @@ class ThemeController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" saved.', ['name' => $theme->name])]);
 
-        return to_route('admin.settings.themes.edit', $theme);
+        return to_route('admin.appearance.themes.edit', $theme);
     }
 
     public function rename(Request $request, Theme $theme): RedirectResponse
@@ -96,7 +96,7 @@ class ThemeController extends Controller
         $theme->delete();
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" deleted.', ['name' => $theme->name])]);
 
-        return to_route('admin.settings.appearance');
+        return to_route('admin.appearance.edit');
     }
 
     public function export(string $key): JsonResponse
@@ -132,7 +132,7 @@ class ThemeController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Theme ":name" imported.', ['name' => $theme->name])]);
 
-        return to_route('admin.settings.themes.edit', $theme);
+        return to_route('admin.appearance.themes.edit', $theme);
     }
 
     public function schema(): JsonResponse

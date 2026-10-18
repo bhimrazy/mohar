@@ -31,7 +31,7 @@ function themeDocument(array $overrides = []): array
 it('opens the editor prefilled from a preset', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->get(route('admin.settings.themes.create', ['from' => 'warm']))
+    $this->get(route('admin.appearance.themes.create', ['from' => 'warm']))
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/settings/theme-editor')
@@ -46,7 +46,7 @@ it('saves a custom theme duplicated from a preset', function () {
     $tokens = presetTokens();
     $tokens['light']['primary'] = '#3F3AB0';
 
-    $this->post(route('admin.settings.themes.store'), ['name' => 'Acme brand', 'base_preset' => 'calm', 'tokens' => $tokens])
+    $this->post(route('admin.appearance.themes.store'), ['name' => 'Acme brand', 'base_preset' => 'calm', 'tokens' => $tokens])
         ->assertRedirect();
 
     $theme = Theme::query()->sole();
@@ -61,7 +61,7 @@ it('blocks saving when a key pair fails WCAG AA', function () {
     $tokens = presetTokens();
     $tokens['dark']['primary-foreground'] = $tokens['dark']['primary'];
 
-    $this->post(route('admin.settings.themes.store'), ['name' => 'Low contrast', 'tokens' => $tokens])
+    $this->post(route('admin.appearance.themes.store'), ['name' => 'Low contrast', 'tokens' => $tokens])
         ->assertSessionHasErrors('tokens.dark.primary-foreground');
 
     expect(Theme::query()->count())->toBe(0);
@@ -72,7 +72,7 @@ it('rejects unknown tokens and values outside the whitelist', function (string $
     $tokens = presetTokens();
     $tokens[$group][$token] = $value;
 
-    $this->post(route('admin.settings.themes.store'), ['name' => 'Hostile', 'tokens' => $tokens])
+    $this->post(route('admin.appearance.themes.store'), ['name' => 'Hostile', 'tokens' => $tokens])
         ->assertSessionHasErrors("tokens.{$group}.{$token}");
 
     expect(Theme::query()->count())->toBe(0);
@@ -96,8 +96,8 @@ it('bumps the version on update and renames without touching the key', function 
     $tokens = $theme->tokens;
     $tokens['shared']['radius'] = '0.25rem';
 
-    $this->put(route('admin.settings.themes.update', $theme), ['name' => 'Old', 'tokens' => $tokens])->assertRedirect();
-    $this->patch(route('admin.settings.themes.rename', $theme), ['name' => 'New name'])->assertRedirect();
+    $this->put(route('admin.appearance.themes.update', $theme), ['name' => 'Old', 'tokens' => $tokens])->assertRedirect();
+    $this->patch(route('admin.appearance.themes.rename', $theme), ['name' => 'New name'])->assertRedirect();
 
     $theme->refresh();
     expect($theme->version)->toBe(2)
@@ -114,7 +114,7 @@ it('refreshes cached CSS when a theme in use is edited', function () {
 
     $tokens = $theme->tokens;
     $tokens['shared']['radius'] = '0.125rem';
-    $this->put(route('admin.settings.themes.update', $theme), ['name' => $theme->name, 'tokens' => $tokens]);
+    $this->put(route('admin.appearance.themes.update', $theme), ['name' => $theme->name, 'tokens' => $tokens]);
 
     $this->get(route('admin.dashboard'))->assertSee('--radius:0.125rem;', false);
 });
@@ -127,9 +127,9 @@ it('deletes unused custom themes but not ones in use', function () {
     app(Settings::class)->set('themes.default_client', $areaDefault->key);
     User::factory()->staff()->create(['theme_preference' => null])->forceFill(['theme_preference' => $preferred->key])->save();
 
-    $this->delete(route('admin.settings.themes.destroy', $unused))->assertRedirect(route('admin.settings.appearance'));
-    $this->delete(route('admin.settings.themes.destroy', $areaDefault))->assertSessionHasErrors('theme');
-    $this->delete(route('admin.settings.themes.destroy', $preferred))->assertSessionHasErrors('theme');
+    $this->delete(route('admin.appearance.themes.destroy', $unused))->assertRedirect(route('admin.appearance.edit'));
+    $this->delete(route('admin.appearance.themes.destroy', $areaDefault))->assertSessionHasErrors('theme');
+    $this->delete(route('admin.appearance.themes.destroy', $preferred))->assertSessionHasErrors('theme');
 
     expect(Theme::query()->pluck('key')->all())->toEqualCanonicalizing([$areaDefault->key, $preferred->key]);
 });
@@ -137,20 +137,20 @@ it('deletes unused custom themes but not ones in use', function () {
 it('exports presets and custom themes as schema documents', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->get(route('admin.settings.themes.export', 'operator'))
+    $this->get(route('admin.appearance.themes.export', 'operator'))
         ->assertOk()
         ->assertHeader('Content-Disposition', 'attachment; filename="theme-operator.json"')
         ->assertJsonPath('schema', 'billing-theme')
         ->assertJsonPath('version', 1)
         ->assertJsonPath('tokens.shared.font-numeric', 'ibm-plex-mono');
 
-    $this->get(route('admin.settings.themes.export', 'missing'))->assertNotFound();
+    $this->get(route('admin.appearance.themes.export', 'missing'))->assertNotFound();
 });
 
 it('imports a valid theme document as a custom theme', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->post(route('admin.settings.themes.import'), ['file' => themeFile(themeDocument(['name' => 'From JSON']))])
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile(themeDocument(['name' => 'From JSON']))])
         ->assertRedirect();
 
     expect(Theme::query()->sole()->name)->toBe('From JSON');
@@ -158,9 +158,9 @@ it('imports a valid theme document as a custom theme', function () {
 
 it('round-trips an export through import', function () {
     actingAsStaff(['themes.manage']);
-    $exported = $this->get(route('admin.settings.themes.export', 'warm'))->json();
+    $exported = $this->get(route('admin.appearance.themes.export', 'warm'))->json();
 
-    $this->post(route('admin.settings.themes.import'), ['file' => themeFile($exported)])->assertRedirect();
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile($exported)])->assertRedirect();
 
     expect(Theme::query()->sole()->tokens)->toEqual(presetTokens('warm'));
 });
@@ -168,7 +168,7 @@ it('round-trips an export through import', function () {
 it('rejects invalid imports', function (Closure $document) {
     actingAsStaff(['themes.manage']);
 
-    $this->post(route('admin.settings.themes.import'), ['file' => themeFile($document())])
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile($document())])
         ->assertSessionHasErrors('file');
 
     expect(Theme::query()->count())->toBe(0);
@@ -185,9 +185,9 @@ it('rejects invalid imports', function (Closure $document) {
 it('rejects oversize and malformed import files', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->post(route('admin.settings.themes.import'), ['file' => UploadedFile::fake()->createWithContent('t.json', str_repeat(' ', 40_000).'{}')])
+    $this->post(route('admin.appearance.themes.import'), ['file' => UploadedFile::fake()->createWithContent('t.json', str_repeat(' ', 40_000).'{}')])
         ->assertSessionHasErrors('file');
-    $this->post(route('admin.settings.themes.import'), ['file' => UploadedFile::fake()->createWithContent('t.json', '{not json')])
+    $this->post(route('admin.appearance.themes.import'), ['file' => UploadedFile::fake()->createWithContent('t.json', '{not json')])
         ->assertSessionHasErrors('file');
 });
 
@@ -195,11 +195,11 @@ it('requires themes.manage for every custom theme action', function () {
     actingAsStaff(['core.clients.view']);
     $theme = Theme::factory()->create();
 
-    $this->get(route('admin.settings.themes.create'))->assertForbidden();
-    $this->post(route('admin.settings.themes.store'), ['name' => 'x', 'tokens' => presetTokens()])->assertForbidden();
-    $this->get(route('admin.settings.themes.edit', $theme))->assertForbidden();
-    $this->put(route('admin.settings.themes.update', $theme), ['name' => 'x', 'tokens' => presetTokens()])->assertForbidden();
-    $this->delete(route('admin.settings.themes.destroy', $theme))->assertForbidden();
-    $this->get(route('admin.settings.themes.export', 'calm'))->assertForbidden();
-    $this->post(route('admin.settings.themes.import'), ['file' => themeFile(themeDocument())])->assertForbidden();
+    $this->get(route('admin.appearance.themes.create'))->assertForbidden();
+    $this->post(route('admin.appearance.themes.store'), ['name' => 'x', 'tokens' => presetTokens()])->assertForbidden();
+    $this->get(route('admin.appearance.themes.edit', $theme))->assertForbidden();
+    $this->put(route('admin.appearance.themes.update', $theme), ['name' => 'x', 'tokens' => presetTokens()])->assertForbidden();
+    $this->delete(route('admin.appearance.themes.destroy', $theme))->assertForbidden();
+    $this->get(route('admin.appearance.themes.export', 'calm'))->assertForbidden();
+    $this->post(route('admin.appearance.themes.import'), ['file' => themeFile(themeDocument())])->assertForbidden();
 });

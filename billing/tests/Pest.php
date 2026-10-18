@@ -58,6 +58,14 @@ function actingAsStaff(array $permissions = ['*']): User
 }
 
 /**
+ * Mark the current session's password as just confirmed (step-up authentication for sensitive actions).
+ */
+function confirmPassword(): void
+{
+    test()->withSession(['auth.password_confirmed_at' => time()]);
+}
+
+/**
  * Sign in as the owner of a (new or given) client account. Returns [user, client].
  *
  * @return array{0: User, 1: Client}

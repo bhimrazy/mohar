@@ -48,7 +48,7 @@ class ThemesServiceProvider extends ModuleServiceProvider
 
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareTheme::class);
 
-        $this->app->make(Navigation::class)->add('admin', new NavItem('Appearance', 'admin.settings.appearance', 'Palette', 'Setup', 80, 'themes.manage', 'admin.settings.[at]*'));
+        $this->app->make(Navigation::class)->add('admin', new NavItem('Appearance', 'admin.appearance.edit', 'Palette', 'Setup', 80, 'themes.manage', 'admin.appearance.*'));
 
         $this->app->make(PermissionRegistry::class)->register('Appearance', [
             'themes.manage' => 'Manage themes, branding and appearance settings',

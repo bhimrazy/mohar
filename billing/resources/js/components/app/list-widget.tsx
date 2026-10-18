@@ -1,6 +1,7 @@
 import { Link } from '@inertiajs/react';
 import { ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { DateTime } from '@/components/app/date';
 import { StatusBadge } from '@/components/app/status-badge';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,19 @@ type ListWidgetProps = {
     actions?: ReactNode;
     className?: string;
 };
+
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/** Backend list items send ISO timestamps as `meta`; show them as relative times. */
+function Meta({ value }: { value: ReactNode }) {
+    return typeof value === 'string' && ISO_DATETIME.test(value) ? (
+        <span className="text-xs text-muted-foreground">
+            <DateTime value={value} relative />
+        </span>
+    ) : (
+        value
+    );
+}
 
 export function ListWidget({
     title,
@@ -83,7 +97,7 @@ export function ListWidget({
                                 <div className="flex shrink-0 flex-col items-end gap-1">
                                     {item.meta && (
                                         <div className="text-sm tabular-nums">
-                                            {item.meta}
+                                            <Meta value={item.meta} />
                                         </div>
                                     )}
                                     {item.status && (

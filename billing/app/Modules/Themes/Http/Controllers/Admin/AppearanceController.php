@@ -60,7 +60,7 @@ class AppearanceController extends Controller
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Appearance settings saved.')]);
 
-        return to_route('admin.settings.appearance');
+        return to_route('admin.appearance.edit');
     }
 
     /**

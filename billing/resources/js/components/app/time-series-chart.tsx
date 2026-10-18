@@ -50,12 +50,27 @@ const SERIES_COLORS = [
     'var(--chart-6)',
 ];
 
-function defaultFormatX(x: string): string {
-    const date = new Date(`${x.slice(0, 10)}T00:00:00`);
+function parseDay(x: string): Date {
+    return new Date(`${x.slice(0, 10)}T00:00:00`);
+}
 
-    return Number.isNaN(date.getTime())
-        ? x
-        : date.toLocaleDateString('en-US', { month: 'short' });
+/** Monthly series → "Oct"; daily/weekly series → "Oct 7". */
+function makeFormatX(points: { x: string }[]): (x: string) => string {
+    const first = parseDay(points[0]?.x ?? '');
+    const second = parseDay(points[1]?.x ?? '');
+    const gapDays = (second.getTime() - first.getTime()) / 86_400_000;
+    const options: Intl.DateTimeFormatOptions =
+        Number.isFinite(gapDays) && gapDays < 27
+            ? { month: 'short', day: 'numeric' }
+            : { month: 'short' };
+
+    return (x) => {
+        const date = parseDay(x);
+
+        return Number.isNaN(date.getTime())
+            ? x
+            : date.toLocaleDateString('en-US', options);
+    };
 }
 
 /** Themed area/bar chart for dashboard widgets, built on shadcn Chart (Recharts). */
@@ -64,13 +79,14 @@ export function TimeSeriesChart({
     kind = 'line',
     currency,
     locale,
-    formatX = defaultFormatX,
+    formatX: customFormatX,
     stacked = false,
     showLegend = series.length > 1,
     className,
     label,
 }: TimeSeriesChartProps) {
     const uid = useId().replace(/:/g, '');
+    const formatX = customFormatX ?? makeFormatX(series[0]?.points ?? []);
     const keys = series.map((_, index) => `s${index}`);
     const config: ChartConfig = Object.fromEntries(
         series.map((item, index) => [
@@ -118,6 +134,7 @@ export function TimeSeriesChart({
                 tickMargin={8}
                 width={56}
                 tickCount={4}
+                allowDecimals={Boolean(currency)}
                 tickFormatter={formatAxis}
             />
             <ChartTooltip

@@ -54,8 +54,8 @@ it('shows the mark and name for a renamed brand without its own logo', function 
 it('prefers uploaded assets and serves them for PDFs and email', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->post(route('admin.settings.appearance.brand.store', 'logo-light'), ['file' => fakePng('logo.png', 300, 80)])->assertRedirect();
-    $this->post(route('admin.settings.appearance.brand.store', 'mark'), ['file' => fakePng('mark.png', 128, 128)])->assertRedirect();
+    $this->post(route('admin.appearance.brand.store', 'logo-light'), ['file' => fakePng('logo.png', 300, 80)])->assertRedirect();
+    $this->post(route('admin.appearance.brand.store', 'mark'), ['file' => fakePng('mark.png', 128, 128)])->assertRedirect();
 
     $provider = app(BrandProvider::class);
     expect($provider->brand()->logoLight)->toContain('/branding/logo-light')
@@ -68,9 +68,9 @@ it('prefers uploaded assets and serves them for PDFs and email', function () {
 it('rejects a non-square mark and svg marks', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->post(route('admin.settings.appearance.brand.store', 'mark'), ['file' => fakePng('wide.png', 200, 80)])
+    $this->post(route('admin.appearance.brand.store', 'mark'), ['file' => fakePng('wide.png', 200, 80)])
         ->assertSessionHasErrors('file');
-    $this->post(route('admin.settings.appearance.brand.store', 'mark'), ['file' => UploadedFile::fake()->createWithContent('m.svg', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')])
+    $this->post(route('admin.appearance.brand.store', 'mark'), ['file' => UploadedFile::fake()->createWithContent('m.svg', '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>')])
         ->assertSessionHasErrors('file');
 
     expect(brand()->mark)->toBe(asset('brand/mark.svg'));
@@ -79,10 +79,10 @@ it('rejects a non-square mark and svg marks', function () {
 it('resets uploads, name and tagline to the defaults', function () {
     actingAsStaff(['themes.manage']);
     app(Settings::class)->setMany(['core.company_name' => 'Other', 'themes.tagline' => 'Custom']);
-    $this->post(route('admin.settings.appearance.brand.store', 'favicon'), ['file' => fakePng('f.png', 32, 32)]);
+    $this->post(route('admin.appearance.brand.store', 'favicon'), ['file' => fakePng('f.png', 32, 32)]);
     $favicon = app(Settings::class)->get('themes.favicon');
 
-    $this->delete(route('admin.settings.appearance.brand.reset'))->assertRedirect();
+    $this->delete(route('admin.appearance.brand.reset'))->assertRedirect();
 
     Storage::disk('objects')->assertMissing($favicon);
     expect(brand())->name->toBe('Acme Billing')->customised->toBeFalse()->favicon->toBe(asset('favicon.svg'));
@@ -114,7 +114,7 @@ it('falls back to config and public assets without the Themes module', function 
 it('lets staff with themes.manage edit the tagline', function () {
     actingAsStaff(['themes.manage']);
 
-    $this->put(route('admin.settings.appearance.update'), [
+    $this->put(route('admin.appearance.update'), [
         'company_name' => 'Acme Billing',
         'tagline' => 'Paid on time.',
         'default_admin' => 'calm',

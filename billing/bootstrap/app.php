@@ -4,6 +4,7 @@ use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Modules\Core\Http\Middleware\EnsureStaff;
 use App\Modules\Core\Http\Middleware\ResolveClientContext;
+use App\Modules\Core\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -23,6 +24,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'staff' => EnsureStaff::class,
             'client.area' => ResolveClientContext::class,
         ]);
+
+        // Global (not only "web") so 404s, auth redirects and error pages carry the headers too.
+        $middleware->append(SecurityHeaders::class);
 
         $middleware->web(append: [
             HandleAppearance::class,

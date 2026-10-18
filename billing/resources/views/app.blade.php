@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
         {{-- Inline script to detect system dark mode preference and apply it immediately --}}
-        <script @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>
+        <script nonce="{{ Vite::cspNonce() }}">
             (function() {
                 const appearance = '{{ $appearance ?? "system" }}';
 
@@ -20,7 +20,7 @@
         </script>
 
         {{-- Inline style to set the HTML background color based on our theme in app.css --}}
-        <style @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>
+        <style nonce="{{ Vite::cspNonce() }}">
             html {
                 background-color: var(--background, #ffffff);
             }
@@ -32,7 +32,7 @@
 
         {{-- Active theme tokens (Themes module, validated + cached); see ThemeStylesheet. --}}
         @isset($themeStyle)
-            <style id="theme-tokens" @if(Vite::cspNonce()) nonce="{{ Vite::cspNonce() }}" @endif>{!! $themeStyle !!}</style>
+            <style id="theme-tokens" nonce="{{ Vite::cspNonce() }}">{!! $themeStyle !!}</style>
         @endisset
 
         @if (! empty($brandFavicon))

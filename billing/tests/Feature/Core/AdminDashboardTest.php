@@ -18,9 +18,8 @@ it('passes kernel widgets, deferred widgets and todos to the admin dashboard', f
             ->component('admin/dashboard')
             ->has('cards')
             ->where('widgets', fn ($widgets) => collect($widgets)->contains('key', 'test.list') && ! collect($widgets)->contains('key', 'test.chart'))
-            ->has('todos', 1)
-            ->where('todos.0.label', 'Tickets awaiting reply')
+            ->where('todos', fn ($todos) => collect($todos)->contains('label', 'Tickets awaiting reply') && ! collect($todos)->contains('key', 'test.zero'))
             ->missing('deferredWidgets')
             ->loadDeferredProps(fn (Assert $reload) => $reload
-                ->where('deferredWidgets.0.key', 'test.chart')));
+                ->where('deferredWidgets', fn ($deferred) => collect($deferred)->contains('key', 'test.chart'))));
 });

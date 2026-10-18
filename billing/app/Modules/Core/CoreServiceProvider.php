@@ -10,10 +10,11 @@ use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
-use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\NullCatalogUsage;
@@ -29,6 +30,8 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Settings\SettingDefinition;
+use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
 
 class CoreServiceProvider extends ModuleServiceProvider
@@ -57,9 +60,17 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function schedule(Schedule $schedule): void
     {
+        $time = (string) rescue(fn (): mixed => $this->app->make(Settings::class)->get('core.automation_time'), config('core.automation_time', '03:00'), report: false);
+
         $schedule->command('automation:run')
-            ->dailyAt((string) config('core.automation_time', '03:00'))
+            ->dailyAt(preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1 ? $time : '03:00')
             ->withoutOverlapping()
+            ->onOneServer();
+
+        // Scheduler heartbeat for the dashboard (spec §13).
+        $schedule->call(fn () => $this->app->make(AutomationStatus::class)->beat())
+            ->everyMinute()
+            ->name('core.heartbeat')
             ->onOneServer();
     }
 
@@ -71,17 +82,21 @@ class CoreServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Dashboard', 'client.dashboard', 'LayoutGrid', 'General', 0));
         $navigation->add('client', new NavItem('Account details', 'client.account.edit', 'UserRound', 'Setup', 90));
 
-        $this->app->make(Dashboard::class)->card('admin', 'core.clients', fn (?User $user): array => [
-            'label' => 'Active clients',
-            'value' => Client::query()->where('status', 'active')->count(),
-            'href' => route('admin.clients.index'),
-            'icon' => 'Users',
-        ], 'core.clients.view', 50);
+        $this->app->make(CoreDashboard::class)->register($this->app->make(Dashboard::class));
 
         $this->app->make(PermissionRegistry::class)->register('Clients', [
             'core.clients.view' => 'View clients',
-            'core.clients.manage' => 'Create and edit clients',
+            'core.clients.create' => 'Create clients',
+            'core.clients.update' => 'Edit client profiles',
         ]);
+
+        $this->app->make(SettingsRegistry::class)->section('company', 'Company', [
+            new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
+            new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
+            new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
+            new SettingDefinition('core.date_format', 'Date format', 'select', options: ['Y-m-d' => '2026-10-24', 'd/m/Y' => '24/10/2026', 'm/d/Y' => '10/24/2026', 'd.m.Y' => '24.10.2026']),
+            new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
+        ], 'core.settings.update');
 
         $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()
             ->search($term)->limit(5)->get()

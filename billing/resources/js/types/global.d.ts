@@ -25,6 +25,12 @@ declare module '@inertiajs/core' {
             theme: SharedTheme;
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
+            impersonation?: {
+                staff: string;
+                user: string;
+                client: string;
+                expires_at: string;
+            };
             [key: string]: unknown;
         };
     }

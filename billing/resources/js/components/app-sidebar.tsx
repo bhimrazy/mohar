@@ -43,17 +43,16 @@ export function AppSidebar(overrides: AppSidebarProps = {}) {
                     </SidebarMenuItem>
                 </SidebarMenu>
                 {area === 'client' && <AccountSwitcher />}
-                <div className="flex items-center gap-1.5 group-data-[collapsible=icon]:flex-col">
-                    <div className="min-w-0 flex-1 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:flex-none">
-                        <NavSearch
-                            groups={navigation}
-                            quickActions={quickActions}
-                        />
-                    </div>
-                    {area === 'admin' && (
-                        <QuickCreate actions={quickActions} iconOnly />
-                    )}
-                </div>
+                {area === 'admin' ? (
+                    // Admin search (⌘K, records) is Platform's command palette in the header.
+                    <QuickCreate
+                        actions={quickActions}
+                        label="Create new"
+                        className="w-full justify-start group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-0 [&>span]:group-data-[collapsible=icon]:hidden"
+                    />
+                ) : (
+                    <NavSearch groups={navigation} quickActions={[]} />
+                )}
             </SidebarHeader>
 
             <SidebarContent className="gap-1">

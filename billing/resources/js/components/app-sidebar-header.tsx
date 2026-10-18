@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { usePage } from '@inertiajs/react';
+import { CommandPalette } from '@/components/app/command-palette';
 import { Breadcrumbs } from '@/components/breadcrumbs';
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
@@ -12,6 +14,8 @@ export function AppSidebarHeader({
     /** Right-aligned header tools (quick create, notifications, …). */
     actions?: ReactNode;
 }) {
+    const { area } = usePage().props;
+
     return (
         <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur-sm transition-[width,height] ease-linear md:rounded-t-(--shell-radius) md:px-6">
             <div className="flex min-w-0 items-center gap-2">
@@ -24,8 +28,9 @@ export function AppSidebarHeader({
                 )}
                 <Breadcrumbs breadcrumbs={breadcrumbs} />
             </div>
-            {actions && (
+            {(actions || area === 'admin') && (
                 <div className="ml-auto flex items-center gap-1.5">
+                    {area === 'admin' && <CommandPalette />}
                     {actions}
                 </div>
             )}

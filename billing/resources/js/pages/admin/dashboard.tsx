@@ -4,10 +4,14 @@ import type { DashboardWidget } from '@/components/app/dashboard-widgets';
 import type { TodoItem } from '@/components/app/needs-attention';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
-import { QuickCreate } from '@/components/quick-create';
 import { formatDate } from '@/lib/date';
 import { dashboard } from '@/routes/admin';
 
+/**
+ * Props from Core's Admin\DashboardController (kernel Dashboard registry). Recent activity and
+ * automation health arrive as Platform's `list` widgets; the controller's separate `activity`
+ * and `automation` props remain for simpler consumers.
+ */
 type DashboardProps = {
     widgets: DashboardWidget[];
     deferredWidgets?: DashboardWidget[];
@@ -29,7 +33,7 @@ export default function AdminDashboard({
     deferredWidgets,
     todos,
 }: DashboardProps) {
-    const { auth, quickActions } = usePage().props;
+    const { auth } = usePage().props;
     const firstName = auth.user?.name.split(' ')[0] ?? '';
 
     return (
@@ -40,8 +44,8 @@ export default function AdminDashboard({
                     eyebrow={formatDate(new Date().toISOString().slice(0, 10))}
                     title={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
                     description="What needs you today and how the business is trending."
-                    actions={<QuickCreate actions={quickActions ?? []} />}
                 />
+
                 <DashboardWidgets
                     widgets={widgets}
                     todos={todos}

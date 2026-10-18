@@ -31,7 +31,7 @@ import type {
     ThemeTokens,
 } from '@/lib/theme-tokens';
 import { cn } from '@/lib/utils';
-import { appearance } from '@/routes/admin/settings';
+import { edit as appearance } from '@/routes/admin/appearance';
 
 type Preset = { key: string; name: string; tokens: ThemeTokens };
 

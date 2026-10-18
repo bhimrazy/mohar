@@ -47,7 +47,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { appearance } from '@/routes/admin/settings';
+import { edit as appearance } from '@/routes/admin/appearance';
 import type { Brand, ThemeOption } from '@/types/ui';
 
 type ThemeRow = ThemeOption & {
