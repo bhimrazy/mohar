@@ -35,23 +35,22 @@ final class EmailBody
     {
         $document = self::document($html);
         $nodes = array_values(array_filter(
-            iterator_to_array($document->body?->childNodes ?? []),
+            iterator_to_array($document->body->childNodes),
             fn (Node $node): bool => $node instanceof Element || ($node instanceof Text && trim((string) $node->textContent) !== ''),
         ));
-        $parts = ['title' => null, 'intro' => [], 'action' => null, 'secondary' => null, 'facts' => [], 'notes' => []];
-        $taken = [];
-        $factsAt = $actionAt = null;
+        $title = $action = $secondary = $factsAt = $actionAt = null;
+        $facts = $taken = $intro = $notes = [];
 
         foreach ($nodes as $index => $node) {
             $name = $node instanceof Element ? strtolower($node->localName) : '#text';
 
-            if ($name === 'h1' && $parts['title'] === null) {
-                $parts['title'] = self::inline((string) $node->textContent);
-            } elseif ($parts['secondary'] === null && ($link = self::buttonLink($node)) !== null) {
-                $parts[$parts['action'] === null ? 'action' : 'secondary'] = $link;
+            if ($name === 'h1' && $title === null) {
+                $title = self::inline((string) $node->textContent);
+            } elseif ($secondary === null && ($link = self::buttonLink($node)) !== null) {
+                $action === null ? $action = $link : $secondary = $link;
                 $actionAt ??= $index;
-            } elseif ($name === 'table' && $parts['facts'] === [] && $node instanceof Element && ($facts = self::factRows($node)) !== []) {
-                $parts['facts'] = $facts;
+            } elseif ($node instanceof Element && $name === 'table' && $facts === [] && ($rows = self::factRows($node)) !== []) {
+                $facts = $rows;
                 $factsAt = $index;
             } else {
                 continue;
@@ -65,11 +64,12 @@ final class EmailBody
 
         foreach ($nodes as $index => $node) {
             if (! isset($taken[$index])) {
-                $parts[$index < $split ? 'intro' : 'notes'][] = $node instanceof Element ? $document->saveHtml($node) : e((string) $node->textContent);
+                $markup = $node instanceof Element ? $document->saveHtml($node) : e((string) $node->textContent);
+                $index < $split ? $intro[] = $markup : $notes[] = $markup;
             }
         }
 
-        return [...$parts, 'intro' => implode("\n", $parts['intro']), 'notes' => implode("\n", $parts['notes'])];
+        return ['title' => $title, 'intro' => implode("\n", $intro), 'action' => $action, 'secondary' => $secondary, 'facts' => $facts, 'notes' => implode("\n", $notes)];
     }
 
     /**

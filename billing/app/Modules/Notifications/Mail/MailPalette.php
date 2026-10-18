@@ -42,7 +42,10 @@ final class MailPalette
         'info' => ['#6FA8E0', '#94BFEA', '#17253A'], 'muted' => ['#6B7385', '#9AA3B5', '#232836'],
     ];
 
-    /** @param array<string, string> $light @param array<string, string> $dark */
+    /**
+     * @param  array<string, string>  $light
+     * @param  array<string, string>  $dark
+     */
     private function __construct(public readonly array $light, public readonly array $dark) {}
 
     public static function current(): self

@@ -25,7 +25,7 @@ final class MailFramer
         return match (true) {
             $key === 'invoice.payment_confirmation' => $this->receipt($context),
             in_array($key, ['invoice.refunded', 'credit_note.issued'], true) => $this->refund($key, $context),
-            $key === 'payment_method.expiring' => new MailFrame(label: __('Billing'), statusTone: 'warning', statusLabel: __('Expires soon'), reason: $this->billingReason($context)),
+            $key === 'payment_method.expiring' => new MailFrame(label: self::text('Billing'), statusTone: 'warning', statusLabel: self::text('Expires soon'), reason: $this->billingReason($context)),
             $family === 'invoice' => $this->invoice($key, $context),
             $key === 'quote.delivered' => $this->quote($context),
             $key === 'order.confirmation' => $this->order($context),
@@ -33,8 +33,8 @@ final class MailFramer
             $family === 'domain' => $this->domain($key, $context),
             $family === 'ticket' => $this->ticket($key, $context),
             $family === 'auth' => $this->account($key, $context),
-            $key === 'client.welcome' => new MailFrame(label: __('Your account'), statusTone: 'success', statusLabel: __('Ready')),
-            $family === 'affiliate' => new MailFrame(label: __('Affiliate programme'), statusTone: 'success', statusLabel: $key === 'affiliate.withdrawal_processed' ? __('Paid out') : __('Active')),
+            $key === 'client.welcome' => new MailFrame(label: self::text('Your account'), statusTone: 'success', statusLabel: self::text('Ready')),
+            $family === 'affiliate' => new MailFrame(label: self::text('Affiliate programme'), statusTone: 'success', statusLabel: $key === 'affiliate.withdrawal_processed' ? self::text('Paid out') : self::text('Active')),
             $family === 'staff' => $this->staff($key, $context),
             default => new MailFrame,
         };
@@ -52,25 +52,25 @@ final class MailFramer
         $auto = $key === 'invoice.created_autocharge';
 
         [$tone, $label, $when] = match (true) {
-            $paid => ['success', __('Paid'), null],
-            $days === null => ['accent', __('Open'), null],
-            $auto => ['info', __('Paid automatically'), __('on :date', ['date' => $due])],
-            $days > 1 => ['accent', __('Due in :days days', ['days' => $days]), $due],
-            $days === 1 => ['accent', __('Due tomorrow'), $due],
-            $days === 0 => ['warning', __('Due today'), $due],
-            default => ['danger', trans_choice('Overdue by :days day|Overdue by :days days', -$days, ['days' => -$days]), __('was due :date', ['date' => $due])],
+            $paid => ['success', self::text('Paid'), null],
+            $days === null => ['accent', self::text('Open'), null],
+            $auto => ['info', self::text('Paid automatically'), self::text('on :date', ['date' => $due])],
+            $days > 1 => ['accent', self::text('Due in :days days', ['days' => $days]), $due],
+            $days === 1 => ['accent', self::text('Due tomorrow'), $due],
+            $days === 0 => ['warning', self::text('Due today'), $due],
+            default => ['danger', self::choice('Overdue by :days day|Overdue by :days days', -$days, ['days' => -$days]), self::text('was due :date', ['date' => $due])],
         };
 
         return new MailFrame(
-            label: __('Invoice from :company', ['company' => $this->legalName()]),
+            label: self::text('Invoice from :company', ['company' => $this->legalName()]),
             amount: $this->string($context, $auto ? 'invoice.total' : 'invoice.balance'),
-            amountLabel: $auto ? __('Amount') : __('Amount due'),
+            amountLabel: $auto ? self::text('Amount') : self::text('Amount due'),
             statusTone: $tone,
             statusLabel: $label,
             statusWhen: $when,
             document: true,
             downloads: $this->invoiceDownload($context),
-            lines: $this->lines($context, $key === 'invoice.created' || $auto ? __('What you\'re paying for') : __('On this invoice'), $auto ? __('Total') : __('Total due')),
+            lines: $this->lines($context, $key === 'invoice.created' || $auto ? self::text('What you\'re paying for') : self::text('On this invoice'), $auto ? self::text('Total') : self::text('Total due')),
             reason: $this->billingReason($context),
         );
     }
@@ -83,16 +83,16 @@ final class MailFramer
         $settled = ! (bool) data_get($context, 'invoice.balance_due', false);
 
         return new MailFrame(
-            label: __('Receipt from :company', ['company' => $this->legalName()]),
+            label: self::text('Receipt from :company', ['company' => $this->legalName()]),
             amount: $this->string($context, 'payment.amount'),
-            amountLabel: __('Amount paid'),
+            amountLabel: self::text('Amount paid'),
             statusTone: $settled ? 'success' : 'warning',
-            statusLabel: $settled ? __('Paid') : __('Part paid'),
+            statusLabel: $settled ? self::text('Paid') : self::text('Part paid'),
             statusWhen: MailClock::date($this->string($context, 'payment.date')),
             document: true,
             downloads: $this->invoiceDownload($context),
-            lines: $this->lines($context, __('What you paid for'), __('Total'), receipt: true),
-            reason: __('You\'re receiving this because a payment was made on your account.'),
+            lines: $this->lines($context, self::text('What you paid for'), self::text('Total'), receipt: true),
+            reason: self::text('You\'re receiving this because a payment was made on your account.'),
         );
     }
 
@@ -102,11 +102,11 @@ final class MailFramer
     private function refund(string $key, array $context): MailFrame
     {
         return new MailFrame(
-            label: __('Refund from :company', ['company' => $this->legalName()]),
+            label: self::text('Refund from :company', ['company' => $this->legalName()]),
             amount: $key === 'invoice.refunded' ? $this->string($context, 'refund.amount') : null,
-            amountLabel: __('Refunded'),
+            amountLabel: self::text('Refunded'),
             statusTone: 'info',
-            statusLabel: $key === 'invoice.refunded' ? __('Refunded') : __('Credit issued'),
+            statusLabel: $key === 'invoice.refunded' ? self::text('Refunded') : self::text('Credit issued'),
             statusWhen: MailClock::date(MailClock::today()),
             document: true,
             downloads: $this->invoiceDownload($context),
@@ -122,12 +122,12 @@ final class MailFramer
         $validUntil = MailClock::date($this->string($context, 'quote.valid_until'));
 
         return new MailFrame(
-            label: __('Quote from :company', ['company' => $this->legalName()]),
+            label: self::text('Quote from :company', ['company' => $this->legalName()]),
             amount: $this->string($context, 'quote.total'),
-            amountLabel: __('Quote total'),
+            amountLabel: self::text('Quote total'),
             statusTone: 'accent',
-            statusLabel: __('Ready to review'),
-            statusWhen: $validUntil !== null ? __('valid until :date', ['date' => $validUntil]) : null,
+            statusLabel: self::text('Ready to review'),
+            statusWhen: $validUntil !== null ? self::text('valid until :date', ['date' => $validUntil]) : null,
             document: true,
         );
     }
@@ -138,9 +138,9 @@ final class MailFramer
     private function order(array $context): MailFrame
     {
         return new MailFrame(
-            label: __('Order #:number', ['number' => $this->string($context, 'order.number')]),
+            label: self::text('Order #:number', ['number' => $this->string($context, 'order.number')]),
             statusTone: 'success',
-            statusLabel: __('Order received'),
+            statusLabel: self::text('Order received'),
             statusWhen: MailClock::date($this->string($context, 'order.date')),
         );
     }
@@ -151,20 +151,20 @@ final class MailFramer
     private function service(string $key, array $context): MailFrame
     {
         [$tone, $label] = match ($key) {
-            'service.suspended' => ['danger', __('Paused')],
-            'service.unsuspended' => ['success', __('Running again')],
-            'service.cancellation_requested' => ['warning', __('Cancellation requested')],
-            'service.terminated' => ['muted', __('Removed')],
-            'service.upgrade_completed' => ['success', __('Upgrade complete')],
-            default => ['success', __('Ready')],
+            'service.suspended' => ['danger', self::text('Paused')],
+            'service.unsuspended' => ['success', self::text('Running again')],
+            'service.cancellation_requested' => ['warning', self::text('Cancellation requested')],
+            'service.terminated' => ['muted', self::text('Removed')],
+            'service.upgrade_completed' => ['success', self::text('Upgrade complete')],
+            default => ['success', self::text('Ready')],
         };
         $invoice = $key === 'service.suspended' ? $this->string($context, 'invoice.number') : null;
 
         return new MailFrame(
-            label: $this->string($context, 'service.product_name') ?? __('Your service'),
+            label: $this->string($context, 'service.product_name') ?? self::text('Your service'),
             statusTone: $tone,
             statusLabel: $label,
-            statusWhen: $invoice !== null ? __('invoice :number is overdue', ['number' => $invoice]) : $this->string($context, 'service.domain'),
+            statusWhen: $invoice !== null ? self::text('invoice :number is overdue', ['number' => $invoice]) : $this->string($context, 'service.domain'),
             downloads: $invoice !== null ? $this->invoiceDownload($context) : [],
         );
     }
@@ -177,17 +177,17 @@ final class MailFramer
         $expiry = MailClock::date($this->string($context, 'domain.expiry_date'));
 
         [$tone, $label, $when] = match ($key) {
-            'domain.registration_confirmation' => ['success', __('Registered'), $expiry !== null ? __('until :date', ['date' => $expiry]) : null],
-            'domain.transfer_initiated' => ['info', __('Transfer in progress'), null],
-            'domain.transfer_completed' => ['success', __('Transferred'), null],
-            'domain.transfer_failed' => ['danger', __('Transfer didn\'t complete'), null],
-            'domain.renewal_confirmation' => ['success', __('Renewed'), $expiry !== null ? __('until :date', ['date' => $expiry]) : null],
-            'domain.renewal_upcoming' => ['warning', __('Renewal due'), null],
-            'domain.expired_notice' => ['danger', __('Expired'), null],
-            default => ['accent', __('Domain'), null],
+            'domain.registration_confirmation' => ['success', self::text('Registered'), $expiry !== null ? self::text('until :date', ['date' => $expiry]) : null],
+            'domain.transfer_initiated' => ['info', self::text('Transfer in progress'), null],
+            'domain.transfer_completed' => ['success', self::text('Transferred'), null],
+            'domain.transfer_failed' => ['danger', self::text('Transfer didn\'t complete'), null],
+            'domain.renewal_confirmation' => ['success', self::text('Renewed'), $expiry !== null ? self::text('until :date', ['date' => $expiry]) : null],
+            'domain.renewal_upcoming' => ['warning', self::text('Renewal due'), null],
+            'domain.expired_notice' => ['danger', self::text('Expired'), null],
+            default => ['accent', self::text('Domain'), null],
         };
 
-        return new MailFrame(label: $this->string($context, 'domain.domain') ?? __('Your domains'), statusTone: $tone, statusLabel: $label, statusWhen: $when);
+        return new MailFrame(label: $this->string($context, 'domain.domain') ?? self::text('Your domains'), statusTone: $tone, statusLabel: $label, statusWhen: $when);
     }
 
     /**
@@ -196,22 +196,22 @@ final class MailFramer
     private function ticket(string $key, array $context): MailFrame
     {
         $number = $this->string($context, 'ticket.number');
-        $department = $this->string($context, 'ticket.department') ?? __('Support');
+        $department = $this->string($context, 'ticket.department') ?? self::text('Support');
 
         [$tone, $label, $summary] = match ($key) {
-            'ticket.reply' => ['accent', __('Waiting for your reply'), __('Reply from :department', ['department' => $department])],
-            'ticket.autoresponse' => ['info', __('Received'), $department],
-            'ticket.opened_by_staff' => ['info', __('Opened for you'), $department],
-            'ticket.auto_closed' => ['muted', __('Closed'), $department],
-            default => ['warning', __('Not delivered'), $department],
+            'ticket.reply' => ['accent', self::text('Waiting for your reply'), self::text('Reply from :department', ['department' => $department])],
+            'ticket.autoresponse' => ['info', self::text('Received'), $department],
+            'ticket.opened_by_staff' => ['info', self::text('Opened for you'), $department],
+            'ticket.auto_closed' => ['muted', self::text('Closed'), $department],
+            default => ['warning', self::text('Not delivered'), $department],
         };
 
         return new MailFrame(
             label: $summary,
             statusTone: $tone,
             statusLabel: $label,
-            statusWhen: $number !== null ? __('Ticket #:number', ['number' => $number]) : null,
-            reason: $number !== null ? __('You\'re receiving this because you\'re on ticket #:number.', ['number' => $number]) : null,
+            statusWhen: $number !== null ? self::text('Ticket #:number', ['number' => $number]) : null,
+            reason: $number !== null ? self::text('You\'re receiving this because you\'re on ticket #:number.', ['number' => $number]) : null,
         );
     }
 
@@ -223,15 +223,15 @@ final class MailFramer
         $expires = $this->string($context, 'auth.expires_at');
 
         [$tone, $label, $when] = match ($key) {
-            'auth.password_reset' => ['accent', __('Reset requested'), $expires !== null ? __('link works until :time', ['time' => $expires]) : null],
-            'auth.email_verification' => ['accent', __('Confirm your email'), null],
-            'auth.user_invitation' => ['accent', __('Invitation'), $expires !== null ? __('link works until :time', ['time' => $expires]) : null],
-            'auth.password_changed' => ['warning', __('Password changed'), MailClock::date(MailClock::today())],
-            'auth.new_login_alert' => ['warning', __('New sign-in'), MailClock::date(MailClock::today())],
-            default => ['info', __('Account change'), MailClock::date(MailClock::today())],
+            'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
+            'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
+            'auth.user_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
+            'auth.password_changed' => ['warning', self::text('Password changed'), MailClock::date(MailClock::today())],
+            'auth.new_login_alert' => ['warning', self::text('New sign-in'), MailClock::date(MailClock::today())],
+            default => ['info', self::text('Account change'), MailClock::date(MailClock::today())],
         };
 
-        return new MailFrame(label: __('Account security'), statusTone: $tone, statusLabel: $label, statusWhen: $when, security: true);
+        return new MailFrame(label: self::text('Account security'), statusTone: $tone, statusLabel: $label, statusWhen: $when, security: true);
     }
 
     /**
@@ -242,22 +242,22 @@ final class MailFramer
         $expires = $this->string($context, 'auth.expires_at');
 
         [$tone, $label] = match (true) {
-            in_array($key, ['staff.order_fraud', 'staff.provisioning_failed', 'staff.registrar_action_failed', 'staff.login_failures', 'staff.webhook_endpoint_disabled', 'staff.template_render_failed'], true) => ['danger', __('Needs attention')],
-            $key === 'staff.automation_summary' => data_get($context, 'automation.status') === 'failed' ? ['danger', __('Failed')] : ['success', __('Completed')],
-            $key === 'staff.free_domain_renewal_blocked' || $key === 'staff.cancellation_request' => ['warning', __('Review')],
-            str_starts_with($key, 'staff.ticket_') => ['info', __('Support')],
-            $key === 'staff.order_new' => ['accent', __('New order')],
-            in_array($key, ['staff.password_reset', 'staff.invitation'], true) => ['accent', $key === 'staff.invitation' ? __('Invitation') : __('Reset requested')],
-            default => ['info', __('Account change')],
+            in_array($key, ['staff.order_fraud', 'staff.provisioning_failed', 'staff.registrar_action_failed', 'staff.login_failures', 'staff.webhook_endpoint_disabled', 'staff.template_render_failed'], true) => ['danger', self::text('Needs attention')],
+            $key === 'staff.automation_summary' => data_get($context, 'automation.status') === 'failed' ? ['danger', self::text('Failed')] : ['success', self::text('Completed')],
+            $key === 'staff.free_domain_renewal_blocked' || $key === 'staff.cancellation_request' => ['warning', self::text('Review')],
+            str_starts_with($key, 'staff.ticket_') => ['info', self::text('Support')],
+            $key === 'staff.order_new' => ['accent', self::text('New order')],
+            in_array($key, ['staff.password_reset', 'staff.invitation'], true) => ['accent', $key === 'staff.invitation' ? self::text('Invitation') : self::text('Reset requested')],
+            default => ['info', self::text('Account change')],
         };
         $security = in_array($key, ['staff.password_reset', 'staff.invitation', 'staff.login_failures', 'staff.two_factor_reset', 'staff.email_changed', 'staff.settings_changed'], true);
 
         return new MailFrame(
-            label: $security ? __('Account security') : __('Admin area'),
+            label: $security ? self::text('Account security') : self::text('Admin area'),
             statusTone: $tone,
             statusLabel: $label,
-            statusWhen: in_array($key, ['staff.password_reset', 'staff.invitation'], true) && $expires !== null ? __('link works until :time', ['time' => $expires]) : null,
-            reason: $security ? null : __('You\'re receiving this because your staff role gets these alerts.'),
+            statusWhen: in_array($key, ['staff.password_reset', 'staff.invitation'], true) && $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null,
+            reason: $security ? null : self::text('You\'re receiving this because your staff role gets these alerts.'),
             security: $security,
         );
     }
@@ -288,13 +288,13 @@ final class MailFramer
 
         $partlyPaid = $this->string($context, 'invoice.balance') !== $this->string($context, 'invoice.total');
         $totals = array_values(array_filter([
-            ['label' => __('Subtotal'), 'amount' => $this->string($context, 'invoice.subtotal'), 'total' => false],
-            ['label' => __('Discount'), 'amount' => $this->string($context, 'invoice.discount'), 'total' => false],
+            ['label' => self::text('Subtotal'), 'amount' => $this->string($context, 'invoice.subtotal'), 'total' => false],
+            ['label' => self::text('Discount'), 'amount' => $this->string($context, 'invoice.discount'), 'total' => false],
             ...array_map(fn (mixed $tax): array => ['label' => (string) data_get($tax, 'label'), 'amount' => is_string(data_get($tax, 'amount')) ? data_get($tax, 'amount') : null, 'total' => false], (array) data_get($context, 'invoice.taxes', [])),
             // "Total due" only when nothing is paid yet; otherwise the balance line says what is due.
-            ['label' => $partlyPaid ? __('Total') : $totalLabel, 'amount' => $this->string($context, 'invoice.total'), 'total' => true],
-            ['label' => __('Credit applied'), 'amount' => $this->string($context, 'invoice.credit_applied'), 'total' => false],
-            $receipt || $partlyPaid ? ['label' => $receipt ? __('Still to pay') : __('Balance due'), 'amount' => $this->string($context, 'invoice.balance'), 'total' => false] : null,
+            ['label' => $partlyPaid ? self::text('Total') : $totalLabel, 'amount' => $this->string($context, 'invoice.total'), 'total' => true],
+            ['label' => self::text('Credit applied'), 'amount' => $this->string($context, 'invoice.credit_applied'), 'total' => false],
+            $receipt || $partlyPaid ? ['label' => $receipt ? self::text('Still to pay') : self::text('Balance due'), 'amount' => $this->string($context, 'invoice.balance'), 'total' => false] : null,
         ], fn (?array $row): bool => $row !== null && is_string($row['amount']) && $row['amount'] !== ''));
 
         /** @var list<array{label: string, amount: string, total: bool}> $totals */
@@ -309,7 +309,7 @@ final class MailFramer
     {
         $url = $this->string($context, 'invoice.pdf_url');
 
-        return $url === null ? [] : [['label' => __('Download invoice'), 'url' => $url]];
+        return $url === null ? [] : [['label' => self::text('Download invoice'), 'url' => $url]];
     }
 
     /**
@@ -320,8 +320,8 @@ final class MailFramer
         $account = $this->string($context, 'client.company_name') ?? $this->string($context, 'client.full_name');
 
         return $account !== null
-            ? __('You\'re receiving this because you\'re the billing contact for :account.', ['account' => $account])
-            : __('You\'re receiving this because you\'re the billing contact for this account.');
+            ? self::text('You\'re receiving this because you\'re the billing contact for :account.', ['account' => $account])
+            : self::text('You\'re receiving this because you\'re the billing contact for this account.');
     }
 
     private function legalName(): string
@@ -339,5 +339,23 @@ final class MailFramer
         $value = data_get($context, $path);
 
         return is_scalar($value) && trim((string) $value) !== '' ? trim((string) $value) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $replace
+     */
+    private static function text(string $key, array $replace = []): string
+    {
+        $line = __($key, $replace);
+
+        return is_string($line) ? $line : $key;
+    }
+
+    /**
+     * @param  array<string, mixed>  $replace
+     */
+    private static function choice(string $key, int $number, array $replace = []): string
+    {
+        return trans_choice($key, $number, $replace);
     }
 }

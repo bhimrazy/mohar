@@ -31,6 +31,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Forgot-password** gives the same answer for known and unknown addresses and is throttled (5 a minute per IP,
   5 an hour per address).
 - `php artisan app:install` and `db:seed` install the default email templates; staff edits are never overwritten.
+- **Email direction A** adds `email_template_translations.preheader` (nullable) and seven new system templates;
+  `db:seed` or `app:install` installs the new templates. Existing template text is never overwritten: use
+  "Restore default text" on a template to pick up the new wording, buttons with amounts and preheaders.
+- Staff invitations and account security notices (login added, access given, owner changed, two-step sign-in
+  reset, staff sign-in email changed, security settings changed) now send editable templates and appear in the
+  email log. A new client login gets the "Account invitation" email instead of the password-reset email.
+- Demo seeders no longer send mail: what they would send is logged as suppressed (`demo_data`).
 
 ### Platform foundation
 
@@ -267,6 +274,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Resend is disabled for logged mail that carried a private link, with the reason shown; for ticket mail the page
   links to the ticket.
 - Admin dashboard: "Account email" health check.
+- Every email uses design direction A, "two-card receipt": the brand above a summary card (who it's from, a large
+  amount or a title, a status line such as "Due in 14 days" or "Overdue by 3 days", one button that names the action
+  and amount, "Pay ₹588.82", download links and key facts) and a record card (what was bought with subtotal, tax
+  lines and total, then reassurance and the help line). The card is 640 px wide and fluid below that, renders in
+  light, dark and Outlook.com dark modes, and keeps AA contrast; the brand name is live text next to the mark so it
+  stays readable when a mail client inverts colours. A theme accent is used only when its email colour pairs pass AA.
+- Plain-text parts are written text in the same order: status, amount, opening, "Label: link" actions, aligned key
+  facts, line items and the footer. Lists become "- " lines and links "text (url)"; no Markdown or HTML.
+- Templates have a preheader (the inbox preview line), editable in the template editor with a character count.
+- Suspension email names the overdue invoice and its amount ("Your invoice INV-1906 for Rs 12,769.57 is overdue")
+  with a button that pays it; reason codes and staff notes are never shown to the client.
+- Payment reminders and updated invoices have their own subjects, with the due date.
+- The footer's "write to" address is the address replies go to (billing, the ticket's department, or support).
+- System mail carries `Auto-Submitted: auto-generated` and `X-Auto-Response-Suppress: All`; mail staff write by
+  hand does not.
+- Dates in email use the date-format setting and the company time zone; times add the zone.
+- The email log shows template names instead of keys.
 
 ### Currencies
 
@@ -340,6 +364,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- `Notifications\SystemMailer` contract (Core binds a null default, Notifications the templated one): Platform sends
+  invitations and account security notices through editable templates and falls back to its own notifications
+  when the Notifications module is absent.
 - `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
   details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
   `IntegrationDriver`.

@@ -55,9 +55,16 @@ final readonly class MailFooter
             $this->brand.($this->tagline !== '' ? ' · '.$this->tagline : ''),
             $this->address,
             $this->help,
-            $this->helpUrl !== '' ? __('Help centre').': '.$this->helpUrl : null,
-            $this->preferencesUrl !== null ? __('Email preferences').': '.$this->preferencesUrl : null,
-            $this->security ? __('Security emails are always sent and can\'t be turned off.') : $this->reason,
+            $this->helpUrl !== '' ? self::label('Help centre').': '.$this->helpUrl : null,
+            $this->preferencesUrl !== null ? self::label('Email preferences').': '.$this->preferencesUrl : null,
+            $this->security ? self::label('Security emails are always sent and can\'t be turned off.') : $this->reason,
         ], fn (?string $line): bool => $line !== null && $line !== ''));
+    }
+
+    private static function label(string $key): string
+    {
+        $line = __($key);
+
+        return is_string($line) ? $line : $key;
     }
 }

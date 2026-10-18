@@ -30,16 +30,16 @@ final class MailClock
 
     public static function date(mixed $value, ?string $format = null, string $locale = 'en'): ?string
     {
-        $date = self::parse($value);
+        $date = self::parse($value)?->locale($locale);
 
-        return $date?->locale($locale)->translatedFormat($format ?? DateFormats::current());
+        return $date instanceof CarbonImmutable ? $date->translatedFormat($format ?? DateFormats::current()) : null;
     }
 
     public static function dateTime(mixed $value, string $locale = 'en'): ?string
     {
-        $date = self::parse($value);
+        $date = self::parse($value)?->locale($locale);
 
-        return $date?->locale($locale)->translatedFormat(DateFormats::current().', H:i T');
+        return $date instanceof CarbonImmutable ? $date->translatedFormat(DateFormats::current().', H:i T') : null;
     }
 
     /**
