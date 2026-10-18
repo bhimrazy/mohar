@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\Settings;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -135,6 +136,34 @@ test('every page receives the date format setting so dates follow it', function 
 
     $this->get(route('client.dashboard'))
         ->assertInertia(fn (Assert $page) => $page->where('dateFormat', 'd/m/Y'));
+});
+
+test('a stored date format that is not on the list falls back to the default', function () {
+    actingAsClient();
+    app(Settings::class)->set('core.date_format', 'YYYY-MM-DD');
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', DateFormats::DEFAULT));
+});
+
+test('the admin select offers exactly the supported date formats', function () {
+    actingAsStaff(['core.settings.update']);
+
+    $this->put(route('admin.platform.settings.update', ['section' => 'company']), ['core' => [
+        'company_name' => 'Northwind Hosting',
+        'company_email' => 'billing@northwind.test',
+        'default_country' => 'GB',
+        'date_format' => 'F j, Y',
+        'automation_time' => '04:30',
+    ]])->assertSessionHasErrors('core.date_format');
+});
+
+test('the browser formatter accepts the same date formats as the server', function () {
+    $source = file_get_contents(resource_path('js/lib/date.ts'));
+    preg_match('/DATE_FORMATS = new Set\(\[(.*?)\]\)/s', $source, $match);
+    preg_match_all("/'([^']+)'/", $match[1] ?? '', $formats);
+
+    expect($formats[1])->toEqualCanonicalizing(array_keys(DateFormats::OPTIONS));
 });
 
 test('unknown sections return 404', function () {

@@ -8,6 +8,7 @@ use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Services\Tax\IndianStates;
 use App\Modules\Billing\Services\Tax\VatNumber;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Core\Support\DateFormats;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\Storage;
@@ -65,6 +66,7 @@ class InvoicePdf
         $taxed = $invoice->tax1_amount + $invoice->tax2_amount > 0;
         $indianGst = $sellerCountry === 'IN' && $buyerCountry === 'IN';
         $placeOfSupply = null;
+        $dateFormat = DateFormats::current();
 
         if ($indianGst) {
             $state = IndianStates::placeOfSupply(is_string($buyer['state'] ?? null) ? $buyer['state'] : null, is_string($buyer['tax_id'] ?? null) ? $buyer['tax_id'] : null);
@@ -84,7 +86,7 @@ class InvoicePdf
             'placeOfSupply' => $placeOfSupply,
             'showSac' => $sellerCountry === 'IN' && ($indianGst || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
             'money' => fn (int $amount): string => $this->money->format($amount, $invoice->currency),
-            'date' => fn (?CarbonInterface $date): string => $date?->format('M j, Y') ?? '—',
+            'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
             'gatewayName' => fn (string $key): string => $this->gateways->has($key) ? $this->gateways->gateway($key)->display_name : ucfirst(str_replace('_', ' ', $key)),
         ];
     }

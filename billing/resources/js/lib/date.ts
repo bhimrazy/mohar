@@ -45,11 +45,25 @@ const MONTHS = [
     'Dec',
 ];
 
-/** Admin → Settings → Company → Date format (PHP tokens), shared as `dateFormat`. */
+/**
+ * The patterns Settings → Company → Date format may hold. Must match the keys of
+ * App\\Modules\\Core\\Support\\DateFormats::OPTIONS (a Pest test compares them).
+ */
+export const DATE_FORMATS = new Set([
+    'M j, Y',
+    'j M Y',
+    'Y-m-d',
+    'd/m/Y',
+    'm/d/Y',
+    'd.m.Y',
+]);
+
+/** The shared `dateFormat` prop, when it is one of DATE_FORMATS. */
 let dateFormatSetting: string | null = null;
 
+/** Applies the date format setting; anything not on the list uses the locale format. */
 export function setDateFormat(format: string | null | undefined): void {
-    dateFormatSetting = format && /[YmndjM]/.test(format) ? format : null;
+    dateFormatSetting = format && DATE_FORMATS.has(format) ? format : null;
 }
 
 /** Formats with the PHP-style tokens the date format setting offers: Y m n d j M. */

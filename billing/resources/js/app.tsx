@@ -6,8 +6,8 @@ import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import PreviewLayout from '@/layouts/preview-layout';
 import PublicLayout from '@/layouts/public-layout';
-import { setDateFormat } from '@/lib/date';
 import { showsPublicPageInClientArea } from '@/lib/layout-area';
+import { applySharedFormatting } from '@/lib/shared-formatting';
 import SettingsLayout from '@/layouts/settings/layout';
 
 // The brand name comes from Settings → Appearance (shared `brand` prop); the
@@ -19,15 +19,15 @@ router.on('navigate', (event) => {
         | { name?: string }
         | undefined;
     brandName = brand?.name || brandName;
-    setDateFormat(event.detail.page.props.dateFormat as string | undefined);
+});
+
+router.on('beforeUpdate', (event) => {
+    applySharedFormatting(event.detail.page.props);
 });
 
 void createInertiaApp({
     title: (title) => (title ? `${title} · ${brandName}` : brandName),
     layout: (name, page) => {
-        // Resolved before the page renders, so dates use the current setting.
-        setDateFormat(page.props.dateFormat as string | undefined);
-
         switch (true) {
             case name === 'welcome':
                 return null;
@@ -46,7 +46,9 @@ void createInertiaApp({
         }
     },
     strictMode: true,
-    withApp(app) {
+    withApp(app, { page }) {
+        applySharedFormatting(page.props);
+
         return (
             <TooltipProvider delayDuration={0}>
                 {app}

@@ -5,6 +5,6 @@ return [
     'company_name' => config('app.name'),
     'company_email' => 'billing@example.com',
     'default_country' => 'US',
-    'date_format' => 'M j, Y',
+    'date_format' => 'M j, Y', // one of App\Modules\Core\Support\DateFormats::OPTIONS
     'automation_time' => '03:00',
 ];

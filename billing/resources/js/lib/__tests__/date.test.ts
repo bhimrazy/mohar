@@ -36,4 +36,19 @@ describe('formatDate with the date format setting', () => {
     it('falls back to the locale format without a setting', () => {
         expect(formatDate('2026-10-24')).toBe('Oct 24, 2026');
     });
+
+    it.each(['YYYY-MM-DD', 'F j, Y', 'Y'])(
+        'ignores %s, which is not a supported format',
+        (format) => {
+            setDateFormat(format);
+
+            expect(formatDate('2026-10-24')).toBe('Oct 24, 2026');
+        },
+    );
+
+    it('leaves times alone', () => {
+        setDateFormat('d/m/Y');
+
+        expect(formatDate('2026-10-24T09:30:00Z', 'time')).not.toContain('/');
+    });
 });
