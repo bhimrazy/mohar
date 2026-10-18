@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property int $id
+ * @property string|null $key stable identity of a system role (SystemRoles::ROLES); null for custom roles. Not mass-assignable.
  * @property string $name
  * @property string|null $description
  * @property list<string> $permissions

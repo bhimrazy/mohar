@@ -6,7 +6,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
-  image optimisation (#40), CI race fix (#46) and database hardening (#53).
+  image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59) and
+  Currencies (#43).
 - Progress toward "a product a host would switch to": about 50/100 (independent Fable review, 2026-10-18). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -17,15 +18,17 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 - GitHub `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
 - App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
+  Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #43 → #57 → #41 → #28)
+## Open pull requests (merge order: #57 → #41 → #28; #58 independent)
 
-| PR  | Workstream    | Size          | Status                                                                                                                                                                             |
-| --- | ------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #43 | Currencies    | +6.7k / −0.5k | Board, architecture and re-review passed; rebased on #53; 1703 tests on SQLite and PostgreSQL. Product review running. Merges next.                                                |
-| #41 | Dashboard v2  | +5.1k / −0.6k | Board fixes and DB-audit fixes done; architecture approved. Rebases on #53 and #43 after #43 merges, then re-review.                                                               |
-| #28 | Notifications | +12.8k        | Too large (split future work). Engineer is redesigning secret-link emails as structure-only (B1). Needs a security sign-off on B1 and a PostgreSQL run before merge. Rebases last. |
+| PR  | Workstream                   | Status                                                                                                                                                                                               |
+| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #57 | Install path (`app:install`) | Board round-1 fixes done (raw one-time password, admin lock, role keys, create-once currencies, backups). Rebasing on #43, then merge.                                                               |
+| #41 | Dashboard v2                 | Rebasing on #43/#53/#59, then re-review.                                                                                                                                                             |
+| #28 | Notifications                | Fixing the B1 sign-off items (links from APP_URL, fail-closed fallback, no filter arguments, sensitive fields by type). Rebases last.                                                                |
+| #58 | Stripe gateway               | Hosted checkout, webhooks via attempt settlement, refunds, disputes. Review and security running; saved-cards design under architecture review. Real sandbox run needs the owner's Stripe test keys. |
 
 ## In progress
 
