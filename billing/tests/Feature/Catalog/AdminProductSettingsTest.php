@@ -240,6 +240,20 @@ it('refuses a product as its own upgrade target', function () {
         ->assertSessionHasErrors(['target_ids.0' => 'A product can\'t be an upgrade of itself.']);
 });
 
+it('never flashes secret driver settings into the session when a provisioning save fails', function () {
+    actingAsStaff(['catalog.products.manage']);
+    FakeProvisioningDrivers::withLogDriver();
+    $product = Product::factory()->create();
+
+    $this->put(route('admin.catalog.products.provisioning.update', $product), [
+        'provisioning_driver' => 'log',
+        'driver_config' => [['key' => 'plan', 'value' => ''], ['key' => 'api_token', 'value' => 'Declared-S3cret'], ['key' => 'reseller_password', 'value' => 'Named-S3cret'], ['key' => 'region', 'value' => 'eu']],
+    ])->assertSessionHasErrors('driver_settings.plan');
+
+    expect(json_encode(session()->all()))->not->toContain('S3cret')
+        ->and(session()->getOldInput('driver_config.3.value'))->toBe('eu');
+});
+
 it('stores the provisioning binding as given', function () {
     actingAsStaff(['catalog.products.manage']);
     $product = Product::factory()->create();

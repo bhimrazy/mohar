@@ -243,3 +243,60 @@ test('settings written outside the form are audited, secrets as rotated', functi
         ])
         ->and(fn () => $settings->put($server, 'undeclared', 'x'))->toThrow(InvalidArgumentException::class);
 });
+
+test('a setting written outside the form must pass the field rules', function () {
+    app(ProvisioningDriverRegistry::class)->register('typed_panel', fn () => new class implements ProvisioningDriver
+    {
+        public function key(): string
+        {
+            return 'typed_panel';
+        }
+
+        public function name(): string
+        {
+            return 'Typed panel';
+        }
+
+        public function metadata(): DriverMetadata
+        {
+            return new DriverMetadata(requiresServer: true, serverFields: [
+                new SettingField('tier', 'Tier', FieldType::Select, required: true, options: ['basic' => 'Basic', 'pro' => 'Pro']),
+                new SettingField('panel_url', 'Panel URL', FieldType::Url),
+                new SettingField('timeout', 'Timeout', FieldType::Number),
+                new SettingField('pinned', 'Pinned', FieldType::Boolean),
+            ]);
+        }
+
+        public function create(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function suspend(ProvisioningContext $context, string $reason): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function unsuspend(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function terminate(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+    });
+    $server = Server::factory()->create(['driver' => 'typed_panel', 'settings' => ['tier' => 'basic']]);
+    $settings = app(ServerSettings::class);
+
+    foreach ([['tier', 'gold'], ['tier', null], ['panel_url', 'not a url'], ['timeout', 'soon'], ['pinned', 'maybe']] as [$key, $value]) {
+        expect(fn () => $settings->put($server, $key, $value))->toThrow(InvalidArgumentException::class, "[{$key}]");
+    }
+
+    $settings->put($server, 'tier', 'pro');
+    $settings->put($server, 'panel_url', 'https://panel.example.com');
+    $settings->put($server, 'timeout', '30');
+
+    expect($server->refresh()->settings)->toBe(['tier' => 'pro', 'panel_url' => 'https://panel.example.com', 'timeout' => 30]);
+});

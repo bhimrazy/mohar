@@ -38,7 +38,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ### 2026-10-18
 
-- Merged: Nepal payments (#26), product polish (#38), image optimisation (#40), CI fixes (#46, #56), database hardening (#53), host-header fix (#59), currencies (#43), install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66).
+- Merged: Nepal payments (#26), product polish (#38), image optimisation (#40), CI fixes (#46, #56), database hardening (#53), host-header fix (#59), currencies (#43), install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel B2 (#65).
 - **Wave 1 complete**: Support (#6), Services & Provisioning (#7), Orders (#8), Billing (#10) and Themes + Mohar brand (#17) merged; 1464 tests green on SQLite and PostgreSQL.
 - Billing follow-ups (#22) merged: exact quote conversion (#20), 90 days of demo billing history; 1469 tests. Review follow-ups in #23.
 - Wave 2 started (staggered, two engineers at a time): Notifications and Nepal payment drivers. Dashboard v2 started (principal designer).

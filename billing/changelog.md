@@ -20,6 +20,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   batches and attempts). Existing values are kept; rolling the migrations back rounds rates to six decimals.
 - Existing prices in non-default currencies are marked "set manually" (TLD prices always; product prices when
   automatic conversion was off), so the first price conversion leaves them unchanged.
+- **Provisioning drivers read custom fields and configurable options by module key only** (#65). Set a module key on
+  any custom field or option a driver reads; fields without one are no longer sent. A custom field's module key must
+  now be unique per product: the migration fails if a product already has two fields with the same key, so rename
+  duplicates first.
 - **Notifications permissions.** New `notifications.*` permissions: `templates.view`, `templates.manage`,
   `log.view`, `log.resend`, `send`, `subscriptions.manage`, `webhooks.manage`, `delivery.manage` and
   `settings.manage`. `templates.manage`, `webhooks.manage` and `delivery.manage` are sensitive: wildcards never grant
@@ -34,10 +38,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Forgot-password** gives the same answer for known and unknown addresses and is throttled (5 a minute per IP,
   5 an hour per address).
 - `php artisan app:install` and `db:seed` install the default email templates; staff edits are never overwritten.
-- **Provisioning drivers read custom fields and configurable options by module key only** (#65). Set a module key on
-  any custom field or option a driver reads; fields without one are no longer sent. A custom field's module key must
-  now be unique per product: the migration fails if a product already has two fields with the same key, so rename
-  duplicates first.
 
 ### Platform foundation
 

@@ -7,7 +7,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications with the branded mail layout (#28) and docs-only CI pushes (#66).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66) and kernel PR B2 with encrypted server settings (#65).
 - Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,12 +21,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #65, then cPanel PR 1; #58 independent)
+## Open pull requests (merge order: #69, then 1b, 2, 3; email direction A and #58 independent)
 
-| PR  | Workstream     | Status                                                                                                                                                                                                                                |
-| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #65 | Kernel PR B2   | Database review passed; review board and architect requested changes (stale value ids, defaults not saved, secrets on driver switch, secrets in flashed input, unique module keys, save lock). Engineer fixing; narrow re-check next. |
-| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                   |
+| PR  | Workstream              | Status                                                                                                                                                                                                                                                       |
+| --- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #69 | cPanel/WHM driver PR 1a | Driver, fixtures, contract, smoke command. Architect: changes requested (kernel changelog entries, setting key name, form/driver refused ports). Review board and security review running. 1b (checklist, Trust this certificate, verify sweep) being built. |
+| —   | Email direction A       | Owner chose A (two-card receipt). Engineer building it on `feature/mail-direction-a` with the product sweep fixes (framework mail through templates, text parts, invitations, suspension reasons, action buttons).                                           |
+| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                          |
 
 ## Design and research in progress
 
@@ -37,7 +38,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
-1. Merge #65; cPanel/WHM driver in progress on `feature/provisioning-cpanel` (stacked on #65, recorded fixtures until the owner provides a WHM server) (each with PostgreSQL CI green).
+1. cPanel PR 1a (#69), then 1b, 2 (SSO, package select, server health), 3 (import); cPanel/WHM driver in progress on `feature/provisioning-cpanel` (stacked on #65, recorded fixtures until the owner provides a WHM server) (each with PostgreSQL CI green).
 2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
 3. Done: #47 install path merged in #57. Still open: `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
    PostgreSQL without demo data.
@@ -53,7 +54,6 @@ is a switch blocker in the parity studies.
 
 ## Decisions pending from the owner
 
-- Email template direction: A, B or C (design review page, Emails section).
 - Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
 - Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
 - Repository settings: branch protection and required checks on `develop` and `main`.
