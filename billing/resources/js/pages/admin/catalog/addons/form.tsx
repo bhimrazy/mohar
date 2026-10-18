@@ -23,6 +23,7 @@ import {
     rowsFromMatrix,
 } from '@/components/catalog/pricing-matrix';
 import type { SubmittedPriceRow } from '@/components/catalog/pricing-matrix';
+import { EmailTemplateSelect } from '@/components/catalog/email-template-select';
 import { SetupFeeToggle } from '@/components/catalog/setup-fee-toggle';
 import { SelectInput } from '@/components/catalog/select-input';
 import { SwitchRow } from '@/components/catalog/switch-row';
@@ -43,6 +44,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import type { SelectOption } from '@/types/app';
 
 type Addon = {
     id: number;
@@ -77,6 +79,7 @@ type Props = {
     currencies: CurrencyOption[];
     products: ProductChoice[];
     drivers: ProvisioningDriver[];
+    emailTemplates: SelectOption[];
     canManage: boolean;
 };
 
@@ -89,6 +92,7 @@ export default function AddonForm({
     currencies,
     products,
     drivers,
+    emailTemplates,
     canManage,
 }: Props) {
     const allCycles = useMemo(
@@ -375,18 +379,20 @@ export default function AddonForm({
                                             optional
                                             error={errors.welcome_email_key}
                                         >
-                                            <Input
+                                            <EmailTemplateSelect
                                                 id="welcome_email_key"
                                                 value={data.welcome_email_key}
                                                 disabled={!canManage}
-                                                onChange={(event) =>
+                                                onChange={(value) =>
                                                     setData(
                                                         'welcome_email_key',
-                                                        event.target.value,
+                                                        value,
                                                     )
                                                 }
-                                                className="font-mono"
-                                                aria-describedby="welcome_email_key-description"
+                                                templates={emailTemplates}
+                                                invalid={
+                                                    !!errors.welcome_email_key
+                                                }
                                             />
                                         </Field>
                                     </div>

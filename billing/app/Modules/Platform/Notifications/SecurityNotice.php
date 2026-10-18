@@ -30,7 +30,7 @@ class SecurityNotice extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
-        $message = (new MailMessage)->subject($this->subject);
+        $message = (new MailMessage)->subject($this->subject)->markdown('notifications::email', ['security' => true]);
 
         foreach ($this->lines as $line) {
             $message->line(MailText::escape($line));

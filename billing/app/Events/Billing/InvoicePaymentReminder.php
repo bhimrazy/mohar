@@ -2,11 +2,13 @@
 
 namespace App\Events\Billing;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class InvoicePaymentReminder
+final class InvoicePaymentReminder implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  string  $stage  before_due|due|overdue_1|overdue_2|overdue_3

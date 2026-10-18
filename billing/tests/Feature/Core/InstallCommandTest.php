@@ -97,7 +97,7 @@ test('an install on an empty database creates the reference data and one full ad
     expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => false, 'USD' => true])
         ->and(Role::query()->where('is_system', true)->orderBy('key')->pluck('name', 'key')->all())->toBe(['billing' => 'Billing', 'full_administrator' => 'Full Administrator', 'sales' => 'Sales', 'support' => 'Support'])
         ->and(Role::query()->count())->toBe(4)
-        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'migrations', 'roles', 'users']);
+        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'users']);
 
     $log = ActivityLog::query()->sole();
     expect($log->event)->toBe('staff.created')
@@ -294,7 +294,7 @@ test('in production db:seed installs the reference data and no demo data', funct
 
     expect($status)->toBe(0)
         ->and(User::query()->pluck('email')->all())->toBe(['owner@example.test'])
-        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'migrations', 'roles', 'users']);
+        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'users']);
 });
 
 test('the demo seed installs exactly the reference data an install creates, through the same registry', function () {
@@ -451,7 +451,8 @@ test('two installs started at the same time create exactly one full administrato
             ->and($results['a']->output().$results['b']->output())->toContain('A full administrator already exists')
             ->and($race->table('users')->where('is_staff', true)->count())->toBe(1);
     } finally {
-        foreach (['activity_log', 'users', 'roles', 'currencies'] as $table) {
+        // Everything the committed installs wrote, so later tests in this process start from an empty database.
+        foreach (['activity_log', 'users', 'roles', 'currencies', 'email_template_translations', 'email_templates'] as $table) {
             $race->table($table)->delete();
         }
 

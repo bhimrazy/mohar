@@ -7,6 +7,7 @@ use App\Data\Branding\Brand;
 use App\Modules\Core\Support\Settings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * The brand (BrandProvider): name and tagline from settings, logos/mark/favicon from uploads
@@ -40,7 +41,38 @@ class BrandAssets implements BrandProvider
             mark: $this->url('mark') ?? $this->defaultUrl('mark'),
             favicon: $this->url('favicon') ?? $this->defaultUrl('favicon'),
             customised: ! $default || $this->tagline() !== $this->defaultTagline() || array_filter(array_map($this->path(...), self::KINDS)) !== [],
+            emailLogoDark: $this->emailLogoDarkUrl(),
+            accent: $this->accent('primary'),
+            accentForeground: $this->accent('primary-foreground'),
         );
+    }
+
+    /**
+     * A raster dark-mode logo for email: the uploaded dark logo when PNG/JPEG, else the default one.
+     */
+    public function emailLogoDarkUrl(): ?string
+    {
+        if (in_array(self::mime((string) $this->path('logo-dark')), ['image/png', 'image/jpeg'], true)) {
+            return $this->url('logo-dark');
+        }
+
+        $default = (string) config('themes.defaults.logo-email-dark');
+
+        return $this->path('logo-light') === null && $this->name() === $this->defaultName() && $default !== '' && is_file(public_path($default)) ? asset($default) : null;
+    }
+
+    /**
+     * A light-mode colour token of the client area's theme (emails follow the client-facing brand).
+     */
+    private function accent(string $token): ?string
+    {
+        try {
+            $value = app(ThemeManager::class)->resolve('client')->tokens['light'][$token] ?? null;
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($value) && preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? $value : null;
     }
 
     public function logoDataUri(bool $dark = false): ?string

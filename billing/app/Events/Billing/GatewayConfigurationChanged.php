@@ -2,15 +2,17 @@
 
 namespace App\Events\Billing;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A payment gateway's configuration changed (activation, secrets rotated, conversion currency…). Security-relevant:
  * Notifications should alert administrators. Never carries secret values.
  */
-final class GatewayConfigurationChanged
+final class GatewayConfigurationChanged implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  array<string, array{from: mixed, to: mixed}|string>  $changes  field => before/after, or "rotated" for secrets

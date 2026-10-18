@@ -84,6 +84,8 @@ every item.
 - Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
   modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
   primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
+- Every email the system sends uses an editable template; mail sent outside the template system (framework
+  notifications included) is a bug. Plain-text parts are written text, never raw Markdown or HTML. (2026-10-18)
 - Every email can be answered: Reply-To is a real, monitored department or support address (never
   noreply), and the footer shows the support address as text. Security emails add "If this wasn't you,
   contact …". Only company or department addresses, never staff members' personal addresses.

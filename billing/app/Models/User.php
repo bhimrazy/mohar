@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\Auth\AuthMailer;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
 use Carbon\CarbonInterface;
@@ -118,6 +119,22 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function clients(): BelongsToMany
     {
         return $this->belongsToMany(Client::class)->withPivot(['is_owner', 'permissions'])->withTimestamps();
+    }
+
+    /**
+     * Account-access mail goes through the AuthMailer contract: Laravel's notifications by default, the
+     * Notifications module's templates when it is installed.
+     *
+     * @param  string  $token
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        app(AuthMailer::class)->sendPasswordReset($this, $token);
+    }
+
+    public function sendEmailVerificationNotification(): void
+    {
+        app(AuthMailer::class)->sendEmailVerification($this);
     }
 
     /**

@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { Field } from '@/components/app/field';
 import { FormActions } from '@/components/app/form-actions';
 import { SectionCard } from '@/components/app/section-card';
+import { EmailTemplateSelect } from '@/components/catalog/email-template-select';
 import { SelectInput } from '@/components/catalog/select-input';
 import { SwitchRow } from '@/components/catalog/switch-row';
 import type { CycleOption, EnumOption } from '@/components/catalog/types';
@@ -21,6 +22,7 @@ export type ProductEnums = {
     freeDomains: EnumOption[];
     customFieldTypes: EnumOption[];
     recurringCycles: CycleOption[];
+    emailTemplates: EnumOption[];
 };
 
 export type ProductDetails = {
@@ -168,6 +170,32 @@ export function ProductDetailsForm({
                 value={data[name] as string}
                 onChange={(value) => setData(name, value as never)}
                 options={options}
+                disabled={disabled}
+                invalid={!!errors[name]}
+            />
+        </Field>
+    );
+
+    const templateSelect = (
+        name:
+            | 'welcome_email_key'
+            | 'upgrade_email_key'
+            | 'fixed_term_email_key',
+        label: string,
+        hint?: string,
+    ) => (
+        <Field
+            htmlFor={name}
+            label={label}
+            optional
+            hint={hint}
+            error={errors[name]}
+        >
+            <EmailTemplateSelect
+                id={name}
+                value={data[name]}
+                onChange={(value) => setData(name, value)}
+                templates={enums.emailTemplates}
                 disabled={disabled}
                 invalid={!!errors[name]}
             />
@@ -363,19 +391,19 @@ export function ProductDetailsForm({
             >
                 <div className="grid items-start gap-6 sm:grid-cols-2">
                     {select('auto_setup', 'Auto-setup', enums.autoSetups)}
-                    {text('welcome_email_key', 'Welcome email template', {
-                        optional: true,
-                        mono: true,
-                        hint: 'Template key sent when the service first becomes active.',
-                    })}
-                    {text('upgrade_email_key', 'Upgrade email template', {
-                        optional: true,
-                        mono: true,
-                    })}
-                    {text('fixed_term_email_key', 'Fixed-term email template', {
-                        optional: true,
-                        mono: true,
-                    })}
+                    {templateSelect(
+                        'welcome_email_key',
+                        'Welcome email template',
+                        'Sent when the service first becomes active. Default picks the template for the product type.',
+                    )}
+                    {templateSelect(
+                        'upgrade_email_key',
+                        'Upgrade email template',
+                    )}
+                    {templateSelect(
+                        'fixed_term_email_key',
+                        'Fixed-term email template',
+                    )}
                     {text(
                         'suspend_days_override',
                         'Suspend after (days overdue)',

@@ -2,14 +2,16 @@
 
 namespace App\Events\Domains;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Staff digest of a registrar sync run with at least one change or error.
  */
-final class DomainSyncReport
+final class DomainSyncReport implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>  $changes
