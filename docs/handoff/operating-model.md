@@ -94,7 +94,7 @@ $H php artisan test --compact                        # full Pest suite, SQLite
 
 PostgreSQL runs in CI on every non-draft PR. To run it locally, use the one shared server with a database per worktree:
 `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)" && composer test:pgsql` (server `mohar-pg` on 127.0.0.1:55432,
-in-memory data; `scripts/pg.sh --stop` stops it). Don't start private PostgreSQL containers. CI is a single job
+in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active slugs...>` drops idle test databases of finished work). Don't start private PostgreSQL containers. CI is a single job
 (`billing/docs/devops/ci.md`) that took 3.5–5.5 minutes per run on 2026-10-18; keep it a single job.
 
 ## Integration rules
