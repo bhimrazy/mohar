@@ -12,7 +12,9 @@ use App\Modules\Notifications\Services\MergeContext;
  *  - links and bare URLs only to this application's own host (or its system URLs);
  *  - the secret link appears exactly once, as the whole target of the primary action: [Label]({{ auth.reset_url }}).
  *
- * Checked when a template is saved (validation errors) and enforced again on the rendered HTML.
+ * Checked when a template is saved (validation errors) and enforced again on the rendered HTML. "This application"
+ * is config('app.url')'s host; at render time the host of the secret link itself is allowed too, so a custom
+ * ResetPassword::createUrlUsing() domain keeps working.
  */
 final class SecretTemplatePolicy
 {
@@ -89,13 +91,17 @@ final class SecretTemplatePolicy
      */
     public static function sanitizeHtml(string $html, array $secretValues): string
     {
+        // The secret link's own host counts as ours: a custom ResetPassword::createUrlUsing() may point the
+        // reset page at another domain (e.g. a separate client portal).
+        $hosts = array_values(array_filter(array_map(fn (string $url): mixed => parse_url($url, PHP_URL_HOST), $secretValues), 'is_string'));
+
         $html = (string) preg_replace('/<img\b[^>]*>/i', '', $html);
         $html = (string) preg_replace_callback(
             '#<a\b([^>]*)>(.*?)</a>#is',
-            function (array $match): string {
+            function (array $match) use ($hosts): string {
                 preg_match('/href="([^"]*)"/i', $match[1], $href);
 
-                return self::sameHost(html_entity_decode($href[1] ?? '')) ? $match[0] : $match[2];
+                return self::sameHost(html_entity_decode($href[1] ?? ''), $hosts) ? $match[0] : $match[2];
             },
             $html,
         );
@@ -144,12 +150,24 @@ final class SecretTemplatePolicy
         return ! str_contains($target, '{{') && self::sameHost($target);
     }
 
-    private static function sameHost(string $url): bool
+    /**
+     * @param  list<string>  $extraHosts  hosts allowed besides the application's own
+     */
+    private static function sameHost(string $url, array $extraHosts = []): bool
     {
         $host = parse_url(str_starts_with($url, '//') ? 'https:'.$url : $url, PHP_URL_HOST);
 
-        return is_string($host) && strcasecmp(rtrim($host, '.'), self::appHost()) === 0
-            && preg_match('#^(https?:)?//#i', $url) === 1;
+        if (! is_string($host) || preg_match('#^(https?:)?//#i', $url) !== 1) {
+            return false;
+        }
+
+        foreach ([self::appHost(), ...$extraHosts] as $allowed) {
+            if (strcasecmp(rtrim($host, '.'), rtrim($allowed, '.')) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function appHost(): string

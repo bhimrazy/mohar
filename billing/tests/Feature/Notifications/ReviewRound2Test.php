@@ -172,3 +172,18 @@ it('5: a job that dies makes its delivery due immediately', function () {
 
     expect($delivery->fresh()->next_attempt_at->lte(now()))->toBeTrue();
 });
+
+it('keeps the action button when the reset link lives on a custom domain', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    ResetPassword::createUrlUsing(fn ($user, string $token): string => 'https://portal.example.test/reset/'.$token);
+    $user = User::factory()->create();
+
+    try {
+        app(AuthMailer::class)->sendPasswordReset($user, 'PORTAL-TOKEN');
+    } finally {
+        ResetPassword::$createUrlCallback = null;
+    }
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'href="https://portal.example.test/reset/PORTAL-TOKEN"'));
+});

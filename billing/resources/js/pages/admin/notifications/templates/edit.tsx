@@ -267,9 +267,11 @@ export default function TemplateEditor({
                                             This email carries a one-time link.
                                             Keep one action link to{' '}
                                             <code className="font-mono text-xs">{`{{ ${secretAction} }}`}</code>
-                                            ; images, HTML and links to other
-                                            sites are not allowed, and it is
-                                            never copied to anyone.
+                                            ; images, HTML and links to sites
+                                            other than this app (APP_URL, or the
+                                            domain of the one-time link itself)
+                                            are not allowed, and it is never
+                                            copied to anyone.
                                         </AlertDescription>
                                     </Alert>
                                 )}
