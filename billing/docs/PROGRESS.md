@@ -3,25 +3,34 @@
 Living status board. Each workstream updates its row when it opens a PR for review. Screenshots live in
 `docs/screenshots/` (captured with headless Playwright against a running instance).
 
-| Workstream                 | Owner (agent)           | Branch                  | Status      | Notes                                                                               |
-| -------------------------- | ----------------------- | ----------------------- | ----------- | ----------------------------------------------------------------------------------- |
-| Foundation & Core          | CTO                     | `develop`               | ✅ merged   | 61 tests, Larastan L7 clean                                                         |
-| Design system & shared UI  | Senior Product Designer | `develop`               | ✅ merged   | 15 components — [showcase](screenshots/01-design-system-showcase.png)               |
-| Product specs (commerce)   | PM — Commerce           | `develop`               | ✅ merged   | `docs/product/{catalog,orders,billing,services}.md`                                 |
-| Product specs (operations) | PM — Operations         | `develop`               | ✅ merged   | `docs/product/{domains,support,notifications,affiliates,platform-admin,reports}.md` |
-| Catalog                    | Senior Engineer         | `feature/catalog`       | 🔨 building |                                                                                     |
-| Orders                     | Senior Engineer         | `feature/orders`        | 🔨 building |                                                                                     |
-| Billing                    | Senior Engineer         | `feature/billing`       | 🔨 building |                                                                                     |
-| Services & Provisioning    | Senior Engineer         | `feature/services`      | 🔨 building |                                                                                     |
-| Domains                    | Senior Engineer         | `feature/domains`       | 🔨 building |                                                                                     |
-| Support                    | Senior Engineer         | `feature/support`       | 🔨 building |                                                                                     |
-| Platform admin             | Senior Engineer         | `feature/platform`      | 🔨 building | staff, roles, currencies, settings UI, Core pages                                   |
-| DevOps                     | DevOps Engineer         | `feature/devops`        | 🔨 building | postgres:alpine, GitHub Actions CI                                                  |
-| Notifications              | Senior Engineer         | `feature/notifications` | ⏳ wave 2   |                                                                                     |
-| Affiliates                 | Senior Engineer         | `feature/affiliates`    | ⏳ wave 2   |                                                                                     |
-| Reports                    | Senior Engineer         | `feature/reports`       | ⏳ wave 3   | read model over all modules                                                         |
+| Workstream                                        | Owner (agent)           | Branch / PR | Status                    | Notes                                                               |
+| ------------------------------------------------- | ----------------------- | ----------- | ------------------------- | ------------------------------------------------------------------- |
+| Foundation & Core                                 | CTO                     | `develop`   | ✅ merged                 | shared kernel, contracts v2 (ADR 0008)                              |
+| Design system & shared UI                         | Senior Product Designer | `develop`   | ✅ merged                 | 15 components                                                       |
+| Product specs (12 modules)                        | PMs + architects        | `develop`   | ✅ merged                 | `docs/product/*.md` incl. AI, migration, Nepal payments, registrars |
+| DevOps: Postgres + CI                             | DevOps Engineer         | #1          | ✅ merged                 | SQLite + PostgreSQL in CI                                           |
+| Dependency policy + CI minutes                    | DevOps Engineer         | #9          | ✅ merged                 | exact pins, ≥7-day cooldown, ~2 min/run                             |
+| Domains                                           | Senior Engineer         | #5          | ✅ merged                 | 171 tests; follow-ups #12–#15                                       |
+| Catalog                                           | Senior Engineer         | #4          | ✅ merged                 | 477 suite tests at merge; follow-up #16                             |
+| Platform admin + security tier                    | Senior Engineer         | #3          | ✅ merged                 | 628 suite tests at merge                                            |
+| Support                                           | Senior Engineer         | #6          | 🔍 re-review              | 790 suite tests with merged modules                                 |
+| Services & Provisioning                           | Senior Engineer         | #7          | 🔧 fixing review findings |                                                                     |
+| Orders                                            | Senior Engineer         | #8          | 🔧 fixing review findings |                                                                     |
+| Billing                                           | Senior Engineer         | #10         | 🔧 fixing review findings | security + money integrity + GST tax invoice                        |
+| Themes module + Mohar brand                       | Principal Designer      | #17         | 🔧 merging develop        | Calm Fintech default, custom themes, brand settings                 |
+| Notifications                                     | Senior Engineer         | —           | ⏳ wave 2                 |                                                                     |
+| Affiliates                                        | Senior Engineer         | —           | ⏳ wave 2                 |                                                                     |
+| Nepal payment drivers (Khalti, eSewa, ConnectIPS) | Senior Engineer         | —           | ⏳ wave 2                 | spec: payments-nepal.md                                             |
+| Registrar drivers (.np, ResellerClub, Namecheap)  | Senior Engineer         | —           | ⏳ wave 2                 | spec: registrars.md; needs #12 first                                |
+| Reports, AI module, WHMCS importer                | Senior Engineers        | —           | ⏳ wave 3                 | specs ready                                                         |
 
 ## Timeline
+
+### 2026-10-18
+
+- Merged: dependency policy (#9), Domains (#5), Catalog (#4), Platform (#3). Contracts v2 (ADR 0008) settled cross-module seams.
+- Product decisions: Calm Fintech default theme with customisable themes; product name **Mohar** (configurable).
+- Specs: registrar drivers; Nepal payment gateways.
 
 ### 2026-10-17
 

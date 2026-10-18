@@ -3,6 +3,31 @@
 Status: draft for engineering · Owner: Core workstream · Refines FEATURE_MAP §0
 Clean-room: behaviour derived from public category docs (WHMCS, Blesta, FOSSBilling); naming/schemas are ours.
 
+## Deferred (v1.1)
+
+Deferred by the CTO in the PR #3 review; each item gets a follow-up issue:
+
+- **Client delete / anonymise** (§11, AC19). Closing is the only lifecycle exit in v1.
+- **Maintenance mode** (§7, AC13). Use `php artisan down` (with `--secret`) meanwhile.
+- **Password history** (§4, `password_histories`, AC8).
+- **Auto-inactive job** (§11, AC21) and **exchange-rate auto-update** (§6).
+- **Staff tasks** (§2) and **staff API tokens** (§4).
+
+Implementation notes (v1 deviations from this spec):
+
+- Setting keys: `core.company_name`, `core.company_email`, `core.default_country`, `core.date_format`,
+  `core.automation_time` (spec: `company.*`, `automation.daily_run_time`). Platform keys:
+  `security.staff_2fa_required`, `security.login_max_attempts`, `security.login_lockout_minutes`,
+  `security.login_ip_allowlist`, `platform.impersonation_minutes`, `platform.invitation_expiry_days`,
+  `platform.activity_log_retention_days`.
+- Sensitive permissions (impersonate, merge, close, `core.users.*`, `core.staff.*`, `core.roles.*`, `core.settings.security`) are
+  never granted by wildcards and need a recent password confirmation (see `docs/security/STANDARDS.md`).
+- Currencies: v1 supports 2-decimal currencies only (ADR 0002); the `decimals` column is kept for later.
+- Client merge: Core moves contacts and logins and dispatches `ClientMerged` inside the transaction; every other module
+  re-points its own tables in a listener and can preview or veto a merge through `ClientMergeRegistry`.
+- AC18: Core closes the client and emits `ClientClosed`. Cancelling invoices and services and turning off domain
+  auto-renew are owned by the Billing, Services and Domains listeners, so the criterion is met once those listeners land.
+
 ## 1. Purpose & scope
 
 Cross-cutting administration: staff accounts, roles & permissions, staff 2FA and login security, client groups, currencies & exchange rates,
