@@ -6,6 +6,7 @@ use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Domains\DomainPricing;
 use App\Data\Catalog\ProductSelection;
+use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
@@ -45,8 +46,8 @@ class CartPricer
 
         foreach ($items as $item) {
             $cart->items[] = $item->kind === CartItemKind::Product
-                ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null)
-                : $this->priceDomainItem($item, $cart->currency);
+                ? $this->priceProduct($item, $cart->currency, $priceOverrides[$item->key] ?? null, $client?->id)
+                : $this->priceDomainItem($item, $cart->currency, $client?->id);
         }
 
         $this->applyPromotion($cart, $promotionCode, $client);
@@ -55,7 +56,7 @@ class CartPricer
         return $cart;
     }
 
-    private function priceProduct(CartItem $item, string $currency, ?int $override): PricedItem
+    private function priceProduct(CartItem $item, string $currency, ?int $override, ?int $clientId): PricedItem
     {
         $product = $item->productId === null ? null : $this->priceBook->product($item->productId);
         $cycle = $item->cycle ?? BillingCycle::Monthly;
@@ -78,7 +79,7 @@ class CartPricer
             $priced->errors[] = __(':domain is already used by another service.', ['domain' => $item->domain()]);
         }
 
-        $quote = $this->priceBook->quote(new ProductSelection($product->id, $cycle, $currency, $item->configOptions));
+        $quote = $this->priceBook->quote(new ProductSelection($product->id, $cycle, $currency, $item->configOptions, $clientId));
 
         if ($quote === null) {
             $priced->errors[] = __(':product is not available for this billing cycle in :currency.', ['product' => $product->name, 'currency' => $currency]);
@@ -107,7 +108,8 @@ class CartPricer
         $this->priceAddons($priced, $item, $product->id, $cycle, $currency, $product->taxable);
 
         if (($action = $item->domainAction()) !== null && $item->domain() !== null) {
-            $this->priceDomain($priced, $item, $item->domain(), $action, 1, $currency);
+            $freeDomain = $product->freeDomain && $action === 'register' && in_array($cycle->value, $product->freeDomainCycles, true);
+            $this->priceDomain($priced, $item, $item->domain(), $action, 1, $currency, $clientId, $freeDomain ? $product : null);
         }
 
         return $priced;
@@ -146,19 +148,23 @@ class CartPricer
         }
     }
 
-    private function priceDomainItem(CartItem $item, string $currency): PricedItem
+    private function priceDomainItem(CartItem $item, string $currency, ?int $clientId): PricedItem
     {
         $domain = (string) $item->domain();
         $action = (string) $item->domainAction();
         $title = $action === 'transfer' ? __('Domain transfer') : __('Domain registration');
         $priced = new PricedItem($item, $title, $domain);
 
-        $this->priceDomain($priced, $item, $domain, $action, $item->years, $currency);
+        $this->priceDomain($priced, $item, $domain, $action, $item->years, $currency, $clientId);
 
         return $priced;
     }
 
-    private function priceDomain(PricedItem $priced, CartItem $item, string $domain, string $action, int $years, string $currency): void
+    /**
+     * @param  ProductSummary|null  $bundle  the hosting product when its free-domain offer covers this registration
+     *                                       (catalog.md §3.10; the TLD is checked here)
+     */
+    private function priceDomain(PricedItem $priced, CartItem $item, string $domain, string $action, int $years, string $currency, ?int $clientId, ?ProductSummary $bundle = null): void
     {
         $parts = $this->domainPricing->split($domain);
 
@@ -169,7 +175,7 @@ class CartPricer
         }
 
         $tld = strtolower($parts[1]);
-        $price = $this->domainPricing->price($tld, $action === 'transfer' ? 'transfer' : 'register', $years, $currency);
+        $price = $this->domainPricing->price($tld, $action === 'transfer' ? 'transfer' : 'register', $years, $currency, $clientId);
 
         if ($price === null) {
             $priced->errors[] = __(':tld domains cannot be ordered for :years year(s) in :currency.', ['tld' => $tld, 'years' => $years, 'currency' => $currency]);
@@ -178,14 +184,16 @@ class CartPricer
         }
 
         $label = $action === 'transfer' ? __('Domain transfer') : __('Domain registration');
+        $renewal = $this->domainPricing->price($tld, 'renew', $years, $currency, $clientId) ?? $price;
+        $free = $bundle !== null && in_array($tld, array_map(strtolower(...), $bundle->freeDomainTlds), true);
 
         $priced->lines[] = new PricedLine(
             key: $item->key.':domain',
             itemKey: $item->key,
             kind: 'domain',
-            description: "{$label}: {$domain}",
-            recurring: $price,
-            renewal: $this->domainPricing->price($tld, 'renew', $years, $currency) ?? $price,
+            description: $free ? __(':label: :domain (free with :product)', ['label' => $label, 'domain' => $domain, 'product' => $bundle->name]) : "{$label}: {$domain}",
+            recurring: $free ? 0 : $price,
+            renewal: $free && $bundle->freeDomainRecurring ? 0 : $renewal,
             taxable: (bool) $this->settings->get('orders.domains_taxable', true),
             years: $years,
             domain: $domain,

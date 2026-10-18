@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Actions;
 
+use App\Contracts\Domains\DomainPricing;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
@@ -18,6 +19,7 @@ class AddDomainToCart
 {
     public function __construct(
         private CartPricer $pricer,
+        private DomainPricing $pricing,
         private Settings $settings,
     ) {}
 
@@ -33,6 +35,12 @@ class AddDomainToCart
 
         if ($transfer && $epp === '' && $this->settings->get('orders.transfer_requires_epp', true)) {
             throw ValidationException::withMessages(['epp_code' => __('Enter the authorization (EPP) code from your current registrar.')]);
+        }
+
+        $tld = $this->pricing->split(strtolower(trim($input['domain'])))[1] ?? null;
+
+        if ($tld !== null && ! in_array((int) $input['years'], $this->pricing->terms($tld, $transfer ? 'transfer' : 'register', $cart->currency), true)) {
+            throw ValidationException::withMessages(['years' => __('Choose one of the registration periods offered for :tld.', ['tld' => $tld])]);
         }
 
         $item = new CartItem(

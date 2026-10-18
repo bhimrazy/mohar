@@ -298,6 +298,44 @@ it('passes recurring promotion terms to the service for renewals', function () {
         ->and($draft->recurringAmount)->toBe(1000);
 });
 
+it('quotes products and domains for the ordering client so group pricing applies', function () {
+    $this->fakes->catalog->addProduct(1);
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, domain: 'acme.com', mode: 'register')]));
+
+    expect(array_unique($this->fakes->catalog->quotedFor))->toBe([$this->client->id])
+        ->and(array_unique($this->fakes->domains->pricedFor))->toBe([$this->client->id]);
+});
+
+it('registers the bundled domain for free on qualifying cycles', function (string $cycle, bool $free) {
+    $this->fakes->catalog->addProduct(1, pricing: ['monthly' => [1000, 0], 'annually' => [10000, 0]], freeDomain: true, freeDomainTlds: ['.com'], freeDomainCycles: ['annually']);
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, $cycle, 'acme.com', 'register')]));
+
+    $domain = $this->fakes->domains->created[array_key_first($this->fakes->domains->created)];
+    expect($domain->firstPaymentAmount)->toBe($free ? 0 : 1200)
+        ->and($domain->recurringAmount)->toBe(1400);
+})->with([
+    'annual plan' => ['annually', true],
+    'monthly plan' => ['monthly', false],
+]);
+
+it('keeps the bundled domain free on renewals when the offer recurs', function () {
+    $this->fakes->catalog->addProduct(1, pricing: ['annually' => [10000, 0]], freeDomain: true, freeDomainTlds: ['.com'], freeDomainCycles: ['annually'], freeDomainRecurring: true);
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'annually', 'acme.com', 'register')]));
+
+    expect($this->fakes->domains->created[array_key_first($this->fakes->domains->created)]->recurringAmount)->toBe(0);
+});
+
+it('does not give a free domain for TLDs outside the offer', function () {
+    $this->fakes->catalog->addProduct(1, pricing: ['annually' => [10000, 0]], freeDomain: true, freeDomainTlds: ['.com'], freeDomainCycles: ['annually']);
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'annually', 'acme.net', 'register')]));
+
+    expect($this->fakes->domains->created[array_key_first($this->fakes->domains->created)]->firstPaymentAmount)->toBe(1300);
+});
+
 it('passes custom field values to the service keyed by field id', function () {
     $this->fakes->catalog->addProduct(1);
     $item = new CartItem(CartItem::newKey(), CartItemKind::Product, productId: 1, cycle: BillingCycle::Monthly, customFields: [7 => 'web01.example.com']);

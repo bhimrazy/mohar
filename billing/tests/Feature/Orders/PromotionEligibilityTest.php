@@ -103,6 +103,14 @@ it('requires an active service for existing-clients-only promotions', function (
     expect(pricePromotion($promotion->code, client: $client)->promotionError)->toBeNull();
 });
 
+it('counts active services from the Services directory for existing-clients-only promotions', function () {
+    $promotion = Promotion::factory()->create(['existing_clients_only' => true]);
+    $client = Client::factory()->create();
+    $this->fakes->clientServices->services[$client->id] = [['id' => 9, 'label' => 'Imported plan', 'status' => 'active']];
+
+    expect(pricePromotion($promotion->code, client: $client)->promotionError)->toBeNull();
+});
+
 it('discounts only the more expensive item when applied once', function () {
     $promotion = Promotion::factory()->percent('10')->create(['apply_once' => true]);
 

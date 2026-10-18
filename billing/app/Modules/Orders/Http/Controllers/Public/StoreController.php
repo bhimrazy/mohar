@@ -47,9 +47,10 @@ class StoreController extends Controller
         abort_if($summary === null || ! $summary->active, 404);
 
         $cycles = [];
+        $clientId = $customers->clientFor($request->user(), $request->session())?->id;
 
         foreach ($this->priceBook->availableCycles($product, $currency) as $cycle) {
-            $quote = $this->priceBook->quote(new ProductSelection($product, $cycle, $currency));
+            $quote = $this->priceBook->quote(new ProductSelection($product, $cycle, $currency, clientId: $clientId));
 
             if ($quote !== null) {
                 $cycles[] = ['cycle' => $cycle->value, 'recurring' => $quote->recurring, 'setup' => $quote->setup];
@@ -80,7 +81,7 @@ class StoreController extends Controller
                 'domain_name' => $editing->domain(),
                 'addon_ids' => $editing->addonIds,
             ] : null,
-            'signed_in' => $customers->clientFor($request->user(), $request->session()) !== null,
+            'signed_in' => $clientId !== null,
             ...$this->carts->storeProps($request),
         ]);
     }
@@ -122,9 +123,10 @@ class StoreController extends Controller
         ]);
     }
 
-    public function domains(Request $request, DomainPricing $pricing): Response
+    public function domains(Request $request, DomainPricing $pricing, CustomerResolver $customers): Response
     {
         $currency = $this->carts->currencyFor($request);
+        $clientId = $customers->clientFor($request->user(), $request->session())?->id;
         $search = $request->string('domain')->trim()->lower()->toString();
         $results = [];
 
@@ -140,9 +142,11 @@ class StoreController extends Controller
                 $results[] = [
                     'domain' => $candidate,
                     'tld' => $parts[1],
-                    'register' => $pricing->price($parts[1], 'register', 1, $currency),
-                    'transfer' => $pricing->price($parts[1], 'transfer', 1, $currency),
-                    'renew' => $pricing->price($parts[1], 'renew', 1, $currency),
+                    'register' => $pricing->price($parts[1], 'register', 1, $currency, $clientId),
+                    'transfer' => $pricing->price($parts[1], 'transfer', 1, $currency, $clientId),
+                    'renew' => $pricing->price($parts[1], 'renew', 1, $currency, $clientId),
+                    'register_terms' => $pricing->terms($parts[1], 'register', $currency),
+                    'transfer_terms' => $pricing->terms($parts[1], 'transfer', $currency),
                 ];
             }
         }

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Pricing;
 
+use App\Contracts\Services\ClientServiceDirectory;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
@@ -23,6 +24,7 @@ class PromotionEligibility
     public function __construct(
         private CompanyClock $clock,
         private CurrencyConverter $converter,
+        private ClientServiceDirectory $clientServices,
     ) {}
 
     /**
@@ -120,8 +122,18 @@ class PromotionEligibility
             ->exists();
     }
 
+    /**
+     * Any active service: from Services' directory (includes services created outside Orders), or one
+     * activated through an order.
+     */
     public function hasActiveService(Client $client): bool
     {
+        foreach ($this->clientServices->forClient($client->id) as $service) {
+            if ($service['status'] === 'active') {
+                return true;
+            }
+        }
+
         return $this->ownedItems($client)->exists();
     }
 

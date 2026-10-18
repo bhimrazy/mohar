@@ -25,6 +25,8 @@ type Result = {
     register: number | null;
     transfer: number | null;
     renew: number | null;
+    register_terms: number[];
+    transfer_terms: number[];
 };
 
 type Props = {
@@ -96,7 +98,15 @@ function DomainRow({ result, currency }: { result: Result; currency: string }) {
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
-                            <Select name="years" defaultValue="1">
+                            <Select
+                                key={action}
+                                name="years"
+                                defaultValue={String(
+                                    (action === 'register'
+                                        ? result.register_terms
+                                        : result.transfer_terms)[0] ?? 1,
+                                )}
+                            >
                                 <SelectTrigger
                                     aria-label={`Years for ${result.domain}`}
                                     className="w-28"
@@ -104,7 +114,10 @@ function DomainRow({ result, currency }: { result: Result; currency: string }) {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {[1, 2, 3, 5, 10].map((years) => (
+                                    {(action === 'register'
+                                        ? result.register_terms
+                                        : result.transfer_terms
+                                    ).map((years) => (
                                         <SelectItem
                                             key={years}
                                             value={String(years)}

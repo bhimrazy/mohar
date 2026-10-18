@@ -55,7 +55,7 @@ describe('store pages', function () {
         $this->get(route('store.domains', ['domain' => 'acme.com']))
             ->assertInertia(fn (Assert $page) => $page
                 ->component('public/store/domains')
-                ->where('results.0', ['domain' => 'acme.com', 'tld' => '.com', 'register' => 1200, 'transfer' => 1000, 'renew' => 1400])
+                ->where('results.0', ['domain' => 'acme.com', 'tld' => '.com', 'register' => 1200, 'transfer' => 1000, 'renew' => 1400, 'register_terms' => [1, 2, 3, 5, 10], 'transfer_terms' => [1, 2, 3, 5, 10]])
                 ->where('results.1.domain', 'acme.net'));
     });
 });
@@ -134,6 +134,11 @@ describe('cart', function () {
 
         $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'config_options' => [3 => 99]])
             ->assertSessionHasErrors(['custom_fields.5' => 'Enter Hostname.', 'config_options.3' => 'Choose one of the listed options for Memory.']);
+    });
+
+    it('only offers the registration periods the TLD supports', function () {
+        $this->post(route('store.cart.domains.store'), ['domain' => 'acme.com', 'action' => 'register', 'years' => 4])
+            ->assertSessionHasErrors(['years' => 'Choose one of the registration periods offered for .com.']);
     });
 
     it('stores the EPP code encrypted', function () {
