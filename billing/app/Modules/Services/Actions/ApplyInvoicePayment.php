@@ -64,9 +64,10 @@ class ApplyInvoicePayment
     }
 
     /**
-     * Net amount per billable line: Promotion lines belong to the closest preceding Service or
-     * ServiceAddon line (Orders and renewals emit item → setup? → promotion), so the stored period
-     * amount is what the client actually paid (used for downgrade credits).
+     * Net amount per billable line: a Promotion line belongs to the Service/ServiceAddon line it
+     * directly follows (only a ServiceSetup line may sit between them — Orders and renewals emit
+     * item → setup? → promotion). Any other line in between ends the item. The stored period amount
+     * is what the client actually paid (used for downgrade credits).
      *
      * @param  list<InvoiceLineData>  $lines
      * @return array<int, int> line index => net amount
@@ -84,6 +85,10 @@ class ApplyInvoicePayment
                 $net[$owner] = max(0, $net[$owner] + $line->total());
             } elseif ($line->billableType === BillableType::ServiceUpgrade) {
                 $net[$index] = $line->total();
+                $owner = null;
+            } elseif ($line->billableType !== BillableType::ServiceSetup) {
+                // A domain, fee or manual line ends the item: a following promotion is not ours.
+                $owner = null;
             }
         }
 

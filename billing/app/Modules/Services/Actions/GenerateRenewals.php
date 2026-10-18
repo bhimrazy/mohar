@@ -134,7 +134,7 @@ class GenerateRenewals
                 paymentGateway: $service->payment_gateway,
             ));
 
-            $this->links->record($service, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $end, $service->recurring_amount - $discount, $this->linkStatus($result->status));
+            $this->links->record($service, $result->invoiceId, InvoiceLinkKind::Renewal, $start, $end, $service->recurring_amount - $discount, $this->linkStatus($result->status), $discount);
 
             $service->refresh()->fill(['next_invoice_date' => $end, 'renewals_invoiced' => $service->renewals_invoiced + 1]);
 

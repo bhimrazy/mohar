@@ -136,6 +136,7 @@ return new class extends Migration
             $table->date('period_start')->nullable();
             $table->date('period_end')->nullable();
             $table->bigInteger('amount')->default(0);
+            $table->bigInteger('discount')->default(0);
             $table->string('status', 20)->default('open')->index();
             $table->timestamps();
             $table->index(['service_id', 'period_start']);

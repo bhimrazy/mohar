@@ -7,6 +7,7 @@ use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\ServiceInvoice;
+use App\Modules\Services\Services\InvoiceLinks;
 use App\Modules\Services\Support\Billing;
 use Carbon\CarbonImmutable;
 
@@ -21,7 +22,7 @@ use Carbon\CarbonImmutable;
  */
 class CancelOpenRenewals
 {
-    public function __construct(private Billing $billing) {}
+    public function __construct(private Billing $billing, private InvoiceLinks $links) {}
 
     /**
      * @return int number of invoices cancelled
@@ -50,7 +51,7 @@ class CancelOpenRenewals
                 $this->billing->invoicer()->cancel((int) $invoiceId);
             }
 
-            ServiceInvoice::query()->where('invoice_id', $invoiceId)->update(['status' => InvoiceLinkStatus::Cancelled->value]);
+            $this->links->cancelInvoice((int) $invoiceId);
             $cancelled[] = $invoiceLinks;
         }
 

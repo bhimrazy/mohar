@@ -4,7 +4,6 @@ namespace App\Modules\Services\Listeners;
 
 use App\Events\Billing\InvoiceCancelled;
 use App\Modules\Services\Enums\ChangeStatus;
-use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Services\InvoiceLinks;
 
@@ -17,7 +16,7 @@ class SyncCancelledInvoice
 
     public function handle(InvoiceCancelled $event): void
     {
-        $this->links->markInvoice($event->invoiceId, InvoiceLinkStatus::Cancelled);
+        $this->links->cancelInvoice($event->invoiceId);
 
         ServiceChange::query()
             ->where('invoice_id', $event->invoiceId)
