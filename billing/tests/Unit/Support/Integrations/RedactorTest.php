@@ -29,14 +29,50 @@ test('a sensitive key hides its whole subtree', function () {
         ->toBe(['password' => '[redacted]', 'credentials' => ['token' => '[redacted]']]);
 });
 
-test('registrar keys are covered: exact short keys, EPP codes, signatures and dashed API keys', function (string $key) {
+test('secret keys are matched by word, whatever the spelling', function (string $key) {
     expect((new Redactor)->redact([$key => 'value', 'domain' => 'example.com']))
         ->toBe([$key => '[redacted]', 'domain' => 'example.com']);
-})->with(['code', 'PW', 'key', 'pass', 'epp_code', 'auth_info', 'transfer_code', 'api-key', 'ApiKey', 'passwd', 'signature', 'private_key']);
+})->with([
+    'PW', 'key', 'pass', 'epp_code', 'auth_info', 'auth', 'X-Auth-Token', 'transfer_code', 'api-key', 'ApiKey', 'APIKey',
+    'apikey', 'passwd', 'newpassword', 'signature', 'private_key', 'access_hash', 'card_number', 'cvv', 'exp_month',
+]);
 
-test('ordinary keys that only resemble short secret keys are kept', function () {
-    expect((new Redactor)->redact(['country_code' => 'NP', 'keyword' => 'hosting', 'passive' => true]))
-        ->toBe(['country_code' => 'NP', 'keyword' => 'hosting', 'passive' => true]);
+test('ordinary keys that only resemble secret words are kept, including provider error codes', function () {
+    $payload = ['author' => 'Jane', 'country_code' => 'NP', 'keyword' => 'hosting', 'passive' => true, 'company' => 'Acme', 'expires' => 1700000000, 'error' => ['code' => 500, 'message' => 'Internal error']];
+
+    expect((new Redactor)->redact($payload))->toBe($payload);
+});
+
+test('a payload can mark extra keys as secret, such as code in an EPP code answer', function () {
+    expect((new Redactor)->redact(['code' => 'ABCD-1234', 'emailed' => false], sensitiveKeys: ['code']))
+        ->toBe(['code' => '[redacted]', 'emailed' => false]);
+});
+
+test('objects are read as arrays before redaction, so DTOs cannot carry secrets past the mask', function () {
+    $dto = new class
+    {
+        public string $username = 'root';
+
+        public string $password = 'hunter22';
+    };
+    $json = new class implements JsonSerializable
+    {
+        public function jsonSerialize(): array
+        {
+            return ['token' => 't-1', 'ok' => true];
+        }
+    };
+
+    expect((new Redactor)->redact(['server' => $dto, 'answer' => $json, 'items' => collect([['secret' => 's']])]))->toBe([
+        'server' => ['username' => 'root', 'password' => '[redacted]'],
+        'answer' => ['token' => '[redacted]', 'ok' => true],
+        'items' => [['secret' => '[redacted]']],
+    ]);
+});
+
+test('card numbers are masked inside free text when they pass the Luhn check', function () {
+    expect((new Redactor)->redact(['message' => 'Card 4242 4242 4242 4242 was declined', 'order' => '1234567890123']))
+        ->toBe(['message' => 'Card [redacted-pan] was declined', 'order' => '1234567890123']);
 });
 
 test('url-encoded and base64 forms of known secrets are masked', function () {
