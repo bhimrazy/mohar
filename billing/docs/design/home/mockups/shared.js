@@ -71,10 +71,11 @@
     window.mIcon = icon;
 
     // Live data from the preview database (Catalog groups, cycle prices, spotlight TLDs).
-    const currency = document.body.dataset.currency || 'USD';
-    const PRICES = {
+    const currency = params.get('currency') || document.body.dataset.currency || 'USD';
+    const PRICES = window.mHeaderPrices || {
         USD: { shared: '$3.21', vps: '$10.75', ssl: '$28.99', cart: 2 },
         NPR: { shared: 'Rs 485.38', vps: 'Rs 1,549.92', ssl: 'Rs 4,409.00', cart: 2 },
+        INR: { shared: '₹303.29', vps: '₹969.08', ssl: '₹2,759.00', cart: 2 },
     }[currency];
     const GROUPS = [
         { key: 'shared', name: 'Shared Hosting', desc: 'Fast, secure hosting for every website', icon: 'server', per: '/mo', plans: 3 },
@@ -233,12 +234,52 @@
         </div>
     </footer>`;
 
+    // Revision 1 footer (direction A and the 404): company profile, statutory IDs, link columns
+    // including Company and legal pages, payment marks for the currency, tax statement.
+    const tax = window.mTaxStatement || 'Tax added at checkout where applicable';
+    const payStrip = window.mPayStrip ? window.mPayStrip() : '';
+    const footerR1 = `
+    <footer class="site-footer">
+        <div class="container footer-r1">
+            <div class="company">
+                <a class="brand" href="#"><span class="brand-mark">${icon('cloud')}</span><span style="color:var(--foreground)">${brand}</span></a>
+                <p>Web hosting, domains and SSL for businesses in Nepal and beyond.</p>
+                <div class="row">${icon('pin')}<span><strong style="color:var(--foreground)">Acme Hosting Pvt. Ltd.</strong><br>Jhamsikhel Road, Lalitpur 44600, Bagmati, Nepal</span></div>
+                <div class="row">${icon('mail')}<a href="#">support@example.com</a></div>
+                <div class="row">${icon('phone')}<span><a href="#" class="num">+977 1-5900000</a> · WhatsApp <a href="#" class="num">+977 98-00000000</a></span></div>
+                <div class="row">${icon('clock')}<span>Support Sun–Fri, 9:00–18:00 (Nepal time). Tickets every day.</span></div>
+                <dl class="ids">
+                    <div><dt>PAN/VAT no.</dt><dd class="num">000000000</dd></div>
+                    <div><dt>Company reg. no.</dt><dd class="num">000000/00/000</dd></div>
+                    <div><dt>E-commerce reg. no.</dt><dd class="num">0000/00</dd></div>
+                </dl>
+            </div>
+            <div class="footer-cols">
+                <div><h4>Hosting</h4><ul>${GROUPS.map((g) => `<li><a href="#">${g.name}</a></li>`).join('')}<li><a href="#">Compare all plans</a></li></ul></div>
+                <div><h4>Domains</h4><ul><li><a href="#">Register a domain</a></li><li><a href="#">Transfer a domain</a></li><li><a href="#">Domain pricing</a></li></ul></div>
+                <div><h4>Support</h4><ul><li><a href="#">Knowledge base</a></li><li><a href="#">Announcements</a></li><li><a href="#">Network status</a></li><li><a href="#">Open a ticket</a></li></ul></div>
+                <div><h4>Account</h4><ul>${signedIn ? '<li><a href="#">Client area</a></li>' : '<li><a href="#">Log in</a></li><li><a href="#">Create account</a></li>'}<li><a href="#">Pay an invoice</a></li><li><a href="#">Reset password</a></li></ul></div>
+                <div><h4>Company</h4><ul><li><a href="#">About us</a></li><li><a href="#">Contact us</a></li><li><a href="#">Terms of service</a></li><li><a href="#">Privacy policy</a></li><li><a href="#">Refund policy</a></li></ul></div>
+            </div>
+        </div>
+        <div class="container footer-pay">
+            <span class="eyebrow">We accept</span>
+            <div class="pay-strip">${payStrip}</div>
+            <p class="tax-note">${icon('info')}<span>Prices in ${currency}: ${tax}.</span></p>
+        </div>
+        <div class="container footer-bottom">
+            <span>© 2026 Acme Hosting Pvt. Ltd.</span>
+            <nav class="legal" aria-label="Social"><a href="#">Facebook</a><a href="#">Instagram</a><a href="#">LinkedIn</a></nav>
+            <div class="tools"><span>Currency</span><button class="select btn-sm" type="button" aria-label="Currency, ${currency}" style="height:32px">${currency}${icon('chev', 'chev')}</button></div>
+        </div>
+    </footer>`;
+
     const slot = (id, html) => {
         const el = document.getElementById(id);
         if (el) el.outerHTML = html;
     };
     slot('site-header', header + (document.body.dataset.statusStrip === 'off' ? '' : statusStrip) + sheet);
-    slot('site-footer', footer);
+    slot('site-footer', document.body.dataset.footer === 'r1' ? footerR1 : footer);
 
     // Replace [data-icon] placeholders in page markup.
     document.querySelectorAll('[data-icon]').forEach((el) => {

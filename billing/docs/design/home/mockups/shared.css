@@ -43,6 +43,8 @@
     --hero-wash: radial-gradient(1200px 400px at 15% -10%, #eeeffb 0%, transparent 60%),
         radial-gradient(900px 360px at 95% 0%, #eaf2fa 0%, transparent 55%);
     --logo-chip: #ffffff;
+    --logo-chip-foreground: #283044;
+    --logo-chip-dashed: #7a8396;
     color-scheme: light;
 }
 
@@ -1090,13 +1092,44 @@ a.card:hover {
     gap: 8px;
     font-size: 13px;
     font-weight: 550;
-    color: #283044;
+    color: var(--logo-chip-foreground);
 }
 
 .pay-logo img {
     height: 22px;
     width: auto;
     display: block;
+}
+
+/* Payment mark placeholder: text badge until official artwork is added */
+.pay-logo.placeholder {
+    border-style: dashed;
+    border-color: var(--logo-chip-dashed);
+    position: relative;
+}
+
+.ph-tag {
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    transform: translate(-50%, 4px);
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--info-text);
+    background: var(--info-subtle);
+    border-radius: 999px;
+    padding: 1px 8px;
+}
+
+.pay-strip:has(.placeholder) {
+    padding-bottom: 20px;
+    row-gap: 26px;
+}
+
+.tax-line {
+    font-size: 12.5px;
+    color: var(--muted-foreground);
 }
 
 /* Footer */
@@ -1179,6 +1212,101 @@ a.card:hover {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+/* Footer, revision 1 */
+.footer-r1 {
+    display: grid;
+    grid-template-columns: 1.5fr 3fr;
+    gap: 40px;
+    padding-top: 48px;
+    padding-bottom: 32px;
+}
+
+.footer-cols {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 24px;
+}
+
+.footer-cols h4 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    margin-bottom: 12px;
+}
+
+.footer-cols li {
+    padding: 4px 0;
+}
+
+.footer-cols li a {
+    color: var(--foreground);
+}
+
+.ids {
+    margin: 4px 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    padding-left: 24px;
+}
+
+.ids > div {
+    display: flex;
+    gap: 6px;
+}
+
+.ids dt {
+    color: var(--muted-foreground);
+}
+
+.ids dd {
+    margin: 0;
+    color: var(--foreground);
+    font-weight: 550;
+}
+
+.footer-pay {
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 20px;
+    padding-top: 18px;
+    padding-bottom: 26px;
+}
+
+.footer-pay .tax-note {
+    margin-left: auto;
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    font-size: 13.5px;
+    color: var(--foreground);
+}
+
+@media (max-width: 1080px) {
+    .footer-r1 {
+        grid-template-columns: 1fr;
+    }
+
+    .footer-cols {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 720px) {
+    .footer-cols {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .footer-pay .tax-note {
+        margin-left: 0;
+    }
 }
 
 /* Mobile sheet */
@@ -1306,11 +1434,23 @@ a.card:hover {
     }
 
     .container {
-        padding: 0 16px;
+        padding-left: 16px;
+        padding-right: 16px;
     }
 
     .hide-sm {
         display: none !important;
+    }
+
+    .segmented {
+        width: 100%;
+    }
+
+    .segmented button {
+        flex: 1;
+        justify-content: center;
+        padding: 0 6px;
+        white-space: nowrap;
     }
 
     .site-header .header-tools .btn {

@@ -1,6 +1,7 @@
 # Storefront home page: directions
 
-Status: proposal for the owner to choose from (2026-10-18). Design only; no product code has changed.
+Status: the owner chose **direction A** (2026-10-18). Revision 1 below brings A in line with the storefront-marketing
+spec. B and C are kept as they were for reference. This is design only; no product code has changed.
 
 ## Problem
 
@@ -247,11 +248,65 @@ The issue below is not in this page's scope:
 
 ## Decisions for the owner
 
-1. Direction: A (recommended), B or C.
-2. Products in the header: Automatic, up to 4 links and then one menu (recommended), or always a menu.
+1. Direction: decided, A (2026-10-18).
+2. Products in the header: Automatic, then one menu from 4 groups (the spec's rule, recommended), or always a menu.
 3. Basis for the "from" price: the store uses the cheapest per-month price over the longest cycle
    (`$3.21/mo, billed $76.99 every 2 years`). Keep it for the home page and menus (recommended, consistent),
    or use the monthly price.
 4. Network status banner on every public page while an incident is open: on by default (recommended).
 5. The company profile, which the footer reads, is not built yet. It needs a small Settings workstream
    before the footer can ship as designed.
+
+## Revision 1: direction A against the storefront-marketing spec
+
+Source: `billing/docs/product/storefront-marketing.md` (branch `feature/storefront-marketing`, commit 564a7b5).
+Only A changed. The shared header is unchanged. A and the 404 now use the revision-1 footer; B and C keep the
+original footer. A's mockup defaults to NPR. Add `?currency=USD|INR` or `?tax=inclusive` to see the other
+cases. Prices are computed from the preview database's minor units, so every figure is the live value.
+
+| Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Spec criteria met                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Plan cards show four lines: the per-month price, "Billed Rs 6,189.00 annually" with the saving against monthly, "Renews at Rs 6,189.00 annually", and a tax statement beside each price group. The hero plan card adds the monthly alternative. VPS shows its setup fee. Nothing is struck through.                                                                                                                                                                                                                                                                                                                       | §5.2, §5.4, §5.5; criteria 9, 10, 11           |
+| Tax display, both modes, from Billing's tax rules. **Exclusive:** NPR "+13% VAT at checkout", INR "+18% GST at checkout", USD "Tax added at checkout where applicable". **Inclusive:** NPR Rs 6,993.57 with "Prices include 13% VAT". Amounts use lakh grouping.                                                                                                                                                                                                                                                                                                                                                          | §5.4, §5.7; criterion 10                       |
+| Domain tiles show the first-year price and the renewal price for each featured extension.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §6.2 Domain search; §3 domains                 |
+| Payment strip on the home page and in the footer, built from gateways enabled for the visitor's currency. eSewa and Khalti use their official logos and show only for NPR. Bank transfer is plain text because it has no brand. **Card is a placeholder**: a dashed text badge labelled "Text until official logo", until a card driver ships official card-scheme artwork.                                                                                                                                                                                                                                               | §5.6; criterion 13                             |
+| The footer reads the company profile: legal name, address, email, phone, WhatsApp, support hours in Nepal time, PAN/VAT number, company registration number and e-commerce registration number. It adds a Company column (About, Contact, Terms of service, Privacy policy, Refund policy), the payment strip, "Prices in NPR: +13% VAT at checkout", social links, the currency switcher, and © with the legal name. There is no "powered by" line.                                                                                                                                                                      | §4 footer, §6.6; criteria 4, 14                |
+| Trust facts (Hosting since, Data centres, Money-back) sit under the hero. The money-back point in Why us links to the published refund policy.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | §6.2 Why us, Trust facts                       |
+| Hero buttons (two, set by the host) and a call-to-action band were added.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §6.2 Hero, Call to action band                 |
+| No carousels or auto-advancing content anywhere. The cycle switch and menus change only when the visitor acts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | §6.3 Motion (WCAG 2.2.2)                       |
+| Page head is set by the host: title "Acme Hosting \| Reliable hosting for your website", meta description, canonical without a query string, Open Graph tags, `robots`, and `Organization` plus `WebSite` JSON-LD with the same `vatID` and address as the footer.                                                                                                                                                                                                                                                                                                                                                        | §6.7, §7.1–7.3; criteria 14, 16                |
+| 404 page (`mockups/404.html`) uses the public layout with `noindex`. It shows the requested path, a domain search, and links to Hosting plans, Knowledge base, Contact us and Home. The server must return HTTP 404.                                                                                                                                                                                                                                                                                                                                                                                                      | §3 404; criterion 15                           |
+| Admin mockup additions: **Prices and tax** (with or without tax, a per-currency preview of what visitors see, the first billing cycle, a monthly-breakdown switch); **Legal pages** (Terms, Privacy and Refund, each published, linked or draft, built in or external); **Search and sharing** (title with a 60-character counter, description with a 160-character counter, a search-result preview, share image, hide from search engines); hero button fields; Trust facts and Call to action band in the section list; header rule changed to "3 or fewer"; a draft bar with Discard draft, Open preview and Publish. | §5.4, §6.1, §6.2, §6.6, §6.7; criteria 5–8, 24 |
+
+**Not changed:**
+
+- The "More products" and "News and status" sections stay in A as the owner saw them. More products is not in the
+  spec's section list, and Latest news is P1 there.
+- The status strip is P1 in the spec (high or critical incidents only). The preview's open incident is high
+  priority, so it still shows.
+
+**New screenshots** (`billing/docs/screenshots/home-page/`):
+
+- Home page: `a-desktop-{light,dark}.png`, `a-phone-{light,dark}.png`.
+- Tax display:
+    - `a-plans-tax-exclusive-npr-light.png`
+    - `a-plans-tax-inclusive-npr-light.png`
+    - `a-plans-tax-exclusive-inr-light.png`
+    - `a-plans-tax-inclusive-inr-dark.png`
+- Footer: `a-footer-{light,dark}.png`, and `a-footer-usd-light.png`, where eSewa and Khalti are hidden for USD.
+- 404 page: `404-desktop-{light,dark}.png`, `404-phone-{light,dark}.png`.
+- Admin: `admin-settings-{light,dark}.png`.
+
+**Checks:**
+
+- There is no horizontal scroll at 375px on A, the 404 or admin.
+- The keyboard order and menu behaviour are unchanged.
+- The tax chip is 14.17:1 in light and 11.77:1 in dark.
+- The placeholder's dashed border is 3.49:1 on the logo chip.
+
+**New decisions for the owner:**
+
+6. Tax display: prices without tax plus "+13% VAT at checkout" (recommended: it matches invoices and the
+   current store), or prices with tax included.
+7. Where the tax-display setting lives: Storefront (as mocked) or Billing → Tax. The spec's `TaxDisplay` contract
+   (K6) belongs to Billing, so Billing owns it either way.
