@@ -32,6 +32,9 @@ every item.
   work. (2026-10-17)
 - Charts use shadcn Chart (recharts) with theme tokens and look as good as the design
   directions. (2026-10-17)
+- Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
+  modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
+  primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
 
