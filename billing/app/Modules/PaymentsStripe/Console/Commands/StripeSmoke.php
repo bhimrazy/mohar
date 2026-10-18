@@ -24,8 +24,11 @@ use Throwable;
  */
 class StripeSmoke extends Command
 {
+    /**
+     * The key comes from STRIPE_SMOKE_SECRET_KEY or a hidden prompt, never an option, so it stays out of shell
+     * history and the process list.
+     */
     protected $signature = 'payments:stripe-smoke
-        {--secret-key= : Stripe test secret key (else STRIPE_SMOKE_SECRET_KEY, else asked for)}
         {--currency=usd : Currency of the test payment}
         {--amount=1000 : Amount in minor units}';
 
@@ -42,7 +45,7 @@ class StripeSmoke extends Command
             return self::FAILURE;
         }
 
-        $key = $this->option('secret-key') ?: (getenv('STRIPE_SMOKE_SECRET_KEY') ?: $this->secret('Stripe test secret key (sk_test_… or rk_test_…)'));
+        $key = getenv('STRIPE_SMOKE_SECRET_KEY') ?: $this->secret('Stripe test secret key (sk_test_… or rk_test_…)');
         $key = is_string($key) ? trim($key) : '';
 
         if (preg_match('/^(sk|rk)_test_/', $key) !== 1) {

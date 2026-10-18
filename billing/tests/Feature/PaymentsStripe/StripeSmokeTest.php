@@ -2,10 +2,12 @@
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Symfony\Component\Console\Exception\InvalidOptionException;
 
 require_once __DIR__.'/helpers.php';
 
 beforeEach(fn () => Http::preventStrayRequests());
+afterEach(fn () => putenv('STRIPE_SMOKE_SECRET_KEY'));
 
 test('the smoke command pays and refunds in test mode without printing the key', function () {
     $session = ['id' => STRIPE_SESSION, 'object' => 'checkout.session', 'mode' => 'payment', 'livemode' => false, 'payment_status' => 'unpaid', 'payment_intent' => null,
@@ -26,7 +28,9 @@ test('the smoke command pays and refunds in test mode without printing the key',
         };
     });
 
-    $this->artisan('payments:stripe-smoke', ['--secret-key' => STRIPE_SECRET])
+    putenv('STRIPE_SMOKE_SECRET_KEY='.STRIPE_SECRET);
+
+    $this->artisan('payments:stripe-smoke')
         ->expectsOutputToContain('Stripe smoke test passed')
         ->doesntExpectOutputToContain(STRIPE_SECRET)
         ->assertSuccessful();
@@ -35,12 +39,16 @@ test('the smoke command pays and refunds in test mode without printing the key',
     expect(Http::recorded(fn (Request $request) => $request->url() === STRIPE_API.'refunds')->map(fn (array $pair) => $pair[0]['amount'])->values()->all())->toBe([500, 500]);
 });
 
-test('the smoke command refuses live keys and production', function () {
-    $this->artisan('payments:stripe-smoke', ['--secret-key' => 'sk_live_51MoharFakeLiveKey000000000000'])
+test('the smoke command takes the key from a hidden prompt or the environment, never an option, and refuses live keys and production', function () {
+    $this->artisan('payments:stripe-smoke')
+        ->expectsQuestion('Stripe test secret key (sk_test_… or rk_test_…)', 'sk_live_51MoharFakeLiveKey000000000000')
         ->expectsOutputToContain('Live keys are refused')->assertFailed();
 
+    expect(fn () => $this->artisan('payments:stripe-smoke', ['--secret-key' => STRIPE_SECRET]))->toThrow(InvalidOptionException::class);
+
+    putenv('STRIPE_SMOKE_SECRET_KEY='.STRIPE_SECRET);
     app()->detectEnvironment(fn () => 'production');
-    $this->artisan('payments:stripe-smoke', ['--secret-key' => STRIPE_SECRET])
+    $this->artisan('payments:stripe-smoke')
         ->expectsOutputToContain('not allowed in this environment')->assertFailed();
 
     Http::assertNothingSent();
