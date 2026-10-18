@@ -23,6 +23,7 @@ use App\Modules\Billing\Services\GatewayAmounts;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
@@ -62,7 +63,7 @@ class RefundTransaction
             }
 
             if ($amount <= 0 || $amount > $payment->refundable_remaining) {
-                throw new BillingException(__('The refund can be at most :amount.', ['amount' => Money::of($payment->refundable_remaining, $payment->currency)->format()]));
+                throw new BillingException(__('The refund can be at most :amount.', ['amount' => app(MoneyFormatter::class)->format(Money::of($payment->refundable_remaining, $payment->currency))]));
             }
 
             if ($mode === RefundMode::Gateway) {

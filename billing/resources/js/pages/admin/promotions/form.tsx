@@ -37,7 +37,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { decimalAmount } from '@/components/orders/decimal-amount';
-import { fromMinor } from '@/lib/money';
+import { fromMinor, labelWithCurrency } from '@/lib/money';
 import type { SelectOption } from '@/types/app';
 import type { Promotion } from '@/types/orders';
 
@@ -429,8 +429,14 @@ export default function PromotionFormPage({
                                             ? 'Percentage'
                                             : form.data.type ===
                                                 'price_override'
-                                              ? `New price (${currency})`
-                                              : `Amount off (${currency})`
+                                              ? labelWithCurrency(
+                                                    'New price',
+                                                    currency,
+                                                )
+                                              : labelWithCurrency(
+                                                    'Amount off',
+                                                    currency,
+                                                )
                                     }
                                     error={errors.value}
                                     hint={
@@ -562,7 +568,10 @@ export default function PromotionFormPage({
                             </Field>
                             <Field
                                 htmlFor="min_cart_amount"
-                                label={`Minimum cart (${currency})`}
+                                label={labelWithCurrency(
+                                    'Minimum cart',
+                                    currency,
+                                )}
                                 optional
                                 error={errors.min_cart_amount}
                             >

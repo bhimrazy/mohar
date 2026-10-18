@@ -6,14 +6,15 @@ use Illuminate\Database\Seeder;
 use RuntimeException;
 
 /**
- * Base for every module seeder. They create demo data (admin@example.com and demo@example.com with the password
- * "password", demo clients, servers, invoices and tickets), so they refuse to run in production, whether called
- * through DatabaseSeeder or directly with `db:seed --class=...`.
+ * Base for every module demo seeder. They create demo data (admin@example.com and demo@example.com with the password
+ * "password", demo clients, servers, invoices and tickets), so they refuse to run in production when called directly
+ * with `db:seed --class=...`; DatabaseSeeder skips them there. Reference data never goes in a demo seeder: it is an
+ * InstallsReferenceData registered with the ReferenceDataRegistry.
  */
 abstract class DemoSeeder extends Seeder
 {
     public const PRODUCTION_ERROR = 'Demo seeders never run in production: they create accounts with a known password. '
-        .'Production reference data (currencies, system roles) and the first administrator come from the install path tracked in GitHub issue #47.';
+        .'Install reference data (currencies, system roles) and the first administrator with `php artisan app:install` (docs/devops/install.md).';
 
     /**
      * @param  array<string, mixed>  $parameters

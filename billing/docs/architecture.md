@@ -22,8 +22,9 @@ app/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
     Models/  Actions/  Services/  Drivers/  Jobs/  Listeners/  Policies/
-    Console/Commands/             auto-registered artisan commands
-    Database/Migrations|Factories|Seeders/<Module>Seeder.php (auto-run by DatabaseSeeder)
+    Console/Commands/             auto-registered artisan commands (`<module>:<action>`; Core uses its area)
+    Install/                      InstallsReferenceData implementations (reference data, every environment)
+    Database/Migrations|Factories|Seeders/<Module>Seeder.php (demo data; DatabaseSeeder runs it outside production)
     Http/Controllers/{Admin,Client,Public}/  Http/Requests/  Http/Resources/
     routes/web.php                auto-loaded in the "web" middleware group
 resources/js/pages/{admin,client,public}/<module>/...   Inertia pages
@@ -77,7 +78,11 @@ Daily scheduler: Services/Domains create renewal invoices via Invoicer (idempote
 
 **Money** — integers in minor units (`*_amount`, `total`, `subtotal` columns as `bigInteger`), always with a
 `currency` char(3) on the owning record. Use `App\Support\Money` for arithmetic; never floats.
-Display formatting is the frontend's job (`formatMoney`).
+Display: every amount people read goes through the currency's configured display (Admin → Currencies:
+prefix, suffix, number format incl. Indian lakh grouping) — `App\Support\Currencies\MoneyFormatter` on the server
+(dashboards, list meta, merge fields, mail, PDFs) and `formatMoney` / `<Money>` in the browser, which read the same
+config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
+ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
 **Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors
 (`next_due_date`), timestamps for events. Advance cycles with `BillingCycle::advance($date, anchorDay: $model->billing_anchor_day)` — store the
@@ -86,7 +91,7 @@ original day-of-month as an anchor on recurring items to avoid drift. Query `dat
 
 **Automation** — daily jobs are tasks in the central pipeline, never ad-hoc scheduler entries:
 `app(Automation::class)->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today) => $count)`.
-Stages run in order RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
+Stages run in order EXCHANGE_RATES → RENEWALS → LATE_FEES → AUTO_CHARGE → REMINDERS → CANCELLATIONS → SUSPENSIONS →
 TERMINATIONS → SYNC → HOUSEKEEPING via `php artisan automation:run [--date=] [--only=]`; each task must be
 idempotent for its run date (recorded in `automation_runs`). Renewal invoicing must call
 `Invoicer::hasInvoiceForPeriod()` before issuing.
@@ -140,6 +145,27 @@ app(GlobalSearch::class)->provider('Invoices', fn (string $term) => [...['title'
 ```
 
 Every permission you check must be registered; every tunable setting must be registered with a definition.
+
+**Reference data and demo data** — rows the app cannot run without (currencies, system roles, later the default
+email templates) are reference data: an `App\Contracts\Install\InstallsReferenceData` in the module's `Install/`,
+registered in `bootModule()`:
+
+```php
+app(ReferenceDataRegistry::class)->register('notifications_templates', DefaultTemplates::class, order: 100); // Core uses 10–20
+```
+
+`php artisan app:install` (production install, `docs/devops/install.md`) and `DatabaseSeeder` both run every
+registered installer in order, each in a transaction, so the demo and production never drift. `install()` is
+idempotent (a second run creates and updates nothing) and returns a `ReferenceDataResult`. Rows the operator owns
+afterwards (currencies, template wording) are created on the first install only, so a deleted one never comes back.
+Rows the system owns (system roles) are found by a stable key (`roles.key`), never by a name staff can change, and are
+reset to their definition with an audit entry. No users, credentials, demo rows or network calls. The contract is a
+provider contract (ADR 0010): it never gains a method.
+Everything else a module seeds (demo accounts, products, invoices, tickets) goes in its `<Module>Seeder`, which
+extends `DemoSeeder` and so refuses to run in production. Settings, the automation time and theme presets are
+defaults in code and config, not rows. Commands are named `<module>:<action>` (`billing:reconcile-payments`); Core and
+cross-cutting commands use their area instead (`automation:run`, `objects:ensure-bucket`, and the brand-neutral
+`app:install`).
 
 **Themes & brand** — the Themes module renders the active theme's CSS variables into the root view
 (schema: `App\Support\Themes\ThemeSchema`, "billing-theme" v1). Theme packs add presets with

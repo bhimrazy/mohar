@@ -5,14 +5,18 @@ namespace App\Modules\Core;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Currencies\CurrencyDirectory;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
+use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\DateFormats;
@@ -26,6 +30,7 @@ use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -48,6 +53,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+        $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
         $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);
@@ -84,6 +90,10 @@ class CoreServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Account details', 'client.account.edit', 'UserRound', 'Setup', 90));
 
         $this->app->make(CoreDashboard::class)->register($this->app->make(Dashboard::class));
+
+        $reference = $this->app->make(ReferenceDataRegistry::class);
+        $reference->register(DefaultCurrencies::KEY, DefaultCurrencies::class, order: 10);
+        $reference->register(SystemRoles::KEY, SystemRoles::class, order: 20);
 
         $this->app->make(PermissionRegistry::class)->register('Clients', [
             'core.clients.view' => 'View clients',

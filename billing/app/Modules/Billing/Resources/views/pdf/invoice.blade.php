@@ -116,12 +116,13 @@
     @endif
     <tr class="grand"><td>{{ __('Total') }}</td><td class="right">{{ $money($invoice->total) }}</td></tr>
     @foreach ($invoice->adjustments as $adjustment)
-        <tr><td class="muted">{{ $adjustment->description ?? str_replace('_', ' ', $adjustment->reason->value) }}</td><td class="right">{{ $adjustment->kind->value === 'credit' ? '-' : '+' }}{{ $money($adjustment->amount) }}</td></tr>
+        <tr><td class="muted">{{ $adjustment->description ?? str_replace('_', ' ', $adjustment->reason->value) }}</td><td class="right">{{ $adjustment->kind->value === 'credit' ? $money(-$adjustment->amount) : '+'.$money($adjustment->amount) }}</td></tr>
     @endforeach
     @if ($invoice->amount_paid !== 0)
-        <tr><td>{{ __('Paid') }}</td><td class="right">-{{ $money($invoice->amount_paid) }}</td></tr>
+        <tr><td>{{ __('Paid') }}</td><td class="right">{{ $money(-$invoice->amount_paid) }}</td></tr>
     @endif
     <tr class="grand"><td>{{ __('Balance due') }}</td><td class="right">{{ $money($invoice->balance) }}</td></tr>
+    <tr><td colspan="2" class="right muted">{{ __('All amounts in :currency', ['currency' => $invoice->currency]) }}</td></tr>
 </table>
 
 @if ($invoice->tax_exempt_reason?->value === 'reverse_charge')
@@ -143,7 +144,7 @@
                         <td>{{ $date($transaction->occurred_at) }}</td>
                         <td>{{ $gatewayName($transaction->gateway) }}</td>
                         <td>{{ $transaction->gateway_txn_id ?? '—' }}</td>
-                        <td class="right">{{ $transaction->amount_out > 0 ? '-'.$money($transaction->amount_out) : $money($transaction->amount_in) }}</td>
+                        <td class="right">{{ $transaction->amount_out > 0 ? $money(-$transaction->amount_out) : $money($transaction->amount_in) }}</td>
                     </tr>
                 @endforeach
             </tbody>

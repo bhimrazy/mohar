@@ -121,13 +121,13 @@ test('a method that cannot take the amount is shown disabled with the reason and
     [, $invoice] = nprInvoice([500]);
 
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['unavailable_reason'] === 'Khalti needs at least Rs. 10.00.'
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['unavailable_reason'] === 'Khalti needs at least Rs 10.00.'
             && collect($gateways)->firstWhere('key', 'bank_transfer')['unavailable_reason'] === null)
         ->where('payment.selected_gateway', 'bank_transfer'));
 
     $this->from(route('client.invoices.show', $invoice->id))
         ->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])
-        ->assertSessionHasErrors(['billing' => 'Khalti needs at least Rs. 10.00. Choose another way to pay.']);
+        ->assertSessionHasErrors(['billing' => 'Khalti needs at least Rs 10.00. Choose another way to pay.']);
     expect(PaymentAttempt::query()->count())->toBe(0);
 });
 
@@ -139,7 +139,10 @@ test('a converting gateway shows the amount it will charge, and the payment uses
     fakeKhaltiInitiate();
 
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['conversion'] === ['amount' => 1_344_000, 'currency' => 'NPR', 'rate' => 134.4, 'from' => 'USD']));
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['conversion'] === [
+            'amount' => 1_344_000, 'currency' => 'NPR', 'rate' => 134.4, 'from' => 'USD',
+            'label' => "You'll pay Rs\u{00A0}13,440.00 on Khalti ($1.00 = Rs\u{00A0}134.40).",
+        ]));
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect();
 

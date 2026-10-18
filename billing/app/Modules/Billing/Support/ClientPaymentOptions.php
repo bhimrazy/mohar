@@ -13,6 +13,9 @@ use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Core\Models\Client;
+use App\Support\Currencies\Decimal;
+use App\Support\Currencies\MoneyFormatter;
+use App\Support\Money;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -163,8 +166,34 @@ class ClientPaymentOptions
 
         return [
             $this->charger->limitReason($gateway, $driver, $amount),
-            $rate !== null ? ['amount' => $amount->amount, 'currency' => $amount->currency, 'rate' => $rate, 'from' => $invoice->currency] : null,
+            $rate !== null ? [
+                'amount' => $amount->amount,
+                'currency' => $amount->currency,
+                'rate' => $rate,
+                'from' => $invoice->currency,
+                'label' => $this->conversionLabel($gateway, $amount, $rate, $invoice->currency),
+            ] : null,
         ];
+    }
+
+    /**
+     * "You'll pay Rs 13,440.00 on Khalti ($1.00 = Rs 134.40)." in each currency's own display.
+     */
+    private function conversionLabel(Gateway $gateway, Money $amount, float $rate, string $from): string
+    {
+        $money = app(MoneyFormatter::class);
+        $perUnit = (int) Decimal::round(Decimal::multiply(number_format($rate, 6, '.', ''), '100'), 0);
+        // No-break spaces keep a symbol on the same line as its number ("Rs 13,440.00").
+        $keep = fn (string $amount): string => str_replace(' ', "\u{00A0}", $amount);
+        $label = __('You\'ll pay :amount on :gateway (:one = :rate).', [
+            'amount' => $keep($money->format($amount)),
+            // The provider the customer pays on, not the staff-chosen method name.
+            'gateway' => $this->gateways->driver($gateway->key)->name(),
+            'one' => $keep($money->amount(100, $from)),
+            'rate' => $keep($money->amount($perUnit, $amount->currency)),
+        ]);
+
+        return is_string($label) ? $label : '';
     }
 
     public static function declineMessage(?string $reason): string

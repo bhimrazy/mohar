@@ -168,6 +168,8 @@ export type ClientGatewayOption = {
         currency: string;
         rate: number;
         from: string;
+        /** "You'll pay Rs 13,440.00 on Khalti ($1.00 = Rs 134.40)." */
+        label: string;
     } | null;
 };
 

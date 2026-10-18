@@ -17,12 +17,13 @@ class SaveTldPrices
 
     /**
      * @param  list<array{years: int, register: int|null, transfer: int|null, renew: int|null}>  $rows
+     * @param  bool|null  $manual  "set manually — don't auto-convert" for the whole grid; null keeps each row's flag
      */
-    public function handle(Tld $tld, string $currency, ?int $clientGroupId, array $rows): void
+    public function handle(Tld $tld, string $currency, ?int $clientGroupId, array $rows, ?bool $manual = null): void
     {
         $currency = strtoupper($currency);
 
-        DB::transaction(function () use ($tld, $currency, $clientGroupId, $rows): void {
+        DB::transaction(function () use ($tld, $currency, $clientGroupId, $rows, $manual): void {
             $existing = TldPrice::query()
                 ->where('tld_id', $tld->id)
                 ->where('currency', $currency)
@@ -32,8 +33,8 @@ class SaveTldPrices
                 ->keyBy('years');
 
             foreach ($rows as $row) {
-                $amounts = ['register' => $row['register'], 'transfer' => $row['transfer'], 'renew' => $row['renew']];
                 $price = $existing->get($row['years']);
+                $amounts = ['register' => $row['register'], 'transfer' => $row['transfer'], 'renew' => $row['renew'], 'is_manual' => $manual ?? ($price !== null && $price->is_manual), 'enabled' => true];
 
                 if ($amounts['register'] === null && $amounts['transfer'] === null && $amounts['renew'] === null) {
                     $price?->delete();
@@ -49,6 +50,6 @@ class SaveTldPrices
             }
         });
 
-        $this->activity->log("TLD {$tld->extension} {$currency} prices updated", $tld, null, ['client_group_id' => $clientGroupId]);
+        $this->activity->log("TLD {$tld->extension} {$currency} prices updated", $tld, null, ['client_group_id' => $clientGroupId, 'manual' => $manual]);
     }
 }

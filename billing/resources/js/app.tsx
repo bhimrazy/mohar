@@ -19,6 +19,8 @@ router.on('navigate', (event) => {
         | { name?: string }
         | undefined;
     brandName = brand?.name || brandName;
+    // Back/forward restores a page from history without a beforeUpdate event.
+    applySharedFormatting(event.detail.page.props);
 });
 
 router.on('beforeUpdate', (event) => {

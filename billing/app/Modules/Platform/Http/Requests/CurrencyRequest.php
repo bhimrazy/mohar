@@ -9,9 +9,19 @@ use Illuminate\Validation\Rule;
 
 class CurrencyRequest extends FormRequest
 {
+    /**
+     * Creating a currency sets its starting rate, so it also needs the sensitive rates permission (and the route a
+     * recent password); editing display settings needs only core.currencies.manage.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->hasPermission('core.currencies.manage') ?? false;
+        $user = $this->user();
+
+        if ($user === null || ! $user->hasPermission('core.currencies.manage')) {
+            return false;
+        }
+
+        return $this->route('currency') instanceof Currency || $user->hasPermission('core.currencies.rates');
     }
 
     protected function prepareForValidation(): void
@@ -41,7 +51,8 @@ class CurrencyRequest extends FormRequest
             'suffix' => ['nullable', 'string', 'max:10'],
             'decimals' => ['required', 'integer', Rule::in(Currency::DECIMALS)],
             'format' => ['required', Rule::in(Currency::FORMATS)],
-            'exchange_rate' => ['required', 'numeric', 'gt:0', 'max:9999999999', 'decimal:0,6'],
+            // The starting rate is set on create; later changes go through the rates form (core.currencies.rates).
+            'exchange_rate' => $currency instanceof Currency ? ['prohibited'] : ['required', 'numeric', 'gt:0', 'max:1000000000', 'decimal:0,12'],
         ];
     }
 }

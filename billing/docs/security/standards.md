@@ -80,6 +80,8 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 - [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
       encrypted settings stay readable).
+- [ ] Installed with `php artisan app:install` (`docs/devops/install.md`), never with demo seeders: no
+      `admin@example.com` or other `password` accounts exist.
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see
       `docs/devops/local-setup.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
       proxy, and HSTS is never sent.

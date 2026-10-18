@@ -22,11 +22,12 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property bool $enabled
  * @property int $amount
  * @property int $setup_fee
+ * @property bool $is_manual set by staff in a non-default currency: price conversion leaves it alone
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
 #[UseFactory(PriceFactory::class)]
-#[Fillable(['priceable_type', 'priceable_id', 'currency', 'cycle', 'enabled', 'amount', 'setup_fee'])]
+#[Fillable(['priceable_type', 'priceable_id', 'currency', 'cycle', 'enabled', 'amount', 'setup_fee', 'is_manual'])]
 class Price extends Model
 {
     /** @use HasFactory<PriceFactory> */
@@ -39,6 +40,7 @@ class Price extends Model
             'enabled' => 'boolean',
             'amount' => 'integer',
             'setup_fee' => 'integer',
+            'is_manual' => 'boolean',
         ];
     }
 
@@ -51,7 +53,7 @@ class Price extends Model
     }
 
     /**
-     * @return array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int}
+     * @return array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int, manual: bool}
      */
     public function toMatrixRow(): array
     {
@@ -61,6 +63,7 @@ class Price extends Model
             'enabled' => $this->enabled,
             'amount' => $this->amount,
             'setup_fee' => $this->setup_fee,
+            'manual' => $this->is_manual,
         ];
     }
 }

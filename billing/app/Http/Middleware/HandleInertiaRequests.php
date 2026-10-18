@@ -3,6 +3,8 @@
 namespace App\Http\Middleware;
 
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Currencies\CurrencyDirectory;
+use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\DateFormats;
 use App\Support\Navigation\Navigation;
@@ -45,6 +47,8 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            // Display settings per currency (prefix, suffix, grouping) so formatMoney matches server output.
+            'currencyFormats' => fn (): array => array_map(fn (CurrencyDisplay $display): array => $display->toArray(), app(CurrencyDirectory::class)->displays()),
             'area' => $area = $this->area($request),
             'navigation' => fn (): array => $request->user() ? app(Navigation::class)->forUser($area, $request->user()) : [],
             'quickActions' => fn (): array => $area === 'admin' && $request->user() ? app(Navigation::class)->quickActions($request->user()) : [],

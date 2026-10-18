@@ -61,7 +61,7 @@ export default function ConfirmPassword() {
 }
 
 ConfirmPassword.layout = {
-    title: 'Confirm password',
+    title: 'Confirm your password',
     description:
-        'This is a secure area of the application. Please confirm your password before continuing.',
+        "This page changes sensitive settings. Enter your password to continue; you won't be asked again for 15 minutes.",
 };

@@ -22,6 +22,9 @@ every item.
   (2026-10-18)
 - One term per action across the app ("Log in", "Create account", "Client area"). (2026-10-18)
 
+- Every action that can fail shows its reason where the user acted; actions that can't succeed are disabled with
+  the reason. (2026-10-18)
+
 ## Settings
 
 - Every setting changes behaviour; a setting nothing reads is a bug. (2026-10-18)
@@ -49,6 +52,11 @@ every item.
   or manual copies), and settings that redirect mail are in the sensitive permission tier. (2026-10-18)
 - Account-recovery endpoints give the same response for known and unknown accounts and are rate
   limited. (2026-10-18)
+
+- Compact amounts use K / L (lakh) / Cr (crore) for INR and NPR and K / M / B otherwise, never the browser's
+  locale abbreviations. A currency symbol never wraps away from its number. (2026-10-18)
+- Exchange rates read "$1 = Rs 151.94" with at most 6 decimals; full precision only on hover or in exports.
+  Converted prices customers see are rounded by default. (2026-10-18)
 
 ## Payments
 

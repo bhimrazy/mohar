@@ -7,7 +7,9 @@ use App\Modules\Platform\Http\Controllers\Admin\ClientGroupController;
 use App\Modules\Platform\Http\Controllers\Admin\ClientLifecycleController;
 use App\Modules\Platform\Http\Controllers\Admin\ClientUserController;
 use App\Modules\Platform\Http\Controllers\Admin\CurrencyController;
+use App\Modules\Platform\Http\Controllers\Admin\ExchangeRateController;
 use App\Modules\Platform\Http\Controllers\Admin\ImpersonationController;
+use App\Modules\Platform\Http\Controllers\Admin\PriceConversionController;
 use App\Modules\Platform\Http\Controllers\Admin\RoleController;
 use App\Modules\Platform\Http\Controllers\Admin\SearchController;
 use App\Modules\Platform\Http\Controllers\Admin\SettingsController;
@@ -41,8 +43,20 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
         Route::delete('roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
     });
     Route::get('roles', [RoleController::class, 'index'])->name('roles.index');
-    Route::resource('currencies', CurrencyController::class)->except('show');
-    Route::post('currencies/{currency}/default', [CurrencyController::class, 'makeDefault'])->name('currencies.default');
+    // Exchange rates move converted prices: sensitive permission plus a recent password for every change.
+    Route::get('currencies/conversion', [PriceConversionController::class, 'show'])->name('currencies.conversion');
+    Route::middleware('password.recent')->group(function (): void {
+        Route::post('currencies/conversion/{converter}', [PriceConversionController::class, 'apply'])->where('converter', '[a-z][a-z0-9_]*')->name('currencies.conversion.apply');
+        Route::post('currencies/rates/refresh', [ExchangeRateController::class, 'refresh'])->middleware('throttle:6,1')->name('currencies.rates.refresh');
+        Route::post('currencies/reviews/{review}/approve', [ExchangeRateController::class, 'approve'])->name('currencies.reviews.approve');
+        Route::post('currencies/reviews/{review}/reject', [ExchangeRateController::class, 'reject'])->name('currencies.reviews.reject');
+        Route::put('currencies/{currency}/rates', [ExchangeRateController::class, 'update'])->name('currencies.rates.update');
+        Route::post('currencies/{currency}/default', [CurrencyController::class, 'makeDefault'])->name('currencies.default');
+        // Creating sets a starting rate; deleting and re-creating would otherwise reset one.
+        Route::post('currencies', [CurrencyController::class, 'store'])->name('currencies.store');
+        Route::delete('currencies/{currency}', [CurrencyController::class, 'destroy'])->name('currencies.destroy');
+    });
+    Route::resource('currencies', CurrencyController::class)->except(['show', 'store', 'destroy']);
     Route::resource('client-groups', ClientGroupController::class)->except('show');
 
     Route::get('settings/{section?}', [SettingsController::class, 'edit'])->name('settings.edit');

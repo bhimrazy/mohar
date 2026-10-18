@@ -46,8 +46,8 @@ describe('pricing', function () {
         ]])->assertRedirect(route('admin.catalog.products.edit', ['product' => $product, 'tab' => 'pricing']));
 
         expect($product->prices()->orderBy('id')->get()->map->toMatrixRow()->all())->toBe([
-            priceRow('USD', 'monthly', 1200, 500),
-            priceRow('EUR', 'annually', 11000, 0, false),
+            [...priceRow('USD', 'monthly', 1200, 500), 'manual' => false],
+            [...priceRow('EUR', 'annually', 11000, 0, false), 'manual' => false],
         ]);
         $this->assertDatabaseHas('activity_log', ['description' => 'Prices updated', 'subject_id' => $product->id]);
     });
