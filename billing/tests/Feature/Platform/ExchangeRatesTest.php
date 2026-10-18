@@ -188,6 +188,24 @@ test('an outage fails the automation task, keeps the rates and is audited; stale
         ->where('currencies.1.code', 'EUR')->where('currencies.1.is_stale', false));
 });
 
+test('manual rates are stale after their own, longer threshold', function () {
+    actingAsStaff(['core.currencies.manage']);
+    Currency::query()->where('rate_source', 'fake')->update(['rate_checked_at' => now()]);
+    $eur = Currency::query()->where('code', 'EUR')->sole();
+    $eur->forceFill(['rate_updated_at' => now()->subDays(20)])->save();
+
+    expect(rateTodos())->not->toHaveKey('platform.exchange_rates.stale');
+
+    $eur->forceFill(['rate_updated_at' => now()->subDays(31)])->save();
+    expect(rateTodos()['platform.exchange_rates.stale']['count'])->toBe(1);
+
+    app(Settings::class)->set('platform.rates_manual_stale_after_days', 60);
+    expect(rateTodos())->not->toHaveKey('platform.exchange_rates.stale');
+
+    $this->get(route('admin.platform.currencies.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('manualStaleAfterDays', 60)->where('currencies.1.code', 'EUR')->where('currencies.1.is_stale', false));
+});
+
 test('the edit page shows the source options, settings and a daily history series', function () {
     actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
     $this->travelTo(now()->subDays(10));

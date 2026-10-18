@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
 use App\Modules\Platform\Drivers\ExchangeRates\NrbRateSource;
 use App\Support\Currencies\ExchangeRateSources;
@@ -52,6 +53,21 @@ test('Nepal Rastra Bank rates use the latest day and the buy/sell mid per unit',
             && $query['page'] === '1' && $query['per_page'] === '10' && isset($query['from'], $query['to']);
     });
 });
+
+test('the NRB rate type setting picks the buying, selling or mid rate', function (string $type, string $usd, string $inr) {
+    Http::fake(['www.nrb.org.np/*' => Http::response(rateFixture('nrb-rates.json'))]);
+    app(Settings::class)->set('platform.nrb_rate_type', $type);
+
+    $snapshot = app(NrbRateSource::class)->fetch();
+
+    expect($snapshot->rates['USD']['base'])->toBe($usd)
+        ->and($snapshot->rates['INR']['base'])->toBe($inr)
+        ->and(app(NrbRateSource::class)->description())->toContain(strtolower(NrbRateSource::RATE_TYPES[$type]));
+})->with([
+    'mid (default)' => ['mid', '152.250000', '160.075000'],
+    'buy' => ['buy', '151.95', '160.00'],
+    'sell' => ['sell', '152.55', '160.15'],
+]);
 
 test('malformed responses raise a readable error', function (string $source, string $body) {
     Http::fake(['*' => Http::response($body)]);

@@ -10,7 +10,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Health of automatically sourced exchange rates: which are stale, and the history series for charts.
+ * Health of exchange rates: which are stale (automatic: no successful fetch for N days; manual: not changed
+ * for M days), and the history series for charts.
  */
 class ExchangeRateStatus
 {
@@ -21,28 +22,46 @@ class ExchangeRateStatus
         return max(1, (int) $this->settings->get('platform.rates_stale_after_days', 3));
     }
 
+    public function manualStaleAfterDays(): int
+    {
+        return max(1, (int) $this->settings->get('platform.rates_manual_stale_after_days', 30));
+    }
+
     /**
-     * Auto-sourced currencies whose last successful fetch is older than the stale threshold.
+     * Non-default currencies whose rate is stale: automatic ones without a successful fetch within
+     * staleAfterDays(), manual ones not changed within manualStaleAfterDays().
      *
      * @return Builder<Currency>
      */
     public function staleQuery(): Builder
     {
-        $cutoff = CarbonImmutable::now()->subDays($this->staleAfterDays());
+        $autoCutoff = CarbonImmutable::now()->subDays($this->staleAfterDays());
+        $manualCutoff = CarbonImmutable::now()->subDays($this->manualStaleAfterDays());
 
         return Currency::query()
             ->where('is_default', false)
-            ->where('rate_source', '!=', ExchangeRateSources::MANUAL)
-            ->where(fn (Builder $query) => $query->whereNull('rate_checked_at')->orWhere('rate_checked_at', '<', $cutoff));
+            ->where(fn (Builder $query) => $query
+                ->where(fn (Builder $auto) => $auto
+                    ->where('rate_source', '!=', ExchangeRateSources::MANUAL)
+                    ->where(fn (Builder $old) => $old->whereNull('rate_checked_at')->orWhere('rate_checked_at', '<', $autoCutoff)))
+                ->orWhere(fn (Builder $manual) => $manual
+                    ->where('rate_source', ExchangeRateSources::MANUAL)
+                    ->where(fn (Builder $old) => $old->where('rate_updated_at', '<', $manualCutoff)
+                        ->orWhere(fn (Builder $never) => $never->whereNull('rate_updated_at')->where('created_at', '<', $manualCutoff)))));
     }
 
     public function isStale(Currency $currency): bool
     {
-        if ($currency->is_default || $currency->rate_source === ExchangeRateSources::MANUAL) {
+        if ($currency->is_default) {
             return false;
         }
 
-        return $currency->rate_checked_at === null || $currency->rate_checked_at->lt(CarbonImmutable::now()->subDays($this->staleAfterDays()));
+        // A manual rate never edited since the currency was created counts from its creation.
+        [$timestamp, $days] = $currency->rate_source === ExchangeRateSources::MANUAL
+            ? [$currency->rate_updated_at ?? $currency->created_at, $this->manualStaleAfterDays()]
+            : [$currency->rate_checked_at, $this->staleAfterDays()];
+
+        return $timestamp === null || $timestamp->lt(CarbonImmutable::now()->subDays($days));
     }
 
     /**

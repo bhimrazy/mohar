@@ -12,10 +12,11 @@ class CoreSeeder extends Seeder
 {
     public function run(): void
     {
-        // Primary currencies: USD (default), INR, NPR. Rates are demo values relative to USD; staff maintain real rates.
+        // Primary currencies: USD (default), INR, NPR. Starting rates are the ECB (INR) and Nepal Rastra Bank (NPR)
+        // rates of 2026-10-18; the daily rate update keeps them current.
         Currency::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'exchange_rate' => 1, 'is_default' => true]);
-        Currency::query()->firstOrCreate(['code' => 'INR'], ['name' => 'Indian Rupee', 'prefix' => '₹', 'format' => '1,23,456.78', 'exchange_rate' => 84]);
-        Currency::query()->firstOrCreate(['code' => 'NPR'], ['name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'format' => '1,23,456.78', 'exchange_rate' => 134.4]);
+        Currency::query()->firstOrCreate(['code' => 'INR'], ['name' => 'Indian Rupee', 'prefix' => '₹', 'format' => '1,23,456.78', 'exchange_rate' => '94.964898']);
+        Currency::query()->firstOrCreate(['code' => 'NPR'], ['name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'format' => '1,23,456.78', 'exchange_rate' => '151.940000']);
 
         // System roles are kept in sync on every seed (explicit lists; sensitive permissions are never wildcard-granted).
         $roles = [

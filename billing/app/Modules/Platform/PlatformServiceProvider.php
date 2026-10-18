@@ -118,7 +118,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'tone' => 'warning',
         ], 'core.currencies.rates', 30);
         $dashboard->todo('admin', 'platform.exchange_rates.stale', fn (): array => [
-            'label' => 'Automatic exchange rates not updated recently',
+            'label' => 'Exchange rates not updated recently',
             'count' => $this->app->make(ExchangeRateStatus::class)->staleQuery()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
@@ -233,6 +233,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->make(SettingsRegistry::class)->section('exchange_rates', 'Exchange rates', [
             new SettingDefinition('platform.rates_max_change_percent', 'Largest automatic daily change (%)', 'integer', 'A fetched rate that moved more than this from the rate in force waits for staff approval. 0 turns the check off.', rules: ['min:0', 'max:100']),
             new SettingDefinition('platform.rates_stale_after_days', 'Warn when automatic rates are older than (days)', 'integer', rules: ['min:1', 'max:60']),
+            new SettingDefinition('platform.rates_manual_stale_after_days', 'Warn when manual rates are older than (days)', 'integer', 'Manual rates that nobody has changed for this long are flagged for review.', rules: ['min:1', 'max:365']),
+            new SettingDefinition('platform.nrb_rate_type', 'Nepal Rastra Bank rate to use', 'select', 'NRB publishes a buying and a selling rate for each currency.', options: NrbRateSource::RATE_TYPES),
             new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Server time (HH:MM) to fetch rates each day. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
         ], 'core.currencies.rates');
 

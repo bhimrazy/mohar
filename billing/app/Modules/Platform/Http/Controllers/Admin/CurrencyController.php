@@ -35,6 +35,7 @@ class CurrencyController extends Controller
             'reviews' => ExchangeRateReview::query()->pending()->orderBy('currency')->orderBy('id')->get()
                 ->map(fn (ExchangeRateReview $review): array => $this->presentReview($review))->values(),
             'staleAfterDays' => $this->status->staleAfterDays(),
+            'manualStaleAfterDays' => $this->status->manualStaleAfterDays(),
             'canManageRates' => $request->user()?->hasPermission('core.currencies.rates') ?? false,
             'hasAutoRates' => Currency::query()->where('is_default', false)->where('rate_source', '!=', ExchangeRateSources::MANUAL)->exists(),
         ]);

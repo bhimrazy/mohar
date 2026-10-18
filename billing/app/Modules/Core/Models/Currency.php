@@ -31,6 +31,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property PriceRounding $price_rounding
  * @property string $price_buffer_percent
  * @property bool $is_default
+ * @property CarbonImmutable|null $created_at
  */
 #[UseFactory(CurrencyFactory::class)]
 #[Fillable(['code', 'name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'rate_source', 'is_auto_rate', 'rate_updated_at', 'rate_checked_at', 'price_rounding', 'price_buffer_percent', 'is_default'])]

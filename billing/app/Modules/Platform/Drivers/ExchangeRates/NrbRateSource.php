@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Drivers\ExchangeRates;
 
 use App\Contracts\Currencies\ExchangeRateSource;
 use App\Data\Currencies\RateSnapshot;
+use App\Modules\Core\Support\Settings;
 use App\Support\Currencies\Decimal;
 use App\Support\Currencies\ExchangeRateUnavailable;
 use Carbon\CarbonImmutable;
@@ -13,10 +14,16 @@ use Illuminate\Support\Facades\Http;
 /**
  * Nepal Rastra Bank official foreign exchange rates (FOREX API v1, https://www.nrb.org.np/api-docs-v1):
  * GET /api/forex/v1/rates?page&per_page&from&to returns daily sets of buy/sell rates in NPR per `unit`
- * of each currency (e.g. 100 INR). We use the mid rate, (buy + sell) / 2, and the latest published day.
+ * of each currency (e.g. 100 INR). The latest published day is used; which rate is taken is the
+ * platform.nrb_rate_type setting: mid ((buy + sell) / 2, default), buy or sell.
  */
 class NrbRateSource implements ExchangeRateSource
 {
+    /** Rate types NRB publishes, for the setting. */
+    public const RATE_TYPES = ['mid' => 'Mid rate (average of buy and sell)', 'buy' => 'Buying rate', 'sell' => 'Selling rate'];
+
+    public function __construct(private Settings $settings) {}
+
     private const CURRENCIES = [
         'NPR', 'INR', 'USD', 'EUR', 'GBP', 'CHF', 'AUD', 'CAD', 'SGD', 'JPY', 'CNY', 'SAR', 'QAR', 'THB', 'AED',
         'MYR', 'KRW', 'SEK', 'DKK', 'HKD', 'KWD', 'BHD', 'OMR',
@@ -34,7 +41,7 @@ class NrbRateSource implements ExchangeRateSource
 
     public function description(): string
     {
-        return 'Nepal\'s central bank publishes NPR buy and sell rates every day; the mid rate is used. Covers NPR, INR, USD and about 20 more.';
+        return 'Nepal\'s central bank publishes NPR buy and sell rates every day ('.strtolower(self::RATE_TYPES[$this->rateType()]).' used; change it in Rate settings). Covers NPR, INR, USD and about 20 more.';
     }
 
     public function currencies(): array
@@ -90,6 +97,7 @@ class NrbRateSource implements ExchangeRateSource
         }
 
         $rates = [];
+        $type = $this->rateType();
 
         foreach ($latest['rates'] as $row) {
             $code = strtoupper((string) data_get($row, 'currency.iso3', data_get($row, 'currency.ISO3', '')));
@@ -105,10 +113,14 @@ class NrbRateSource implements ExchangeRateSource
                 continue;
             }
 
-            $mid = Decimal::divide(Decimal::add($buy, $sell), '2', 6);
+            $rate = match ($type) {
+                'buy' => $buy,
+                'sell' => $sell,
+                default => Decimal::divide(Decimal::add($buy, $sell), '2', 6),
+            };
 
-            if (Decimal::isPositive($mid)) {
-                $rates[$code] = ['units' => $unit, 'base' => $mid];
+            if (Decimal::isPositive($rate)) {
+                $rates[$code] = ['units' => $unit, 'base' => $rate];
             }
         }
 
@@ -119,5 +131,19 @@ class NrbRateSource implements ExchangeRateSource
         // Rates apply to the stated Nepal business day (published shortly after midnight there); noon keeps
         // the calendar date the same in every staff timezone.
         return new RateSnapshot($this->key(), 'NPR', $rates, CarbonImmutable::parse($latest['date'].' 12:00', 'Asia/Kathmandu')->utc());
+    }
+
+    /**
+     * @return 'mid'|'buy'|'sell'
+     */
+    public function rateType(): string
+    {
+        $type = (string) $this->settings->get('platform.nrb_rate_type', 'mid');
+
+        return match ($type) {
+            'buy' => 'buy',
+            'sell' => 'sell',
+            default => 'mid',
+        };
     }
 }

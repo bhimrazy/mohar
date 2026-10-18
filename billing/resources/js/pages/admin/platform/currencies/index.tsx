@@ -57,6 +57,7 @@ type Props = {
     currencies: CurrencyRow[];
     reviews: RateReview[];
     staleAfterDays: number;
+    manualStaleAfterDays: number;
     canManageRates: boolean;
     hasAutoRates: boolean;
 };
@@ -68,10 +69,12 @@ export default function CurrenciesIndex({
     currencies,
     reviews,
     staleAfterDays,
+    manualStaleAfterDays,
     canManageRates,
     hasAutoRates,
 }: Props) {
     const [deleting, setDeleting] = useState<CurrencyRow | null>(null);
+    const [promoting, setPromoting] = useState<CurrencyRow | null>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [deciding, setDeciding] = useState<number | null>(null);
     const base = currencies.find((currency) => currency.is_default);
@@ -150,7 +153,7 @@ export default function CurrenciesIndex({
                         {currency.is_stale && (
                             <StatusBadge
                                 status="stale"
-                                label={`Not updated for ${staleAfterDays}+ days`}
+                                label={`Not updated for ${currency.rate_source === 'manual' ? manualStaleAfterDays : staleAfterDays}+ days`}
                                 tone="warning"
                             />
                         )}
@@ -199,17 +202,7 @@ export default function CurrenciesIndex({
                             <>
                                 {canManageRates && (
                                     <DropdownMenuItem
-                                        onSelect={() =>
-                                            router.visit(
-                                                CurrencyController.makeDefault.url(
-                                                    currency.id,
-                                                ),
-                                                {
-                                                    method: 'post',
-                                                    preserveScroll: true,
-                                                },
-                                            )
-                                        }
+                                        onSelect={() => setPromoting(currency)}
                                     >
                                         Make default
                                     </DropdownMenuItem>
@@ -377,6 +370,25 @@ export default function CurrenciesIndex({
                     }
                 />
             </Page>
+
+            <ConfirmDialog
+                open={promoting !== null}
+                onOpenChange={(open) => !open && setPromoting(null)}
+                title={`Make ${promoting?.code ?? ''} the default currency?`}
+                description={`Every other exchange rate is recalculated against ${promoting?.code ?? 'it'}, and converted prices follow the new rates. This is only possible while no invoices or payments exist.`}
+                confirmLabel="Make default"
+                onConfirm={() => {
+                    if (promoting) {
+                        router.post(
+                            CurrencyController.makeDefault.url(promoting.id),
+                            {},
+                            { preserveScroll: true },
+                        );
+                    }
+
+                    setPromoting(null);
+                }}
+            />
 
             <ConfirmDialog
                 open={deleting !== null}

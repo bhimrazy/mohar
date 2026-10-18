@@ -18,11 +18,13 @@ return [
 
     /*
      * Exchange rates (spec §6). A fetched rate that moved more than rates_max_change_percent from the rate
-     * in force is held for staff review; auto-sourced rates not refreshed for rates_stale_after_days are
-     * flagged. rates_update_time ("HH:MM", empty = with the daily automation run) schedules the fetch.
+     * in force is held for staff review; auto-sourced rates not refreshed for rates_stale_after_days and
+     * manual rates not changed for rates_manual_stale_after_days are flagged. nrb_rate_type: mid|buy|sell. rates_update_time ("HH:MM", empty = with the daily automation run) schedules the fetch.
      */
     'rates_max_change_percent' => 10,
     'rates_stale_after_days' => 3,
+    'rates_manual_stale_after_days' => 30,
+    'nrb_rate_type' => 'mid',
     'rates_update_time' => '',
 
     'exchange_rates' => [
