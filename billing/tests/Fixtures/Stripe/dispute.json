@@ -1,13 +1,13 @@
 {
-  "id": "du_1MoharDispute0001",
-  "object": "dispute",
-  "amount": 2500,
-  "charge": "ch_3MoharCharge0001",
-  "created": 1792300200,
-  "currency": "usd",
-  "livemode": false,
-  "metadata": {},
-  "payment_intent": "pi_3MoharIntent0001",
-  "reason": "fraudulent",
-  "status": "needs_response"
+    "id": "du_1MoharDispute0001",
+    "object": "dispute",
+    "amount": 2500,
+    "charge": "ch_3MoharCharge0001",
+    "created": 1792300200,
+    "currency": "usd",
+    "livemode": false,
+    "metadata": {},
+    "payment_intent": "pi_3MoharIntent0001",
+    "reason": "fraudulent",
+    "status": "needs_response"
 }

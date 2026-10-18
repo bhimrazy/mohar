@@ -1,1 +1,7 @@
-{"error": {"code": "charge_already_refunded", "message": "Charge ch_3MoharCharge0001 has already been refunded.", "type": "invalid_request_error"}}
+{
+    "error": {
+        "code": "charge_already_refunded",
+        "message": "Charge ch_3MoharCharge0001 has already been refunded.",
+        "type": "invalid_request_error"
+    }
+}
