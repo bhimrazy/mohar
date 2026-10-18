@@ -20,29 +20,48 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-None. PR #22 (Billing follow-ups: exact quote conversion #20, 90-day demo billing history) merged
-2026-10-18 04:52 UTC as `45441e3`; its non-blocking review items are issue #23.
+| PR  | Workstream             | Status (2026-10-18 05:50 UTC)                                                                                                                                                                                          |
+| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #26 | Nepal payments         | Review board, security and re-review passed (Ready to merge). Combined QA, design and product review running; merge after it.                                                                                          |
+| #28 | Notifications          | Draft. Engineer applying CTO decisions (auth mail via events, no passwords in mail, dedup by event id, Reply-To and support address). Reviews follow. Visual email design replaced later from the email design review. |
+| #38 | Product polish sweep 1 | Draft. Breadcrumbs, date format setting, help pages in the client area, home page, plus 6 smaller fixes. Review waiting for CPU.                                                                                       |
 
 ## In progress
 
-| Workstream            | Lead               | Branch / worktree                                     | Spec                                     | State on 2026-10-18 04:55 UTC                                                                                        |
-| --------------------- | ------------------ | ----------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Notifications         | module engineer    | `feature/notifications`, `.worktrees/notifications`   | `product/notifications.md`               | Uncommitted work only (untracked files); no commits, branch not pushed, no PR.                                       |
-| Nepal payment drivers | module engineer    | `feature/payments-nepal`, `.worktrees/payments-nepal` | `product/payments-nepal.md`              | Commits on the branch (hosted-checkout hardening, Khalti, eSewa), only part of them pushed; no PR. ConnectIPS later. |
-| Dashboard v2          | principal designer | `feature/dashboard-v2`, `.worktrees/dashboard-v2`     | `design/dashboard-v2.md` (to be written) | Started; no commits yet. Owner request.                                                                              |
+| Workstream            | Lead               | Branch / worktree                                     | Spec                                     | State on 2026-10-18 04:55 UTC                                                                                                                                                   |
+| --------------------- | ------------------ | ----------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Notifications         | module engineer    | `feature/notifications`, `.worktrees/notifications`   | `product/notifications.md`               | Uncommitted work only (untracked files); no commits, branch not pushed, no PR.                                                                                                  |
+| Nepal payment drivers | module engineer    | `feature/payments-nepal`, `.worktrees/payments-nepal` | `product/payments-nepal.md`              | Commits on the branch (hosted-checkout hardening, Khalti, eSewa), only part of them pushed; no PR. ConnectIPS later.                                                            |
+| Dashboard v2          | principal designer | `feature/dashboard-v2`, `.worktrees/dashboard-v2`     | `design/dashboard-v2.md` (to be written) | Started; no commits yet. Owner request.                                                                                                                                         |
+| Currencies            | module engineer    | `feature/currencies`, `.worktrees/currencies`         | `product/platform-admin.md` §6           | Started 05:10 UTC. Symbols instead of codes next to amounts ($, ₹, Rs; lakh grouping) and exchange-rate sources, schedule, safety limit, history, price preview. Owner request. |
+| WHMCS parity study    | three researchers  | none (docs only)                                      | `billing/docs/parity/*.md`               | Started 05:15 UTC. Matrices of every WHMCS feature, setting, API, hook and module contract with our status and priority. Owner request.                                         |
 
 Notifications reuses the Themes mail layout (`resources/views/vendor/mail`). Dashboard v2 brings the real admin
 dashboard up to the Calm Fintech direction: charts and sparklines, 12-month income against the previous year,
-orders by type, income by currency, automation health. Engineers commit and push after each milestone and open a
+orders by type, income by currency, automation health. Every user-facing PR now also gets a `product-reviewer` review, and develop gets a product sweep before
+progress is reported to the owner (`product-standards.md`). Engineers commit and push after each milestone and open a
 draft PR into `develop` when their gates pass.
 
 ## Next
 
+Queued until load allows (the codespace has been at load 5–7 with five agents): PR #38 review, social sign-in,
+client dashboard and client profile (#31, #32, after Dashboard v2), Affiliates, Registrars, then wave 3 from the roadmap.
+
+The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
+studies). The items below are the near-term queue.
+
 1. Wave 2, when a build slot frees (at most two engineers at a time):
-    - Affiliates (`product/affiliates.md`), worktree `.worktrees/affiliates` exists.
-    - Registrars (`product/registrars.md`): prerequisites PR first (C1 remote ids, C2 `findSubmission`
-      reconcile, C3 stale-claim sweep = issue #12, C5 redaction gaps), then the `.np` manual driver,
-      ResellerClub (needs C4 `registrar_refs`), Namecheap. Worktree `.worktrees/registrars` exists.
+   - **Social sign-in** (owner request 2026-10-18; raised from P2 in the parity study). Admin → Settings →
+     Sign-in integrations: per-provider enable, client ID and secret (write-only, encrypted), callback URL
+     to copy. Google first, then GitHub, Facebook, X and LinkedIn, all via first-party `laravel/socialite`
+     (to be added at a version at least 7 days old). Microsoft and Apple later via a provider registry.
+     Client sign-up and login, link and unlink from the profile. Accounts are matched only by a verified
+     email, with confirmation, to prevent takeover. Staff SSO optional, restricted by domain, with 2FA
+     still enforced.
+   - Affiliates (`product/affiliates.md`), worktree `.worktrees/affiliates` exists.
+   - Registrars (`product/registrars.md`): prerequisites PR first (C1 remote ids, C2 `findSubmission`
+     reconcile, C3 stale-claim sweep = issue #12, C5 redaction gaps), then the `.np` manual driver,
+     ResellerClub (needs C4 `registrar_refs`), Namecheap. Worktree `.worktrees/registrars` exists.
 2. Wave 3: Reports, AI module (`laravel/ai` 1.0.1; check current Claude API constraints with the
    `claude-api` skill first), WHMCS importer (API-only connector, `import:whmcs`).
 3. After wave 2: integration build with screenshots of every area; security architecture pass.

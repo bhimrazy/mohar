@@ -20,6 +20,7 @@ Laravel. The application lives in `billing/`; everything else in this repository
 1. `docs/handoff/state.md` — what is merged, in flight and next. Read it before doing anything.
 2. `docs/handoff/operating-model.md` — how the work is run: roles, workstream lifecycle, gates, limits.
 3. `docs/handoff/requirements.md` — the owner's standing requirements and decisions.
+   `docs/handoff/product-standards.md` — checks every user-facing change must pass (owner corrections).
 4. `billing/docs/architecture.md`, `billing/docs/adr/`, `billing/docs/product/<module>.md` — binding
    engineering conventions and module specs.
 
