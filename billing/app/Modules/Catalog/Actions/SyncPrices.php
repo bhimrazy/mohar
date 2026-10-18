@@ -20,7 +20,10 @@ class SyncPrices
     public function __construct(private ActivityLogger $activity) {}
 
     /**
-     * @param  list<array{currency: string, cycle: string, enabled?: bool, amount: int, setup_fee?: int}>  $rows
+     * `manual` marks a non-default-currency row as set by staff, so price conversion leaves it alone;
+     * when a row omits it, the stored flag is kept.
+     *
+     * @param  list<array{currency: string, cycle: string, enabled?: bool, amount: int, setup_fee?: int, manual?: bool}>  $rows
      * @return int number of rows whose amount, setup fee or availability changed
      */
     public function handle(Product|Addon|ConfigOptionValue $priceable, array $rows): int
@@ -34,14 +37,15 @@ class SyncPrices
                 $currency = strtoupper($row['currency']);
                 $key = $currency.'|'.$row['cycle'];
                 $keep[] = $key;
+                /** @var Price|null $price */
+                $price = $existing->get($key);
+
                 $attributes = [
                     'enabled' => (bool) ($row['enabled'] ?? true),
                     'amount' => (int) $row['amount'],
                     'setup_fee' => (int) ($row['setup_fee'] ?? 0),
+                    'is_manual' => array_key_exists('manual', $row) ? (bool) $row['manual'] : ($price !== null && $price->is_manual),
                 ];
-
-                /** @var Price|null $price */
-                $price = $existing->get($key);
 
                 if ($price === null) {
                     $priceable->prices()->create(['currency' => $currency, 'cycle' => BillingCycle::from($row['cycle']), ...$attributes]);
@@ -52,10 +56,11 @@ class SyncPrices
 
                 $price->fill($attributes);
 
-                if ($price->isDirty()) {
+                if ($price->isDirty('enabled', 'amount', 'setup_fee')) {
                     $changes[] = ['currency' => $currency, 'cycle' => $row['cycle'], 'old' => $price->getOriginal('amount'), 'new' => $attributes['amount']];
-                    $price->save();
                 }
+
+                $price->save();
             }
 
             $removed = $existing->toBase()->except($keep);

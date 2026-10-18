@@ -75,7 +75,7 @@ export function PricingTab({
         <form onSubmit={submit} className="flex flex-col gap-4">
             <SectionCard
                 title="Pricing"
-                description="Turn on each cycle you sell in each currency. Clients only see cycles priced in their currency; there is no automatic conversion. Price changes never affect existing services."
+                description={`Turn on each cycle you sell in each currency; clients see only cycles priced in their currency. Prices in other currencies can be converted from the ${currencies.find((currency) => currency.is_default)?.code ?? 'default-currency'} price with each currency's rounding rule (Currencies → Converted prices). Lock a price to keep the amount you set. Price changes never affect existing services.`}
                 actions={
                     <SetupFeeToggle
                         id="product-setup-fees"

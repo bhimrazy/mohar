@@ -13,6 +13,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 
@@ -50,14 +51,14 @@ class CreateAddFundsInvoice
         $max = $this->settings->int('credit.max_deposit');
 
         if ($amount < $min || ($max > 0 && $amount > $max)) {
-            throw new BillingException(__('Enter an amount between :min and :max.', ['min' => Money::of($min, $currency)->format(), 'max' => Money::of($max, $currency)->format()]));
+            throw new BillingException(__('Enter an amount between :min and :max.', ['min' => app(MoneyFormatter::class)->format(Money::of($min, $currency)), 'max' => app(MoneyFormatter::class)->format(Money::of($max, $currency))]));
         }
 
         $maxBalance = $this->settings->int('credit.max_balance');
         $pending = (int) Invoice::query()->where('client_id', $client->id)->where('kind', InvoiceKind::AddFunds)->where('status', InvoiceStatus::Unpaid)->sum('total');
 
         if ($maxBalance > 0 && $this->credit->balance($client->id, $currency)->amount + $pending + $amount > $maxBalance) {
-            throw new BillingException(__('Your credit balance can be at most :max.', ['max' => Money::of($maxBalance, $currency)->format()]));
+            throw new BillingException(__('Your credit balance can be at most :max.', ['max' => app(MoneyFormatter::class)->format(Money::of($maxBalance, $currency))]));
         }
 
         return $this->issue->handle(new InvoiceDraft(

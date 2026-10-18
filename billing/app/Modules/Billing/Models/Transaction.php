@@ -64,7 +64,7 @@ class Transaction extends Model
             'status' => TransactionStatus::class,
             'raw' => 'array',
             'occurred_at' => 'datetime',
-            'exchange_rate' => 'decimal:6',
+            'exchange_rate' => 'decimal:12',
             'amount_in' => 'integer',
             'amount_out' => 'integer',
             'fee' => 'integer',

@@ -272,20 +272,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                     )}
                     {selected.conversion && (
                         <p className="rounded-lg border bg-muted/40 p-3 text-sm">
-                            You’ll pay{' '}
-                            <Money
-                                amount={selected.conversion.amount}
-                                currency={selected.conversion.currency}
-                                className="font-medium"
-                            />{' '}
-                            on {selected.name} (1 {selected.conversion.from} ={' '}
-                            <Money
-                                amount={Math.round(
-                                    selected.conversion.rate * 100,
-                                )}
-                                currency={selected.conversion.currency}
-                            />
-                            ).
+                            {selected.conversion.label}
                         </p>
                     )}
                     <InputError message={errors.payment ?? errors.billing} />

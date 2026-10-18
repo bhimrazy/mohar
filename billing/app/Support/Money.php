@@ -158,6 +158,11 @@ final readonly class Money implements JsonSerializable
         return sprintf('%s%d.%02d', $sign, intdiv($absolute, 100), $absolute % 100);
     }
 
+    /**
+     * "24.99 USD": decimal plus ISO code, for logs, audit entries, exceptions and CLI output only.
+     * Amounts people read (pages, dashboards, mail, PDFs) use App\Support\Currencies\MoneyFormatter,
+     * which applies the currency's configured symbol and grouping ("$24.99", "Rs 1,23,456.00").
+     */
     public function format(): string
     {
         return $this->toDecimal().' '.$this->currency;

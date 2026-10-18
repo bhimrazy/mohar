@@ -95,11 +95,7 @@ export function OrderSummary({
                 <div className="flex items-baseline justify-between gap-4">
                     <dt className="font-medium">Due today</dt>
                     <dd className="text-xl font-semibold tracking-tight">
-                        <Money
-                            amount={cart.total}
-                            currency={currency}
-                            showCode
-                        />
+                        <Money amount={cart.total} currency={currency} />
                     </dd>
                 </div>
                 {cart.recurring.length > 0 && (

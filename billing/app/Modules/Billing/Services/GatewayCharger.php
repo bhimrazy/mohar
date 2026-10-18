@@ -11,6 +11,7 @@ use App\Modules\Billing\Drivers\Gateways\UnsupportedCapabilityException;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 
 /**
@@ -87,11 +88,11 @@ class GatewayCharger
         $limits = $driver->limits($this->gateways->config($gateway));
 
         if ($amount->amount < $limits->min) {
-            return __(':gateway needs at least :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->format($limits->min, $amount->currency)]);
+            return __(':gateway needs at least :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->amount($limits->min, $amount->currency)]);
         }
 
         if ($limits->max !== null && $amount->amount > $limits->max) {
-            return __(':gateway takes at most :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->format($limits->max, $amount->currency)]);
+            return __(':gateway takes at most :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->amount($limits->max, $amount->currency)]);
         }
 
         return null;
