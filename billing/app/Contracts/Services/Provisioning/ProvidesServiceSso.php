@@ -12,8 +12,15 @@ use App\Data\Services\Provisioning\SsoLink;
 interface ProvidesServiceSso
 {
     /**
-     * @param  string|null  $target  a panel page the driver documents (e.g. its email or file manager); null or an unknown
-     *                               target opens the panel home
+     * Panel pages a link can open directly, as shortcut buttons: target => label (e.g. `email` => "Email accounts").
+     * Static; an empty list means the panel home only.
+     *
+     * @return array<string, string>
+     */
+    public function ssoTargets(): array;
+
+    /**
+     * @param  string|null  $target  one of ssoTargets(); null or an unknown target opens the panel home
      */
     public function serviceSsoLink(ProvisioningContext $context, ?string $target = null): SsoLink;
 }

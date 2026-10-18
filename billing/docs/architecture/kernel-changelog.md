@@ -50,7 +50,16 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `App\Support\Services\RetryableProvisioningException`.
 - `App\Contracts\Services\ProvisioningDrivers` gains `remoteOptions()`. Its fields may carry `options_source`.
 - `App\Contracts\Billing\GatewayDriver` now extends `IntegrationDriver` (same methods; compatible).
-- `DriverRegistry::capabilities()` is public, so tests can check that every capability is covered.
+- `ProvidesServiceSso` has `ssoTargets(): array<target, label>` next to `serviceSsoLink(ctx, ?target)` (cPanel K7).
+- Added `App\Events\Services\ServiceImported` (`serviceId`, `clientId`, `serverId`, `driver`, `source`; cPanel K8).
+- `App\Data\Integrations\ConnectionCheck` gains trailing `steps` (`list<ConnectionCheckStep>`, with
+  `App\Enums\CheckStatus`) and `details` (compatible).
+- `ProvisioningDriver` docblock: any exception a driver throws during a call, other than
+  `RetryableProvisioningException`, is an unknown outcome.
+- `DriverRegistry::capabilities()` (PR A surface) is now public, so tests can check that every capability is
+  covered.
+- `ProvisioningContext::$configOptions` is empty in PR B; PR B2 fills it by module key from
+  `PriceBook::moduleInputs()`. Install-specific option ids are never sent to drivers.
 - **Breaking (module SPI removed):** `App\Modules\Services\Drivers\Provisioning\{ProvisioningDriver, ServiceContext,
 DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an

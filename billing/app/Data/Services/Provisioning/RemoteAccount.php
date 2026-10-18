@@ -5,7 +5,7 @@ namespace App\Data\Services\Provisioning;
 use Carbon\CarbonImmutable;
 
 /**
- * One account as the panel reports it (ListsAccounts, FindsAccounts).
+ * One account as the panel reports it (ListsAccounts, ReconcilesCommands).
  */
 final readonly class RemoteAccount
 {

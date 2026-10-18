@@ -23,7 +23,8 @@ use App\Support\Services\RetryableProvisioningException;
  * - retryable: provably not executed (connection refused, panel busy), DriverResult::fail(retryable: true) or a
  *   RetryableProvisioningException. The host retries with backoff;
  * - unknown: the request may have run (read timeout after sending, unparseable answer), DriverResult::unknown().
- *   The host never retries it and opens a "verify" item for staff.
+ *   The host never retries it and opens a "verify" item for staff. Any other exception a driver throws during a
+ *   call is treated the same way, so return fail() for errors you know happened before anything was sent.
  *
  * Make calls idempotent where the remote system allows it: creating an account that already exists for the
  * same owner is a success. Keep HTTP timeouts below the command timeout: DriverMetadata::$commandTimeoutSeconds, or

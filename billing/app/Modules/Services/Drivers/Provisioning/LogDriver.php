@@ -39,7 +39,9 @@ use Illuminate\Support\Facades\Cache;
  * `unknown: true` for a call whose outcome is unknown.
  * Failure injection (demo): a product setting `fail` naming the command, e.g. `['fail' => 'create']`.
  * Registered as a singleton so recorded calls are visible to the test that triggered them. The recorded calls and
- * injected failures are test-only state; real drivers are stateless (ProvisioningDriver).
+ * injected failures are test-only state; real drivers are stateless (ProvisioningDriver). The pretend panel is a
+ * read-modify-write on the cache without a lock, so concurrent workers can lose an update; acceptable for a demo,
+ * and with a database cache store it touches the cache table (never Services' tables).
  */
 class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, ProvidesFieldOptions, ProvidesServerSso, ProvidesServiceSso, ProvisioningDriver, ReconcilesCommands, RenewsAccounts, ReportsUsage, TestsServerConnection
 {
@@ -268,6 +270,11 @@ class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Provi
             in_array($command, ['suspend', 'unsuspend'], true) => new CommandLookup($account['suspended'] === ($command === 'suspend') ? ReconcileStatus::Executed : ReconcileStatus::NotExecuted, $remote),
             default => new CommandLookup(ReconcileStatus::Unknown, $remote, "The log driver cannot tell whether {$command} ran."),
         };
+    }
+
+    public function ssoTargets(): array
+    {
+        return ['email' => 'Email accounts', 'files' => 'File manager'];
     }
 
     public function serviceSsoLink(ProvisioningContext $context, ?string $target = null): SsoLink

@@ -55,8 +55,10 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
 
         $answers = [];
         $unreachable = [];
+        $names = [];
 
         foreach (Server::query()->whereKey($serverIds)->where('driver', $driverKey)->orderBy('id')->get() as $server) {
+            $names[$server->id] = $server->name;
             $cacheKey = "services:field-options:{$driverKey}:{$fieldKey}:{$server->id}";
 
             if ($refresh) {
@@ -74,7 +76,6 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
         }
 
         $options = array_replace(...array_values($answers ?: [[]]));
-        $names = Server::query()->whereKey(array_keys($answers))->pluck('name', 'id')->all();
         $missingOn = [];
 
         foreach (array_keys($options) as $value) {

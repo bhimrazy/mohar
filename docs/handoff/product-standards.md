@@ -50,6 +50,8 @@ every item.
 
 - Mail that carries a secret (reset links, verification, invitations, 2FA) is never copied (no CC, BCC
   or manual copies), and settings that redirect mail are in the sensitive permission tier. (2026-10-18)
+- A private link reaches only its owner: it is never in the subject, staff-written text or CC copies, and
+  mail that carried one cannot be resent (the action says to send a new link). (2026-10-18)
 - Account-recovery endpoints give the same response for known and unknown accounts and are rate
   limited. (2026-10-18)
 

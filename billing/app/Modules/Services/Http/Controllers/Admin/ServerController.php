@@ -93,9 +93,10 @@ class ServerController extends Controller
     public function test(Server $server, ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor): RedirectResponse
     {
         $this->authorize('services.servers.manage');
-        $connection = $snapshots->connection($server);
+        $connection = null;
 
         try {
+            $connection = $snapshots->connection($server);
             $driver = $drivers->get($server->driver);
 
             if (! $driver instanceof TestsServerConnection) {
@@ -106,12 +107,12 @@ class ServerController extends Controller
 
             $check = $driver->testConnection($connection);
         } catch (Throwable $exception) {
-            report(new \RuntimeException($redactor->maskValues($exception->getMessage(), $connection->secrets())));
+            report(new \RuntimeException($redactor->maskValues($exception->getMessage(), $connection?->secrets() ?? [])));
             $check = null;
         }
 
         if ($check === null || ! $check->ok) {
-            $error = $redactor->maskValues($check->message ?? __('unexpected error'), $connection->secrets());
+            $error = $redactor->maskValues($check->message ?? __('unexpected error'), $connection?->secrets() ?? []);
 
             throw ValidationException::withMessages(['server' => __('Connection to :host failed: :error', ['host' => $server->hostname, 'error' => $error])]);
         }

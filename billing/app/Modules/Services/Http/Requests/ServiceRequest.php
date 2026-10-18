@@ -12,8 +12,8 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * Staff edit of a service. Money fields are integer minor units. A changed username must pass the driver's username
- * policy.
+ * Staff edit of a service. Money fields are integer minor units. A changed username must pass the username policy
+ * of the service's driver, when the driver declares one.
  */
 class ServiceRequest extends FormRequest
 {
@@ -70,13 +70,14 @@ class ServiceRequest extends FormRequest
                 return;
             }
 
-            $policy = $drivers->displayDriverFor($service)->metadata()->usernamePolicy ?? new UsernamePolicy;
-            $reason = $policy->violation($username);
+            // Only a driver that declares a policy constrains staff-typed usernames; manual services stay free-form.
+            $policy = $drivers->displayDriverFor($service)->metadata()->usernamePolicy;
+            $reason = $policy?->violation($username);
 
             if ($reason !== null) {
                 $validator->errors()->add('username', match ($reason) {
                     UsernamePolicy::TOO_LONG => __('The username can be at most :max characters on this server.', ['max' => $policy->maxLength]),
-                    UsernamePolicy::INVALID_CHARACTERS => __('The username may contain only the characters this server accepts (lowercase letters and digits, starting with a letter).'),
+                    UsernamePolicy::INVALID_CHARACTERS => __('The username contains characters this server does not accept.'),
                     default => __('This username is reserved on the server; choose another.'),
                 });
             }

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Contracts\Services\Provisioning\ChangesPackage;
 use App\Enums\BillingCycle;
 use App\Events\Services\ServiceUpgraded;
 use App\Modules\Core\Support\ActivityLogger;
@@ -12,6 +13,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceChange;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
+use App\Modules\Services\Services\ServiceDrivers;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -26,6 +28,7 @@ class ApplyServiceChange
         private CancelOpenRenewals $cancelRenewals,
         private ModuleCommandDispatcher $commands,
         private ActivityLogger $activity,
+        private ServiceDrivers $drivers,
     ) {}
 
     public function handle(int $changeId): void
@@ -82,8 +85,17 @@ class ApplyServiceChange
         $service = Service::query()->findOrFail($applied->service_id);
         ServiceUpgraded::dispatch($service->id, $service->client_id, $applied->from_snapshot['product_id'], $applied->to_snapshot['product_id']);
 
-        if (in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)) {
-            $this->commands->queue($service, ModuleCommandName::ChangePackage, ['change_id' => $applied->id, 'previous' => $applied->from_snapshot]);
+        if (! in_array($service->status, [ServiceStatus::Active, ServiceStatus::Suspended], true)) {
+            return;
         }
+
+        if (! $this->drivers->displayDriverFor($service) instanceof ChangesPackage) {
+            // The change stays applied here; the panel is updated by hand. No failure, no staff alert.
+            $this->activity->log("Package change for {$service->label()} not sent to the server: this driver can't change packages", $service, $service->client_id, ['change_id' => $applied->id]);
+
+            return;
+        }
+
+        $this->commands->queue($service, ModuleCommandName::ChangePackage, ['change_id' => $applied->id, 'previous' => $applied->from_snapshot]);
     }
 }

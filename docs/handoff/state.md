@@ -1,14 +1,14 @@
 # Current state
 
-Last updated: 2026-10-18 08:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-18 12:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57) and Dashboard v2 (#41).
-- Progress toward "a product a host would switch to": about 50/100 (independent Fable review, 2026-10-18). Core
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41) and kernel contracts PR A (#61).
+- Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
@@ -21,24 +21,19 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #28; #58 independent)
+## Open pull requests (merge order: #28, #62; #58 independent)
 
-| PR  | Workstream     | Status                                                                                                                                                                                                                                                                                                          |
-| --- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #28 | Notifications  | B1 round-3 security sign-off running on `e060200`. Then the engineer merges develop (#57, #41), applies the install-templates installer, and it merges.                                                                                                                                                         |
-| #58 | Stripe gateway | Review round-1 fixes pushed (cards and wallets only, refund reconciliation, smoke key from env or prompt). Needs a short re-check and the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) designed and architect-checked on `feature/payments-stripe-saved-methods`, built after #58 merges. |
-
-## In progress
-
-| Workstream                    | Branch / worktree                                 | State                                                                 |
-| ----------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
-| Production install path (#47) | `feature/install-path`, `.worktrees/install-path` | Module engineer building `mohar:install`; must commit and push early. |
+| PR  | Workstream                    | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #28 | Notifications                 | Final security check at `e3906ca`: changes requested (link in an edited ticket subject; masking must match the key, not the URL; sanitizer must be the last step; CC copies and resend). Engineer fixing; the same reviewer re-checks those items, then merge.                                                                                                                                                                                                                                                                                                                                           |
+| #62 | Provisioning on kernel (PR B) | At `433436f`, retargeted to develop after #61 merged. Review board and architect: changes requested (unknown vs rejected driver errors, upgrades on drivers without package change, manual usernames, contract dataset vs address guard, K7/K8 in B, config options by key). Engineer fixing; then re-review. Split at the 3,000-line cap: B2 (encrypted `servers.settings`, server-form fields, `PriceBook::moduleInputs`) is stacked on B and gets a database review. Then re-review and architect checks. The cPanel/WHM driver is built on it (spec: `billing/docs/product/provisioning-cpanel.md`). |
+| #58 | Stripe gateway                | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
-1. Merge #43, then #41, then #28 (each with PostgreSQL CI green).
+1. Merge #28 and #62 (each with PostgreSQL CI green).
 2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
-3. Finish #47 plus `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
+3. Done: #47 install path merged in #57. Still open: `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
    PostgreSQL without demo data.
 4. ADR 0009 (kernel extension contracts), only PRs A and B, minimal, built together with the first real consumer.
 5. cPanel/WHM driver: short spec, then build against ADR 0009 PR B; test against a real WHM server from the owner,
