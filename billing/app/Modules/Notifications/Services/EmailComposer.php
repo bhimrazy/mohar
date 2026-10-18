@@ -134,8 +134,8 @@ class EmailComposer
         $label = trim($this->engine->render(SecretTemplatePolicy::plainCopy((string) $actionLabel), $labelContext, false, $options)->output) ?: __('View your ticket');
         $sensitive = $action instanceof SensitiveValue;
         [$sentHtml, $sentText, $storedHtml, $storedText] = $this->withSystemAction(
-            $sensitive ? SecretTemplatePolicy::sanitizeStaffHtml($bodyHtml) : $bodyHtml,
-            $bodyText, $url, $label, $sensitive, $plainTextOnly, $preferencesUrl, (string) $templateKey,
+            $sensitive ? SecretTemplatePolicy::sanitizeStaffHtml($bodyHtml, [$url]) : $bodyHtml,
+            $sensitive ? SecretTemplatePolicy::maskValues($bodyText, [$url]) : $bodyText, $url, $label, $sensitive, $plainTextOnly, $preferencesUrl, (string) $templateKey,
         );
 
         return new ComposedEmail(

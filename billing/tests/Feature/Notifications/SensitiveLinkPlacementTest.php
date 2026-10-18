@@ -5,6 +5,7 @@ use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
@@ -211,13 +212,27 @@ it('places the button after the body with the editable label, and the default ti
         ->and($text)->toMatch('/We got it\.\R+Open .+ ticket: '.preg_quote(guestUrl(), '/').'/');
 });
 
-it('fails closed when the finished mail would hold the key anywhere else', function () {
+it('masks the guest\'s own link pasted into a staff reply, and still sends', function () {
     Mail::fake();
     seedEmailTemplates();
     $context = [
         'ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())],
-        'reply' => ['author_name' => 'Sam', 'body_html' => '<p>Your link: '.guestUrl().'</p>', 'excerpt' => ''],
+        'reply' => ['author_name' => 'Sam', 'body_html' => '<p>Your link: '.e(guestUrl()).' or <a href="'.e(guestUrl()).'">this</a> ('.rawurlencode(guestUrl()).')</p>', 'excerpt' => ''],
     ];
+
+    app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|pasted'));
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => keyOnlyInSystemButton((string) $mail->htmlBody)
+        && str_contains((string) $mail->htmlBody, 'Your link: ••••')
+        && substr_count((string) $mail->plainText, 'GUESTKEY') === 1);
+    expect(EmailMessage::query()->sole()->status->value)->not->toBe('failed');
+});
+
+it('fails closed when the finished mail would hold the key outside the system button (backstop)', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    app(Settings::class)->set('notifications.footer_address', guestUrl()); // layout text, not staff content
+    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())]];
 
     app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|dup'));
 

@@ -279,9 +279,13 @@ final class SecretTemplatePolicy
      * unwrapped to their text, raw-text and embedding elements are dropped with their content, links keep an href
      * only to a configured origin, styles that load anything are dropped, and blank lines are removed so the
      * layout's Markdown pass keeps the result as one HTML block. Parsed and serialised once by the HTML5 parser,
-     * so what follows is plain, balanced, escaped markup that every later parser reads the same way.
+     * so what follows is plain, balanced, escaped markup that every later parser reads the same way. Any of the
+     * $sensitive values staff pasted in (e.g. the guest's own link in a reply) becomes •••• — in text and in
+     * attributes, after entity decoding — so only the system button carries it.
+     *
+     * @param  list<string>  $sensitive
      */
-    public static function sanitizeStaffHtml(string $html): string
+    public static function sanitizeStaffHtml(string $html, array $sensitive = []): string
     {
         $document = HTMLDocument::createFromString('<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>'.$html.'</body></html>', LIBXML_NOERROR);
         $body = $document->body;
@@ -291,8 +295,38 @@ final class SecretTemplatePolicy
         }
 
         self::sanitizeChildren($body);
+        $sensitive = array_values(array_filter($sensitive, fn (string $value): bool => $value !== ''));
 
-        return trim((string) preg_replace('/\n\s*\n/', "\n", $body->innerHTML));
+        if ($sensitive !== []) {
+            foreach ((new XPath($document))->query('//text()', $body) as $node) {
+                $node->textContent = self::maskValues((string) $node->textContent, $sensitive);
+            }
+
+            foreach ($body->getElementsByTagName('*') as $element) {
+                foreach (iterator_to_array($element->attributes) as $attribute) {
+                    $attribute->value = self::maskValues($attribute->value, $sensitive);
+                }
+            }
+        }
+
+        return self::maskValues(trim((string) preg_replace('/\n\s*\n/', "\n", $body->innerHTML)), $sensitive);
+    }
+
+    /**
+     * Replaces each sensitive value (as written, HTML-escaped or URL-encoded) with ••••: staff content that quotes
+     * one, e.g. a reply with the guest's link pasted in.
+     *
+     * @param  list<string>  $sensitive
+     */
+    public static function maskValues(string $text, array $sensitive): string
+    {
+        foreach ($sensitive as $value) {
+            if ($value !== '') {
+                $text = str_replace(array_unique([$value, e($value), rawurlencode($value), urlencode($value)]), '••••', $text);
+            }
+        }
+
+        return $text;
     }
 
     /**

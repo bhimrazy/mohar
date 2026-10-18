@@ -317,6 +317,13 @@ export default function TicketShow(props: Props) {
                                         </TabsTrigger>
                                     </TabsList>
                                     <TabsContent value="reply" className="pt-4">
+                                        {ticket.is_guest && (
+                                            <p className="mb-3 text-sm text-muted-foreground">
+                                                The customer's private ticket
+                                                link is added automatically;
+                                                don't paste it into replies.
+                                            </p>
+                                        )}
                                         <ReplyForm
                                             idPrefix="reply"
                                             form={TicketMessageController.reply.form(
