@@ -1,0 +1,321 @@
+<?php
+
+namespace App\Modules\Services\Drivers\Provisioning;
+
+use App\Contracts\Services\Provisioning\ChangesPackage;
+use App\Contracts\Services\Provisioning\ChangesPassword;
+use App\Contracts\Services\Provisioning\ListsAccounts;
+use App\Contracts\Services\Provisioning\ProvidesServerSso;
+use App\Contracts\Services\Provisioning\ProvidesServiceSso;
+use App\Contracts\Services\Provisioning\ProvisioningDriver;
+use App\Contracts\Services\Provisioning\RenewsAccounts;
+use App\Contracts\Services\Provisioning\ReportsUsage;
+use App\Contracts\Services\Provisioning\TestsServerConnection;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\SettingField;
+use App\Data\Services\Provisioning\DriverMetadata;
+use App\Data\Services\Provisioning\DriverResult;
+use App\Data\Services\Provisioning\PreviousPackage;
+use App\Data\Services\Provisioning\ProvisioningContext;
+use App\Data\Services\Provisioning\RemoteAccount;
+use App\Data\Services\Provisioning\ServerConnection;
+use App\Data\Services\Provisioning\SsoLink;
+use App\Data\Services\Provisioning\UsageRow;
+use App\Enums\FieldType;
+use App\Support\Services\RetryableProvisioningException;
+use Carbon\CarbonImmutable;
+use Closure;
+use Illuminate\Support\Facades\Cache;
+
+/**
+ * Demo and test driver, and the reference implementation of every provisioning capability: records each call,
+ * keeps a pretend panel's account list in the cache, and can be told to fail.
+ *
+ * Failure injection (tests): `app(LogDriver::class)->failNext('create', times: 2, retryable: true)`, or
+ * `unknown: true` for a call whose outcome is unknown.
+ * Failure injection (demo): a product setting `fail` naming the command, e.g. `['fail' => 'create']`.
+ * Registered as a singleton so recorded calls are visible to the test that triggered them.
+ */
+class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, ProvidesServerSso, ProvidesServiceSso, ProvisioningDriver, RenewsAccounts, ReportsUsage, TestsServerConnection
+{
+    /** @var list<array{command: string, service_id: ?int, server_id: ?int, args: array<string, mixed>}> */
+    public array $calls = [];
+
+    /** @var array<string, array{times: int, retryable: bool, unknown: bool, message: string}> */
+    private array $failures = [];
+
+    /**
+     * Runs during every recorded call, after the request is "sent" (tests simulate what happens elsewhere while a
+     * driver call is in flight).
+     *
+     * @var (Closure(string, ?ProvisioningContext): void)|null
+     */
+    public ?Closure $whileRunning = null;
+
+    public function key(): string
+    {
+        return 'log';
+    }
+
+    public function name(): string
+    {
+        return 'Log (demo)';
+    }
+
+    public function failNext(string $command, int $times = 1, bool $retryable = false, string $message = 'Simulated failure', bool $unknown = false): void
+    {
+        $this->failures[$command] = ['times' => $times, 'retryable' => $retryable, 'unknown' => $unknown, 'message' => $message];
+    }
+
+    /**
+     * @return list<array{command: string, service_id: ?int, server_id: ?int, args: array<string, mixed>}>
+     */
+    public function callsFor(string $command): array
+    {
+        return array_values(array_filter($this->calls, fn (array $call): bool => $call['command'] === $command));
+    }
+
+    public function metadata(): DriverMetadata
+    {
+        return new DriverMetadata(
+            requiresServer: true,
+            defaultPort: 2086,
+            defaultSecurePort: 2087,
+            productConfigFields: [
+                new SettingField('package', 'Package name'),
+                new SettingField('fail', 'Fail command (demo)', FieldType::Select, options: array_combine(
+                    ['', 'create', 'suspend', 'unsuspend', 'terminate', 'change_package', 'change_password'],
+                    ['', 'create', 'suspend', 'unsuspend', 'terminate', 'change_package', 'change_password'],
+                )),
+            ],
+            serverFields: [
+                new SettingField('username', 'Username', required: true),
+                new SettingField('password', 'Password', FieldType::Secret, required: true),
+            ],
+        );
+    }
+
+    public function testConnection(ServerConnection $server): ConnectionCheck
+    {
+        $failure = $this->record('test_connection', null, $server, $this->auth($server));
+
+        return $failure === null
+            ? new ConnectionCheck(true, "Connected to {$server->hostname}.")
+            : new ConnectionCheck(false, (string) $failure->message);
+    }
+
+    public function create(ProvisioningContext $context): DriverResult
+    {
+        $request = $this->accountRequest($context) + ['password' => $context->service->password, 'package' => $context->productConfig['package'] ?? 'default'];
+
+        if ($failure = $this->record('create', $context, $context->server, $request)) {
+            return $failure;
+        }
+
+        if ($context->server !== null && $context->service->username !== null) {
+            $this->rememberAccount($context->server->id, $context->service->username, $context->service->domain);
+        }
+
+        return DriverResult::ok(
+            'Account created.',
+            ['dedicated_ip' => $context->service->dedicatedIp, 'driver_data' => ['remote_id' => 'log-'.$context->service->id]],
+            $request,
+            ['status' => 1, 'account' => $context->service->username],
+        );
+    }
+
+    public function suspend(ProvisioningContext $context, string $reason): DriverResult
+    {
+        $request = $this->accountRequest($context) + ['reason' => $reason];
+
+        return $this->record('suspend', $context, $context->server, $request) ?? DriverResult::ok('Account suspended.', request: $request, response: ['status' => 1]);
+    }
+
+    public function unsuspend(ProvisioningContext $context): DriverResult
+    {
+        $request = $this->accountRequest($context);
+
+        return $this->record('unsuspend', $context, $context->server, $request) ?? DriverResult::ok('Account unsuspended.', request: $request, response: ['status' => 1]);
+    }
+
+    public function terminate(ProvisioningContext $context): DriverResult
+    {
+        $request = $this->accountRequest($context);
+
+        if ($failure = $this->record('terminate', $context, $context->server, $request)) {
+            return $failure;
+        }
+
+        if ($context->server !== null && $context->service->username !== null) {
+            $this->forgetAccount($context->server->id, $context->service->username);
+        }
+
+        return DriverResult::ok('Account terminated.', request: $request, response: ['status' => 1]);
+    }
+
+    public function changePackage(ProvisioningContext $context, PreviousPackage $previous): DriverResult
+    {
+        $request = $this->accountRequest($context) + ['from_product' => $previous->productId, 'to_product' => $context->service->productId];
+
+        return $this->record('change_package', $context, $context->server, $request) ?? DriverResult::ok('Package changed.', request: $request, response: ['status' => 1]);
+    }
+
+    public function changePassword(ProvisioningContext $context, #[\SensitiveParameter] string $newPassword): DriverResult
+    {
+        $request = $this->accountRequest($context) + ['password' => $newPassword];
+
+        return $this->record('change_password', $context, $context->server, $request) ?? DriverResult::ok('Password changed.', request: $request, response: ['status' => 1]);
+    }
+
+    public function renew(ProvisioningContext $context): DriverResult
+    {
+        $request = $this->accountRequest($context) + ['until' => $context->service->nextDueDate];
+
+        return $this->record('renew', $context, $context->server, $request) ?? DriverResult::ok('Account renewed.', request: $request, response: ['status' => 1]);
+    }
+
+    /**
+     * Deterministic pretend usage for every account the pretend panel holds.
+     */
+    public function usage(ServerConnection $server): array
+    {
+        $this->record('usage', null, $server, []);
+        $rows = [];
+
+        foreach (array_keys($this->accounts($server->id)) as $username) {
+            $seed = crc32((string) $username);
+            $rows[(string) $username] = new UsageRow(
+                diskUsedMb: 200 + $seed % 4800,
+                diskLimitMb: 10240,
+                bandwidthUsedMb: 1000 + $seed % 40000,
+                bandwidthLimitMb: 102400,
+            );
+        }
+
+        return $rows;
+    }
+
+    public function listAccounts(ServerConnection $server): array
+    {
+        $this->record('list_accounts', null, $server, []);
+
+        return array_map(
+            fn (string $username, ?string $domain): RemoteAccount => new RemoteAccount($username, $domain, 'default'),
+            array_map('strval', array_keys($this->accounts($server->id))),
+            array_values($this->accounts($server->id)),
+        );
+    }
+
+    public function serviceSsoLink(ProvisioningContext $context): SsoLink
+    {
+        $this->record('service_sso', $context, $context->server, $this->accountRequest($context));
+
+        return new SsoLink('https://'.($context->server->hostname ?? 'panel.invalid').'/login?session=log-'.$context->service->id, CarbonImmutable::now()->addMinutes(5));
+    }
+
+    public function serverSsoLink(ServerConnection $server): SsoLink
+    {
+        $this->record('server_sso', null, $server, $this->auth($server));
+
+        return new SsoLink("https://{$server->hostname}/login?session=log-server-{$server->id}", CarbonImmutable::now()->addMinutes(5));
+    }
+
+    /**
+     * Put an account on the pretend panel without a create call (tests of usage and account listing).
+     */
+    public function rememberAccount(int $serverId, string $username, ?string $domain = null): void
+    {
+        Cache::forever($this->accountsKey($serverId), [...$this->accounts($serverId), $username => $domain]);
+    }
+
+    /**
+     * Forget recorded calls and injected failures (tests).
+     */
+    public function reset(): void
+    {
+        $this->calls = [];
+        $this->failures = [];
+        $this->whileRunning = null;
+    }
+
+    /**
+     * Whether any call was recorded for the service.
+     */
+    public function wasCalledFor(int $serviceId, string $command): bool
+    {
+        return collect($this->callsFor($command))->contains(fn (array $call): bool => $call['service_id'] === $serviceId);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function accountRequest(ProvisioningContext $context): array
+    {
+        return [
+            'hostname' => $context->server?->hostname,
+            'auth' => $context->server === null ? null : $this->auth($context->server)['auth'],
+            'account' => $context->service->username,
+            'domain' => $context->service->domain,
+        ];
+    }
+
+    /**
+     * @return array{hostname: string, auth: array{username: ?string, password: ?string}}
+     */
+    private function auth(ServerConnection $server): array
+    {
+        return ['hostname' => $server->hostname, 'auth' => ['username' => $server->username, 'password' => $server->password]];
+    }
+
+    /**
+     * Record the call; return a failure result (or throw) when a failure was injected.
+     *
+     * @param  array<string, mixed>  $request
+     */
+    private function record(string $command, ?ProvisioningContext $context, ?ServerConnection $server, array $request): ?DriverResult
+    {
+        $this->calls[] = ['command' => $command, 'service_id' => $context?->service->id, 'server_id' => $server?->id, 'args' => $request];
+
+        if ($this->whileRunning !== null) {
+            ($this->whileRunning)($command, $context);
+        }
+
+        if (($context?->productConfig['fail'] ?? null) === $command) {
+            return DriverResult::fail("Simulated {$command} failure (product setting).", request: $request);
+        }
+
+        if (! isset($this->failures[$command]) || $this->failures[$command]['times'] < 1) {
+            return null;
+        }
+
+        $failure = $this->failures[$command];
+        $this->failures[$command]['times']--;
+
+        return match (true) {
+            $failure['retryable'] => throw new RetryableProvisioningException($failure['message']),
+            $failure['unknown'] => DriverResult::unknown($failure['message'], request: $request),
+            default => DriverResult::fail($failure['message'], request: $request),
+        };
+    }
+
+    /**
+     * @return array<string, ?string> username => domain
+     */
+    private function accounts(int $serverId): array
+    {
+        /** @var array<string, ?string> */
+        return Cache::get($this->accountsKey($serverId), []);
+    }
+
+    private function forgetAccount(int $serverId, string $username): void
+    {
+        $accounts = $this->accounts($serverId);
+        unset($accounts[$username]);
+        Cache::forever($this->accountsKey($serverId), $accounts);
+    }
+
+    private function accountsKey(int $serverId): string
+    {
+        return "services:log-driver:server:{$serverId}:accounts";
+    }
+}
