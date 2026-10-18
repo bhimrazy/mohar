@@ -20,7 +20,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #43 → #41 → #28)
+## Open pull requests (merge order: #43 → #57 → #41 → #28)
 
 | PR  | Workstream    | Size          | Status                                                                                                                                                                             |
 | --- | ------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
