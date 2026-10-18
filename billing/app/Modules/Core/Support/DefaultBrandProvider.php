@@ -20,6 +20,7 @@ class DefaultBrandProvider implements BrandProvider
             logoDark: asset('brand/logo-dark.svg'),
             mark: asset('brand/mark.svg'),
             favicon: asset('favicon.svg'),
+            emailLogoDark: is_file(public_path('brand/logo-dark.png')) ? asset('brand/logo-dark.png') : null,
         );
     }
 

@@ -1,13 +1,13 @@
 # Current state
 
-Last updated: 2026-10-18 12:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-18 14:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41) and kernel contracts PR A (#61).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications with the branded mail layout (#28) and docs-only CI pushes (#66).
 - Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,13 +21,12 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #28, #62; #58 independent)
+## Open pull requests (merge order: #65, then cPanel PR 1; #58 independent)
 
-| PR  | Workstream                    | Status                                                                                                                                                                                                                                                         |
-| --- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #28 | Notifications                 | Final security check at `e3906ca`: changes requested (link in an edited ticket subject; masking must match the key, not the URL; sanitizer must be the last step; CC copies and resend). Engineer fixing; the same reviewer re-checks those items, then merge. |
-| #62 | Provisioning on kernel (PR B) | Re-review at `4bd2ae3`: all fixed except queue redelivery can still re-run create after an unknown outcome, and queued "run now" shows as failed. Engineer fixing; narrow re-check, then merge. B2 (`feature/kernel-provisioning-b2`) paused until then.       |
-| #58 | Stripe gateway                | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                            |
+| PR  | Workstream     | Status                                                                                                                                                                                                                                |
+| --- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #65 | Kernel PR B2   | Database review passed; review board and architect requested changes (stale value ids, defaults not saved, secrets on driver switch, secrets in flashed input, unique module keys, save lock). Engineer fixing; narrow re-check next. |
+| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                   |
 
 ## Design and research in progress
 
@@ -38,7 +37,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
-1. Merge #28 and #62 (each with PostgreSQL CI green).
+1. Merge #65; cPanel/WHM driver in progress on `feature/provisioning-cpanel` (stacked on #65, recorded fixtures until the owner provides a WHM server) (each with PostgreSQL CI green).
 2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
 3. Done: #47 install path merged in #57. Still open: `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
    PostgreSQL without demo data.

@@ -2,11 +2,13 @@
 
 namespace App\Events\Core;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class ClientMerged
+final class ClientMerged implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * Dispatched after $sourceClientId was merged into $targetClientId (source is closed).

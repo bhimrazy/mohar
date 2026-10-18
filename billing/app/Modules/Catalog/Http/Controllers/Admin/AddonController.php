@@ -2,6 +2,7 @@
 
 namespace App\Modules\Catalog\Http\Controllers\Admin;
 
+use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Http\Controllers\Controller;
 use App\Modules\Catalog\Actions\DeleteAddon;
@@ -138,6 +139,7 @@ class AddonController extends Controller
                 ->with('group:id,name')->orderBy('product_group_id')->ordered()->get()
                 ->map(fn (Product $product): array => ['id' => $product->id, 'name' => $product->name, 'group' => $product->group->name, 'status' => $product->status()]),
             'drivers' => app(ProvisioningDrivers::class)->all(),
+            'emailTemplates' => app(EmailTemplates::class)->options(['product', 'general']),
             'canManage' => request()->user()?->hasPermission('catalog.addons.manage') ?? false,
         ];
     }
