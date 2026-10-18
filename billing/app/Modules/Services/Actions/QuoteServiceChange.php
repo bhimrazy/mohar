@@ -63,10 +63,7 @@ class QuoteServiceChange
             return new ChangeQuote($kind, $toProductId, $name, $toCycle, $quote->recurring, $service->currency, Proration::fullCharge($quote->recurring), $toCycle->advance($today, 1, $today->day), $today->day);
         }
 
-        /** @var CarbonImmutable $periodEnd */
-        $periodEnd = $service->next_due_date;
-        $periodStart = BillingDates::periodStartBefore($service->cycle, $periodEnd, $service->billing_anchor_day);
-        $old = Proration::calculate($this->currentPeriodAmount($service, $periodStart), $quote->recurring, $periodStart, $periodEnd, $today);
+        $old = $this->prorateRemainingPaidTime($service, $quote->recurring, $today);
 
         if ($cycleChanges) {
             return new ChangeQuote($kind, $toProductId, $name, $toCycle, $quote->recurring, $service->currency, Proration::fullCharge($quote->recurring, $old->credit), $toCycle->advance($today, 1, $today->day), $today->day);
@@ -94,18 +91,66 @@ class QuoteServiceChange
     }
 
     /**
-     * What the client effectively pays for the current period, used for the credit side:
-     * - the target price of the latest change already applied in this period (so downgrade →
-     *   upgrade loops can never mint credit: each step is priced from the previous step), else
-     * - the net amount (service line + its promotion lines) actually paid for the period, else
+     * Prorate over all time the client has already paid for, from today to next_due_date — the
+     * current period plus any period prepaid during the renewal lead time — segment by segment
+     * (each segment uses its own calendar length). Credit = what was paid for the remaining days,
+     * charge = what the new price costs for the same days.
+     */
+    public function prorateRemainingPaidTime(Service $service, int $newAmount, CarbonImmutable $today): Proration
+    {
+        /** @var CarbonImmutable $paidThrough */
+        $paidThrough = $service->next_due_date;
+        $segments = [];
+
+        for ($end = $paidThrough, $guard = 0; $end->gt($today) && $guard < 120; $guard++) {
+            $start = BillingDates::periodStartBefore($service->cycle, $end, $service->billing_anchor_day);
+            array_unshift($segments, [$start, $end]);
+            $end = $start;
+        }
+
+        if ($segments === []) {
+            return new Proration(0, 0, 0, 0);
+        }
+
+        $windowStart = $segments[0][0];
+        $credit = 0;
+        $charge = 0;
+        $remaining = 0;
+
+        foreach ($segments as [$start, $end]) {
+            $part = Proration::calculate($this->paidAmountFor($service, $windowStart, $end), $newAmount, $start, $end, $today);
+            $credit += $part->credit;
+            $charge += $part->charge;
+            $remaining += $part->remainingDays;
+        }
+
+        return new Proration((int) $windowStart->diffInDays($paidThrough), $remaining, $credit, $charge);
+    }
+
+    /**
+     * What the client effectively paid for the period ending on $end:
+     * - the target price of the latest change applied since the start of the period containing
+     *   today, or after that period was paid — a change re-prices all remaining paid time, so
+     *   downgrade → upgrade loops are priced step by step and can never mint credit, prepaid
+     *   periods included; else
+     * - the net amount (service line + its promotion lines) actually paid for that period; else
      * - the recurring amount less any active renewal discount.
      */
-    public function currentPeriodAmount(Service $service, CarbonImmutable $periodStart): int
+    public function paidAmountFor(Service $service, CarbonImmutable $windowStart, CarbonImmutable $end): int
     {
+        $link = ServiceInvoice::query()
+            ->where('service_id', $service->id)
+            ->where('status', InvoiceLinkStatus::Paid->value)
+            ->whereDate('period_end', $end)
+            ->orderByDesc('id')
+            ->first();
+
         $applied = ServiceChange::query()
             ->where('service_id', $service->id)
             ->where('status', ChangeStatus::Applied->value)
-            ->where('applied_at', '>=', $periodStart->startOfDay())
+            ->where(fn ($query) => $query
+                ->where('applied_at', '>=', $windowStart->startOfDay())
+                ->when($link?->updated_at !== null, fn ($query) => $query->orWhere('applied_at', '>=', $link?->updated_at)))
             ->orderByDesc('applied_at')
             ->orderByDesc('id')
             ->first();
@@ -113,13 +158,6 @@ class QuoteServiceChange
         if ($applied !== null) {
             return (int) $applied->to_snapshot['recurring_amount'];
         }
-
-        $link = ServiceInvoice::query()
-            ->where('service_id', $service->id)
-            ->where('status', InvoiceLinkStatus::Paid->value)
-            ->whereDate('period_end', $service->next_due_date)
-            ->orderByDesc('id')
-            ->first();
 
         if ($link !== null) {
             return $link->amount;
