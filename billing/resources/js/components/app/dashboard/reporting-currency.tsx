@@ -3,18 +3,22 @@ import type { ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { DashboardWidget } from './types';
 
-/** "all" = every currency converted to the default currency; otherwise one ISO code, unconverted. */
+/**
+ * One ISO code = that currency only, unconverted (the default view is the default currency). "all" = every
+ * currency converted to the default currency at today's rates: an explicit estimate, because transactions do not
+ * store the rate in force when they were paid.
+ */
 export const ALL_CURRENCIES = 'all';
 
-const STORAGE_KEY = 'dashboard.reporting-currency';
+const STORAGE_KEY = 'dashboard.reporting-currency.v2';
 
 const ReportingCurrencyContext = createContext<string>(ALL_CURRENCIES);
 
-function readStored(): string {
+function readStored(): string | null {
     try {
-        return window.localStorage.getItem(STORAGE_KEY) ?? ALL_CURRENCIES;
+        return window.localStorage.getItem(STORAGE_KEY);
     } catch {
-        return ALL_CURRENCIES;
+        return null;
     }
 }
 
@@ -73,7 +77,10 @@ export function useVariant<T extends DashboardWidget>(widget: T): T {
     return withVariant(widget, useReportingCurrency());
 }
 
-/** Holds the selection (remembered per browser) and renders the header switch through `children`. */
+/**
+ * Holds the selection (remembered per browser) and renders the header switch through `children`. Widgets list the
+ * default currency first, so `codes[0]` is the default view.
+ */
 export function ReportingCurrencyProvider({
     codes,
     children,
@@ -81,16 +88,17 @@ export function ReportingCurrencyProvider({
     codes: string[];
     children: (switcher: ReactNode, selected: string) => ReactNode;
 }) {
-    const [selected, setSelected] = useState<string>(ALL_CURRENCIES);
+    const fallback = codes[0] ?? ALL_CURRENCIES;
+    const [selected, setSelected] = useState<string | null>(null);
 
     useEffect(() => {
         setSelected(readStored());
     }, []);
 
     const active =
-        selected === ALL_CURRENCIES || codes.includes(selected)
+        selected === ALL_CURRENCIES || (selected && codes.includes(selected))
             ? selected
-            : ALL_CURRENCIES;
+            : fallback;
 
     const choose = (code: string) => {
         if (!code) {
@@ -116,13 +124,6 @@ export function ReportingCurrencyProvider({
                 onValueChange={choose}
                 aria-label="Reporting currency"
             >
-                <ToggleGroupItem
-                    value={ALL_CURRENCIES}
-                    className="px-3 text-xs"
-                    aria-label="All currencies"
-                >
-                    All
-                </ToggleGroupItem>
                 {codes.map((code) => (
                     <ToggleGroupItem
                         key={code}
@@ -132,6 +133,14 @@ export function ReportingCurrencyProvider({
                         {code}
                     </ToggleGroupItem>
                 ))}
+                <ToggleGroupItem
+                    value={ALL_CURRENCIES}
+                    className="px-3 text-xs"
+                    aria-label="All currencies, estimated at today's rates"
+                    title="All currencies converted at today's exchange rates (an estimate for past periods)"
+                >
+                    All (est.)
+                </ToggleGroupItem>
             </ToggleGroup>
         ) : null;
 

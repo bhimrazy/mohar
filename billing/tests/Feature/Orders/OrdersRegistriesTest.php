@@ -24,6 +24,8 @@ it('shows pending and today order cards to staff with order access', function ()
     $cards = collect(app(Dashboard::class)->resolve('admin', $user))->keyBy('key');
 
     expect($cards['orders.pending']['value'])->toBe(2)
+        ->and($cards['orders.pending']['mirrorsTodo'])->toBeTrue()
+        ->and($cards['orders.today'])->not->toHaveKey('mirrorsTodo')
         ->and($cards['orders.today']['value'])->toBe(2);
 });
 

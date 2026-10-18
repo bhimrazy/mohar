@@ -93,11 +93,11 @@ class ServicesDashboard
             'hint' => trans_choice('{0} No recurring services|{1} From 1 recurring service|[2,*] From :count recurring services', $services),
             ...array_filter(['trend' => Trend::percent((int) end($points), $before)]),
         ];
-        $codes = $rollup->order(array_keys($series));
+        $codes = $rollup->codes(array_keys($series));
         $variants = [];
 
         foreach ($codes as $code) {
-            $variants[$code] = $card($series[$code], $previous[$code], $count[$code], $code);
+            $variants[$code] = $card($series[$code] ?? array_fill(0, count($points), 0), $previous[$code] ?? 0, $count[$code] ?? 0, $code);
         }
 
         return [

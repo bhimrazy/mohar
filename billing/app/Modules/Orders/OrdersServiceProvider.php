@@ -142,6 +142,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             'value' => Order::query()->where('status', OrderStatus::Pending)->count(),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'icon' => 'ShoppingCart',
+            'mirrorsTodo' => true,
         ], 'orders.orders.view', 20);
         $dashboard->card('admin', 'orders.today', fn (?User $user): array => [
             'label' => 'Orders today',

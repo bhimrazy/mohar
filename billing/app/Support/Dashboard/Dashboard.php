@@ -12,7 +12,8 @@ use Closure;
  * Stat card (shortcut). Optional: 'money' => ['amount', 'currency'], 'hint', 'trend' => ['value' => '12%', 'direction' =>
  * 'up'|'down'|'flat', 'upIsGood' => bool], 'sparkline' => int[] (12 points), 'tone' => 'default'|'warning'|'danger':
  *   $dashboard->card('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue', 'value' => 3, 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
- * The first four stat cards by order are the dashboard's primary KPIs; the rest form the counter strip.
+ * The first four stat cards by order are the dashboard's primary KPIs; the rest form the counter strip. A card that is the
+ * same figure as a to-do with the same key sets 'mirrorsTodo' => true: the dashboard then shows it once, in Needs attention.
  *
  * Other widgets — type + payload shape:
  *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),

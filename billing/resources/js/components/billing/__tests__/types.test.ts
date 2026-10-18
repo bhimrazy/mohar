@@ -34,14 +34,14 @@ describe('formatMoney default locale per currency', () => {
 });
 
 describe('formatMoney symbols and compact amounts', () => {
-    it('prints the Nepalese rupee as रू with lakh grouping', () => {
-        expect(formatMoney(78680000, 'NPR')).toBe('रू 7,86,800.00');
-        expect(formatMoney(-50000, 'NPR')).toBe('−रू 500.00');
+    it('prints the Nepalese rupee as Rs with lakh grouping', () => {
+        expect(formatMoney(78680000, 'NPR')).toBe('Rs 7,86,800.00');
+        expect(formatMoney(-50000, 'NPR')).toBe('−Rs 500.00');
     });
 
     it('compacts axis labels in each currency own grouping', () => {
         expect(formatMoneyCompact(4500000, 'USD')).toBe('$45K');
         expect(formatMoneyCompact(116720000, 'INR')).toBe('₹11.7L');
-        expect(formatMoneyCompact(78680000, 'NPR')).toBe('रू 7.9L');
+        expect(formatMoneyCompact(78680000, 'NPR')).toBe('Rs 7.9L');
     });
 });

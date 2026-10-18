@@ -92,6 +92,18 @@ final class CurrencyRollup
     }
 
     /**
+     * Every configured currency plus any extra codes seen in data, default first: the reporting-currency options.
+     * Widgets send a variant for each, so the default currency always has a view even with no activity.
+     *
+     * @param  iterable<string>  $seen
+     * @return list<string>
+     */
+    public function codes(iterable $seen = []): array
+    {
+        return $this->order([...array_keys($this->currencies), $this->default->code, ...$seen]);
+    }
+
+    /**
      * Default currency first, then the rest alphabetically.
      *
      * @param  iterable<string>  $codes

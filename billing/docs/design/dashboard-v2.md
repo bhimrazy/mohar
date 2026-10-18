@@ -30,7 +30,7 @@ radius, density). v2 takes the shared layout and these specific treatments:
 | Health card: icon, check name, detail line, status dot + value                     | all four ("Automation health")  | Renamed **System health**; fed by an aggregated registry (5.3).                                                                                                      |
 | Quick actions card with ⌘K hint                                                    | all four                        | Per-action key hints are dropped: no such shortcuts exist, and the UI must not advertise them.                                                                       |
 | Tabular, monospaced figures in KPIs                                                | Operator                        | Already a theme token (`--font-numeric`); v2 uses `font-numeric` everywhere a figure appears so Operator keeps its look.                                             |
-| Header: currency switch + New                                                      | all four                        | Export is deferred (open question 3).                                                                                                                                |
+| Header: currency switch + New                                                      | all four                        | Export waits for the Reports module (decision 3).                                                                                                                    |
 
 Secondary references (market): Stripe's home overview (period comparison drawn as a muted line under the
 current one, "compared to previous period" caption), shadcn/ui dashboard blocks (section cards with a trend
@@ -58,35 +58,35 @@ badge and a footer line; an interactive area chart with a 3-way range toggle), L
 Everything the current dashboard shows, and where it lives in v2. "Strip" is the secondary counter strip
 under the KPIs; "NA" is Needs attention.
 
-| #   | Current element (owner module)                               | v2 placement                                                                                                                                |
-| --- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | KPI: Active clients, "N new this month" (Core)               | Strip tile, hint kept as the tile's context line                                                                                            |
-| 2   | KPI: Income this month (Billing)                             | **Primary KPI**, plus trend vs. same days last month and 12-week sparkline                                                                  |
-| 3   | KPI: Pending orders (Orders)                                 | Strip tile; also NA "Orders awaiting review"                                                                                                |
-| 4   | KPI: New clients this month, trend vs. last month (Core)     | Strip tile with its trend pill                                                                                                              |
-| 5   | Counter: Orders today (Orders)                               | Strip tile                                                                                                                                  |
-| 6   | Counter: Unpaid invoices, amount + "N invoices" (Billing)    | **Primary KPI "Outstanding"** (amount, count as context, trend, sparkline)                                                                  |
-| 7   | Counter: Overdue invoices, count (Billing)                   | **Primary KPI "Overdue"** (amount, "N invoices, oldest D days", trend, sparkline); count also in NA                                         |
-| 8   | Counter: Active services (Services)                          | Strip tile                                                                                                                                  |
-| 9   | Counter: Pending provisioning (Services)                     | Strip tile; also NA                                                                                                                         |
-| 10  | Counter: Failed module actions (Services)                    | Strip tile; also NA                                                                                                                         |
-| 11  | Counter: Domains expiring in 30 days (Domains)               | Strip tile; also NA                                                                                                                         |
-| 12  | Counter: Open tickets (Support)                              | Strip tile                                                                                                                                  |
-| 13  | Counter: Pending registrations (Domains)                     | Strip tile                                                                                                                                  |
-| 14  | Counter: Awaiting staff reply (Support)                      | Strip tile; also NA                                                                                                                         |
-| 15  | Counter: My assigned tickets (Support)                       | Strip tile                                                                                                                                  |
-| 16  | NA items, all 18 registered types (all modules)              | NA, unchanged keys and order; each gains an icon and, where cheap, a context line                                                           |
-| 17  | Chart: Income, last 30 days, per-currency switch (Billing)   | Hero chart, **"30 days" range** (daily, vs. previous 30 days); the currency switch moves to the page header                                 |
-| 18  | Chart: New clients, last 12 weeks (Core)                     | Trends row, unchanged data, restyled                                                                                                        |
-| 19  | List: Recent orders (Orders)                                 | Detail grid; money formatted, client name leads                                                                                             |
-| 20  | List: Newest clients (Core)                                  | Detail grid                                                                                                                                 |
-| 21  | List: Renewals due in 7 days (Services)                      | Detail grid                                                                                                                                 |
-| 22  | List: Recent payments (Billing)                              | Detail grid; money formatted                                                                                                                |
-| 23  | List: Recent activity (Platform)                             | Detail grid, **Activity** card, tab 1                                                                                                       |
-| 24  | List: Recent staff sign-ins (Platform)                       | Detail grid, **Activity** card, tab 2                                                                                                       |
-| 25  | List: Tickets awaiting reply (Support)                       | Detail grid                                                                                                                                 |
-| 26  | List: Automation, every task with its last status (Platform) | **System health → "Daily automation"** row: ran / failed / not run counts; "View all" opens the per-task page (one click). Open question 1. |
-| 27  | Greeting, date, description (page)                           | Header, unchanged                                                                                                                           |
+| #   | Current element (owner module)                               | v2 placement                                                                                                                           |
+| --- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | KPI: Active clients, "N new this month" (Core)               | Strip tile, hint kept as the tile's context line                                                                                       |
+| 2   | KPI: Income this month (Billing)                             | **Primary KPI**, plus trend vs. same days last month and 12-week sparkline                                                             |
+| 3   | KPI: Pending orders (Orders)                                 | NA "Orders awaiting review" (same query and permission; removed from the strip, CTO decision 2026-10-18)                               |
+| 4   | KPI: New clients this month, trend vs. last month (Core)     | Strip tile with its trend pill                                                                                                         |
+| 5   | Counter: Orders today (Orders)                               | Strip tile                                                                                                                             |
+| 6   | Counter: Unpaid invoices, amount + "N invoices" (Billing)    | **Primary KPI "Outstanding"** (amount, count as context, trend, sparkline)                                                             |
+| 7   | Counter: Overdue invoices, count (Billing)                   | **Primary KPI "Overdue"** (amount, "N invoices, oldest D days", trend, sparkline); count also in NA                                    |
+| 8   | Counter: Active services (Services)                          | Strip tile                                                                                                                             |
+| 9   | Counter: Pending provisioning (Services)                     | NA "Services waiting for provisioning" (exact duplicate; removed from the strip)                                                       |
+| 10  | Counter: Failed module actions (Services)                    | NA "Failed module actions" (exact duplicate; removed from the strip)                                                                   |
+| 11  | Counter: Domains expiring in 30 days (Domains)               | NA "Domains expiring in 30 days" (exact duplicate; removed from the strip)                                                             |
+| 12  | Counter: Open tickets (Support)                              | Strip tile                                                                                                                             |
+| 13  | Counter: Pending registrations (Domains)                     | Strip tile                                                                                                                             |
+| 14  | Counter: Awaiting staff reply (Support)                      | NA "Tickets awaiting staff reply" (exact duplicate; removed from the strip)                                                            |
+| 15  | Counter: My assigned tickets (Support)                       | Strip tile                                                                                                                             |
+| 16  | NA items, all 18 registered types (all modules)              | NA, unchanged keys and order; each gains an icon and, where cheap, a context line                                                      |
+| 17  | Chart: Income, last 30 days, per-currency switch (Billing)   | Hero chart, **"30 days" range** (daily, vs. previous 30 days); the currency switch moves to the page header                            |
+| 18  | Chart: New clients, last 12 weeks (Core)                     | Trends row, unchanged data, restyled                                                                                                   |
+| 19  | List: Recent orders (Orders)                                 | Detail grid; money formatted, client name leads                                                                                        |
+| 20  | List: Newest clients (Core)                                  | Detail grid                                                                                                                            |
+| 21  | List: Renewals due in 7 days (Services)                      | Detail grid                                                                                                                            |
+| 22  | List: Recent payments (Billing)                              | Detail grid; money formatted                                                                                                           |
+| 23  | List: Recent activity (Platform)                             | Detail grid, **Activity** card, tab 1                                                                                                  |
+| 24  | List: Recent staff sign-ins (Platform)                       | Detail grid, **Activity** card, tab 2                                                                                                  |
+| 25  | List: Tickets awaiting reply (Support)                       | Detail grid                                                                                                                            |
+| 26  | List: Automation, every task with its last status (Platform) | **System health → "Daily automation"** row: ran / failed / not run counts; "View all" opens the per-task page (one click). Decision 1. |
+| 27  | Greeting, date, description (page)                           | Header, unchanged                                                                                                                      |
 
 New in v2 (from the directions): MRR KPI (Services), outstanding and overdue amounts with sparklines
 (Billing), income 12 months vs. previous year with YoY (Billing), new orders per day by product type
@@ -143,9 +143,14 @@ card is the link (to services, transactions, unpaid and overdue invoices).
 
 ### 5.2 Counter strip
 
-Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Four per row at
-`lg`/`xl` (six from 1536px; at six, labels such as "Domains expiring in 30 days" truncate), two on phones
-with two-line labels. Tiles keep their existing links. Zero values stay (a zero is information).
+Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Four per row from
+`lg`, two on phones with two-line labels. Tiles keep their links; zero values stay (a zero is information).
+
+A counter that is the same figure as a Needs attention item (same query, same permission, same key) is sent
+with `mirrorsTodo: true` and shown only in Needs attention (CTO decision, 2026-10-18): pending orders,
+pending provisioning, failed module actions, domains expiring in 30 days and tickets awaiting staff reply.
+Seven counters remain: active clients, new clients this month, orders today, active services, pending domain
+registrations, open tickets, my assigned tickets.
 
 ### 5.3 Needs attention
 
@@ -182,11 +187,11 @@ most severe tone. Empty: "All caught up · Nothing is waiting on staff right now
 ### 5.6 Income by currency (Billing)
 
 - **Form:** a `breakdown` list, not a donut (close shares are easier to compare as aligned bars). Rows:
-  currency code chip, currency name, amount in its own currency (INR lakh grouping, NPR "रू"), a share meter
+  currency code chip, currency name, amount in its own currency (INR lakh grouping, NPR "Rs", per product standards), a share meter
   in `--chart-n` by fixed currency order, "46% of income". Shares are computed after converting every
   currency to the default currency at today's rates; the amounts shown are not converted.
 - **Footer:** "Tax collected this month" with one line per tax and currency (e.g. "GST ₹1,24,000.00 · VAT
-  रू 8,400.00"), from invoices paid this month. Tax amounts are never added across currencies.
+  Rs 8,400.00"), from invoices paid this month. Tax amounts are never added across currencies.
 - **Empty:** "No income this month yet."
 
 ### 5.7 New clients (Core)
@@ -223,11 +228,15 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 
 ## 6. Interactions
 
-- **Reporting currency** (page header, segmented control): `All` plus each currency with activity. `All`
-  converts every currency to the default currency at today's rates (caption: "All currencies in USD at
-  today's rates"); a currency code shows only money in that currency, unconverted (the current build's
-  behaviour). It scopes the money KPIs and the income hero. The choice is remembered per browser
-  (localStorage, wrapped in try/catch). Hidden when only one currency is in use.
+- **Reporting currency** (page header, segmented control): each configured currency, default first, then
+  `All (est.)`. The default view is the default currency. A code shows only money in that currency,
+  unconverted. `All (est.)` converts every currency to the default currency at today's rates and says so
+  ("All currencies in USD, estimated at today's rates"). Transactions do not store their rate to the default
+  currency (`transactions.exchange_rate` is the gateway's conversion rate, set only by converting gateways),
+  so converting at the rate in force when paid is not possible without a Billing schema change; until then
+  "All" is an explicit estimate (CTO decision, 2026-10-18). Every money widget sends a variant for every
+  configured currency, so each option has data. The choice is remembered per browser (localStorage, in
+  try/catch). Hidden when only one currency is configured.
 - **Range** on the hero only (12 months | 30 days).
 - **Hover/focus:** crosshair + tooltip on line charts, per-column tooltip on bars; cards and rows show a
   hover wash and a visible focus ring.
@@ -283,26 +292,40 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - Trend pills include screen-reader text ("Up 12.1%, good").
 - Tabs, range and currency controls are Radix toggle groups/tabs: arrow keys move, focus ring visible.
 - Status uses icon/dot plus text. Chart colours were checked with the dataviz validator against each
-  preset's card surface: all pass 3:1 contrast. Slate's `--chart-2` is a neutral grey that is not
-  distinguishable from its `--chart-3` teal under deuteranopia; v2 avoids that by drawing comparisons in
-  neutral ink and relying on legends, 2px surface gaps and the table view in stacks (open question 4).
+  preset's card surface: all pass 3:1 contrast. Palette fixes (CTO decision 2026-10-18), each the smallest
+  OKLCH move that clears CVD ΔE ≥ 8 and the normal-vision floor (≥ 15) against its neighbours, with the full
+  palette then passing (adjacent pairs; remaining 6–8 warnings are slots 5↔6, which dashboard charts never
+  use, and every multi-series chart has a legend and table view):
+
+    | Preset / mode | Slot | Before    | After     |
+    | ------------- | ---- | --------- | --------- |
+    | Slate light   | 2    | `#8A8A92` | `#978DCB` |
+    | Slate light   | 6    | `#D06A84` | `#D5677B` |
+    | Slate dark    | 2    | `#A3A3AB` | `#CDB3EA` |
+    | Slate dark    | 6    | `#DD8BA0` | `#EC8A87` |
+    | Calm dark     | 2    | `#5BBCD8` | `#53BFCE` |
+    | Calm dark     | 6    | `#E38EAE` | `#CE8ED3` |
+    | Warm dark     | 5    | `#E08FAA` | `#EF8D9A` |
+
+    Operator passes unchanged. Note for Themes: in every preset slots 1 and 4 (blue/indigo and violet) are hard
+    to tell apart as a non-adjacent pair; that matters only for charts where any series can sit next to any
+    other (scatter, maps), which the admin does not have.
+
 - Touch targets ≥ 24px; list rows are full-width links.
 
-## 10. Open questions for the owner
+## 10. Decisions (CTO, 2026-10-18)
 
-1. **Automation per-task list.** v2 summarises it as one System health row ("26 tasks: 26 succeeded · last
-   run 2 hours ago") linking to the Automation page, which now opens with its own summary (section 11). Keep
-   that, or also show the per-task list on the dashboard?
-2. **Reporting currency "All".** Converting at today's rates is an estimate for past months. Acceptable as
-   the default, or should the default be the default currency only (the current build's behaviour)?
-3. **Export.** The directions show an Export button. There is no reports module yet; v2 omits it rather than
-   ship a button that does nothing. Add a CSV export of the dashboard figures now, or wait for Reports?
-4. **Slate preset chart colours.** Slate's `--chart-2` (grey) and `--chart-3` (teal) collide for
-   colour-blind readers in multi-series charts. Propose giving Slate a desaturated blue-violet as
-   `--chart-2`; it is a theme change, so it is your call.
-5. **Counter strip density.** Twelve counters sit in three rows of four. They are all kept, per the
-   no-loss rule; several repeat a Needs attention row (pending orders, failed module actions, awaiting
-   reply, domains expiring). Keep all twelve, or drop the duplicated ones from the strip?
+1. **Automation on the dashboard:** one System health row; the full per-task list stays on the Automation
+   page, one click away.
+2. **Reporting currency:** default to the default currency; "All" is an explicit estimate at today's rates
+   (stored per-transaction rates to the default currency do not exist yet; see section 6).
+3. **Export:** waits for the Reports module (roadmap 3.8).
+4. **Chart colours:** Slate's grey replaced with a desaturated blue-violet; all four presets checked the same
+   way and fixed where an adjacent pair failed (section 9).
+5. **Counter strip:** exact duplicates of Needs attention rows removed from the strip (section 5.2; mapping
+   in section 3).
+6. **NPR symbol:** "Rs" (product standards), as a client-side stopgap in `lib/money.ts` until the Currencies
+   workstream makes the configured prefix the single source.
 
 ## 11. Automation page (owner addition, 2026-10-18)
 

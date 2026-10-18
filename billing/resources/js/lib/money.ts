@@ -103,10 +103,11 @@ export function localeForCurrency(currency: string): string {
 }
 
 /**
- * Symbols Intl does not use in our locales: Nepalese rupee prints as "NPR 1,200.00" in en-IN, while the
- * customary symbol (and the seeded currency prefix) is "रू".
+ * Stopgap until the Currencies workstream makes each currency's configured prefix the single source: Intl
+ * prints the Nepalese rupee as "NPR 1,200.00" in en-IN, while the owner's standard is "Rs 1,23,456.00".
+ * Delete this map (and withSymbol) when that lands.
  */
-const SYMBOLS: Record<string, string> = { NPR: 'रू' };
+const SYMBOLS: Record<string, string> = { NPR: 'Rs' };
 
 function withSymbol(formatted: string, code: string): string {
     const symbol = SYMBOLS[code];
@@ -142,7 +143,7 @@ export function formatMoney(
         : normalized;
 }
 
-/** Compact amounts for chart axes and dense summaries: "$48K", "₹12L" (en-IN), "रू 1.2L". */
+/** Compact amounts for chart axes and dense summaries: "$48K", "₹11.7L" (en-IN), "Rs 1.2L". */
 export function formatMoneyCompact(
     amountMinor: number,
     currency: string,

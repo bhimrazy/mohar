@@ -186,7 +186,7 @@ function StatStrip({
 
     return (
         <section aria-label="Counters" className={className}>
-            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6">
+            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                 {widgets.map((widget) => (
                     <li key={widget.key} className="grid min-w-0">
                         <StatTile widget={widget} />
@@ -258,7 +258,8 @@ export function DashboardWidgets({
 }) {
     const all = [...widgets, ...(deferred ?? [])];
     const stats = all.filter(
-        (widget): widget is StatWidget => widget.type === 'stat',
+        (widget): widget is StatWidget =>
+            widget.type === 'stat' && !widget.mirrorsTodo,
     );
     const charts = all.filter(
         (widget): widget is ChartWidget => widget.type === 'chart',

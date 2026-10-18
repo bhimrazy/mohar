@@ -32,6 +32,9 @@ class BillingDashboard
     /** Transaction types that make up net income (refunds and chargebacks are negative). */
     private const INCOME_TYPES = [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback];
 
+    /** A currency with no open or recently closed invoices. */
+    private const EMPTY_BOOK = ['outstanding' => 0, 'outstanding_count' => 0, 'overdue' => 0, 'overdue_count' => 0, 'oldest_due' => null, 'invoices' => []];
+
     /** Weekly points on the KPI sparklines. */
     private const WEEKS = 12;
 
@@ -133,6 +136,7 @@ class BillingDashboard
             $this->consolidateBooks($data['receivables']),
             $view,
             ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt'],
+            self::EMPTY_BOOK,
         );
     }
 
@@ -164,6 +168,7 @@ class BillingDashboard
                 $this->consolidateBooks($data['receivables']),
                 $view,
                 ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger'],
+                self::EMPTY_BOOK,
             ),
             'count' => array_sum(array_column($data['receivables'], 'overdue_count')),
         ];
@@ -196,7 +201,7 @@ class BillingDashboard
             ];
         };
 
-        $codes = $rollup->order(array_keys($data['income']));
+        $codes = $rollup->codes(array_keys($data['income']));
         $consolidated = $this->consolidateDaily($data['income']);
 
         return [
@@ -206,7 +211,7 @@ class BillingDashboard
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income recorded yet. Payments you record appear here.',
             ...$view($consolidated, $rollup->defaultCode()),
-            'variants' => array_combine($codes, array_map(fn (string $code): array => $view($data['income'][$code], $code), $codes)) ?: (object) [],
+            'variants' => array_combine($codes, array_map(fn (string $code): array => $view($data['income'][$code] ?? [], $code), $codes)) ?: (object) [],
         ];
     }
 
@@ -236,7 +241,7 @@ class BillingDashboard
 
         return [
             'title' => 'Income by currency',
-            'description' => 'This month, in each currency as received',
+            'description' => 'This month, in each currency as received; shares at today\'s rates',
             'href' => route('admin.billing.transactions.index'),
             'empty' => 'No income this month yet.',
             'rows' => array_map(fn (string $code): array => [
@@ -343,10 +348,10 @@ class BillingDashboard
      * @param  array<string, mixed>  $extra
      * @return array<string, mixed>
      */
-    private function moneyCard(string $label, array $byCurrency, mixed $consolidated, \Closure $view, array $extra): array
+    private function moneyCard(string $label, array $byCurrency, mixed $consolidated, \Closure $view, array $extra, mixed $empty = []): array
     {
         $rollup = $this->rollup();
-        $codes = $rollup->order(array_keys($byCurrency));
+        $codes = $rollup->codes(array_keys($byCurrency));
         $card = function (array $view, string $currency): array {
             $amount = $view['amount'];
             unset($view['amount']);
@@ -360,7 +365,7 @@ class BillingDashboard
         $variants = [];
 
         foreach ($codes as $code) {
-            $variants[$code] = $card($view($byCurrency[$code]), $code);
+            $variants[$code] = $card($view($byCurrency[$code] ?? $empty), $code);
         }
 
         return [
@@ -396,7 +401,7 @@ class BillingDashboard
     private function consolidateBooks(array $books): array
     {
         $rollup = $this->rollup();
-        $book = ['outstanding' => 0, 'outstanding_count' => 0, 'overdue' => 0, 'overdue_count' => 0, 'oldest_due' => null, 'invoices' => []];
+        $book = self::EMPTY_BOOK;
 
         foreach ($books as $code => $single) {
             $book['outstanding'] += $rollup->toDefault($single['outstanding'], $code) ?? 0;
@@ -618,7 +623,7 @@ class BillingDashboard
             ->each(function (object $row) use (&$books, $payable, $today): void {
                 $code = (string) $row->currency;
                 $isPayable = in_array($row->status, $payable, true);
-                $books[$code] ??= ['outstanding' => 0, 'outstanding_count' => 0, 'overdue' => 0, 'overdue_count' => 0, 'oldest_due' => null, 'invoices' => []];
+                $books[$code] ??= self::EMPTY_BOOK;
                 $dueDate = $row->due_date === null ? null : substr((string) $row->due_date, 0, 10);
                 $paidAt = $row->paid_at === null ? null : substr((string) $row->paid_at, 0, 10);
                 $cancelledAt = $row->cancelled_at === null ? null : substr((string) $row->cancelled_at, 0, 10);

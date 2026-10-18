@@ -29,6 +29,8 @@ export type StatWidget = WidgetBase & {
     trend?: StatTrend;
     sparkline?: number[];
     tone?: 'default' | 'danger' | 'warning';
+    /** Same figure as the Needs attention item with this key: shown there only, not in the counter strip. */
+    mirrorsTodo?: boolean;
     variants?: Variants<StatWidget>;
 };
 

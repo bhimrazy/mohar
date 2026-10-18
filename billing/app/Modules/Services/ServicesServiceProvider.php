@@ -133,6 +133,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'value' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
             'href' => route('admin.services.index', ['status' => 'pending']),
             'icon' => 'Package',
+            'mirrorsTodo' => true,
         ], 'services.services.view', 31);
 
         $dashboard->card('admin', 'services.failed', fn (?User $user): array => [
@@ -140,6 +141,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'value' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
+            'mirrorsTodo' => true,
         ], 'services.module_log.view', 32);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [

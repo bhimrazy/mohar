@@ -44,7 +44,7 @@ The work is mainly structural. It applies to all four directions, and it is wher
 | warning                        | `#D6A03A` · `#875A0E` on `#FBF3E2`                | `#E2B154` · `#EBC27A` on `#2D2619`                |
 | danger                         | `#CF5A55` · `#A6332F` on `#FBEDEC`                | `#E07D78` · `#F09C97` on `#32191B`                |
 | info                           | `#4B8BC9` · `#2B6297` on `#EAF2FA`                | `#6FA8E0` · `#94BFEA` on `#17253A`                |
-| chart 1–6                      | `#5B5FD0 #3A97B5 #B9822F #9073CF #3E9A78 #D47396` | `#8B8FEA #5BBCD8 #E6B169 #A98FE2 #6CC2A2 #E38EAE` |
+| chart 1–6                      | `#5B5FD0 #3A97B5 #B9822F #9073CF #3E9A78 #D47396` | `#8B8FEA #53BFCE #E6B169 #A98FE2 #6CC2A2 #CE8ED3` |
 
 - **Typography:** Inter 400–700 (stylistic sets cv11/ss03) with tabular numbers. Headings are 600 with −0.02em tracking. Table headers and sidebar group labels are 11px uppercase eyebrows.
 - **Shape and density:** 8px radius (12px cards), soft two-layer shadows, an inset content panel with a 14px radius. Comfortable density: 44px table rows, 24px card padding.
@@ -92,7 +92,7 @@ The work is mainly structural. It applies to all four directions, and it is wher
 | warning                 | `#D19A3A` · `#85560E` on `#FBF1DE`                | `#E0B060` · `#EBC27E` on `#30281A`                |
 | danger                  | `#C8574E` · `#A23D35` on `#FAEAE7`                | `#E3857B` · `#F0A39A` on `#341F1C`                |
 | info                    | `#4C88B5` · `#2C6189` on `#EAF2F8`                | `#77AAD3` · `#9BC3E3` on `#1C2631`                |
-| chart 1–6               | `#C9693F #3E9A8C #B4872B #7D6BC4 #CC7393 #5C8FC4` | `#E08F69 #5DB8A9 #E5BD66 #A291DC #E08FAA #7FAEDB` |
+| chart 1–6               | `#C9693F #3E9A8C #B4872B #7D6BC4 #CC7393 #5C8FC4` | `#E08F69 #5DB8A9 #E5BD66 #A291DC #EF8D9A #7FAEDB` |
 
 - **Typography:** Figtree 400–700. Headings are 700 with −0.02em tracking. Labels are sentence case. Plus Jakarta Sans and Manrope were tried first; their word spacing was too tight at UI sizes.
 - **Shape and density:** 12px radius (16px cards), pill badges, warm two-layer shadows, and an inset shell with a 20px radius. Relaxed density: 44–48px rows, 24px card padding.
@@ -116,7 +116,7 @@ The work is mainly structural. It applies to all four directions, and it is wher
 | warning                 | `#C88E2E` · `#7E520C` on `#FBF3E4`                | `#D7A956` · `#E2BC74` on `#29231A`                |
 | danger                  | `#C4504A` · `#A0362F` on `#FBEDEC`                | `#DB7A73` · `#EC9A93` on `#2C1A1A`                |
 | info                    | `#3D7FC1` · `#275E94` on `#EBF2FA`                | `#6EA2DA` · `#92BBE6` on `#172231`                |
-| chart 1–6               | `#2D6FD6 #8A8A92 #3F9E8F #B5832E #9A6CC8 #D06A84` | `#6B9BE3 #A3A3AB #5DB5A7 #DDB063 #AE8FDB #DD8BA0` |
+| chart 1–6               | `#2D6FD6 #978DCB #3F9E8F #B5832E #9A6CC8 #D5677B` | `#6B9BE3 #CDB3EA #5DB5A7 #DDB063 #AE8FDB #EC8A87` |
 
 - **Typography:** Geist 400–600 with −0.03em heading tracking, and Geist Mono for IDs. Labels are sentence case.
 - **Shape and density:** 6px radius (10px cards), 4px badges, no card shadows, and a flush shell. Medium density: about 38px rows, 20px card padding.
@@ -138,10 +138,10 @@ These are computed from the token hex values. AA requires 4.5:1 for text and 3:1
 | Operator dark    | 14.10    | 6.20          | 5.72           | 6.50       | 8.44         | 8.17         | 8.80         | 7.51        | 8.26      | 5.92                 |
 | Warm light       | 14.75    | 6.18          | 5.41           | 4.98       | 8.12         | 5.47         | 5.62         | 5.53        | 5.84      | 3.26                 |
 | Warm dark        | 14.41    | 6.78          | 6.29           | 7.19       | 9.31         | 8.12         | 8.69         | 7.66        | 8.25      | 5.99                 |
-| Slate light      | 17.38    | 5.95          | 5.42           | 15.75      | 8.43         | 5.82         | 6.14         | 6.02        | 5.98      | 3.23                 |
+| Slate light      | 17.38    | 5.95          | 5.42           | 15.75      | 8.43         | 5.82         | 6.14         | 6.02        | 5.98      | 3.01                 |
 | Slate dark       | 15.14    | 6.71          | 6.17           | 14.51      | 8.10         | 8.40         | 8.65         | 7.57        | 8.00      | 6.39                 |
 
-Status-text ratios are measured on their `-subtle` badge surface. Chart palettes avoid red/green-only pairs: each direction's first three series differ in both hue and lightness, and the legends always carry labels.
+Status-text ratios are measured on their `-subtle` badge surface. Chart colours were re-checked on 2026-10-18 with the dataviz palette validator (adjacent pairs, protan/deutan ΔE and the normal-vision floor): Slate's grey `chart-2` became a desaturated blue-violet, and Slate `chart-6`, Calm dark `chart-2`/`chart-6` and Warm dark `chart-5` were nudged so no adjacent pair fails (see `dashboard-v2.md` §9). Chart palettes avoid red/green-only pairs: each direction's first three series differ in both hue and lightness, and the legends always carry labels.
 
 ## Recommendation
 

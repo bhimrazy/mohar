@@ -69,3 +69,13 @@ test('provisioning health reports the 7-day success rate and open failures', fun
 
     expect($check)->toMatchArray(['value' => '98%', 'tone' => 'success', 'detail' => '49 of 50 commands succeeded (7 days)']);
 });
+
+test('MRR offers every configured currency, so the default-currency view exists without activity in it', function () {
+    Service::factory()->create(['currency' => 'INR', 'recurring_amount' => 84_000]);
+
+    $card = mrrCard();
+
+    expect(array_keys($card['variants']))->toBe(['USD', 'INR'])
+        ->and($card['variants']['USD'])->toMatchArray(['money' => ['amount' => 0, 'currency' => 'USD'], 'hint' => 'No recurring services'])
+        ->and($card['variants']['INR']['money'])->toBe(['amount' => 84_000, 'currency' => 'INR']);
+});

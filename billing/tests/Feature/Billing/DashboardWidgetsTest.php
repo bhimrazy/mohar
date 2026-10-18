@@ -128,3 +128,14 @@ test('the gateway health check flags payments waiting for review', function () {
 
     expect($check())->toMatchArray(['value' => '1 to review', 'tone' => 'danger']);
 });
+
+test('money widgets carry a variant for each configured currency, empty ones included', function () {
+    payInvoice(issueInvoice($this->inr, [840_000]), 840_000);
+
+    $widgets = billingWidgets();
+
+    expect(array_keys($widgets['billing.income']['variants']))->toBe(['USD', 'INR'])
+        ->and($widgets['billing.income']['variants']['USD']['money'])->toBe(['amount' => 0, 'currency' => 'USD'])
+        ->and($widgets['billing.unpaid']['variants']['USD'])->toMatchArray(['money' => ['amount' => 0, 'currency' => 'USD'], 'hint' => 'No unpaid invoices'])
+        ->and($widgets['billing.overdue']['variants']['INR']['hint'])->toBe('Nothing overdue');
+});

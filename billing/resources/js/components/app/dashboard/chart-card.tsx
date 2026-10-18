@@ -211,7 +211,7 @@ export function ChartCard({
                     {widget.currency && (
                         <span className="text-xs text-muted-foreground">
                             {consolidated
-                                ? `All currencies in ${widget.currency} at today's rates`
+                                ? `All currencies in ${widget.currency}, estimated at today's rates`
                                 : `Reporting in ${widget.currency}`}
                         </span>
                     )}
