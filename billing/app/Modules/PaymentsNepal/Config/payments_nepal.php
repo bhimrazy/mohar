@@ -22,7 +22,8 @@ return [
         'attempt_ttl_minutes' => 60, // Khalti's production default link lifetime
         // Partial refunds through the API stay off until the unit of "amount" (paisa vs rupees) is proven in the
         // Khalti sandbox: the docs say paisa but show 50.00. Full refunds send no amount and are always available.
-        'partial_refunds' => env('KHALTI_PARTIAL_REFUNDS', false),
+        // Turning it on is a reviewed code change, made together with the recorded sandbox evidence (spec §8.2).
+        'partial_refunds' => false,
     ],
 
     'esewa' => [

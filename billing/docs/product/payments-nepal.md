@@ -460,8 +460,8 @@ merchants).
   without a status goes to review.
 - **Refunds:** the docs give no method or headers. We send `POST` with `Authorization: Key …` and an empty body for
   a full refund, which has no unit question.
-- **Partial refunds are off** (`payments_nepal.khalti.partial_refunds`, env `KHALTI_PARTIAL_REFUNDS`, default
-  `false`). While the flag is off, the driver does not advertise `partial_refund`: Billing offers staff only a full
+- **Partial refunds are off** (`payments_nepal.khalti.partial_refunds`, default `false`; turning it on is a
+  reviewed change in `Config/payments_nepal.php`, not an environment switch). While the flag is off, the driver does not advertise `partial_refund`: Billing offers staff only a full
   gateway refund or a recorded partial one, and the driver refuses a partial amount anyway. When the flag is on,
   `{amount}` is sent in **paisa**. The docs say paisa, but their only examples are `50.00` and `75.00`. If Khalti read
   the value as rupees, a refund would be 100 times too large.
