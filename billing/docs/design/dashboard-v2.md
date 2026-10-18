@@ -102,7 +102,7 @@ Content width at 1440 is about 1,150px (sidebar 256px). Gap is the theme's `--pa
 ```
 Header ............................................. [All | USD | INR | NPR] [+ New]
 [ MRR ][ Income this month ][ Outstanding ][ Overdue ]                 4 cols
-[tile][tile][tile][tile][tile][tile]                                    6 cols, 1–2 rows
+[tile][tile][tile][tile]                                                4 cols (6 at ≥1536), 3 rows
 [ Income hero (12 months | 30 days)         ][ Needs attention ]       2fr / 1fr
 [ New orders (stacked) ][ New clients ][ Income by currency ]          3 cols
 [ System health ][ Recent orders ][ Recent payments ]                  3 cols
@@ -131,19 +131,21 @@ wears a series colour. Figures use `font-numeric`; axis ticks and list amounts u
 
 | KPI               | Module   | Value                                                 | Trend pill                              | Sparkline (12 pts)          | Context line                |
 | ----------------- | -------- | ----------------------------------------------------- | --------------------------------------- | --------------------------- | --------------------------- |
-| MRR               | Services | Σ active + suspended recurring amount ÷ cycle months  | vs. one month ago, up is good           | month-end MRR, 12 months    | "N active services"         |
+| MRR               | Services | Σ active + suspended recurring amount ÷ cycle months  | vs. one month ago, up is good           | month-end MRR, 12 months    | "From N recurring services" |
 | Income this month | Billing  | payments + manual income − refunds − chargebacks, MTD | vs. same days last month, up is good    | weekly net income, 12 weeks | "Oct 1–18 vs. Sep 1–18"     |
 | Outstanding       | Billing  | Σ balance of payable invoices                         | vs. 30 days ago, up is bad              | weekly snapshot, 12 weeks   | "N unpaid invoices"         |
 | Overdue           | Billing  | Σ balance of overdue invoices                         | vs. 30 days ago, up is bad; tone danger | weekly snapshot, 12 weeks   | "N invoices, oldest D days" |
 
-Form: stat tile (dataviz: the number is the chart). Sparkline uses `--chart-1`, or `--danger` when the trend
-is bad. Empty: value `0`/`$0.00`, no pill, flat sparkline hidden (fewer than two non-zero points). The whole
+Form: stat tile (dataviz: the number is the chart). Sparkline uses `--chart-1`; only the Overdue card (tone
+danger) draws it in `--danger`. Whether a change is good or bad is carried by the trend pill, not by turning
+every line red (tried and rejected: four red sparklines read as an alarm on an ordinary day). Empty: value `0`/`$0.00`, no pill, flat sparkline hidden (fewer than two non-zero points). The whole
 card is the link (to services, transactions, unpaid and overdue invoices).
 
 ### 5.2 Counter strip
 
-Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Six per row at
-`xl`. Tiles keep their existing links. Zero values stay (a zero is information).
+Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Four per row at
+`lg`/`xl` (six from 1536px; at six, labels such as "Domains expiring in 30 days" truncate), two on phones
+with two-line labels. Tiles keep their existing links. Zero values stay (a zero is information).
 
 ### 5.3 Needs attention
 
@@ -198,7 +200,7 @@ module contributes checks; each row: icon, name, detail, status dot + short valu
 
 | Check              | Module   | Source                                                                     | OK when                                 |
 | ------------------ | -------- | -------------------------------------------------------------------------- | --------------------------------------- |
-| Scheduler          | Platform | scheduler heartbeat (`AutomationStatus`)                                   | heartbeat < 5 minutes old               |
+| Scheduler          | Platform | scheduler heartbeat (`AutomationStatus`)                                   | < 5 min OK, < 60 min late, else stopped |
 | Daily automation   | Platform | `automation_runs` latest run per registered task                           | no failed task and the run is not stale |
 | Queue              | Platform | `jobs` waiting, `failed_jobs` in the last 24 hours                         | no failed jobs                          |
 | Provisioning       | Services | `module_commands` success rate, last 7 days; open `module_queue` items     | rate ≥ 98% and no open failures         |
@@ -241,11 +243,15 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - **chart** gains optional `stacked: bool`, `description`, `summary: {money|value, label, trend?}`, series
   `compare: bool` (drawn as the neutral dashed baseline), `ranges: {key: {label, series, summary?}}`, and
   `xFormat: month|day|dayOfMonth|week`.
-- **Currency variants (any widget):** optional `variants: {all|<code>: partial payload}`. The client merges
-  `variants[selected]` over the base payload. The legacy chart `currencies` map keeps working.
-- **New type `breakdown`:** `{title, description?, rows: [{key, label, code?, money|value, share}], notes?:
+- **Currency variants (any widget):** the base payload is the consolidated "All" view (default currency at
+  today's rates); optional `variants: {<code>: partial payload}` hold each currency unconverted. The client
+  merges `variants[selected]` over the base. The legacy chart `currencies` map keeps working.
+- **chart series** may also carry `slot` (fixed `--chart-n`, so a category keeps its colour when others are
+  absent) and `tone` (`success|danger|warning|neutral`, for series that are themselves a status).
+- **New type `breakdown`:** `{title, description?, rows: [{key, label, code?, money|value|display, share}], notes?:
 [{label, money}] , empty?}`.
-- **list** items gain optional `money`; lists gain optional `group` and `groupTitle`.
+- **list** items gain optional `money` and `avatar` (a name shown as initials); lists gain optional `group`,
+  `groupTitle` and `tabTitle`.
 - **todo** items gain optional `icon` and `hint` (the client already renders them).
 - **New aggregated registry `health()`** (like `todo()`):
   `$dashboard->health('admin', 'services.provisioning', fn ($user) => ['label', 'detail', 'value', 'tone',
@@ -267,7 +273,9 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - Each widget is registered with its permission and hidden when the user lacks it. Widgets touch only their
   own module's tables; cross-module data goes through contracts (`PriceBook::product()` for product type).
 - Demo seeding: billing history extends to 24 months with gradual growth so the YoY comparison is
-  meaningful; Orders seeds 30 days of demo orders across product types. Neither runs in production.
+  meaningful; Orders seeds 30 days of demo orders across product types; Platform seeds 30 days of automation
+  runs (one failure, one missed day). None of it runs in production (Platform's existing demo history was not
+  guarded; it is now).
 
 ## 9. Accessibility
 
@@ -282,8 +290,9 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 
 ## 10. Open questions for the owner
 
-1. **Automation per-task list.** v2 summarises it as one System health row ("17 tasks: 15 ran, 2 not run")
-   linking to the full automation page. Keep that, or also show the per-task list on the dashboard?
+1. **Automation per-task list.** v2 summarises it as one System health row ("26 tasks: 26 succeeded · last
+   run 2 hours ago") linking to the Automation page, which now opens with its own summary (section 11). Keep
+   that, or also show the per-task list on the dashboard?
 2. **Reporting currency "All".** Converting at today's rates is an estimate for past months. Acceptable as
    the default, or should the default be the default currency only (the current build's behaviour)?
 3. **Export.** The directions show an Export button. There is no reports module yet; v2 omits it rather than
@@ -291,3 +300,44 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 4. **Slate preset chart colours.** Slate's `--chart-2` (grey) and `--chart-3` (teal) collide for
    colour-blind readers in multi-series charts. Propose giving Slate a desaturated blue-violet as
    `--chart-2`; it is a theme change, so it is your call.
+5. **Counter strip density.** Twelve counters sit in three rows of four. They are all kept, per the
+   no-loss rule; several repeat a Needs attention row (pending orders, failed module actions, awaiting
+   reply, domains expiring). Keep all twelve, or drop the duplicated ones from the strip?
+
+## 11. Automation page (owner addition, 2026-10-18)
+
+`admin.platform.automation.index` opens with a summary built from the same data as the dashboard's
+automation health (Platform's `AutomationInsights`: one query over 30 days of `automation_runs` plus the
+scheduler heartbeat). The task list and run log below it are unchanged, so nothing is lost.
+
+**Scheduler banner.** When the heartbeat is late (5–60 minutes) or stopped (over an hour, or never seen while
+runs exist), a banner above everything says so in plain words, what stops working (renewals, reminders, late
+fees, suspensions), and shows the cron entry with a Copy button. Warning tone for late, danger for stopped.
+This answers the most common WHMCS complaint in the parity study: cron failing silently.
+
+**Empty state.** With no runs ever recorded, the summary is replaced by three set-up steps: add the cron entry
+(shown with Copy), check the daily time (Settings → General), and run the pipeline once (button, when the user
+may run it).
+
+**Summary cards** (`StatCard`, five across at `xl`):
+
+| Card                  | Value                                  | Context / trend                                                |
+| --------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| Scheduler             | Running / Late / Stopped / Not running | "Last tick 2 minutes ago"; tone warning or danger              |
+| Success rate, 7 days  | succeeded ÷ recorded runs              | "182 of 182 runs"; change vs. the 7 days before in points      |
+| Failed, last 24 hours | count                                  | links to the log filtered to failed runs; danger tone when > 0 |
+| Next scheduled run    | "03:00"                                | "Tomorrow · in 21 hours"                                       |
+| Average run time      | pipeline time per day, last 7 days     | change vs. the 7 days before (up is bad); 14-day sparkline     |
+
+**Runs per day** (30 days): stacked columns of tasks that succeeded (`--success`), failed (`--danger`) and
+did not run (`--muted-foreground`). The series are themselves statuses, so the reserved status colours are
+correct here (with a legend and table view). "Did not run" is registered tasks minus recorded runs: a day the
+scheduler missed shows as a full grey column, which is the silent-failure signal made visible.
+
+**Processed today:** items each stage reported today (tasks return counts such as "12" or "3 invoices"),
+with the number of tasks per stage. **Time per stage:** average time per day over 7 days, as one-colour
+meters relative to the slowest stage, in three columns.
+
+Inventory of the existing page → placement: header and "Run today's pipeline" (kept), Tasks table with stage,
+last status and Run now (kept), Run log with task/status filters and pagination (kept), the run confirmation
+dialog with the force option (kept).
