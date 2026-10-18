@@ -13,10 +13,10 @@ use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -26,7 +26,7 @@ use Illuminate\Support\Facades\DB;
  * consistent: invoices are issued on their day (weekday-weighted), most are paid a few days later, some partly,
  * a few late, refunded or cancelled, and the rest stay unpaid (several overdue).
  */
-class BillingHistorySeeder extends Seeder
+class BillingHistorySeeder extends DemoSeeder
 {
     private const DAYS = 90;
 
