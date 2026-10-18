@@ -223,7 +223,7 @@ export function AutomationEmptyState({
                     <span className="font-medium">2. Check the time.</span>{' '}
                     <span className="text-muted-foreground">
                         The pipeline runs daily at {scheduledAt} server time
-                        (Settings → General).
+                        (Settings → Company).
                     </span>
                 </li>
                 <li className="flex flex-wrap items-center gap-3">

@@ -316,7 +316,7 @@ fees, suspensions), and shows the cron entry with a Copy button. Warning tone fo
 This answers the most common WHMCS complaint in the parity study: cron failing silently.
 
 **Empty state.** With no runs ever recorded, the summary is replaced by three set-up steps: add the cron entry
-(shown with Copy), check the daily time (Settings → General), and run the pipeline once (button, when the user
+(shown with Copy), check the daily time (Settings → Company), and run the pipeline once (button, when the user
 may run it).
 
 **Summary cards** (`StatCard`, five across at `xl`):
