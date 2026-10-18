@@ -31,5 +31,6 @@ return [
         'mark' => 'brand/mark.svg',
         'favicon' => 'favicon.svg',
         'logo-email' => 'brand/logo.png',
+        'logo-email-dark' => 'brand/logo-dark.png',
     ],
 ];
