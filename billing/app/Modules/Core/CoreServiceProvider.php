@@ -10,6 +10,8 @@ use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
@@ -26,6 +28,7 @@ use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -84,6 +87,10 @@ class CoreServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Account details', 'client.account.edit', 'UserRound', 'Setup', 90));
 
         $this->app->make(CoreDashboard::class)->register($this->app->make(Dashboard::class));
+
+        $reference = $this->app->make(ReferenceDataRegistry::class);
+        $reference->register(DefaultCurrencies::KEY, DefaultCurrencies::class, order: 10);
+        $reference->register(SystemRoles::KEY, SystemRoles::class, order: 20);
 
         $this->app->make(PermissionRegistry::class)->register('Clients', [
             'core.clients.view' => 'View clients',

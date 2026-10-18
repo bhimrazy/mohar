@@ -6,9 +6,11 @@ use App\Models\User;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\PasswordPolicy;
 use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
@@ -37,6 +39,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Automation::class);
         $this->app->singleton(ThemeRegistry::class);
         $this->app->singleton(ClientMergeRegistry::class);
+        $this->app->singleton(ReferenceDataRegistry::class);
     }
 
     /**
@@ -79,14 +82,6 @@ class AppServiceProvider extends ServiceProvider
             app()->isProduction(),
         );
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()
-            : null,
-        );
+        Password::defaults(fn (): ?Password => app()->isProduction() ? PasswordPolicy::production() : null);
     }
 }

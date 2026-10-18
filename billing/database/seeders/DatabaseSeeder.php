@@ -2,23 +2,26 @@
 
 namespace Database\Seeders;
 
-use App\Modules\Core\Database\Seeders\DemoSeeder;
+use App\Modules\Core\Install\ReferenceDataInstaller;
 use App\Providers\ModulesServiceProvider;
 use Illuminate\Database\Seeder;
-use RuntimeException;
 
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Run each enabled module's App\Modules\<Module>\Database\Seeders\<Module>Seeder, Core first.
-     *
-     * Every module seeder is a DemoSeeder (demo accounts with a known password), so this refuses to run in
-     * production; each module seeder refuses on its own too, for `db:seed --class=...`.
+     * Install every module's reference data (the same installers `php artisan app:install` runs), then, outside
+     * production only, each enabled module's demo seeder App\Modules\<Module>\Database\Seeders\<Module>Seeder,
+     * Core first. Demo seeders create accounts with a known password; each refuses production on its own too
+     * (DemoSeeder), for `db:seed --class=...`.
      */
-    public function run(): void
+    public function run(ReferenceDataInstaller $installer): void
     {
+        $installer->install();
+
         if (app()->isProduction()) {
-            throw new RuntimeException(DemoSeeder::PRODUCTION_ERROR);
+            $this->command?->warn('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
+
+            return;
         }
 
         foreach (ModulesServiceProvider::enabledModules() as $module) {
