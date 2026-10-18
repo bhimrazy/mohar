@@ -221,7 +221,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'services.module_log.view' => 'View the module log and failed actions',
             'services.module_log.manage' => 'Retry, resolve and dismiss failed module actions',
             'services.settings.manage' => 'Manage services automation settings',
-        ]);
+        ], sensitive: ['services.services.credentials', 'services.servers.manage']);
     }
 
     private function registerSettings(): void

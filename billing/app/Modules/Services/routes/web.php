@@ -14,8 +14,12 @@ Route::adminArea(function (): void {
     Route::prefix('services')->name('services.')->group(function (): void {
         Route::get('/', [ServiceController::class, 'index'])->name('index');
 
-        Route::resource('servers', ServerController::class)->except('show');
-        Route::post('servers/{server}/test', [ServerController::class, 'test'])->name('servers.test');
+        // Server credentials are sensitive: changing them needs a recent password confirmation.
+        Route::resource('servers', ServerController::class)->only(['index', 'create', 'edit']);
+        Route::middleware('password.recent')->group(function (): void {
+            Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
+            Route::post('servers/{server}/test', [ServerController::class, 'test'])->name('servers.test');
+        });
         Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
 
         Route::get('cancellations', [CancellationRequestController::class, 'index'])->name('cancellations.index');
@@ -30,7 +34,7 @@ Route::adminArea(function (): void {
         Route::prefix('{service}')->whereNumber('service')->name('services.')->group(function (): void {
             Route::get('/', [ServiceController::class, 'show'])->name('show');
             Route::get('edit', [ServiceController::class, 'edit'])->name('edit');
-            Route::post('credentials', [ServiceController::class, 'credentials'])->name('credentials');
+            Route::post('credentials', [ServiceController::class, 'credentials'])->middleware('password.recent')->name('credentials');
             Route::put('/', [ServiceController::class, 'update'])->name('update');
             Route::delete('/', [ServiceController::class, 'destroy'])->name('destroy');
             Route::post('commands', [ServiceActionController::class, 'command'])->name('command');

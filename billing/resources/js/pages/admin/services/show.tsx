@@ -1,11 +1,4 @@
-import {
-    Head,
-    Link,
-    router,
-    useForm,
-    useHttp,
-    usePage,
-} from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import {
     CalendarClock,
     Eye,
@@ -35,6 +28,7 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { ChangeOptionsPicker } from '@/components/services/change-options';
 import { FormDialog } from '@/components/services/form-dialog';
 import { ModuleLogTable } from '@/components/services/module-log-table';
+import { useCredentialsReveal } from '@/components/services/use-credentials-reveal';
 import { UsageMeter } from '@/components/services/usage-meter';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -178,11 +172,10 @@ export default function ServiceShow({
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
     const [dialog, setDialog] = useState<DialogName>(null);
-    const [shown, setShown] = useState(false);
-    const reveal = useHttp<
-        Record<string, never>,
-        { username: string | null; password: string | null }
-    >();
+    const credentials = useCredentialsReveal(
+        ServiceController.credentials(service.id).url,
+    );
+    const [stepUpPassword, setStepUpPassword] = useState('');
     const commandForm = useForm({ command: '', reason: '', password: '' });
     const statusForm = useForm({ status: '', note: '' });
     const cancelForm = useForm({ type: 'end_of_period', reason: '' });
@@ -232,17 +225,16 @@ export default function ServiceShow({
         });
 
     const revealCredentials = () => {
-        if (shown || reveal.response) {
-            setShown(!shown);
+        if (credentials.password !== null) {
+            credentials.hide();
 
             return;
         }
 
-        void reveal
-            .post(ServiceController.credentials(service.id).url)
-            .then(() => setShown(true));
+        void credentials.reveal();
     };
-    const visiblePassword = shown ? reveal.response?.password : null;
+    const shown = credentials.password !== null;
+    const visiblePassword = credentials.password;
 
     const name = service.domain ?? service.label;
 
@@ -580,7 +572,7 @@ export default function ServiceShow({
                                         variant="ghost"
                                         size="sm"
                                         onClick={revealCredentials}
-                                        disabled={reveal.processing}
+                                        disabled={credentials.processing}
                                     >
                                         {shown ? <EyeOff /> : <Eye />}
                                         {shown
@@ -1250,6 +1242,38 @@ export default function ServiceShow({
                         errors.action
                     }
                 />
+            </FormDialog>
+
+            <FormDialog
+                open={credentials.needsConfirmation}
+                onOpenChange={(open) =>
+                    !open && credentials.cancelConfirmation()
+                }
+                title="Confirm your password"
+                description="Revealing a service password needs a recent password confirmation. The reveal is recorded in the activity log."
+                submitLabel="Confirm and reveal"
+                processing={credentials.processing}
+                onSubmit={() => {
+                    void credentials
+                        .confirm(stepUpPassword)
+                        .then(() => setStepUpPassword(''));
+                }}
+            >
+                <Field
+                    htmlFor="step-up-password"
+                    label="Your password"
+                    error={credentials.error ?? undefined}
+                >
+                    <Input
+                        id="step-up-password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={stepUpPassword}
+                        onChange={(event) =>
+                            setStepUpPassword(event.target.value)
+                        }
+                    />
+                </Field>
             </FormDialog>
         </>
     );
