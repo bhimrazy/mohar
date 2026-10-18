@@ -48,6 +48,7 @@ test('to-dos are hidden without the matching permission', function () {
 });
 
 test('the automation health check summarises each task\'s latest run, and sign-ins list the latest state', function () {
+    $this->freezeTime(); // the "last run" text is relative to now; a slow run must not change it
     $agent = User::factory()->staff(['support.*'])->create(['name' => 'Sam Support']);
     $agent->forceFill(['last_login_at' => now()->subHour()])->save();
     AutomationRun::query()->create(['run_date' => today()->subDay(), 'task' => 'platform.prune_invitations', 'status' => 'failed']);

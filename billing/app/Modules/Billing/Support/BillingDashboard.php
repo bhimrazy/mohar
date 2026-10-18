@@ -631,7 +631,8 @@ class BillingDashboard
 
     /**
      * Per-currency receivable books: today's totals plus their weekly history. Reads open invoices and those closed
-     * within the window in three indexed queries (status; status + paid_at; status + cancelled_at), and caches only
+     * within the window in three queries (status and status + paid_at use indexes; cancelled since the window start is a
+     * filtered scan), and caches only
      * the computed figures, never the rows.
      *
      * @return array<string, array<string, mixed>>
