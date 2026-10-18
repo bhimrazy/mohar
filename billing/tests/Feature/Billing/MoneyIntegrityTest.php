@@ -20,6 +20,7 @@ use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CurrencyConverter;
 use App\Modules\Billing\Services\GatewayCallbackHandler;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
@@ -109,6 +110,27 @@ test('gateway refunds of converted payments are sent in the charged currency', f
         ->and(RecordingSandboxDriver::$refunds[0]->originalAmount->amount)->toBe(11_000);
 });
 
+test('issued invoices and recorded payments keep the exchange rate in force when they were created', function () {
+    Currency::default(); // USD
+    Currency::factory()->create(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => '0.900000000000', 'is_default' => false]);
+    $client = Client::factory()->create(['currency' => 'EUR']);
+    $invoice = issueInvoice($client, [10_000]);
+    $converter = app(CurrencyConverter::class);
+    $rate = $converter->rate('EUR', 'USD'); // the rate in force when the gateway charges: 1 / 0.9 → 1.111111111111
+    $payment = app(ApplyPayment::class)->handle($invoice, new PaymentData(
+        10_000, 'sandbox_card', 'ch_locked', gatewayAmount: $converter->convert(10_000, $rate), gatewayCurrency: 'USD', exchangeRate: $rate, fromGateway: true,
+    ));
+    $total = $invoice->fresh()->total;
+
+    Currency::query()->where('code', 'EUR')->update(['exchange_rate' => '0.500000000000']); // a later rate update
+    app(RefundTransaction::class)->handle($payment, 5_000, RefundMode::Gateway);
+
+    expect($rate)->toBe(1.111111111111)
+        ->and($invoice->fresh()->total)->toBe($total)
+        ->and($payment->fresh())->exchange_rate->toBe('1.111111111111')->gateway_amount->toBe(11_111)
+        ->and(RecordingSandboxDriver::$refunds[0]->amount->amount)->toBeIn([5_555, 5_556]); // stored rate; the new one would give 10,000
+});
+
 test('refund and chargeback webhooks are converted back to the invoice currency', function () {
     Currency::factory()->create(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => 1, 'is_default' => false]);
     $client = Client::factory()->create(['currency' => 'EUR']);
@@ -170,4 +192,21 @@ test('a failed gateway refund keeps its log and restores the refundable amount',
     expect($payment->fresh()->refundable_remaining)->toBe(1_000)
         ->and(Transaction::query()->where('type', 'refund')->value('status'))->toBe(TransactionStatus::Failed)
         ->and(GatewayLog::query()->where('result', 'refund error')->exists())->toBeTrue();
+});
+
+test('widening stored gateway rates to twelve decimals keeps every existing value', function () {
+    Currency::default();
+    Currency::factory()->create(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => '0.900000', 'is_default' => false]);
+    $invoice = issueInvoice(Client::factory()->create(['currency' => 'EUR']), [10_000]);
+    $migration = require base_path('app/Modules/Billing/Database/Migrations/2026_10_18_300500_widen_exchange_rate_precision.php');
+
+    $migration->down();
+    $payment = app(ApplyPayment::class)->handle($invoice, new PaymentData(
+        10_000, 'sandbox_card', 'ch_widen', gatewayAmount: 11_000, gatewayCurrency: 'USD', exchangeRate: 1.1, fromGateway: true,
+    ));
+    $migration->up();
+
+    expect($payment->fresh()->exchange_rate)->toBe('1.100000000000');
+    $payment->forceFill(['exchange_rate' => '0.006581545347'])->save();
+    expect($payment->fresh()->exchange_rate)->toBe('0.006581545347');
 });

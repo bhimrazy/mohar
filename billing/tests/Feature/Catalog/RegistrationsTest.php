@@ -40,7 +40,7 @@ it('registers the catalog settings with spec defaults', function () {
     $section = app(SettingsRegistry::class)->sections()['catalog'];
 
     expect(array_map(fn ($definition) => $definition->key, $section['settings']))
-        ->toBe(['catalog.default_auto_setup', 'catalog.default_taxable', 'catalog.auto_convert_prices', 'catalog.show_monthly_breakdown'])
+        ->toBe(['catalog.default_auto_setup', 'catalog.default_taxable', 'catalog.show_monthly_breakdown'])
         ->and(config('catalog.default_auto_setup'))->toBe('on_payment')
         ->and(config('catalog.default_taxable'))->toBeTrue()
         ->and(config('catalog.auto_convert_prices'))->toBeFalse();

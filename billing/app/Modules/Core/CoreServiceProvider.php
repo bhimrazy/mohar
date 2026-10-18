@@ -5,6 +5,7 @@ namespace App\Modules\Core;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Currencies\CurrencyDirectory;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
@@ -13,6 +14,7 @@ use App\Contracts\Services\ProvisioningDrivers;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
+use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\DateFormats;
@@ -48,6 +50,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+        $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
         $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);

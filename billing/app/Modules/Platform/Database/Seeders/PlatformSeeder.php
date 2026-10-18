@@ -8,10 +8,14 @@ use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Contact;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Models\ExchangeRateHistory;
+use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Support\Currencies\Decimal;
 use Illuminate\Support\Str;
 
 /**
@@ -28,6 +32,7 @@ class PlatformSeeder extends DemoSeeder
         }
 
         $this->seedHistory();
+        $this->seedRateHistory();
 
         $resellers = ClientGroup::query()->firstOrCreate(['name' => 'Resellers'], ['colour' => '#2563eb', 'discount_percent' => 10, 'separate_invoices' => true]);
         ClientGroup::query()->firstOrCreate(['name' => 'VIP'], ['colour' => '#d97706', 'discount_percent' => 5, 'exempt_from_suspension' => true]);
@@ -96,6 +101,55 @@ class PlatformSeeder extends DemoSeeder
                     'duration_ms' => 40 + $daysAgo * 7,
                 ]);
             }
+        }
+    }
+
+    /**
+     * Demo exchange-rate history (90 days of small daily moves ending at today's rate) so the rate chart
+     * has something to show, plus one pending rate review. INR follows the ECB feed and NPR the Nepal Rastra
+     * Bank feed. Never in production.
+     */
+    private function seedRateHistory(): void
+    {
+        if (app()->isProduction() || ExchangeRateHistory::query()->exists()) {
+            return;
+        }
+
+        $sources = ['INR' => 'ecb', 'NPR' => 'nrb'];
+
+        Currency::query()->where('is_default', false)->orderBy('code')->get()->each(function (Currency $currency) use ($sources): void {
+            $source = $sources[$currency->code] ?? 'manual';
+            $current = (float) $currency->exchange_rate;
+
+            foreach (range(89, 2) as $daysAgo) {
+                $drift = 0.012 * sin($daysAgo / 9) + 0.004 * cos($daysAgo / 3);
+                ExchangeRateHistory::query()->create([
+                    'currency' => $currency->code,
+                    'rate' => number_format($current * (1 + $drift - 0.012 * sin(1 / 9) - 0.004 * cos(1 / 3)), 6, '.', ''),
+                    'source' => $source,
+                    'effective_at' => now()->subDays($daysAgo)->setTime(14, 10),
+                ]);
+            }
+
+            ExchangeRateHistory::query()->create(['currency' => $currency->code, 'rate' => $currency->exchange_rate, 'source' => $source, 'effective_at' => now()]);
+            $currency->forceFill(['rate_source' => $source, 'is_auto_rate' => $source !== 'manual', 'rate_checked_at' => now(), 'rate_updated_at' => now()])->save();
+        });
+
+        // One held change so the safety review can be demonstrated: NPR jumped 11% overnight.
+        $npr = Currency::query()->where('code', 'NPR')->first();
+
+        if ($npr !== null && ! $npr->is_default) {
+            $proposed = Decimal::round(Decimal::multiply((string) $npr->exchange_rate, '1.11'), Currency::RATE_SCALE);
+
+            ExchangeRateReview::query()->create([
+                'currency' => 'NPR',
+                'current_rate' => $npr->exchange_rate,
+                'proposed_rate' => $proposed,
+                'change_percent' => Decimal::round(Decimal::percentChange((string) $npr->exchange_rate, $proposed), 4),
+                'source' => 'nrb',
+                'effective_at' => now()->subHours(3),
+                'status' => ExchangeRateReview::PENDING,
+            ]);
         }
     }
 }

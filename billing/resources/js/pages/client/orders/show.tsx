@@ -153,7 +153,6 @@ export default function ClientOrderShow({
                                         <Money
                                             amount={order.total}
                                             currency={order.currency}
-                                            showCode
                                         />
                                     ),
                                 },

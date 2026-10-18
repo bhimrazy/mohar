@@ -34,6 +34,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
@@ -234,7 +235,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                     'title' => $transaction->client->display_name,
                     'subtitle' => $transaction->invoice?->displayNumber() ?? 'Account credit',
                     'href' => $transaction->invoice_id !== null ? route('admin.billing.invoices.show', $transaction->invoice_id) : route('admin.billing.transactions.index'),
-                    'meta' => Money::of($transaction->amount_in, $transaction->currency)->format(),
+                    'meta' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in, $transaction->currency)),
                     'money' => ['amount' => $transaction->amount_in, 'currency' => $transaction->currency],
                     'date' => $transaction->occurred_at->toIso8601String(),
                 ])->all()),
@@ -298,10 +299,8 @@ class BillingServiceProvider extends ModuleServiceProvider
      */
     private static function moneyValue(Money $money): array
     {
-        $currency = Currency::query()->where('code', $money->currency)->first();
-
         return [
-            'value' => $currency !== null ? $currency->format($money) : $money->format(),
+            'value' => app(MoneyFormatter::class)->format($money),
             'money' => ['amount' => $money->amount, 'currency' => $money->currency],
         ];
     }
@@ -419,7 +418,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             ->search($term)->latest('id')->limit(5)->get()
             ->map(fn (Invoice $invoice): array => [
                 'title' => $invoice->displayNumber(),
-                'subtitle' => $invoice->client->display_name.' · '.Money::of($invoice->total, $invoice->currency)->format(),
+                'subtitle' => $invoice->client->display_name.' · '.app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
                 'href' => route('admin.billing.invoices.show', $invoice),
             ])->all()), 'billing.invoices.view');
     }
@@ -437,9 +436,9 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'number' => $invoice->displayNumber(),
                 'status' => $invoice->displayStatus(),
                 'currency' => $invoice->currency,
-                'total' => Money::of($invoice->total, $invoice->currency)->format(),
-                'balance' => Money::of($invoice->balance, $invoice->currency)->format(),
-                'amount_paid' => Money::of($invoice->amount_paid, $invoice->currency)->format(),
+                'total' => app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
+                'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
+                'amount_paid' => app(MoneyFormatter::class)->format(Money::of($invoice->amount_paid, $invoice->currency)),
                 'issue_date' => $invoice->issue_date?->toDateString(),
                 'due_date' => $invoice->due_date?->toDateString(),
                 'payment_gateway' => $invoice->payment_gateway,
@@ -456,7 +455,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'number' => $quote->displayNumber(),
                 'subject' => $quote->subject,
                 'stage' => $quote->stage->value,
-                'total' => Money::of($quote->total, $quote->currency)->format(),
+                'total' => app(MoneyFormatter::class)->format(Money::of($quote->total, $quote->currency)),
                 'valid_until' => $quote->valid_until?->toDateString(),
                 'url' => route('client.quotes.show', $quote),
             ];
@@ -472,7 +471,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'type' => $transaction->type->value,
                 'gateway' => $transaction->gateway,
                 'reference' => $transaction->gateway_txn_id,
-                'amount' => Money::of($transaction->amount_in > 0 ? $transaction->amount_in : $transaction->amount_out, $transaction->currency)->format(),
+                'amount' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in > 0 ? $transaction->amount_in : $transaction->amount_out, $transaction->currency)),
                 'date' => $transaction->occurred_at->toDateString(),
             ];
         });

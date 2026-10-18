@@ -17,6 +17,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
+use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
@@ -31,6 +32,7 @@ use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -110,6 +112,11 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today));
 
         $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
+
+        $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
+        $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
+            ? $this->app->make(ConvertTldPrices::class)->apply()
+            : 'disabled');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
             ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))));
@@ -220,6 +227,11 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
             new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
+
+        // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.
+        $this->app->make(SettingsRegistry::class)->section('domains_conversion', 'Converted TLD prices', [
+            new SettingDefinition('domains.auto_convert_prices', 'Convert TLD prices from the default currency automatically', 'boolean', 'After exchange rates change, TLD prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept.'),
+        ], 'core.currencies.rates');
     }
 
     private function registerSearchAndMergeFields(): void

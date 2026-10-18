@@ -52,7 +52,7 @@ class PaymentAttempt extends Model
             'status' => AttemptStatus::class,
             'amount' => 'integer',
             'document_amount' => 'integer',
-            'fx_rate' => 'decimal:6',
+            'fx_rate' => 'decimal:12',
             'expires_at' => 'datetime',
             'last_lookup_at' => 'datetime',
             'lookup_count' => 'integer',
