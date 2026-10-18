@@ -2,9 +2,9 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
-use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Resources\ServiceResource;
@@ -69,7 +69,7 @@ class ServiceController extends Controller
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
-                'changePassword' => $live && $driver->supports(DriverMetadata::CHANGE_PASSWORD) && $model->username !== null,
+                'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,
             ],
         ]);
     }

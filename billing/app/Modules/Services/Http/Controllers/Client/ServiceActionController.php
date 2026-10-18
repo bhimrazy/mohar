@@ -2,11 +2,11 @@
 
 namespace App\Modules\Services\Http\Controllers\Client;
 
+use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Services\Actions\OrderServiceChange;
 use App\Modules\Services\Actions\RequestCancellation;
-use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Controllers\Concerns\ConvertsServiceErrors;
@@ -64,7 +64,7 @@ class ServiceActionController extends Controller
     {
         $model = $this->owned($service);
 
-        if (! in_array($model->status, [ServiceStatus::Active, ServiceStatus::Suspended], true) || ! $presenter->driver($model)->supports(DriverMetadata::CHANGE_PASSWORD)) {
+        if (! in_array($model->status, [ServiceStatus::Active, ServiceStatus::Suspended], true) || ! $presenter->driver($model) instanceof ChangesPassword) {
             throw ValidationException::withMessages(['password' => __('The password of this service cannot be changed here.')]);
         }
 

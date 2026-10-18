@@ -212,3 +212,26 @@ Each PR gets the principal-architect gate.
   cheapest moment.
 - The gateway family still differs in two places (instance registration, array settings fields). ADR 0012 lists them
   for alignment.
+
+## Amendment 1 — 2026-10-18, after the architect review of PR A and the PR B shape
+
+- **Registries ship with their family PR.** PR A ships the shared base `App\Support\Integrations\DriverRegistry` and
+  `App\Contracts\Integrations\IntegrationDriver`. Each concrete registry lands with its interfaces:
+  `ProvisioningDriverRegistry` in PR B, `RegistrarDriverRegistry` in PR C. Each is `final` and bound in
+  `AppServiceProvider`, never in a module. An arch rule forbids modules from extending the base.
+- **Settling unknown outcomes.** The provisioning capability is
+  `ReconcilesCommands::reconcile(ProvisioningContext, string $command, CarbonImmutable $attemptedAt): CommandLookup`.
+  It shares one kernel enum, `App\Enums\ReconcileStatus` (`executed`, `in_progress`, `not_executed`, `conflict`,
+  `unknown`), with the registrar C2 lookup. The driver interprets the command; the host keeps the policy and never
+  re-runs a command on its own.
+- **Remote-filled settings.** A generic `ProvidesFieldOptions::fieldOptions(ServerConnection, string $fieldKey)` and
+  `SettingField::$optionsSource = 'remote'` replace per-noun list capabilities such as packages, templates or plans.
+- **The secret set.** `ProvisioningContext::secrets()` contains the server credentials, the secret-typed server
+  settings (`ServerConnection::$secretSettingKeys`), the service password, and every Secret- or SecretText-typed
+  value in the product settings and custom fields. The host redacts all of them; the contract dataset proves it.
+- **Module inputs.** `configOptions` and `customFields` are keyed by module key and read through a new
+  `PriceBook::moduleInputs()`. It includes hidden options, admin-only fields and retired products. It lands in PR B2
+  (stacked on B), together with the encrypted `servers.settings` column behind `ServerConnection::$settings`.
+- `UsernamePolicy` (a host default of 8 characters, replaced by the driver's own policy) and
+  `DriverMetadata::$commandTimeoutSeconds` (capped at 180 s; see the ADR 0014 invariant) come from the cPanel spec,
+  §13 K6 and K9.

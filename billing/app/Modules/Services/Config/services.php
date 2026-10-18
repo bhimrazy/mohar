@@ -52,10 +52,15 @@ return [
         /** Seconds a command waits for another command on the same service to finish. */
         'lock_wait_seconds' => 10,
         /**
-         * A command job may run this long (driver HTTP timeouts must be shorter). Invariant:
-         * job_timeout_seconds < lock_ttl_seconds < queue retry_after (90 s by default).
+         * A command job may run this long (driver HTTP timeouts must be shorter). A driver that declares a longer
+         * DriverMetadata::$commandTimeoutSeconds gets it, up to max_job_timeout_seconds. Invariant (ADR 0014):
+         * job timeout + 20 s lock slack <= lock TTL < queue retry_after (240 s by default), and workers on the
+         * provisioning queue run with --timeout at or above the cap.
          */
         'job_timeout_seconds' => 60,
+        /** Longest a staff "run now" may block a page request; longer driver commands are queued instead. */
+        'sync_timeout_seconds' => 60,
+        'max_job_timeout_seconds' => 180,
         'lock_ttl_seconds' => 80,
         /** Times a job waiting for the per-service lock is re-queued before it is reported as failed. */
         'lock_retries' => 20,

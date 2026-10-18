@@ -67,6 +67,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   periods, module log), edit, servers & groups CRUD with test connection, cancellation requests, module log.
   Client area: my services, service detail with usage, plan change preview, cancellation, password change.
 - Navigation, dashboard cards, `services.*` permissions, settings, global search, `service` merge fields, demo seeder.
+- Provisioning runs on the kernel driver contracts (#62): drivers receive snapshots, never models. An exception or
+  timeout during a driver call is an unknown outcome: never retried, and staff verify it. Upgrades on a driver that
+  cannot change packages stay applied, with an activity note and no failure alert. A driver's username policy
+  applies to generated and staff-typed usernames (manual services stay free-form). Long-running drivers get longer
+  job timeouts (up to 180 s), and staff "run now" queues them instead of blocking the page. One broken driver no
+  longer stops automation for other services. The queue `retry_after` default is now 240 s.
+- An open "verify" item (unknown outcome) can no longer be turned into an ordinary failure by a later job failure,
+  so create is never sent twice. Accepting an order whose provisioning is queued says "Provisioning queued for …"
+  instead of reporting a failure.
 
 ### Core
 
@@ -280,6 +289,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   reserved addresses; `pin()` connects to the checked address with `CURLOPT_CONNECT_TO`, bypasses proxies and turns
   redirects off. The policy is install-wide (`OUTBOUND_ALLOW_PRIVATE_ADDRESSES`, `OUTBOUND_ALLOW_LOOPBACK`; ADR
   0015).
+- Provisioning driver contracts (ADR 0009, step 2, #62): `ProvisioningDriver` plus capability interfaces
+  (`ChangesPackage`, `ChangesPassword`, `ReportsUsage`, `TestsServerConnection`, `ProvidesServiceSso` with
+  `ssoTargets()`, `ProvidesServerSso`, `ListsAccounts`, `RenewsAccounts`, `ProvidesFieldOptions`,
+  `ReconcilesCommands`), snapshot DTOs instead of models (`ProvisioningContext`, `ServiceSnapshot`,
+  `ServerConnection`, `ClientSummary`), `DriverResult` with an unknown outcome, the `DriverOutcome` and
+  `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
+  `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
+  module being loaded. Every driver passes a shared contract dataset.
+- `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
+  details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
+  `IntegrationDriver`.
 
 ### Security
 

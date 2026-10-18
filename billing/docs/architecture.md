@@ -82,6 +82,11 @@ loaded. Registration is `register(key, class-string|Closure, replace: false)`, r
 lists the UI shows are computed from the interfaces a driver implements. Kernel API changes are listed in
 `docs/architecture/kernel-changelog.md`.
 
+Provisioning drivers implement `Contracts\Services\Provisioning\ProvisioningDriver` plus capability interfaces,
+receive `ProvisioningContext` snapshots (never models), and register with `Support\Services\ProvisioningDriverRegistry`.
+Every driver passes `tests/Support/Contracts/ProvisioningDriverContract.php`. Tests that prove a package works without
+sibling modules live in `tests/Extensions` and set `Tests\TestCase::$onlyModules`; they never touch the database.
+
 ### Billing flow (the backbone)
 
 ```

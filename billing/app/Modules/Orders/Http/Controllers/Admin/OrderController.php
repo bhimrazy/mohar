@@ -175,11 +175,13 @@ class OrderController extends Controller
         $invoiceStatus = $order->invoice_id === null ? null : $this->invoicer->status($order->invoice_id);
 
         return $this->attempt(function () use ($accept, $order, $request, $invoiceStatus): void {
-            $failures = $accept->handle($order, $request->runCreate(), $invoiceStatus);
+            ['failures' => $failures, 'queued' => $queued] = $accept->handle($order, $request->runCreate(), $invoiceStatus);
 
-            Inertia::flash('toast', $failures === []
-                ? ['type' => 'success', 'message' => __('Order :number accepted.', ['number' => $order->number])]
-                : ['type' => 'warning', 'message' => __('Order :number accepted. Provisioning failed for: :items', ['number' => $order->number, 'items' => implode('; ', $failures)])]);
+            Inertia::flash('toast', match (true) {
+                $failures !== [] => ['type' => 'warning', 'message' => __('Order :number accepted. Provisioning failed for: :items', ['number' => $order->number, 'items' => implode('; ', $failures)])],
+                $queued !== [] => ['type' => 'success', 'message' => __('Order :number accepted. Provisioning queued for: :items', ['number' => $order->number, 'items' => implode('; ', $queued)])],
+                default => ['type' => 'success', 'message' => __('Order :number accepted.', ['number' => $order->number])],
+            });
         });
     }
 

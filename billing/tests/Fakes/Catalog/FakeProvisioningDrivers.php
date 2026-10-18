@@ -3,6 +3,7 @@
 namespace Tests\Fakes\Catalog;
 
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Data\Services\RemoteOptions;
 
 /**
  * Installed drivers as Services would report them.
@@ -12,7 +13,7 @@ final class FakeProvisioningDrivers implements ProvisioningDrivers
     /**
      * @param  list<array{key: string, label: string, config_fields: list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>}>}>  $drivers
      */
-    public function __construct(public array $drivers = []) {}
+    public function __construct(public array $drivers = [], public RemoteOptions $remoteOptions = new RemoteOptions) {}
 
     public static function bind(self $fake): self
     {
@@ -39,5 +40,10 @@ final class FakeProvisioningDrivers implements ProvisioningDrivers
     public function exists(string $key): bool
     {
         return in_array($key, array_column($this->drivers, 'key'), true);
+    }
+
+    public function remoteOptions(string $driverKey, string $fieldKey, array $serverIds, bool $refresh = false): RemoteOptions
+    {
+        return $this->remoteOptions;
     }
 }

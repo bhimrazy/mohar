@@ -95,20 +95,40 @@ class ServiceSettings
         return (int) ($backoff[$nextAttempt - 2] ?? end($backoff) ?: 60);
     }
 
+    /** Seconds a per-service lock outlives the job that holds it. */
+    public const LOCK_SLACK_SECONDS = 20;
+
     /**
-     * Maximum run time of one module command job; must stay below lockTtlSeconds() and the queue's retry_after.
+     * Maximum run time of one module command job: the host default, raised to the driver's declared command timeout
+     * (DriverMetadata::$commandTimeoutSeconds) up to services.module.max_job_timeout_seconds. The cap plus the lock
+     * slack must stay below the queue connection's retry_after (240 s), and workers' --timeout at or above it.
      */
-    public function jobTimeoutSeconds(): int
+    public function jobTimeoutSeconds(?int $driverSeconds = null): int
     {
-        return max(5, (int) config('services.module.job_timeout_seconds', 60));
+        $default = max(5, (int) config('services.module.job_timeout_seconds', 60));
+
+        return min($this->maxJobTimeoutSeconds(), max($default, $driverSeconds ?? 0));
     }
 
     /**
-     * Per-service lock lifetime: longer than a job may run, shorter than the queue's retry_after.
+     * Longest a command may run inside a page request (staff "run now"); a driver that needs more is queued.
      */
-    public function lockTtlSeconds(): int
+    public function syncTimeoutSeconds(): int
     {
-        return max($this->jobTimeoutSeconds() + 5, (int) config('services.module.lock_ttl_seconds', 80));
+        return max(5, (int) config('services.module.sync_timeout_seconds', 60));
+    }
+
+    public function maxJobTimeoutSeconds(): int
+    {
+        return max(5, (int) config('services.module.max_job_timeout_seconds', 180));
+    }
+
+    /**
+     * Per-service lock lifetime: longer than the job holding it may run, shorter than the queue's retry_after.
+     */
+    public function lockTtlSeconds(?int $jobTimeoutSeconds = null): int
+    {
+        return max(($jobTimeoutSeconds ?? $this->jobTimeoutSeconds()) + self::LOCK_SLACK_SECONDS, (int) config('services.module.lock_ttl_seconds', 80));
     }
 
     public function lockWaitSeconds(): int
