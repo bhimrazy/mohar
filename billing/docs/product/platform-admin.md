@@ -93,7 +93,7 @@ the settings catalog, activity log, admin global search, login-as-client (impers
 
 ## 6. Currencies & exchange rates
 
-- Exactly one default currency (rate fixed 1.000000, not editable). Default can only change while no invoices/transactions exist; changing it rebases every rate exactly (six decimals) and records the rebase in the rate history. **MUST**
+- Exactly one default currency (rate fixed 1, not editable). Default can only change while no invoices/transactions exist; changing it rebases every rate exactly (twelve decimals) and records the rebase in the rate history. **MUST**
 - `exchange_rate` = units of this currency per 1 default unit (decimal 24,12, so a weak default such as NPR keeps
   enough significant digits; gateway rates on payments use the same precision). Conversion: `target_minor = round_half_up(source_minor × rate_target/rate_source × 10^(dec_target − dec_source))`. **MUST**
 - Zero-decimal currencies (JPY, KRW, HUF in practice, …) use `decimals=0`. Formatting from prefix/suffix/format/decimals. **MUST**
