@@ -9,7 +9,8 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 ### Integrations area (ADR 0009 §1, PR A)
 
 - Added `App\Enums\FieldType` and `App\Data\Integrations\SettingField`, the one settings-field schema. A secret is a
-  field type. `SettingField::fromArray()` reads the gateway and the older provisioning array shapes.
+  field type. `SettingField::fromArray()` reads the gateway and the older provisioning array shapes. `optionsSource`
+  (for example `remote:packages`) lets a select take its options from the remote system (cPanel spec K2).
 - Added `App\Contracts\Integrations\IntegrationDriver` (`key()`, `name()`), the identity every driver family shares.
 - Added `App\Support\Integrations\DriverRegistry`, the base of the kernel-owned driver registries (ADR 0012 shape).
 - Added `App\Support\Integrations\Redactor`. It merges Services' redactor with the Domains registrar key lists and

@@ -28,3 +28,10 @@ test('an unknown type, or a secret flag on a type that cannot hold a secret, is 
     expect(fn () => SettingField::fromArray(['key' => 'x', 'label' => 'X', 'type' => 'colour']))->toThrow(InvalidArgumentException::class)
         ->and(fn () => SettingField::fromArray(['key' => 'x', 'label' => 'X', 'type' => 'boolean', 'secret' => true]))->toThrow(InvalidArgumentException::class);
 });
+
+test('a select can take its options from the remote system', function () {
+    $field = SettingField::fromArray(['key' => 'package', 'label' => 'Package', 'type' => 'select', 'options_source' => 'remote:packages']);
+
+    expect($field->optionsSource)->toBe('remote:packages')
+        ->and($field->toArray())->toMatchArray(['options_source' => 'remote:packages', 'options' => []]);
+});
