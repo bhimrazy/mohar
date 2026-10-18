@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Actions;
 
+use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
@@ -15,6 +16,6 @@ class PruneModuleLog
 
     public function handle(CarbonImmutable $today): int
     {
-        return ModuleCommand::query()->where('created_at', '<', $today->subDays($this->settings->moduleLogRetentionDays()))->delete();
+        return ChunkedDelete::run(ModuleCommand::query()->where('created_at', '<', $today->subDays($this->settings->moduleLogRetentionDays())));
     }
 }
