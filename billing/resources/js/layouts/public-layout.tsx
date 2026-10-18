@@ -13,6 +13,7 @@ import {
 import { cn } from '@/lib/utils';
 import { dashboard, home, login, register } from '@/routes';
 import store from '@/routes/store';
+import { index as kb } from '@/routes/support/kb';
 
 /**
  * Optional props a public page may send to enrich the header (store pages
@@ -27,6 +28,13 @@ type PublicPageProps = {
 };
 
 type NavLink = { label: string; href: string; active: boolean };
+
+const SUPPORT_PATHS = [
+    '/knowledgebase',
+    '/announcements',
+    '/network-status',
+    '/support/',
+];
 
 function useNavLinks(): NavLink[] {
     const { url } = usePage();
@@ -43,7 +51,14 @@ function useNavLinks(): NavLink[] {
         {
             label: 'Domains',
             href: store.domains.url(),
-            active: path.startsWith(store.domains.url()),
+            active:
+                path.startsWith(store.domains.url()) ||
+                path.startsWith('/domains/'),
+        },
+        {
+            label: 'Support',
+            href: kb.url(),
+            active: SUPPORT_PATHS.some((prefix) => path.startsWith(prefix)),
         },
     ];
 }
@@ -164,7 +179,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
 
                         {auth.user ? (
                             <Button asChild size="sm" variant="outline">
-                                <Link href={dashboard()}>Dashboard</Link>
+                                <Link href={dashboard()}>Client area</Link>
                             </Button>
                         ) : (
                             <>
@@ -177,7 +192,9 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                     <Link href={login()}>Log in</Link>
                                 </Button>
                                 <Button asChild size="sm">
-                                    <Link href={register()}>Sign up</Link>
+                                    <Link href={register()}>
+                                        Create account
+                                    </Link>
                                 </Button>
                             </>
                         )}
@@ -185,7 +202,10 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 </div>
             </header>
 
-            <main className="flex-1">{children}</main>
+            {/* Align page content with the header and footer (max-w-6xl). */}
+            <main className="flex-1 [&_[data-slot=page]:not(.max-w-3xl)]:max-w-6xl">
+                {children}
+            </main>
 
             <footer className="border-t bg-muted/30">
                 <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
@@ -229,6 +249,12 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 className="hover:text-foreground"
                             >
                                 Domains
+                            </Link>
+                            <Link
+                                href={kb.url()}
+                                className="hover:text-foreground"
+                            >
+                                Support
                             </Link>
                             <Link
                                 href={auth.user ? dashboard() : login()}
