@@ -27,6 +27,8 @@ export type ChartSeries = {
     compare?: boolean;
     /** Fixed chart colour slot 1–6, so a category keeps its colour when others are absent. */
     slot?: number;
+    /** For series that *are* a status (succeeded / failed / not run): the reserved status colour. */
+    tone?: 'success' | 'danger' | 'warning' | 'neutral';
 };
 
 /** Named x-axis formats sent by the backend. */
@@ -53,6 +55,12 @@ const COMPARE_COLOR = 'var(--muted-foreground)';
 export function seriesColor(series: ChartSeries, index: number): string {
     if (series.compare) {
         return COMPARE_COLOR;
+    }
+
+    if (series.tone) {
+        return series.tone === 'neutral'
+            ? 'var(--muted-foreground)'
+            : `var(--${series.tone})`;
     }
 
     return `var(--chart-${(((series.slot ?? index + 1) - 1) % 6) + 1})`;

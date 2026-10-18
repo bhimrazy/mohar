@@ -95,6 +95,8 @@ export type BreakdownRow = {
     code?: string;
     money?: MoneyValue;
     value?: number;
+    /** Preformatted value (e.g. "320 ms"); wins over money and value. */
+    display?: string;
     /** Share of the whole, 0–100. */
     share: number;
 };

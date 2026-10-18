@@ -70,13 +70,19 @@ class PlatformDashboard
     private function schedulerHealth(): array
     {
         $heartbeat = $this->automation->heartbeatAt();
-        $fresh = $heartbeat !== null && $heartbeat->gte(now()->subMinutes(5));
+        $minutes = $heartbeat?->diffInMinutes(now());
+        [$value, $tone] = match (true) {
+            $minutes === null => ['No heartbeat', 'warning'],
+            $minutes < AutomationInsights::LATE_AFTER_MINUTES => ['OK', 'success'],
+            $minutes < AutomationInsights::STOPPED_AFTER_MINUTES => ['Late', 'warning'],
+            default => ['Stopped', 'danger'],
+        };
 
         return [
             'label' => 'Scheduler',
             'detail' => $heartbeat === null ? 'The scheduler has not reported in yet' : 'Last heartbeat '.$heartbeat->diffForHumans(),
-            'value' => $fresh ? 'OK' : ($heartbeat === null ? 'No heartbeat' : 'Late'),
-            'tone' => $fresh ? 'success' : 'warning',
+            'value' => $value,
+            'tone' => $tone,
             'icon' => 'Clock',
             'href' => route('admin.platform.automation.index'),
         ];

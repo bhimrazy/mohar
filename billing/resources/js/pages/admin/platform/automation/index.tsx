@@ -13,6 +13,13 @@ import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import {
+    AutomationEmptyState,
+    AutomationSummary,
+    SchedulerBanner,
+    STAGES,
+} from '@/components/platform/automation-summary';
+import type { AutomationInsights } from '@/components/platform/automation-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -38,19 +45,8 @@ type Props = {
     tasks: Task[];
     filters: Record<string, string | undefined>;
     scheduledAt: string;
+    insights: AutomationInsights;
     can: { run: boolean };
-};
-
-const STAGES: Record<number, string> = {
-    10: 'Renewals',
-    20: 'Late fees',
-    30: 'Auto-charge',
-    40: 'Reminders',
-    50: 'Cancellations',
-    60: 'Suspensions',
-    70: 'Terminations',
-    80: 'Sync',
-    90: 'Housekeeping',
 };
 
 const ONLY = ['runs', 'filters'];
@@ -98,6 +94,7 @@ export default function AutomationIndex({
     tasks,
     filters,
     scheduledAt,
+    insights,
     can,
 }: Props) {
     // null = closed; '' = whole pipeline; otherwise one task key.
@@ -176,6 +173,32 @@ export default function AutomationIndex({
                         )
                     }
                 />
+
+                <SchedulerBanner insights={insights} />
+
+                {insights.hasRuns ? (
+                    <AutomationSummary
+                        insights={insights}
+                        failedHref={
+                            AutomationController.index({
+                                query: { status: 'failed' },
+                            }).url
+                        }
+                    />
+                ) : (
+                    <AutomationEmptyState
+                        insights={insights}
+                        scheduledAt={scheduledAt}
+                        action={
+                            can.run && (
+                                <Button size="sm" onClick={() => runTask('')}>
+                                    <Play />
+                                    Run today's pipeline
+                                </Button>
+                            )
+                        }
+                    />
+                )}
 
                 <SectionCard
                     title="Tasks"

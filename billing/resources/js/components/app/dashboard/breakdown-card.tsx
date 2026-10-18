@@ -5,13 +5,27 @@ import { Panel, ViewAllLink } from './panel';
 import type { BreakdownWidget } from './types';
 
 /** Part-to-whole as aligned meters (easier to compare than a donut), e.g. income by currency. */
-export function BreakdownCard({ widget }: { widget: BreakdownWidget }) {
+export function BreakdownCard({
+    widget,
+    shareLabel = 'of the total',
+    columns = false,
+    className,
+}: {
+    widget: BreakdownWidget;
+    /** Lay rows out in responsive columns (for full-width cards). */
+    columns?: boolean;
+    className?: string;
+    /** What a row's share is relative to; a custom label also draws every meter in one colour (one series). */
+    shareLabel?: string;
+}) {
+    const singleSeries = shareLabel !== 'of the total';
     const titleId = useId();
     const notes = widget.notes ?? [];
 
     return (
         <Panel
             titleId={titleId}
+            className={className}
             title={widget.title}
             description={widget.description}
             actions={widget.href && <ViewAllLink href={widget.href} />}
@@ -21,7 +35,13 @@ export function BreakdownCard({ widget }: { widget: BreakdownWidget }) {
                     {widget.empty ?? 'Nothing to show yet.'}
                 </p>
             ) : (
-                <ul className="space-y-4">
+                <ul
+                    className={
+                        columns
+                            ? 'grid gap-x-8 gap-y-4 sm:grid-cols-2 xl:grid-cols-3'
+                            : 'space-y-4'
+                    }
+                >
                     {widget.rows.map((row, index) => (
                         <li key={row.key} className="space-y-1.5">
                             <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -36,12 +56,15 @@ export function BreakdownCard({ widget }: { widget: BreakdownWidget }) {
                                     </span>
                                 </span>
                                 <span className="font-medium whitespace-nowrap tabular-nums">
-                                    {row.money
-                                        ? formatMoney(
-                                              row.money.amount,
-                                              row.money.currency,
-                                          )
-                                        : (row.value ?? 0).toLocaleString()}
+                                    {row.display ??
+                                        (row.money
+                                            ? formatMoney(
+                                                  row.money.amount,
+                                                  row.money.currency,
+                                              )
+                                            : (
+                                                  row.value ?? 0
+                                              ).toLocaleString())}
                                 </span>
                             </div>
                             <div
@@ -50,18 +73,18 @@ export function BreakdownCard({ widget }: { widget: BreakdownWidget }) {
                                 aria-valuenow={row.share}
                                 aria-valuemin={0}
                                 aria-valuemax={100}
-                                aria-label={`${row.label}: ${row.share}% of the total`}
+                                aria-label={`${row.label}: ${row.share}% ${shareLabel}`}
                             >
                                 <div
                                     className="h-full rounded-full"
                                     style={{
                                         width: `${Math.max(row.share, 1)}%`,
-                                        background: `var(--chart-${(index % 6) + 1})`,
+                                        background: `var(--chart-${singleSeries ? 1 : (index % 6) + 1})`,
                                     }}
                                 />
                             </div>
                             <div className="text-xs text-muted-foreground tabular-nums">
-                                {row.share}% of the total
+                                {row.share}% {shareLabel}
                             </div>
                         </li>
                     ))}

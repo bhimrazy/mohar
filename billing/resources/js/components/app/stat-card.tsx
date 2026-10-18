@@ -58,7 +58,7 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
     return (
         <span
             className={cn(
-                'inline-flex items-center gap-0.5 rounded-badge px-1.5 py-0.5 text-xs font-medium tabular-nums',
+                'inline-flex shrink-0 items-center gap-0.5 rounded-badge px-1.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums',
                 isGood === true && 'bg-success-subtle text-success-text',
                 isGood === false && 'bg-danger-subtle text-danger-text',
                 isGood === null && 'bg-muted text-muted-foreground',

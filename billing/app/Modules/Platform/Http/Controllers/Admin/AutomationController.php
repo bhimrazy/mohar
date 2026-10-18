@@ -7,6 +7,7 @@ use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Jobs\RunAutomationJob;
+use App\Modules\Platform\Support\AutomationInsights;
 use App\Support\Automation\Automation;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -16,7 +17,7 @@ use Inertia\Response;
 
 class AutomationController extends Controller
 {
-    public function index(Request $request, Automation $automation, Settings $settings): Response
+    public function index(Request $request, Automation $automation, Settings $settings, AutomationInsights $insights): Response
     {
         $this->authorize('core.automation.view');
 
@@ -56,6 +57,7 @@ class AutomationController extends Controller
                 'last_run_date' => $lastRuns->get($key)?->run_date->toDateString(),
             ], array_keys($automation->ordered()), array_values($automation->ordered())),
             'filters' => $filters,
+            'insights' => $insights->summary(),
             'scheduledAt' => (string) $settings->get('core.automation_time', config('core.automation_time')),
             'can' => ['run' => $request->user()?->hasPermission('core.automation.run') ?? false],
         ]);

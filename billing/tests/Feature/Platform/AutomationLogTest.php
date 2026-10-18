@@ -7,6 +7,7 @@ use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\AutomationStatus;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
@@ -136,4 +137,45 @@ test('housekeeping prunes old invitations and client-less activity entries only'
 
     expect(StaffInvitation::query()->pluck('id')->all())->toBe([$recentExpired->id])
         ->and(ActivityLog::query()->orderBy('id')->pluck('description')->all())->toBe(['Old client entry', 'Recent entry']);
+});
+
+test('the automation page summarises the pipeline: success rate, failures, runs per day and items processed', function () {
+    $this->travelTo('2026-10-18 12:00:00');
+    app(Automation::class)->task('test.renewals', Automation::RENEWALS, fn () => 'done');
+    AutomationRun::query()->create(['run_date' => '2026-10-18', 'task' => 'test.renewals', 'status' => 'success', 'summary' => '12 invoices', 'duration_ms' => 400]);
+    AutomationRun::query()->create(['run_date' => '2026-10-18', 'task' => 'test.housekeeping', 'status' => 'failed', 'summary' => 'boom', 'duration_ms' => 100]);
+    AutomationRun::query()->create(['run_date' => '2026-10-17', 'task' => 'test.renewals', 'status' => 'success', 'summary' => '3', 'duration_ms' => 300]);
+    AutomationRun::query()->create(['run_date' => '2026-10-17', 'task' => 'test.housekeeping', 'status' => 'success', 'summary' => 'cleaned 2', 'duration_ms' => 100]);
+    app(AutomationStatus::class)->beat();
+    actingAsStaff(['core.automation.view']);
+    $tasks = count(app(Automation::class)->ordered());
+
+    $this->get(route('admin.platform.automation.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('insights.hasRuns', true)
+        ->where('insights.scheduler.state', 'ok')
+        ->where('insights.successRate.value', 75)
+        ->where('insights.successRate.total', 4)
+        ->where('insights.failed24h', 1)
+        ->where('insights.nextRunAt', fn (string $at) => str_starts_with($at, '2026-10-19T'.app(Settings::class)->get('core.automation_time', config('core.automation_time'))))
+        ->has('insights.perDay', 30)
+        ->where('insights.perDay.29', ['x' => '2026-10-18', 'success' => 1, 'failed' => 1, 'missing' => $tasks - 2])
+        ->where('insights.perDay.0.missing', $tasks)
+        ->where('insights.processedToday', [['stage' => Automation::RENEWALS, 'count' => 12, 'tasks' => 1]])
+        ->where('insights.duration.averageMs', 450)
+        ->where('insights.stageDurations', [['stage' => Automation::RENEWALS, 'averageMs' => 350], ['stage' => Automation::HOUSEKEEPING, 'averageMs' => 100]])
+        ->where('insights.cronCommand', fn (string $command) => str_contains($command, 'php artisan schedule:run')));
+});
+
+test('the scheduler state follows the heartbeat, and a fresh install has no runs', function () {
+    actingAsStaff(['core.automation.view']);
+    $state = fn () => $this->get(route('admin.platform.automation.index'))->viewData('page')['props']['insights'];
+
+    expect($state()['scheduler']['state'])->toBe('never')
+        ->and($state()['hasRuns'])->toBeFalse();
+
+    Cache::forever(AutomationStatus::HEARTBEAT_KEY, now()->subMinutes(20)->toIso8601String());
+    expect($state()['scheduler']['state'])->toBe('late');
+
+    Cache::forever(AutomationStatus::HEARTBEAT_KEY, now()->subHours(3)->toIso8601String());
+    expect($state()['scheduler']['state'])->toBe('stopped');
 });
