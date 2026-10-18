@@ -1,4 +1,5 @@
-import { Form, Head, usePage } from '@inertiajs/react';
+import { Form, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Link } from '@inertiajs/react';
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
 import DeleteUser from '@/components/delete-user';

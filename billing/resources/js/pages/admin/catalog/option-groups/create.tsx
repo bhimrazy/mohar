@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import ConfigOptionGroupController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ConfigOptionGroupController';
 import { Field } from '@/components/app/field';

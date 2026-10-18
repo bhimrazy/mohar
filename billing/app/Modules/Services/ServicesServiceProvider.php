@@ -261,7 +261,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             ->search($term)->limit(5)->get()
             ->map(fn (Service $service): array => [
                 'title' => $service->label(),
-                'subtitle' => trim(($service->product_name ?? '').($service->username ? " · {$service->username}" : '').' · '.$service->status->value, ' ·'),
+                'subtitle' => trim(($service->product_name ?? '').($service->username ? " · {$service->username}" : '').' · '.ucfirst(str_replace('_', ' ', $service->status->value)), ' ·'),
                 'href' => route('admin.services.services.show', $service),
             ])->all()), 'services.services.view');
 

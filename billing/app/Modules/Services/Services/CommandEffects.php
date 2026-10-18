@@ -109,7 +109,7 @@ class CommandEffects
                 break;
         }
 
-        $this->activity->log("Service {$command->label()} succeeded", $service, $service->client_id);
+        $this->activity->log("{$command->pastTense()} for {$service->label()}", $service, $service->client_id);
 
         return $events;
     }
@@ -131,6 +131,6 @@ class CommandEffects
                 ->update(['status' => CancellationStatus::Failed->value]);
         }
 
-        $this->activity->log("Service {$command->label()} failed: {$error}", $service, $service->client_id);
+        $this->activity->log("{$command->noun()} failed for {$service->label()}: {$error}", $service, $service->client_id);
     }
 }

@@ -7,20 +7,21 @@ subagents, integrates their branches and merges. Subagents do the module work an
 
 Definitions live in `.claude/agents/`. Pass the role's file name as `subagent_type` when launching.
 
-| Role                 | Agent file           | Model   | Writes code | Used for                                                         |
-| -------------------- | -------------------- | ------- | ----------- | ---------------------------------------------------------------- |
-| CTO                  | main session         | —       | kernel only | plans, briefs, integration, shared kernel, merges, owner updates |
-| Product manager      | `product-manager`    | inherit | no (docs)   | module specs with acceptance criteria, from public docs          |
-| Principal designer   | `principal-designer` | opus    | yes (UI)    | design system, themes, brand, UI reviews                         |
-| Module engineer      | `module-engineer`    | inherit | yes         | one module per worktree, end to end, draft PR                    |
-| DevOps engineer      | `devops-engineer`    | inherit | yes         | CI, Docker, Postgres, dependency policy, observability           |
-| Review board         | `review-board`       | opus    | no          | correctness, contracts, portability, AI-slop on every code PR    |
-| Security reviewer    | `security-reviewer`  | opus    | no          | PRs touching auth, money, uploads, webhooks, external input      |
-| QA + design reviewer | `qa-design-reviewer` | opus    | no          | acceptance-criteria coverage, exploratory run, UI quality        |
-| Re-reviewer          | `re-reviewer`        | opus    | no          | verifies every round-1 blocking/medium item after fixes          |
-| AI-slop reviewer     | `slop-reviewer`      | opus    | no          | docs/infra PRs and handoff docs (folded into the board for code) |
-| Product reviewer     | `product-reviewer`   | opus    | small fixes | the owner's eyes: product standards, directions, WHMCS parity    |
-| Database reviewer    | `database-reviewer`  | opus    | small fixes | schema, indexes, queries, locking, migrations, PostgreSQL parity |
+| Role                 | Agent file            | Model   | Writes code  | Used for                                                               |
+| -------------------- | --------------------- | ------- | ------------ | ---------------------------------------------------------------------- |
+| CTO                  | main session          | —       | kernel only  | plans, briefs, integration, shared kernel, merges, owner updates       |
+| Product manager      | `product-manager`     | inherit | no (docs)    | module specs with acceptance criteria, from public docs                |
+| Principal designer   | `principal-designer`  | opus    | yes (UI)     | design system, themes, brand, UI reviews                               |
+| Module engineer      | `module-engineer`     | inherit | yes          | one module per worktree, end to end, draft PR                          |
+| DevOps engineer      | `devops-engineer`     | inherit | yes          | CI, Docker, Postgres, dependency policy, observability                 |
+| Review board         | `review-board`        | opus    | no           | correctness, contracts, portability, AI-slop on every code PR          |
+| Security reviewer    | `security-reviewer`   | opus    | no           | PRs touching auth, money, uploads, webhooks, external input            |
+| QA + design reviewer | `qa-design-reviewer`  | opus    | no           | acceptance-criteria coverage, exploratory run, UI quality              |
+| Re-reviewer          | `re-reviewer`         | opus    | no           | verifies every round-1 blocking/medium item after fixes                |
+| AI-slop reviewer     | `slop-reviewer`       | opus    | no           | docs/infra PRs and handoff docs (folded into the board for code)       |
+| Product reviewer     | `product-reviewer`    | opus    | small fixes  | the owner's eyes: product standards, directions, WHMCS parity          |
+| Database reviewer    | `database-reviewer`   | opus    | small fixes  | schema, indexes, queries, locking, migrations, PostgreSQL parity       |
+| Principal architect  | `principal-architect` | opus    | ADRs, kernel | boundaries, shared kernel, extension model, cross-cutting design, ADRs |
 
 Reviewers are read-only. All agents run as the same GitHub account, so reviews are posted with
 `gh pr review <n> --comment` (approval is not possible); the verdict line in the comment is the gate.
@@ -33,7 +34,7 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
    engineer commits in small steps, pushes, and opens a draft PR into `develop` with gates green.
 4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer` + `product-reviewer`
    (every user-facing PR), `database-reviewer` (every PR with migrations, models or
-   non-trivial queries), plus `security-reviewer`
+   non-trivial queries), `principal-architect` (every PR that changes the shared kernel), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.

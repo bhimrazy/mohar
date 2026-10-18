@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CalendarClock, Info, RefreshCcw, ShieldCheck } from 'lucide-react';
 import type { FormEvent } from 'react';
 import DomainController from '@/actions/App/Modules/Domains/Http/Controllers/Client/DomainController';

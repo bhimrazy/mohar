@@ -47,6 +47,7 @@ class DomainController extends Controller
             'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client', 'attention']),
             'statuses' => DomainStatus::values(),
             'registrars' => $registrars->keys(),
+            'registrarNames' => $registrars->names(),
             'tlds' => Tld::query()->ordered()->pluck('extension'),
         ]);
     }
@@ -67,6 +68,7 @@ class DomainController extends Controller
             ],
             'billingAvailable' => app(RenewalInvoices::class)->available(),
             'registrars' => $registrars->keys(),
+            'registrarNames' => $registrars->names(),
             'statuses' => DomainStatus::values(),
             'allowedStatuses' => array_map(fn (DomainStatus $status): string => $status->value, $domain->status->allowedTransitions()),
             'commandLog' => $domain->commandLog()->with('staff:id,name')->latest('id')->limit(25)->get()

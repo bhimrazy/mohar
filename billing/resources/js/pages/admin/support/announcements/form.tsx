@@ -1,4 +1,5 @@
-import { Form, Head } from '@inertiajs/react';
+import { Form } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { useState } from 'react';
 import AnnouncementController from '@/actions/App/Modules/Support/Http/Controllers/Admin/AnnouncementController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';

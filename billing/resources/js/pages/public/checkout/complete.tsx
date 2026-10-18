@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CheckCircle2, FileText } from 'lucide-react';
 import { DateTime } from '@/components/app/date';
 import { Money } from '@/components/app/money';

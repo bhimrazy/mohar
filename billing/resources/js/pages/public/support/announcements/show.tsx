@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import AnnouncementController from '@/actions/App/Modules/Support/Http/Controllers/Public/AnnouncementController';
 import { DateTime } from '@/components/app/date';
 import { Page } from '@/components/app/page';

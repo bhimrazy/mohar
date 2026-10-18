@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ClipboardList, Plus } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';

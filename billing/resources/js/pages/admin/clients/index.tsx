@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Plus, Users } from 'lucide-react';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { DataTable } from '@/components/app/data-table';

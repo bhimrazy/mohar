@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CheckCircle2 } from 'lucide-react';
 import { DateTime } from '@/components/app/date';
 import { Page } from '@/components/app/page';

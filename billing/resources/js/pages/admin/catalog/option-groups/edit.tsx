@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';

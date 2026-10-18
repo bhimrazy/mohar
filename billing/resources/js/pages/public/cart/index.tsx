@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
     Globe,

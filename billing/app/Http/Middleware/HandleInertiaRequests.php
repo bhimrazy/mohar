@@ -6,6 +6,7 @@ use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Currencies\CurrencyDirectory;
 use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\DateFormats;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -56,6 +57,7 @@ class HandleInertiaRequests extends Middleware
                     ->map(fn ($client): array => ['id' => $client->id, 'name' => $client->display_name])->all()
                 : [],
             'currentClientId' => fn (): ?int => $request->session()->get(ClientContext::SESSION_KEY),
+            'dateFormat' => fn (): string => DateFormats::current(),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

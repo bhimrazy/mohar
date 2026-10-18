@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Megaphone, Plus } from 'lucide-react';
 import AnnouncementController from '@/actions/App/Modules/Support/Http/Controllers/Admin/AnnouncementController';
 import { DataTable } from '@/components/app/data-table';

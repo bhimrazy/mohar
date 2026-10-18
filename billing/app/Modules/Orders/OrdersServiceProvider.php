@@ -30,9 +30,9 @@ use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
-use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -224,7 +224,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             ->get()
             ->map(fn (Order $order): array => [
                 'title' => "Order #{$order->number}",
-                'subtitle' => $order->client->display_name.' · '.$order->status->value,
+                'subtitle' => $order->client->display_name.' · '.ucfirst(str_replace('_', ' ', $order->status->value)),
                 'href' => route('admin.orders.show', $order),
             ])
             ->all()), 'orders.orders.view');

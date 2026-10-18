@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { Page } from '@/components/app/page';

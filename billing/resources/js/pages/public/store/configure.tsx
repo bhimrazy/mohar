@@ -1,4 +1,5 @@
-import { Head, Link, useForm, useHttp } from '@inertiajs/react';
+import { Link, useForm, useHttp } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ChevronLeft } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';

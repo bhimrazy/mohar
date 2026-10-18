@@ -1,4 +1,5 @@
-import { Head, router } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { ArrowRight, RefreshCcw } from 'lucide-react';
 import { useState } from 'react';
 import CurrencyController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/CurrencyController';

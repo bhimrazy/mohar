@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Activity } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';

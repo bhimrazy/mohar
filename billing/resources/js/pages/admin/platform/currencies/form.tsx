@@ -1,6 +1,7 @@
-import { Form, Head, Link, router } from '@inertiajs/react';
+import { Form, Link, router } from '@inertiajs/react';
 import { ArrowRight } from 'lucide-react';
 import { useState } from 'react';
+import { Head } from '@/components/app/head';
 import CurrencyController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/CurrencyController';
 import ExchangeRateController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ExchangeRateController';
 import { DateTime } from '@/components/app/date';

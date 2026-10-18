@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { BookOpen } from 'lucide-react';
 import KnowledgebaseController from '@/actions/App/Modules/Support/Http/Controllers/Public/KnowledgebaseController';
 import { EmptyState } from '@/components/app/empty-state';

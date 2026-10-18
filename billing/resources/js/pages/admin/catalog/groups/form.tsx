@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import ProductGroupController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ProductGroupController';
 import { SwitchRow } from '@/components/catalog/switch-row';

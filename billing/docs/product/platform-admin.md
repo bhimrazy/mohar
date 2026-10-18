@@ -23,6 +23,9 @@ Implementation notes (v1 deviations from this spec):
 - Sensitive permissions (impersonate, merge, close, `core.users.*`, `core.staff.*`, `core.roles.*`, `core.settings.security`) are
   never granted by wildcards and need a recent password confirmation (see `docs/security/standards.md`).
 - Currencies: v1 supports 2-decimal currencies only (ADR 0002); the `decimals` column is kept for later.
+- Date format: one `core.date_format` for both areas (spec: `localization.admin_date_format` and
+  `localization.client_date_format`, default `Y-m-d`). Allowed values are `Core\Support\DateFormats::OPTIONS`; the
+  default is `M j, Y` ("Oct 24, 2026"), and any stored value off the list falls back to it.
 - Client merge: Core moves contacts and logins and dispatches `ClientMerged` inside the transaction; every other module
   re-points its own tables in a listener and can preview or veto a merge through `ClientMergeRegistry`.
 - AC18: Core closes the client and emits `ClientClosed`. Cancelling invoices and services and turning off domain

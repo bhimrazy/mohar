@@ -19,6 +19,8 @@ declare module '@inertiajs/core' {
             name: string;
             auth: Auth;
             sidebarOpen: boolean;
+            /** Settings → Company → Date format, one of DATE_FORMATS in lib/date.ts. */
+            dateFormat: string;
             area: 'admin' | 'client';
             navigation: ServerNavGroup[];
             quickActions: QuickAction[];

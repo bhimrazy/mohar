@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import ClientGroupController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ClientGroupController';
 import { Field } from '@/components/app/field';
 import { Page } from '@/components/app/page';

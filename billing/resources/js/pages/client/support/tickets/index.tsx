@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { LifeBuoy, Plus } from 'lucide-react';
 import TicketController from '@/actions/App/Modules/Support/Http/Controllers/Client/TicketController';
 import { DataTable } from '@/components/app/data-table';
