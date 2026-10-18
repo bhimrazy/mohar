@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Home page settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        body { font-size: 14px; }
+        .shell { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; background: var(--muted); }
+        .side { padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 13.5px; }
+        .side .grp { margin: 14px 8px 4px; }
+        .side a { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--radius); color: var(--muted-foreground); font-weight: 500; }
+        .side a.on { background: var(--accent); color: var(--accent-foreground); }
+        .panel { background: var(--background); border-left: 1px solid var(--border); padding: 20px 32px 96px; }
+        .crumbs { font-size: 13px; color: var(--muted-foreground); display: flex; gap: 6px; align-items: center; }
+        .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin: 10px 0 20px; }
+        .page-head h1 { font-size: 24px; }
+        .cols { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+        .stack { display: flex; flex-direction: column; gap: 20px; }
+        .sc { padding: 0; }
+        .sc-head { padding: 18px 20px 4px; }
+        .sc-head h2 { font-size: 16px; }
+        .sc-head p { color: var(--muted-foreground); font-size: 13.5px; margin-top: 2px; }
+        .sc-body { padding: 14px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+        .field label, .lbl { font-weight: 550; font-size: 13.5px; }
+        .field .hint { font-size: 12.5px; color: var(--muted-foreground); display: flex; justify-content: space-between; }
+        .field .input, .field textarea { width: 100%; }
+        textarea.input { height: auto; padding: 8px 12px; resize: vertical; line-height: 1.5; }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+        .sec-list { border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; }
+        .sec { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); background: var(--card); }
+        .sec:last-child { border-bottom: 0; }
+        .sec .grip { color: var(--muted-foreground); cursor: grab; }
+        .sec .name { font-weight: 550; }
+        .sec .sub { font-size: 12.5px; color: var(--muted-foreground); }
+        .sec .acts { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+        .sec.off .name, .sec.off .sub { opacity: 0.6; }
+        .sec.expanded { background: var(--card); flex-wrap: wrap; }
+        .sec .opts { flex-basis: 100%; margin: 8px 0 2px 28px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 14px; background: var(--muted); border-radius: var(--radius); }
+        .switch { width: 36px; height: 20px; border-radius: 999px; background: var(--input); position: relative; border: 0; flex: none; cursor: pointer; }
+        .switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 999px; background: var(--card); box-shadow: 0 1px 2px rgb(0 0 0 / 0.2); }
+        .switch[aria-checked='true'] { background: var(--primary); }
+        .switch[aria-checked='true']::after { left: 18px; }
+        .radio { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+        .radio.on { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+        .radio .dotr { width: 16px; height: 16px; border-radius: 999px; border: 1px solid var(--input); margin-top: 2px; flex: none; display: grid; place-items: center; }
+        .radio.on .dotr { border-color: var(--primary); }
+        .radio.on .dotr::after { content: ''; width: 8px; height: 8px; border-radius: 999px; background: var(--primary); }
+        .radio small { display: block; color: var(--muted-foreground); font-size: 12.5px; }
+        .select.full { width: 100%; }
+        .chk { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+        .chk i { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--input); display: grid; place-items: center; background: var(--card); }
+        .chk i.on { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+        .chk i .icon { width: 12px; height: 12px; stroke-width: 3; }
+        .hl-row { display: grid; grid-template-columns: 120px 1fr 1.6fr auto; gap: 8px; align-items: center; }
+        .preview { position: sticky; top: 20px; padding: 14px; }
+        .preview .frame { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; height: 360px; position: relative; }
+        .preview iframe { width: 1440px; height: 1800px; border: 0; transform: scale(0.2); transform-origin: 0 0; pointer-events: none; }
+        .savebar { position: sticky; bottom: 0; margin: 24px -32px -96px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--background) 92%, transparent); backdrop-filter: blur(8px); }
+        .savebar .in { display: flex; align-items: center; gap: 12px; padding: 12px 32px; }
+        @media (max-width: 1100px) { .cols { grid-template-columns: 1fr; } .preview { display: none; } }
+        @media (max-width: 720px) { .shell { grid-template-columns: 1fr; } .side { display: none; } .panel { padding: 16px 16px 96px; } .row2, .sec .opts { grid-template-columns: 1fr; } .hl-row { grid-template-columns: 1fr; } .sec { flex-wrap: wrap; } .sec .acts { margin-left: 28px; width: 100%; } .sec .opts { margin-left: 0; } .page-head { flex-direction: column; align-items: flex-start; } .savebar .in > span:nth-child(2) { display: none; } .savebar .in { padding: 12px 16px; } .savebar { margin: 24px -16px -96px; } }
+    </style>
+</head>
+<body data-status-strip="off">
+<div class="shell">
+    <nav class="side" aria-label="Admin">
+        <span class="brand" style="padding:4px 8px 10px"><span class="brand-mark"><span data-icon="cloud"></span></span><span>Acme Hosting</span></span>
+        <a href="#"><span data-icon="grid"></span>Dashboard</a>
+        <a href="#"><span data-icon="user"></span>Clients</a>
+        <a href="#"><span data-icon="receipt"></span>Billing</a>
+        <a href="#"><span data-icon="server"></span>Catalog</a>
+        <a href="#"><span data-icon="globe"></span>Domains</a>
+        <a href="#"><span data-icon="lifebuoy"></span>Support</a>
+        <span class="eyebrow grp">Settings</span>
+        <a href="#"><span data-icon="settings"></span>General</a>
+        <a href="#"><span data-icon="pin"></span>Company profile</a>
+        <a href="#"><span data-icon="eye"></span>Appearance</a>
+        <a class="on" href="#" aria-current="page"><span data-icon="cart"></span>Storefront</a>
+        <a href="#"><span data-icon="card"></span>Payment gateways</a>
+    </nav>
+
+    <div class="panel">
+        <div class="crumbs"><a href="#">Settings</a><span>/</span><a href="#">Storefront</a><span>/</span><span style="color:var(--foreground)">Home page</span></div>
+        <div class="page-head">
+            <div><h1>Home page</h1><p class="muted">What visitors see at your site's address before they log in.</p></div>
+            <a class="btn btn-outline" href="#"><span data-icon="eye"></span>View home page</a>
+        </div>
+
+        <div class="cols">
+            <div class="stack">
+                <!-- Headline -->
+                <section class="card sc" aria-labelledby="s-headline">
+                    <div class="sc-head"><h2 id="s-headline">Headline</h2><p>The first words on your home page. Write about your hosting, not about this software.</p></div>
+                    <div class="sc-body">
+                        <div class="field"><label for="eyebrow">Small label above the headline</label><input id="eyebrow" class="input" value="Web hosting · Domains · SSL"><span class="hint"><span>Optional</span><span>27 / 40</span></span></div>
+                        <div class="field"><label for="headline">Headline</label><input id="headline" class="input" value="Reliable hosting for your website"><span class="hint"><span>Keep it under 60 characters so it fits on two lines on phones.</span><span>33 / 80</span></span></div>
+                        <div class="field"><label for="sub">Text under the headline</label><textarea id="sub" class="input" rows="2">Fast, secure hosting with clear prices and real people to help. Start with a domain, pick a plan, and you're online today.</textarea><span class="hint"><span></span><span>121 / 200</span></span></div>
+                        <div><a class="link-arrow" href="#" style="font-size:13px">Reset to the default text</a></div>
+                    </div>
+                </section>
+
+                <!-- Sections -->
+                <section class="card sc" aria-labelledby="s-sections">
+                    <div class="sc-head"><h2 id="s-sections">Sections</h2><p>Turn sections on or off and drag them into order. The headline and domain search always come first.</p></div>
+                    <div class="sc-body">
+                        <div class="sec-list" role="list">
+                            <div class="sec" role="listitem"><span data-icon="globe"></span><div><div class="name">Headline and domain search</div><div class="sub">Shows 5 spotlight extensions from Domains → Extensions</div></div><div class="acts"><span class="badge">Always on</span></div></div>
+                            <div class="sec" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">Why choose us</div><div class="sub">4 of 4 points written</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Why choose us up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Why choose us down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Edit</button><button class="switch" role="switch" aria-checked="true" aria-label="Show Why choose us"></button></div></div>
+                            <div class="sec expanded" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">Featured plans</div><div class="sub">Shared Hosting · 3 plans · Pro marked as most popular</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Featured plans up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Featured plans down"><span data-icon="down"></span></button><button class="btn btn-secondary btn-sm" aria-expanded="true">Done</button><button class="switch" role="switch" aria-checked="true" aria-label="Show Featured plans"></button></div>
+                                <div class="opts">
+                                    <div class="field"><span class="lbl">Product group</span><button class="select full" type="button">Shared Hosting<span data-icon="chev"></span></button><span class="hint">Hidden groups are not listed</span></div>
+                                    <div class="field"><span class="lbl">Billing cycle shown first</span><button class="select full" type="button">Annually<span data-icon="chev"></span></button><span class="hint">Visitors can switch</span></div>
+                                    <div class="field"><span class="lbl">Most popular plan</span><button class="select full" type="button">Pro<span data-icon="chev"></span></button><span class="hint">From the product's Featured setting</span></div>
+                                </div>
+                            </div>
+                            <div class="sec" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">More products</div><div class="sub">VPS, SSL Certificates, Domains</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move More products up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move More products down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Edit</button><button class="switch" role="switch" aria-checked="true" aria-label="Show More products"></button></div></div>
+                            <div class="sec" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">How can we help</div><div class="sub">Knowledge base, Announcements, Network status, Open a ticket, Contact us</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move How can we help up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move How can we help down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Edit</button><button class="switch" role="switch" aria-checked="true" aria-label="Show How can we help"></button></div></div>
+                            <div class="sec" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">News and status</div><div class="sub">2 latest announcements, 4 popular articles, network status</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move News and status up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move News and status down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Edit</button><button class="switch" role="switch" aria-checked="true" aria-label="Show News and status"></button></div></div>
+                            <div class="sec" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">Ways to pay</div><div class="sub">eSewa, Khalti, Card, Bank transfer (from active payment gateways)</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Ways to pay up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Ways to pay down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Edit</button><button class="switch" role="switch" aria-checked="true" aria-label="Show Ways to pay"></button></div></div>
+                            <div class="sec off" role="listitem"><span class="grip" data-icon="grip"></span><div><div class="name">Questions and answers</div><div class="sub">No questions yet. Add some to show this section.</div></div><div class="acts"><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Questions and answers up"><span data-icon="up"></span></button><button class="btn btn-ghost btn-icon btn-sm" aria-label="Move Questions and answers down"><span data-icon="down"></span></button><button class="btn btn-ghost btn-sm">Add questions</button><button class="switch" role="switch" aria-checked="false" aria-disabled="true" aria-label="Show Questions and answers (add questions first)" title="Add questions first"></button></div></div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Why choose us -->
+                <section class="card sc" aria-labelledby="s-why">
+                    <div class="sc-head"><h2 id="s-why">Why choose us</h2><p>Up to four short points. Only claim what you offer; visitors hold you to it.</p></div>
+                    <div class="sc-body">
+                        <div class="hl-row"><button class="select" type="button"><span data-icon="clock"></span>Clock<span data-icon="chev"></span></button><input class="input" aria-label="Point 1 title" value="Help every day"><input class="input" aria-label="Point 1 text" value="Tickets answered around the clock, phone support Sunday to Friday."><button class="btn btn-ghost btn-icon" aria-label="Remove point 1"><span data-icon="x"></span></button></div>
+                        <div class="hl-row"><button class="select" type="button"><span data-icon="shield"></span>Shield<span data-icon="chev"></span></button><input class="input" aria-label="Point 2 title" value="30-day money-back"><input class="input" aria-label="Point 2 text" value="Not happy with shared hosting? Get a full refund in the first 30 days."><button class="btn btn-ghost btn-icon" aria-label="Remove point 2"><span data-icon="x"></span></button></div>
+                        <div class="hl-row"><button class="select" type="button"><span data-icon="refresh"></span>Move<span data-icon="chev"></span></button><input class="input" aria-label="Point 3 title" value="Free site transfer"><input class="input" aria-label="Point 3 text" value="We move your website and email from your current host."><button class="btn btn-ghost btn-icon" aria-label="Remove point 3"><span data-icon="x"></span></button></div>
+                        <div class="hl-row"><button class="select" type="button"><span data-icon="card"></span>Card<span data-icon="chev"></span></button><input class="input" aria-label="Point 4 title" value="Pay your way"><input class="input" aria-label="Point 4 text" value="eSewa, Khalti or bank transfer, in USD, INR or NPR."><button class="btn btn-ghost btn-icon" aria-label="Remove point 4"><span data-icon="x"></span></button></div>
+                    </div>
+                </section>
+
+                <!-- Header and footer -->
+                <section class="card sc" aria-labelledby="s-header">
+                    <div class="sc-head"><h2 id="s-header">Header and footer</h2><p>Shared by every public page: home, store, domains, help, announcements and network status.</p></div>
+                    <div class="sc-body">
+                        <span class="lbl">Products in the header</span>
+                        <div class="radio on"><span class="dotr"></span><span><strong>Automatic</strong><small>A link for each product group while there are 4 or fewer; one menu when there are more.</small></span></div>
+                        <div class="radio"><span class="dotr"></span><span><strong>Always one menu</strong><small>Groups listed in a menu with their description and lowest price.</small></span></div>
+                        <div class="radio"><span class="dotr"></span><span><strong>Always a link for each group</strong><small>Groups that don't fit move into a "More" menu.</small></span></div>
+                        <div class="row2">
+                            <div class="field"><label for="menu-label">Menu name</label><input id="menu-label" class="input" value="Hosting"><span class="hint">Used when products are in one menu</span></div>
+                            <div class="field"><span class="lbl">Legal pages in the footer</span><span class="chk"><i class="on"><span data-icon="check"></span></i>Terms of service</span><span class="chk"><i class="on"><span data-icon="check"></span></i>Privacy policy</span><span class="chk"><i class="on"><span data-icon="check"></span></i>Refund policy</span></div>
+                        </div>
+                        <div class="chk" style="justify-content:space-between"><span><strong>Network status banner</strong><br><small class="muted">Show a banner on every public page while an incident is open.</small></span><button class="switch" role="switch" aria-checked="true" aria-label="Show network status banner"></button></div>
+                        <p class="muted" style="font-size:13px">Company name, address, phone, support email and registration numbers in the footer come from <a class="link-arrow" style="font-size:13px" href="#">Company profile</a>. Logo and name come from <a class="link-arrow" style="font-size:13px" href="#">Appearance → Brand</a>.</p>
+                    </div>
+                </section>
+            </div>
+
+            <aside class="card preview" aria-label="Preview">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><strong>Preview</strong><span class="badge">Unsaved changes</span></div>
+                <div class="frame"><iframe src="a-storefront.html" title="Home page preview" tabindex="-1"></iframe></div>
+                <p class="muted" style="font-size:12.5px;margin-top:10px">Prices, plans, news and status in the preview are live.</p>
+            </aside>
+        </div>
+        <div class="savebar"><div class="in"><span class="dot dot-warning"></span><span>You have unsaved changes.</span><span style="margin-left:auto"></span><button class="btn btn-ghost">Discard</button><button class="btn btn-primary">Save changes</button></div></div>
+    </div>
+</div>
+<script src="shared.js"></script>
+</body>
+</html>
