@@ -11,6 +11,7 @@ use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Modules\Notifications\Webhooks\WebhookPublisher;
+use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -56,7 +57,7 @@ class WebhookEndpointController extends Controller
             'secret' => $secret,
             'created_by' => $request->user()?->id,
         ]);
-        $this->activity->log('Webhook endpoint created', $endpoint, properties: ['url' => $endpoint->url]);
+        $this->activity->log('Webhook endpoint created', $endpoint, properties: ['url' => WebhookUrlGuard::forLog($endpoint->url)]);
         Inertia::flash('webhookSecret', $secret);
 
         return to_route('admin.notifications.webhooks.show', $endpoint);
@@ -108,7 +109,7 @@ class WebhookEndpointController extends Controller
             'is_active' => $active,
             ...($active && ! $endpoint->is_active ? ['consecutive_failures' => 0, 'disabled_reason' => null] : []),
         ]);
-        $this->activity->log('Webhook endpoint updated', $endpoint, properties: ['url' => $endpoint->url, 'active' => $active]);
+        $this->activity->log('Webhook endpoint updated', $endpoint, properties: ['url' => WebhookUrlGuard::forLog($endpoint->url), 'active' => $active]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Webhook endpoint saved.')]);
 
         return to_route('admin.notifications.webhooks.show', $endpoint);
@@ -118,7 +119,7 @@ class WebhookEndpointController extends Controller
     {
         $this->authorize('notifications.webhooks.manage');
         $endpoint->delete();
-        $this->activity->log('Webhook endpoint deleted', properties: ['url' => $endpoint->url]);
+        $this->activity->log('Webhook endpoint deleted', properties: ['url' => WebhookUrlGuard::forLog($endpoint->url)]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Webhook endpoint deleted.')]);
 
         return to_route('admin.notifications.webhooks.index');
@@ -136,7 +137,7 @@ class WebhookEndpointController extends Controller
             'previous_secret_expires_at' => now()->addHours((int) config('notifications.webhooks_secret_grace_hours', 24)),
             'secret' => $secret,
         ]);
-        $this->activity->log('Webhook signing secret rotated', $endpoint, properties: ['url' => $endpoint->url]);
+        $this->activity->log('Webhook signing secret rotated', $endpoint, properties: ['url' => WebhookUrlGuard::forLog($endpoint->url)]);
         Inertia::flash('webhookSecret', $secret);
 
         return back();
@@ -174,7 +175,7 @@ class WebhookEndpointController extends Controller
     {
         return [
             'id' => $endpoint->id,
-            'url' => $endpoint->url,
+            'url' => WebhookUrlGuard::forLog($endpoint->url),
             'description' => $endpoint->description,
             'events' => $endpoint->events,
             'is_active' => $endpoint->is_active,

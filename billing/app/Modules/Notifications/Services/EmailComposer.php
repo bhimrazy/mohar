@@ -74,14 +74,20 @@ class EmailComposer
         $wrappedText = $this->wrapText($text->output, $preferencesUrl);
 
         return new ComposedEmail(
-            subject: Str::limit(trim((string) preg_replace('/\s+/', ' ', $renderedSubject->output)), 250, ''),
+            subject: $this->subjectLine($renderedSubject->output),
             html: $wrappedHtml,
             text: $wrappedText,
             storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output, $preferencesUrl) : $wrappedHtml,
             storedText: $hasRedactions ? $this->wrapText($this->engine->render($body, $redactedContext, false, $options)->output, $preferencesUrl) : $wrappedText,
             hasRedactions: $hasRedactions,
             warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
+            storedSubject: $hasRedactions ? $this->subjectLine($this->engine->render($subject, $redactedContext, false, $options)->output) : null,
         );
+    }
+
+    private function subjectLine(string $rendered): string
+    {
+        return Str::limit(trim((string) preg_replace('/\s+/', ' ', $rendered)), 250, '');
     }
 
     public function defaultLocale(): string

@@ -26,6 +26,17 @@ final class TemplateEngine
 {
     public const FILTERS = ['money', 'date', 'upper', 'lower', 'default', 'raw'];
 
+    /** Resource limits (security review PR #28, M1): a template can't pin a worker or exhaust memory. */
+    public const MAX_DEPTH = 10;
+
+    public const MAX_LOOP_ITERATIONS = 10_000;
+
+    public const MAX_OUTPUT_BYTES = 262_144;
+
+    private int $iterations = 0;
+
+    private int $outputBytes = 0;
+
     private const PATH = '[a-z_][a-z0-9_]*(?:\.[a-z0-9_]+)*';
 
     /** Characters that would otherwise turn a merged value into Markdown syntax. */
@@ -59,6 +70,8 @@ final class TemplateEngine
         $this->warnings = [];
         $this->escape = $escape;
         $this->options = $options;
+        $this->iterations = 0;
+        $this->outputBytes = 0;
 
         $output = $this->renderNodes($this->parse($source), [$context]);
 
@@ -121,6 +134,10 @@ final class TemplateEngine
     {
         $path = self::PATH;
         $current = $stack[count($stack) - 1];
+
+        if ((str_starts_with($tag, 'if ') || str_starts_with($tag, 'for ')) && count($stack) > self::MAX_DEPTH) {
+            throw TemplateSyntaxError::at($line, 'Blocks are nested more than '.self::MAX_DEPTH.' levels deep.');
+        }
 
         if (preg_match("/^if\s+(not\s+)?({$path})$/", $tag, $match)) {
             $stack[] = new ParseFrame(['type' => 'if', 'path' => $match[2], 'negate' => $match[1] !== '', 'then' => [], 'else' => []], 'then', $line);
@@ -294,8 +311,8 @@ final class TemplateEngine
 
         foreach ($nodes as $node) {
             $output .= match ($node['type']) {
-                'text' => $node['text'],
-                'var' => $this->renderVariable($node, $scopes),
+                'text' => $this->counted($node['text']),
+                'var' => $this->counted($this->renderVariable($node, $scopes)),
                 'if' => $this->renderNodes($this->truthy($this->lookup($node['path'], $scopes)) !== $node['negate'] ? $node['then'] : $node['else'], $scopes),
                 'for' => $this->renderLoop($node, $scopes),
                 default => '',
@@ -303,6 +320,17 @@ final class TemplateEngine
         }
 
         return $output;
+    }
+
+    private function counted(string $chunk): string
+    {
+        $this->outputBytes += strlen($chunk);
+
+        if ($this->outputBytes > self::MAX_OUTPUT_BYTES) {
+            throw new TemplateSyntaxError('The rendered email is larger than '.intdiv(self::MAX_OUTPUT_BYTES, 1024).' KB.');
+        }
+
+        return $chunk;
     }
 
     /**
@@ -326,6 +354,10 @@ final class TemplateEngine
         $output = '';
 
         foreach (array_values($items) as $item) {
+            if (++$this->iterations > self::MAX_LOOP_ITERATIONS) {
+                throw new TemplateSyntaxError('The template loops more than '.self::MAX_LOOP_ITERATIONS.' times in total.');
+            }
+
             $output .= $this->renderNodes($node['body'], [...$scopes, [$node['var'] => $item]]);
         }
 
@@ -374,7 +406,13 @@ final class TemplateEngine
             return $text;
         }
 
-        return nl2br(str_replace(self::MARKDOWN_SPECIALS, array_map(fn (string $character): string => '\\'.$character, self::MARKDOWN_SPECIALS), e($text)), false);
+        $escaped = str_replace(self::MARKDOWN_SPECIALS, array_map(fn (string $character): string => '\\'.$character, self::MARKDOWN_SPECIALS), e($text));
+
+        // Values never start Markdown blocks (security review L1): a leading heading, list, quote or
+        // setext marker is escaped, and line breaks become <br> without a real newline.
+        $escaped = (string) preg_replace(['/^(\s*)([#>+=-])/', '/^(\s*\d+)([.)])/'], '$1\\\\$2', $escaped);
+
+        return str_replace(["\r\n", "\r", "\n"], '<br>', $escaped);
     }
 
     /**

@@ -18,5 +18,7 @@ final readonly class ComposedEmail
         public string $storedText,
         public bool $hasRedactions,
         public array $warnings = [],
+        /** The subject as stored in the log (secrets masked); null = same as $subject. */
+        public ?string $storedSubject = null,
     ) {}
 }

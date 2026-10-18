@@ -5,7 +5,8 @@ namespace App\Modules\Notifications\Webhooks;
 use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
- * SSRF guard for outbound webhooks (spec §8). URLs must be https (http only in local), and the host is
+ * SSRF guard for outbound webhooks (spec §8). URLs must be https (http only in local) on port 443 (80 outside
+ * production), and the host is
  * resolved at send time: if any address is private, loopback, link-local, CGNAT, multicast, reserved or a
  * cloud metadata address, the delivery is refused. The vetted addresses are pinned for the connection,
  * so a DNS answer cannot change between the check and the request (rebinding).
@@ -17,7 +18,7 @@ class WebhookUrlGuard
         '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12',
         '192.0.0.0/24', '192.0.2.0/24', '192.88.99.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24',
         '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4', '255.255.255.255/32',
-        '::/128', '::1/128', '::ffff:0:0/96', '64:ff9b::/96', '100::/64', '2001:db8::/32', 'fc00::/7', 'fe80::/10', 'ff00::/8',
+        '::/128', '::1/128', '::ffff:0:0/96', '64:ff9b::/96', '100::/64', '2001::/32', '2001:db8::/32', '2002::/16', 'fc00::/7', 'fe80::/10', 'ff00::/8',
     ];
 
     public function __construct(private HostResolver $resolver) {}
@@ -41,6 +42,13 @@ class WebhookUrlGuard
 
         if (isset($parts['user']) || isset($parts['pass'])) {
             return 'Remove the username and password from the URL; requests are signed instead.';
+        }
+
+        // Only web ports: 443, plus 80 outside production (security review L6).
+        $port = $parts['port'] ?? ($scheme === 'https' ? 443 : 80);
+
+        if (! in_array($port, app()->isProduction() ? [443] : [443, 80], true)) {
+            return 'Use the standard HTTPS port (443).';
         }
 
         $host = trim($parts['host'], '[]');
@@ -84,6 +92,20 @@ class WebhookUrlGuard
         }
 
         return ['host' => $host, 'port' => $port, 'addresses' => $addresses];
+    }
+
+    /**
+     * The URL without credentials, path or query, for audit logs: hook URLs often embed bearer tokens.
+     */
+    public static function forLog(string $url): string
+    {
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return '(invalid URL)';
+        }
+
+        return ($parts['scheme'] ?? 'https').'://'.$parts['host'].(isset($parts['port']) ? ':'.$parts['port'] : '').'/…';
     }
 
     public function isBlocked(string $address): bool
