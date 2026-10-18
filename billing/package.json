@@ -9,7 +9,9 @@
         "check": "vp check",
         "check:fix": "vp check --fix",
         "types:check": "tsc --noEmit",
-        "test": "vp test run"
+        "test": "vp test run",
+        "images:optimize": "node scripts/optimize-images.mjs",
+        "images:check": "node scripts/optimize-images.mjs --check"
     },
     "dependencies": {
         "@inertiajs/react": "3.9.1",
@@ -55,6 +57,7 @@
         "@rolldown/plugin-babel": "0.2.4",
         "@types/node": "22.20.5",
         "babel-plugin-react-compiler": "1.0.0",
+        "sharp": "0.35.5",
         "vite-plus": "0.3.3"
     },
     "optionalDependencies": {

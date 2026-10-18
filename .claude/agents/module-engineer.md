@@ -39,3 +39,6 @@ all gates pass (see `docs/handoff/operating-model.md`), screenshots are in
 
 Final report to the CTO: PR URL, commits, gate results with test counts, spec coverage (done/deferred
 and why), shared-kernel changes, decisions needed, screenshot paths. Report failures with their output.
+
+Before committing screenshots or images, run `npm run images:optimize -- <paths>` in `billing/`; CI fails on
+images over 500 KB.

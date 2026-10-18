@@ -43,6 +43,15 @@ every item.
 - Anything that depends on a changing value has proper settings: for example, exchange rates have
   sources, a schedule, safety limits, history and a preview before prices change. (2026-10-18)
 
+## Payments
+
+- A payment that has started but isn't confirmed stays visible on the invoice (not only a toast), and
+  the customer can't easily pay twice. (2026-10-18)
+- Payment errors appear next to the chosen method in plain words with what to do next. Methods that can't
+  take this invoice are disabled with the reason. (2026-10-18)
+- A gateway that converts currency shows the converted amount and rate before the customer leaves our
+  site. (2026-10-18)
+
 ## Brand and visuals
 
 - The product name and logo come from `BrandProvider` and are configurable; nothing hard-codes
