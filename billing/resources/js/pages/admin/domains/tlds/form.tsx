@@ -49,6 +49,7 @@ type Props = {
     tld: Tld | null;
     prices: PriceRow[];
     registrars: string[];
+    registrarNames: Record<string, string>;
     currencies: string[];
     defaultCurrency: string;
     groups: { id: number; name: string }[];
@@ -62,6 +63,7 @@ const decimal = (amount: number | null) =>
 function SettingsForm({
     tld,
     registrars,
+    registrarNames,
     badges,
     defaultCurrency,
     canManage,
@@ -197,7 +199,7 @@ function SettingsForm({
                                 </SelectItem>
                                 {registrars.map((registrar) => (
                                     <SelectItem
-                                        key={registrar}
+                                        key={registrarNames[registrar] ?? registrar}
                                         value={registrar}
                                     >
                                         {registrar}
@@ -308,6 +310,7 @@ export default function TldForm(props: Props) {
                 <SettingsForm
                     tld={tld}
                     registrars={props.registrars}
+                    registrarNames={props.registrarNames}
                     badges={props.badges}
                     defaultCurrency={props.defaultCurrency}
                     canManage={props.canManage}

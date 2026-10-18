@@ -34,9 +34,11 @@ import type { Domain } from '@/types/domains';
 export function DetailsForm({
     domain,
     registrars,
+    registrarNames,
 }: {
     domain: Domain;
     registrars: string[];
+    registrarNames: Record<string, string>;
 }) {
     const form = useForm({
         registration_date: domain.registration_date ?? '',
@@ -184,7 +186,8 @@ export function DetailsForm({
                                         key={registrar}
                                         value={registrar}
                                     >
-                                        {registrar}
+                                        {registrarNames[registrar] ??
+                                            registrar}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

@@ -30,9 +30,19 @@ type TldRow = {
     } | null;
 };
 
-type Props = { tlds: TldRow[]; currency: string; canManage: boolean };
+type Props = {
+    tlds: TldRow[];
+    currency: string;
+    canManage: boolean;
+    registrarNames: Record<string, string>;
+};
 
-export default function TldsIndex({ tlds, currency, canManage }: Props) {
+export default function TldsIndex({
+    tlds,
+    currency,
+    canManage,
+    registrarNames,
+}: Props) {
     const price = (amount: number | null | undefined) => (
         <Money amount={amount ?? null} currency={currency} />
     );
@@ -70,7 +80,9 @@ export default function TldsIndex({ tlds, currency, canManage }: Props) {
             header: 'Registrar',
             hideOnMobile: true,
             cell: (tld) =>
-                tld.registrar_key ?? (
+                tld.registrar_key ? (
+                    (registrarNames[tld.registrar_key] ?? tld.registrar_key)
+                ) : (
                     <span className="text-muted-foreground">Manual</span>
                 ),
         },

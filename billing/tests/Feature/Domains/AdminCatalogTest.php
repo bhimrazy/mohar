@@ -40,6 +40,7 @@ test('staff list TLDs with their base prices', function () {
         ->assertInertia(fn (Assert $page) => $page->component('admin/domains/tlds/index')
             ->where('tlds.0.extension', '.com')
             ->where('tlds.0.price.register', 1200)
+            ->where('registrarNames.log', 'Log (demo)')
             ->where('canManage', false));
 });
 

@@ -28,12 +28,15 @@ type Props = {
     >;
     statuses: string[];
     registrars: string[];
+    registrarNames: Record<string, string>;
     tlds: string[];
 };
 
 const FILTER_KEYS = ['status', 'registrar', 'tld', 'expiring', 'client'];
 
-const columns: DataTableColumn<Domain>[] = [
+const columns = (
+    registrarNames: Record<string, string>,
+): DataTableColumn<Domain>[] => [
     {
         key: 'name',
         header: 'Domain',
@@ -63,7 +66,9 @@ const columns: DataTableColumn<Domain>[] = [
         header: 'Registrar',
         hideOnMobile: true,
         cell: (domain) =>
-            domain.registrar_key ?? (
+            domain.registrar_key ? (
+                (registrarNames[domain.registrar_key] ?? domain.registrar_key)
+            ) : (
                 <span className="text-muted-foreground">Manual</span>
             ),
     },
@@ -106,6 +111,7 @@ export default function DomainsIndex({
     filters,
     statuses,
     registrars,
+    registrarNames,
     tlds,
 }: Props) {
     const hasFilters = Object.values(filters).some(Boolean);
@@ -146,7 +152,9 @@ export default function DomainsIndex({
                                 options={[
                                     ...registrars.map((registrar) => ({
                                         value: registrar,
-                                        label: registrar,
+                                        label:
+                                            registrarNames[registrar] ??
+                                            registrar,
                                     })),
                                     { value: 'manual', label: 'Manual' },
                                 ]}
@@ -175,7 +183,7 @@ export default function DomainsIndex({
 
                 <DataTable
                     caption="Domains"
-                    columns={columns}
+                    columns={columns(registrarNames)}
                     rows={domains.data}
                     getRowKey={(domain) => domain.id}
                     rowHref={(domain) => DomainController.show(domain.id)}

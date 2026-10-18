@@ -38,6 +38,22 @@ class RegistrarManager
     }
 
     /**
+     * Display names by driver key, for selects and tables.
+     *
+     * @return array<string, string>
+     */
+    public function names(): array
+    {
+        $names = [];
+
+        foreach ($this->keys() as $key) {
+            $names[$key] = $this->driver($key)->name();
+        }
+
+        return $names;
+    }
+
+    /**
      * A configured driver instance. Throws for unknown keys.
      */
     public function driver(string $key): Registrar

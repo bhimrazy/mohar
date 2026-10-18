@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
+import { capabilityLabel } from '@/components/domains/capabilities';
 
 type SchemaField = {
     key: string;
@@ -204,9 +205,9 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                         <Badge
                             key={capability}
                             variant="secondary"
-                            className="font-mono text-xs"
+                            className="text-xs"
                         >
-                            {capability}
+                            {capabilityLabel(capability)}
                         </Badge>
                     ))}
                 </div>

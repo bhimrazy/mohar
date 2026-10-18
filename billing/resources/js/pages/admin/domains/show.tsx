@@ -45,6 +45,7 @@ import {
 import { formatDate } from '@/lib/date';
 import { expiryHint } from '@/types/domains';
 import type { Domain, DomainContacts } from '@/types/domains';
+import { capabilityLabel } from '@/components/domains/capabilities';
 
 type CommandLogEntry = {
     id: number;
@@ -61,6 +62,7 @@ type Props = {
     contacts: DomainContacts;
     capabilities: string[];
     registrars: string[];
+    registrarNames: Record<string, string>;
     statuses: string[];
     allowedStatuses: string[];
     commandLog: CommandLogEntry[];
@@ -140,6 +142,7 @@ export default function DomainShow({
     contacts,
     capabilities,
     registrars,
+    registrarNames,
     statuses,
     commandLog,
     reminders,
@@ -388,6 +391,7 @@ export default function DomainShow({
                             <DetailsForm
                                 domain={domain}
                                 registrars={registrars}
+                                registrarNames={registrarNames}
                             />
                         ) : (
                             <SectionCard title="Billing and dates">
@@ -544,7 +548,9 @@ export default function DomainShow({
                                         {
                                             label: 'Capabilities',
                                             value: capabilities.length
-                                                ? capabilities.join(', ')
+                                                ? capabilities
+                                                      .map(capabilityLabel)
+                                                      .join(', ')
                                                 : 'None (manual)',
                                         },
                                     ]}
