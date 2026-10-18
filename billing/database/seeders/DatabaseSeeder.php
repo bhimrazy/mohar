@@ -19,7 +19,7 @@ class DatabaseSeeder extends Seeder
         $installer->install();
 
         if (app()->isProduction()) {
-            $this->command?->warn('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
+            $this->command->warn('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
 
             return;
         }
