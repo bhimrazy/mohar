@@ -3,8 +3,11 @@
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
-use Illuminate\Support\Facades\Queue;
 use App\Support\Currencies\PriceConverters;
+use Illuminate\Bus\UniqueLock;
+use Illuminate\Contracts\Cache\Repository as Cache;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Platform\FakePriceConverter;
 
@@ -54,6 +57,19 @@ test('a rate change converts automatic modules once, queued and unique per curre
 
     Queue::assertPushed(ConvertPricesAfterRateChange::class, 1);
     Queue::assertPushed(ConvertPricesAfterRateChange::class, fn (ConvertPricesAfterRateChange $job): bool => $job->uniqueId() === 'INR,NPR');
+});
+
+test('a rate change arriving while a conversion runs queues a new conversion', function () {
+    Queue::fake();
+    ExchangeRatesUpdated::dispatch(['NPR'], 'automatic');
+    $running = Queue::pushed(ConvertPricesAfterRateChange::class)->sole();
+
+    // A worker releases the unique lock as it starts the job (ShouldBeUniqueUntilProcessing).
+    expect($running)->toBeInstanceOf(ShouldBeUniqueUntilProcessing::class);
+    (new UniqueLock(app(Cache::class)))->release($running);
+    ExchangeRatesUpdated::dispatch(['NPR'], 'review');
+
+    Queue::assertPushed(ConvertPricesAfterRateChange::class, 2);
 });
 
 test('a failing converter never fails the rate save; it is audited and other modules still convert', function () {

@@ -6,7 +6,7 @@ use App\Contracts\Currencies\PriceConverter;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Currencies\PriceConverters;
 use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -14,10 +14,11 @@ use Throwable;
 
 /**
  * After exchange rates change, regenerate converted prices for every module whose automatic conversion is on.
- * Queued after commit and unique per currency set, so overlapping rate changes convert once and a module's
- * failure never fails the staff member's rate save. The daily convert-prices tasks remain the backstop.
+ * Queued after commit and unique per currency set until it starts: overlapping rate changes waiting in the queue
+ * convert once, while a change arriving during a running conversion queues a new one (it is never dropped).
+ * A module's failure never fails the staff member's rate save. The daily convert-prices tasks remain the backstop.
  */
-class ConvertPricesAfterRateChange implements ShouldBeUnique, ShouldQueue
+class ConvertPricesAfterRateChange implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable;
 
