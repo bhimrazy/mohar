@@ -29,6 +29,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | #62 | Provisioning on kernel (PR B) | Re-review at `4bd2ae3`: all fixed except queue redelivery can still re-run create after an unknown outcome, and queued "run now" shows as failed. Engineer fixing; narrow re-check, then merge. B2 (`feature/kernel-provisioning-b2`) paused until then.       |
 | #58 | Stripe gateway                | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                            |
 
+## Design and research in progress
+
+| Workstream                | Branch                         | State                                                                                                                            |
+| ------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Home page directions      | `design/home-page`             | Principal designer: 2–3 directions (desktop and phone, light and dark), shared public header with product groups. For the owner. |
+| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.        |
+
 ## Next (in order, from the Fable review and the parity roadmap)
 
 1. Merge #28 and #62 (each with PostgreSQL CI green).
