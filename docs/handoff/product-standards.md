@@ -40,6 +40,9 @@ every item.
 - Email templates pass on every screen size (320px phone to desktop) and in light mode, dark mode and
   clients that force-invert colours (Gmail, Outlook), with no overflow and AA contrast in each.
   (2026-10-18)
+- Emails and in-app messages are written for the customer: a subject that says what happened and what is
+  needed, a deliberate preheader, one clear next step with a specific button label ("Pay Rs 12,769.57"),
+  plain language without system jargon, polite and calm reminders, and a way to get help. (2026-10-18)
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
 
