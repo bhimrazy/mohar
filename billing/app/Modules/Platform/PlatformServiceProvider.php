@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform;
 
+use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\Like;
@@ -13,6 +14,7 @@ use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
 use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
+use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
@@ -93,6 +95,9 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $sources = $this->app->make(ExchangeRateSources::class);
         $sources->register(EcbRateSource::class);
         $sources->register(NrbRateSource::class);
+
+        // One queued, unique conversion per rate change; modules' daily convert-prices tasks are the backstop.
+        Event::listen(ExchangeRatesUpdated::class, fn (ExchangeRatesUpdated $event) => ConvertPricesAfterRateChange::dispatch($event->currencies));
 
         $this->app->make(Automation::class)->task(ExchangeRateTask::KEY, Automation::EXCHANGE_RATES, fn (): string => $this->app->make(ExchangeRateTask::class)->pipeline());
 

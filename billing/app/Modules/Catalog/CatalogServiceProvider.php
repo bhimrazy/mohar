@@ -4,7 +4,6 @@ namespace App\Modules\Catalog;
 
 use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Notifications\MergeFieldRegistry;
-use App\Events\Core\ExchangeRatesUpdated;
 use App\Events\Orders\OrderCancelled;
 use App\Events\Orders\OrderPlaced;
 use App\Events\Services\ServiceActivated;
@@ -60,13 +59,6 @@ class CatalogServiceProvider extends ModuleServiceProvider
         Event::listen(OrderCancelled::class, [TrackStockReservations::class, 'orderCancelled']);
 
         $this->app->make(PriceConverters::class)->register(ConvertPrices::class);
-        Event::listen(ExchangeRatesUpdated::class, function (): void {
-            $convert = $this->app->make(ConvertPrices::class);
-
-            if ($convert->automatic()) {
-                $convert->apply();
-            }
-        });
 
         $this->app->make(Automation::class)->task('catalog.convert-prices', Automation::SYNC, function (CarbonImmutable $today): int|string {
             return $this->app->make(Settings::class)->get('catalog.auto_convert_prices', false)

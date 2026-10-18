@@ -166,7 +166,9 @@ user_id)` and an activity entry (`currency.rate_changed`, old → new, source, w
   Catalog (products, addons, configurable options) and Domains (TLD prices, base and client-group slabs). Admin →
   Currencies → **Converted prices** previews each one (count of changes, unchanged and manual rows, and a sample of
   before → after) and applies it after confirmation. With `catalog.auto_convert_prices` / `domains.auto_convert_prices`
-  on, conversion also runs after rate changes and daily.
+  on, a rate change queues one `ConvertPricesAfterRateChange` job (after commit, unique per currency set; a module's
+  failure is reported and audited, never failing the rate save), and each module's daily convert-prices task is the
+  backstop.
 - A price set manually in a non-default currency is never converted: the Catalog price matrix has a lock per cell
   (typing a price in another currency locks it), and the TLD price grid has a "Set manually" switch per currency and
   slab. Converted rows whose default-currency price was removed are turned off, never deleted. On upgrade, existing

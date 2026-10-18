@@ -23,9 +23,13 @@ final class FakePriceConverter implements PriceConverter
         return 'Test prices';
     }
 
+    public bool $automatic = false;
+
+    public bool $throws = false;
+
     public function automatic(): bool
     {
-        return false;
+        return $this->automatic;
     }
 
     /** @var list<string> */
@@ -45,6 +49,10 @@ final class FakePriceConverter implements PriceConverter
 
     public function apply(): int
     {
+        if ($this->throws) {
+            throw new \RuntimeException('Test converter failed.');
+        }
+
         $this->applied++;
 
         return 2;

@@ -7,7 +7,6 @@ use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
-use App\Events\Core\ExchangeRatesUpdated;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceRenewed;
 use App\Events\Services\ServiceSuspended;
@@ -114,13 +113,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
 
         $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
-        Event::listen(ExchangeRatesUpdated::class, function (): void {
-            $convert = $this->app->make(ConvertTldPrices::class);
-
-            if ($convert->automatic()) {
-                $convert->apply();
-            }
-        });
         $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
             ? $this->app->make(ConvertTldPrices::class)->apply()
             : 'disabled');

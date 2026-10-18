@@ -1,6 +1,9 @@
 <?php
 
+use App\Events\Core\ExchangeRatesUpdated;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
+use Illuminate\Support\Facades\Queue;
 use App\Support\Currencies\PriceConverters;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Platform\FakePriceConverter;
@@ -41,4 +44,29 @@ test('applying a converter needs a recent password and is audited', function () 
 
     expect($this->converter->applied)->toBe(1);
     $this->assertDatabaseHas('activity_log', ['event' => 'currency.prices_converted']);
+});
+
+test('a rate change converts automatic modules once, queued and unique per currency set', function () {
+    Queue::fake();
+
+    ExchangeRatesUpdated::dispatch(['NPR', 'INR'], 'automatic');
+    ExchangeRatesUpdated::dispatch(['INR', 'NPR'], 'manual');
+
+    Queue::assertPushed(ConvertPricesAfterRateChange::class, 1);
+    Queue::assertPushed(ConvertPricesAfterRateChange::class, fn (ConvertPricesAfterRateChange $job): bool => $job->uniqueId() === 'INR,NPR');
+});
+
+test('a failing converter never fails the rate save; it is audited and other modules still convert', function () {
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
+    $this->converter->automatic = true;
+    $this->converter->throws = true;
+    $npr = Currency::query()->where('code', 'NPR')->sole();
+
+    $this->put(route('admin.platform.currencies.rates.update', $npr), ['rate_source' => 'manual', 'exchange_rate' => '150', 'price_rounding' => 'none'])
+        ->assertRedirect(route('admin.platform.currencies.edit', $npr))
+        ->assertSessionHasNoErrors();
+
+    expect($npr->fresh()->exchange_rate)->toBe('150.000000000000');
+    $this->assertDatabaseHas('activity_log', ['event' => 'currency.prices_conversion_failed']);
 });
