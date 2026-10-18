@@ -35,6 +35,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     grace: 'warning',
     'partially-paid': 'warning',
     scheduled: 'warning',
+    identified: 'warning',
 
     // Needs attention / money at risk
     overdue: 'danger',
@@ -52,6 +53,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     delivered: 'info',
     'in-progress': 'info',
     investigating: 'info',
+    monitoring: 'info',
 
     // Finished / inert
     cancelled: 'neutral',
