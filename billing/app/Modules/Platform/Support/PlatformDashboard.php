@@ -10,6 +10,8 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Platform's admin dashboard widgets and "Needs attention" to-dos.
@@ -25,6 +27,7 @@ class PlatformDashboard
             'count' => $this->automation->failedToday(),
             'href' => route('admin.platform.automation.index', ['status' => 'failed']),
             'tone' => 'danger',
+            'icon' => 'Timer',
         ], 'core.automation.view', 10);
 
         $dashboard->todo('admin', 'platform.automation.stale', fn (): array => [
@@ -32,6 +35,7 @@ class PlatformDashboard
             'count' => app(Automation::class)->ordered() !== [] && $this->automation->isStale() ? 1 : 0,
             'href' => route('admin.platform.automation.index'),
             'tone' => 'danger',
+            'icon' => 'Timer',
         ], 'core.automation.view', 11);
 
         $dashboard->todo('admin', 'platform.staff.no_2fa', fn (): array => [
@@ -41,6 +45,7 @@ class PlatformDashboard
                 : 0,
             'href' => route('admin.platform.staff.index', ['two_factor' => 'off']),
             'tone' => 'warning',
+            'icon' => 'Shield',
         ], 'core.staff.view', 20);
 
         $dashboard->todo('admin', 'platform.invitations.expiring', fn (): array => [
@@ -48,33 +53,98 @@ class PlatformDashboard
             'count' => StaffInvitation::query()->pending()->where('expires_at', '>', now())->where('expires_at', '<=', now()->addHours(48))->count(),
             'href' => route('admin.platform.staff.index'),
             'tone' => 'warning',
+            'icon' => 'Mail',
         ], 'core.staff.view', 21);
 
-        $dashboard->widget('admin', 'platform.automation', 'list', fn (): array => $this->automationHealth(), 'core.automation.view', 60, 'md');
-        $dashboard->widget('admin', 'platform.activity', 'list', fn (): array => $this->recentActivity(), 'core.activity_log.view', 50, 'md');
-        $dashboard->widget('admin', 'platform.staff.logins', 'list', fn (): array => $this->staffLogins(), 'core.staff.view', 70, 'md');
+        $dashboard->widget('admin', 'platform.activity', 'list', fn (): array => $this->recentActivity(), 'core.activity_log.view', 60, 'md');
+        $dashboard->widget('admin', 'platform.staff.logins', 'list', fn (): array => $this->staffLogins(), 'core.staff.view', 61, 'md');
+
+        $dashboard->health('admin', 'platform.scheduler', fn (): array => $this->schedulerHealth(), 'core.automation.view', 10);
+        $dashboard->health('admin', 'platform.automation', fn (): array => $this->automationHealth(), 'core.automation.view', 11);
+        $dashboard->health('admin', 'platform.queue', fn (): array => $this->queueHealth(), 'core.automation.view', 12);
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function automationHealth(): array
+    private function schedulerHealth(): array
     {
-        $last = AutomationRun::query()
-            ->whereIn('id', AutomationRun::query()->selectRaw('max(id)')->groupBy('task'))
-            ->get()
-            ->keyBy('task');
+        $heartbeat = $this->automation->heartbeatAt();
+        $fresh = $heartbeat !== null && $heartbeat->gte(now()->subMinutes(5));
 
         return [
-            'title' => 'Automation',
+            'label' => 'Scheduler',
+            'detail' => $heartbeat === null ? 'The scheduler has not reported in yet' : 'Last heartbeat '.$heartbeat->diffForHumans(),
+            'value' => $fresh ? 'OK' : ($heartbeat === null ? 'No heartbeat' : 'Late'),
+            'tone' => $fresh ? 'success' : 'warning',
+            'icon' => 'Clock',
             'href' => route('admin.platform.automation.index'),
-            'empty' => 'Modules add their daily tasks here.',
-            'items' => array_map(fn (string $task): array => [
-                'title' => $task,
-                'subtitle' => $last->has($task) ? 'Last run '.$last[$task]->run_date->toFormattedDateString() : 'Not run yet',
-                'status' => $last[$task]->status ?? 'pending',
-                'href' => route('admin.platform.automation.index', ['task' => $task]),
-            ], array_keys(app(Automation::class)->ordered())),
+        ];
+    }
+
+    /**
+     * The daily automation pipeline summarised from each registered task's latest run (the per-task list is on the
+     * automation page).
+     *
+     * @return array<string, mixed>
+     */
+    private function automationHealth(): array
+    {
+        $tasks = array_keys(app(Automation::class)->ordered());
+        $last = AutomationRun::query()
+            ->whereIn('id', AutomationRun::query()->selectRaw('max(id)')->groupBy('task'))
+            ->pluck('status', 'task');
+        $failed = count(array_filter($tasks, fn (string $task): bool => $last->get($task) === 'failed'));
+        $succeeded = count(array_filter($tasks, fn (string $task): bool => $last->get($task) === 'success'));
+        $notRun = count($tasks) - $failed - $succeeded;
+        $lastRun = $this->automation->lastRunAt();
+        $stale = $tasks !== [] && $this->automation->isStale();
+        $parts = array_filter([
+            $succeeded > 0 ? $succeeded.' succeeded' : null,
+            $failed > 0 ? $failed.' failed' : null,
+            $notRun > 0 ? $notRun.' not run yet' : null,
+        ]);
+
+        return [
+            'label' => 'Daily automation',
+            'detail' => $tasks === []
+                ? 'No daily tasks are registered'
+                : trans_choice('{1} 1 task|[2,*] :count tasks', count($tasks)).': '.implode(', ', $parts).($lastRun === null ? '' : ' · last run '.$lastRun->diffForHumans()),
+            'value' => match (true) {
+                $failed > 0 => $failed.' failed',
+                $stale && $lastRun !== null => 'Stale',
+                $succeeded === 0 => 'Not run yet',
+                $notRun > 0 => $succeeded.' / '.count($tasks),
+                default => 'OK',
+            },
+            'tone' => match (true) {
+                $failed > 0, $stale && $lastRun !== null => 'danger',
+                $succeeded === 0 => 'neutral',
+                $notRun > 0 => 'warning',
+                default => 'success',
+            },
+            'icon' => 'Timer',
+            'href' => route('admin.platform.automation.index'),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function queueHealth(): array
+    {
+        $failed = Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count() : 0;
+        $waiting = config('queue.default') === 'database' && Schema::hasTable('jobs') ? DB::table('jobs')->count() : null;
+
+        return [
+            'label' => 'Queue',
+            'detail' => collect([
+                $waiting === null ? 'Driver: '.config('queue.default') : $waiting.' waiting',
+                trans_choice('{0} no failed jobs|{1} 1 failed job|[2,*] :count failed jobs', $failed).' in 24 hours',
+            ])->implode(' · '),
+            'value' => $failed > 0 ? $failed.' failed' : 'OK',
+            'tone' => $failed > 0 ? 'danger' : 'success',
+            'icon' => 'Layers',
         ];
     }
 
@@ -85,6 +155,8 @@ class PlatformDashboard
     {
         return [
             'title' => 'Recent activity',
+            'group' => 'activity',
+            'groupTitle' => 'Activity',
             'href' => route('admin.platform.activity.index'),
             'empty' => 'Changes by staff, clients and automation appear here.',
             'items' => ActivityLog::query()->with(['user:id,name', 'client:id,first_name,last_name,company_name'])->latest('id')->limit(6)->get()
@@ -104,6 +176,9 @@ class PlatformDashboard
     {
         return [
             'title' => 'Recent staff sign-ins',
+            'tabTitle' => 'Staff sign-ins',
+            'group' => 'activity',
+            'groupTitle' => 'Activity',
             'href' => route('admin.platform.staff.index'),
             'empty' => 'No staff have signed in yet.',
             'items' => User::query()->where('is_staff', true)->whereNotNull('last_login_at')->with('role:id,name')

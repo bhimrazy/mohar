@@ -9,22 +9,36 @@ use Closure;
  * Dashboard registry. Modules contribute in bootModule(); resolvers receive (?User $user, ...$arguments) —
  * for the client area the current Client is the extra argument.
  *
- * Stat card (shortcut):
+ * Stat card (shortcut). Optional: 'money' => ['amount', 'currency'], 'hint', 'trend' => ['value' => '12%', 'direction' =>
+ * 'up'|'down'|'flat', 'upIsGood' => bool], 'sparkline' => int[] (12 points), 'tone' => 'default'|'warning'|'danger':
  *   $dashboard->card('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue', 'value' => 3, 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
+ * The first four stat cards by order are the dashboard's primary KPIs; the rest form the counter strip.
  *
  * Other widgets — type + payload shape:
- *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'status'?]], 'href'? (view all), 'empty'?]
- *   'chart' => ['title' => 'Income', 'kind' => 'line'|'bar', 'currency'? , 'series' => [['name', 'points' => [['x' => '2026-10-01', 'y' => 1234]]]], 'href'?]
+ *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),
+ *               'empty'?, 'group'? + 'groupTitle'? (lists sharing a group render as tabs of one card)]
+ *   'chart' => ['title' => 'Income', 'kind' => 'line'|'bar', 'currency'?, 'stacked'?, 'description'?, 'xFormat'? ('month'|'day'|'dayOfMonth'|'week'),
+ *               'series' => [['name', 'compare'? (drawn as the neutral baseline), 'points' => [['x' => '2026-10-01', 'y' => 1234]]]],
+ *               'summary'? => ['money'|'value', 'label', 'trend'?], 'ranges'? => ['12m' => ['label', 'series', 'summary'?, 'xFormat'?]], 'href'?]
+ *   'breakdown' => ['title', 'description'?, 'rows' => [['key', 'label', 'code'?, 'money'|'value', 'share' (0–100)]],
+ *               'notes'? => [['label', 'money']], 'notesTitle'?, 'empty'?]
  *   $dashboard->widget('admin', 'orders.recent', 'list', fn ($user) => [...], 'orders.orders.view', order: 30, size: 'md');
  *
- * "Needs attention" to-do items (aggregated into one widget, zero counts hidden):
+ * Currency variants (any money widget): 'variants' => ['all' => [...partial payload], 'USD' => [...], 'INR' => [...]]. The page's
+ * reporting-currency switch merges the selected variant over the base payload; widgets without variants ignore the switch.
+ *
+ * "Needs attention" to-do items (aggregated into one widget, zero counts hidden). Optional 'icon' (nav icon name) and 'hint':
  *   $dashboard->todo('admin', 'support.awaiting', fn ($user) => ['label' => 'Tickets awaiting reply', 'count' => 4, 'href' => ..., 'tone' => 'warning'], 'support.tickets.view');
+ *
+ * System health checks (aggregated into one card, always shown when permitted):
+ *   $dashboard->health('admin', 'services.provisioning', fn ($user) => ['label' => 'Provisioning', 'detail' => '146 of 148 succeeded (7 days)',
+ *       'value' => '98.6%', 'tone' => 'success'|'warning'|'danger'|'neutral', 'icon' => 'Server', 'href'?], 'services.module_log.view');
  *
  * Sizes: 'sm' (1/4 row), 'md' (1/2), 'lg' (full). Heavy widgets set $deferred = true (loaded after first paint).
  */
 class Dashboard
 {
-    public const TYPES = ['stat', 'list', 'chart'];
+    public const TYPES = ['stat', 'list', 'chart', 'breakdown'];
 
     public const SIZES = ['sm', 'md', 'lg'];
 
@@ -33,6 +47,9 @@ class Dashboard
 
     /** @var array<string, list<array{key: string, resolver: Closure, permission: ?string, order: int}>> */
     private array $todos = [];
+
+    /** @var array<string, list<array{key: string, resolver: Closure, permission: ?string, order: int}>> */
+    private array $health = [];
 
     public function card(string $area, string $key, Closure $resolver, ?string $permission = null, int $order = 100): void
     {
@@ -55,6 +72,11 @@ class Dashboard
     public function todo(string $area, string $key, Closure $resolver, ?string $permission = null, int $order = 100): void
     {
         $this->todos[$area][] = ['key' => $key, 'resolver' => $resolver, 'permission' => $permission, 'order' => $order];
+    }
+
+    public function health(string $area, string $key, Closure $resolver, ?string $permission = null, int $order = 100): void
+    {
+        $this->health[$area][] = ['key' => $key, 'resolver' => $resolver, 'permission' => $permission, 'order' => $order];
     }
 
     /**
@@ -94,16 +116,31 @@ class Dashboard
     /**
      * Visible to-do items with a positive count.
      *
-     * @return list<array{key: string, label: string, count: int, href?: string, tone?: string}>
+     * @return list<array{key: string, label: string, count: int, href?: string, tone?: string, icon?: string, hint?: string}>
      */
     public function resolveTodos(string $area, ?User $user, mixed ...$arguments): array
     {
-        /** @var list<array{key: string, label: string, count: int, href?: string, tone?: string}> */
+        /** @var list<array{key: string, label: string, count: int, href?: string, tone?: string, icon?: string, hint?: string}> */
         return array_values(collect($this->todos[$area] ?? [])
             ->filter(fn (array $todo): bool => $this->allowed($todo['permission'], $user))
             ->sortBy('order')
             ->map(fn (array $todo): array => ['key' => $todo['key'], ...($todo['resolver'])($user, ...$arguments)])
             ->filter(fn (array $todo): bool => (int) ($todo['count'] ?? 0) > 0)
+            ->all());
+    }
+
+    /**
+     * Visible system health checks in order.
+     *
+     * @return list<array{key: string, label: string, detail?: string, value: string, tone: string, icon?: string, href?: string}>
+     */
+    public function resolveHealth(string $area, ?User $user, mixed ...$arguments): array
+    {
+        /** @var list<array{key: string, label: string, detail?: string, value: string, tone: string, icon?: string, href?: string}> */
+        return array_values(collect($this->health[$area] ?? [])
+            ->filter(fn (array $check): bool => $this->allowed($check['permission'], $user))
+            ->sortBy('order')
+            ->map(fn (array $check): array => ['key' => $check['key'], ...($check['resolver'])($user, ...$arguments)])
             ->all());
     }
 

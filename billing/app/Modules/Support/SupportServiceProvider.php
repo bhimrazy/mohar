@@ -103,21 +103,21 @@ class SupportServiceProvider extends ModuleServiceProvider
             'value' => $scoped($user)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index'),
             'icon' => 'LifeBuoy',
-        ], 'support.tickets.view', 60);
+        ], 'support.tickets.view', 50);
 
         $dashboard->card('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Awaiting staff reply',
             'value' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'icon' => 'Inbox',
-        ], 'support.tickets.view', 61);
+        ], 'support.tickets.view', 51);
 
         $dashboard->card('admin', 'support.mine', fn (?User $user): array => [
             'label' => 'My assigned tickets',
             'value' => $scoped($user)->where('assigned_to', $user?->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index', ['view' => 'mine']),
             'icon' => 'UserRound',
-        ], 'support.tickets.view', 62);
+        ], 'support.tickets.view', 52);
 
         $dashboard->widget('admin', 'support.awaiting_list', 'list', fn (?User $user): array => [
             'title' => 'Tickets awaiting reply',
@@ -128,17 +128,19 @@ class SupportServiceProvider extends ModuleServiceProvider
                 ->map(fn (Ticket $ticket): array => [
                     'title' => '#'.$ticket->number.' '.$ticket->subject,
                     'subtitle' => $ticket->requester_name.' · '.$ticket->department->name,
+                    'avatar' => $ticket->requester_name,
                     'href' => route('admin.support.tickets.show', $ticket),
                     'meta' => $ticket->last_reply_at?->diffForHumans(),
                     'status' => $ticket->status->value,
                 ])->all()),
-        ], 'support.tickets.view', 63, 'md');
+        ], 'support.tickets.view', 53, 'md');
 
         $dashboard->todo('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Tickets awaiting staff reply',
             'count' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'tone' => 'warning',
+            'icon' => 'LifeBuoy',
         ], 'support.tickets.view', 20);
 
         $dashboard->todo('admin', 'support.unassigned', fn (?User $user): array => [
@@ -146,6 +148,7 @@ class SupportServiceProvider extends ModuleServiceProvider
             'count' => $scoped($user)->whereNull('assigned_to')->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index', ['view' => 'unassigned']),
             'tone' => 'info',
+            'icon' => 'UserRound',
         ], 'support.tickets.view', 21);
 
         $dashboard->todo('admin', 'support.incidents', fn (?User $user): array => [
@@ -153,6 +156,7 @@ class SupportServiceProvider extends ModuleServiceProvider
             'count' => NetworkIncident::query()->whereNotIn('status', [IncidentStatus::Resolved->value, IncidentStatus::Scheduled->value])->count(),
             'href' => route('admin.support.network.index'),
             'tone' => 'danger',
+            'icon' => 'Activity',
         ], 'support.network.manage', 22);
 
         $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [

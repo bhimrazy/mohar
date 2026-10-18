@@ -29,6 +29,7 @@ use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
+use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -40,6 +41,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -140,40 +142,55 @@ class OrdersServiceProvider extends ModuleServiceProvider
             'value' => Order::query()->where('status', OrderStatus::Pending)->count(),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'icon' => 'ShoppingCart',
-        ], 'orders.orders.view', 10);
+        ], 'orders.orders.view', 20);
         $dashboard->card('admin', 'orders.today', fn (?User $user): array => [
             'label' => 'Orders today',
             'value' => Order::query()->where('created_at', '>=', $this->app->make(CompanyClock::class)->now()->startOfDay()->utc())->count(),
             'href' => route('admin.orders.index', ['from' => $this->app->make(CompanyClock::class)->now()->toDateString()]),
             'icon' => 'TrendingUp',
-        ], 'orders.orders.view', 15);
+        ], 'orders.orders.view', 21);
 
         $dashboard->widget('admin', 'orders.recent', 'list', fn (?User $user): array => [
             'title' => 'Recent orders',
             'href' => route('admin.orders.index'),
             'empty' => 'No orders yet.',
-            'items' => Order::query()->with('client')->orderByDesc('created_at')->orderByDesc('id')->limit(5)->get()
+            'items' => Order::query()->with(['client', 'items' => fn ($query) => $query->whereNull('parent_id')->orderBy('id')])
+                ->orderByDesc('created_at')->orderByDesc('id')->limit(5)->get()
                 ->map(fn (Order $order): array => [
-                    'title' => "#{$order->number}",
-                    'subtitle' => $order->client->display_name,
+                    'title' => $order->client->display_name,
+                    'subtitle' => collect(["#{$order->number}", $order->items->first()?->description, $order->created_at?->diffForHumans()])->filter()->implode(' · '),
+                    'avatar' => $order->client->display_name,
                     'href' => route('admin.orders.show', $order),
                     'meta' => Money::of($order->total, $order->currency)->format(),
+                    'money' => ['amount' => $order->total, 'currency' => $order->currency],
                     'status' => $order->status->value,
                 ])->all(),
-        ], 'orders.orders.view', 30, 'md');
+        ], 'orders.orders.view', 50, 'md');
+
+        $this->app->make(OrdersDashboard::class)->register($dashboard);
 
         $dashboard->todo('admin', 'orders.pending', fn (?User $user): array => [
             'label' => 'Orders awaiting review',
             'count' => Order::query()->where('status', OrderStatus::Pending)->count(),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'tone' => 'warning',
+            'icon' => 'ShoppingCart',
+            'hint' => $this->oldestPendingHint(),
         ], 'orders.orders.view', 10);
         $dashboard->todo('admin', 'orders.fraud', fn (?User $user): array => [
             'label' => 'Orders flagged as fraud',
             'count' => Order::query()->where('status', OrderStatus::Fraud)->count(),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Fraud->value]),
             'tone' => 'danger',
+            'icon' => 'ShieldAlert',
         ], 'orders.orders.view', 11);
+    }
+
+    private function oldestPendingHint(): ?string
+    {
+        $oldest = Order::query()->where('status', OrderStatus::Pending)->min('created_at');
+
+        return $oldest === null ? null : 'Oldest waiting '.CarbonImmutable::parse((string) $oldest)->diffForHumans(syntax: CarbonInterface::DIFF_ABSOLUTE);
     }
 
     private function registerPermissionsAndSettings(): void

@@ -36,6 +36,7 @@ use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -125,6 +126,8 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'icon' => 'Server',
         ], 'services.services.view', 30);
 
+        $this->app->make(ServicesDashboard::class)->register($dashboard);
+
         $dashboard->card('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Pending provisioning',
             'value' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
@@ -144,6 +147,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'count' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
             'href' => route('admin.services.index', ['status' => 'pending']),
             'tone' => 'warning',
+            'icon' => 'Package',
         ], 'services.services.view', 30);
 
         $dashboard->todo('admin', 'services.failed', fn (?User $user): array => [
@@ -151,6 +155,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'count' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'tone' => 'danger',
+            'icon' => 'Server',
         ], 'services.module_log.view', 31);
 
         $dashboard->todo('admin', 'services.cancellations', fn (?User $user): array => [
@@ -158,6 +163,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'count' => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count(),
             'href' => route('admin.services.cancellations.index'),
             'tone' => 'warning',
+            'icon' => 'Inbox',
         ], 'services.cancellations.manage', 32);
 
         $dashboard->widget('admin', 'services.renewals', 'list', function (?User $user): array {
@@ -181,12 +187,14 @@ class ServicesServiceProvider extends ModuleServiceProvider
                         'subtitle' => $service->client->display_name,
                         'href' => route('admin.services.services.show', $service),
                         'meta' => $service->next_due_date?->toDateString(),
+                        'date' => $service->next_due_date?->toDateString(),
+                        'money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency],
                         'status' => $service->status->value,
                     ])->values()->all(),
                 'href' => route('admin.services.index', ['status' => 'active']),
                 'empty' => 'No renewals due in the next 7 days.',
             ];
-        }, 'services.services.view', 40, 'md');
+        }, 'services.services.view', 54, 'md');
 
         $dashboard->card('client', 'services.active', fn (?User $user, Client $client): array => [
             'label' => 'Active services',

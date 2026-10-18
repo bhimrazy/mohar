@@ -11,6 +11,7 @@ use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Support\Automation\Automation;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -78,7 +79,8 @@ class PlatformSeeder extends Seeder
      */
     private function seedHistory(): void
     {
-        if (AutomationRun::query()->exists()) {
+        // Demo data only: never fabricate history in a live install.
+        if (app()->isProduction() || AutomationRun::query()->exists()) {
             return;
         }
 
@@ -86,14 +88,15 @@ class PlatformSeeder extends Seeder
             $client->forceFill(['created_at' => now()->subDays(($index * 7) % 80 + 1)->subHours($index)])->saveQuietly();
         });
 
+        // Every registered daily task ran on each of the last three days (demo only: nothing real was executed).
         foreach (range(3, 1) as $daysAgo) {
-            foreach (['platform.prune_invitations' => 'no invitations pruned', 'platform.prune_activity_log' => 'no entries pruned'] as $task => $summary) {
+            foreach (array_keys(app(Automation::class)->ordered()) as $index => $task) {
                 AutomationRun::query()->create([
                     'run_date' => today()->subDays($daysAgo),
                     'task' => $task,
                     'status' => 'success',
-                    'summary' => $summary,
-                    'duration_ms' => 40 + $daysAgo * 7,
+                    'summary' => 'demo run',
+                    'duration_ms' => 40 + $daysAgo * 7 + $index * 3,
                 ]);
             }
         }

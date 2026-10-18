@@ -16,8 +16,8 @@ class CoreDashboard
     {
         $dashboard->card('admin', 'core.clients', fn (?User $user): array => $this->activeClients(), 'core.clients.view', 10);
         $dashboard->card('admin', 'core.clients.new', fn (?User $user): array => $this->newClients(), 'core.clients.view', 11);
-        $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 40, 'md');
-        $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 30, 'md', deferred: true);
+        $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 55, 'md');
+        $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 35, 'md', deferred: true);
     }
 
     /**
@@ -74,6 +74,7 @@ class CoreDashboard
             'items' => Client::query()->latest('id')->limit(5)->get()->map(fn (Client $client): array => [
                 'title' => $client->display_name,
                 'subtitle' => $client->email,
+                'avatar' => $client->display_name,
                 'meta' => $client->created_at?->toIso8601String(),
                 'status' => $client->status,
                 'href' => route('admin.clients.show', $client),
@@ -105,7 +106,9 @@ class CoreDashboard
 
         return [
             'title' => 'New clients',
-            'description' => 'Per week, last 12 weeks',
+            'description' => 'Per week, last 12 weeks · '.trans_choice('{0} none|{1} 1 new client|[2,*] :count new clients', array_sum($weeks)),
+            'xFormat' => 'week',
+            'empty' => 'No new clients in the last 12 weeks.',
             'kind' => 'bar',
             'href' => route('admin.clients.index'),
             'series' => [[

@@ -13,7 +13,7 @@ use Inertia\Response;
 /**
  * Admin dashboard props: stat `cards` and recent `activity` (current page), plus the full kernel
  * registry output for the dashboard UI — `widgets` (stat / list / chart), `deferredWidgets` (heavy,
- * loaded after first paint), `todos` ("Needs attention") and the automation health summary.
+ * loaded after first paint), `todos` ("Needs attention"), `health` (system health checks, deferred) and the automation health summary.
  */
 class DashboardController extends Controller
 {
@@ -38,6 +38,7 @@ class DashboardController extends Controller
             'todos' => $dashboard->resolveTodos('admin', $user),
             'widgets' => $dashboard->resolveWidgets('admin', $user, false),
             'deferredWidgets' => Inertia::defer(fn (): array => $dashboard->resolveWidgets('admin', $user, true)),
+            'health' => Inertia::defer(fn (): array => $dashboard->resolveHealth('admin', $user)),
             'automation' => $user?->hasPermission('core.automation.view') ? $automation->summary() : null,
         ]);
     }
