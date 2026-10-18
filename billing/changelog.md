@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Server ports.** A cPanel server cannot be saved with a plain-HTTP port (80, 2082, 2086, 2095); WHM is reached on
+  2087, or 443 behind a proxy.
+
 - **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
   currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
   held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
@@ -98,6 +101,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
   value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers. A failed save never flashes a secret into the
   session (#65).
+- **cPanel & WHM driver** (`cpanel`, #69). Creates, suspends, unsuspends and terminates cPanel accounts through WHM
+  API 1, changes their package and password (the MySQL password follows), and reads disk and bandwidth for the daily
+  usage sync. It can also list the server's packages and accounts and create cPanel and WHM login links; the package
+  select, login buttons and account import that use them come in follow-up releases. Sign-in uses an API token (recommended) or username and password, root or reseller. Every call
+  goes over TLS to the checked address only; a self-signed server works after its certificate's SPKI fingerprint
+  is trusted, and a changed key is refused. Create checks the username first, takes an existing account with the
+  same domain and owner as already done, and moves to the next free name when another account holds it. Test
+  connection reports address and certificate, sign-in, token permissions and expiry, root or reseller, packages and
+  name servers. `php artisan provisioning:cpanel-smoke` checks a real server (read-only unless `--lifecycle
+--confirm-lifecycle`).
 
 ### Core
 

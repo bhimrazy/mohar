@@ -513,3 +513,17 @@ console. Remote access keys.
     and Backups links, each through the SSO flow with `app` set.
 33. **SHOULD** Given `provisioning:cpanel-smoke --lifecycle` on the owner's server, then every step reports pass or fail
     with timings, the smoke account is removed, and no other account is touched.
+
+## 18. Delivery
+
+v1 ships in four stacked pull requests (CTO decisions, 2026-10-18), so each stays reviewable at about 3,000 changed
+lines. PR 1b, 2 and 3 stack on PR 1a; import does not depend on PR 2's code, so their reviews can run in parallel.
+
+| PR  | Contents                                                                                                                                                                                                                                                                                           | Acceptance criteria                                                                      |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 1a  | The driver (#69, on #65): transport, sign-in, address guard, SPKI pinning, the §5 outcome table, lifecycle with idempotency, reconcile, change package and password, usage, SSO links, package options, account listing; fixtures, the contract dataset, the smoke command                         | 1–5, 9–12, 13 for the server setting, 14–20, 21 for the checklist data, 29, 33 (command) |
+| 1b  | Host pieces, generic for any driver: the test-connection checklist on the server form with "Trust this certificate", and the verify sweep that settles unknown outcomes (Check now, Create again)                                                                                                  | 6–8, 20 and 21 on screen                                                                 |
+| 2   | SSO host flow (client and staff buttons, rate limit, sensitive permissions, audit, shortcuts), the Catalog package select with per-server warnings, server health (stored check result, token-expiry warning, credentials hold, "Fetch from WHM"), the terminate dialog's "Keep DNS zone" checkbox | 13 for the dialog, 21 for hiding the SSO buttons, 22–24, 30–32                           |
+| 3   | Account import (Admin → Servers → server → Import accounts), `ServiceImported`                                                                                                                                                                                                                     | 25–28                                                                                    |
+
+AC 33 needs the owner's server: PR 1a ships the command, and the recorded run goes in the PR body once it exists.
