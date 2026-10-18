@@ -90,8 +90,8 @@ class PaymentAttempt extends Model
         return Money::of($this->amount, $this->currency);
     }
 
-    public function toRef(): PaymentAttemptRef
+    public function toRef(bool $interactive = false): PaymentAttemptRef
     {
-        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at);
+        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at, $interactive);
     }
 }

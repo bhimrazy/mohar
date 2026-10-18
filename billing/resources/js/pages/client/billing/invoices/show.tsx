@@ -1,6 +1,7 @@
-import { useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Download } from 'lucide-react';
+import { useState } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -12,10 +13,12 @@ import { SectionCard } from '@/components/app/section-card';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PayPanel } from '@/components/billing/pay-panel';
+import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
 import type {
     Adjustment,
     Invoice,
     InvoiceItem,
+    PaymentInProgressData,
     PaymentOptions,
     Transaction,
 } from '@/components/billing/types';
@@ -41,6 +44,7 @@ type Props = {
     adjustments: Adjustment[];
     transactions: Transaction[];
     payment: PaymentOptions | null;
+    payment_in_progress: PaymentInProgressData | null;
 };
 
 function ApplyCreditForm({
@@ -107,7 +111,15 @@ export default function ClientInvoiceShow({
     adjustments,
     transactions,
     payment,
+    payment_in_progress,
 }: Props) {
+    const [payAnotherWay, setPayAnotherWay] = useState(false);
+    // A started payment that can still complete at the provider hides the pay panel (no accidental second
+    // payment); once its session has ended the customer may choose to pay another way.
+    const showPayPanel =
+        payment !== null &&
+        (payment_in_progress === null ||
+            (payment_in_progress.can_pay_another_way && payAnotherWay));
     const payments = transactions.filter(
         (txn) => txn.amount_in > 0 || txn.amount_out > 0,
     );
@@ -178,7 +190,38 @@ export default function ClientInvoiceShow({
 
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="grid content-start gap-4 lg:col-span-2">
-                        {payment && (
+                        {payment_in_progress && (
+                            <PaymentInProgressCard
+                                attempt={payment_in_progress}
+                                actions={
+                                    <>
+                                        <Button asChild variant="outline">
+                                            <Link
+                                                href={
+                                                    payment_in_progress.check_url
+                                                }
+                                                preserveScroll
+                                            >
+                                                Check status
+                                            </Link>
+                                        </Button>
+                                        {payment &&
+                                            payment_in_progress.can_pay_another_way &&
+                                            !payAnotherWay && (
+                                                <Button
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        setPayAnotherWay(true)
+                                                    }
+                                                >
+                                                    Pay a different way
+                                                </Button>
+                                            )}
+                                    </>
+                                }
+                            />
+                        )}
+                        {payment && showPayPanel && (
                             <SectionCard
                                 title="Pay this invoice"
                                 description={

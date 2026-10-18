@@ -4,7 +4,6 @@ namespace App\Modules\Billing\Support;
 
 use App\Contracts\Billing\GatewayDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
-use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\PayMethodResource;
@@ -12,6 +11,7 @@ use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Core\Models\Client;
 use Illuminate\Support\Facades\Route;
 
@@ -24,6 +24,7 @@ class ClientPaymentOptions
         private GatewayManager $gateways,
         private BillingSettings $settings,
         private CreditLedgerService $credit,
+        private GatewayCharger $charger,
     ) {}
 
     /**
@@ -35,10 +36,13 @@ class ClientPaymentOptions
         $gateways = $this->gateways->clientGateways()
             ->filter(fn (Gateway $gateway): bool => $this->acceptsCurrency($gateway, $invoice->currency))
             ->filter(fn (Gateway $gateway): bool => $choose || $invoice->payment_gateway === null || $gateway->key === $invoice->payment_gateway);
+        $options = $this->options($invoice->client, $gateways->all(), $invoice);
+        $available = array_values(array_filter($options['gateways'], fn (array $option): bool => $option['unavailable_reason'] === null));
+        $preferred = $invoice->payment_gateway !== null && in_array($invoice->payment_gateway, array_column($available, 'key'), true) ? $invoice->payment_gateway : null;
 
         return [
-            ...$this->options($invoice->client, $gateways->all(), $invoice),
-            'selected_gateway' => $invoice->payment_gateway ?? $gateways->first()?->key,
+            ...$options,
+            'selected_gateway' => $preferred ?? ($available[0]['key'] ?? null),
             'credit_available' => $invoice->kind->value === 'add_funds' ? 0 : $this->credit->balance($invoice->client_id, $invoice->currency)->amount,
         ];
     }
@@ -131,6 +135,38 @@ class ClientPaymentOptions
         };
     }
 
+    /**
+     * For hosted gateways: whether the charge fits the provider's limits, and the converted charge when the
+     * provider settles in another currency. Uses the same calculation as StartHostedPayment.
+     *
+     * @return array{0: string|null, 1: array{amount: int, currency: string, rate: float, from: string}|null}
+     */
+    private function hostedCheck(Gateway $gateway, Invoice $invoice): array
+    {
+        $driver = $this->gateways->hosted($gateway->key);
+
+        if ($driver === null || $this->kind($gateway->key) !== 'redirect') {
+            return [null, null];
+        }
+
+        try {
+            $charge = $this->charger->hostedCharge($gateway, $driver, $invoice->balanceMoney());
+        } catch (BillingException $exception) {
+            return [$exception->getMessage(), null];
+        }
+
+        if ($charge === null) {
+            return [__(':gateway can\'t take payments in :currency.', ['gateway' => $gateway->display_name, 'currency' => $invoice->currency]), null];
+        }
+
+        [$amount, $rate] = $charge;
+
+        return [
+            $this->charger->limitReason($gateway, $driver, $amount),
+            $rate !== null ? ['amount' => $amount->amount, 'currency' => $amount->currency, 'rate' => $rate, 'from' => $invoice->currency] : null,
+        ];
+    }
+
     public static function declineMessage(?string $reason): string
     {
         return match ($reason) {
@@ -153,6 +189,7 @@ class ClientPaymentOptions
         return [
             'gateways' => array_values(array_map(function (Gateway $gateway) use ($invoice): array {
                 $driver = $this->gateways->driver($gateway->key);
+                [$unavailable, $conversion] = $invoice !== null ? $this->hostedCheck($gateway, $invoice) : [null, null];
 
                 return [
                     'key' => $gateway->key,
@@ -160,7 +197,14 @@ class ClientPaymentOptions
                     'kind' => $this->kind($gateway->key),
                     'instructions' => $invoice !== null ? $driver->instructions($this->gateways->config($gateway), $invoice->displayNumber()) : null,
                     'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) && Route::has('billing.sandbox.tokens') ? route('billing.sandbox.tokens') : null,
-                    'sandbox' => $driver instanceof SandboxCardDriver,
+                    'sandbox' => $this->gateways->isSandbox($gateway),
+                    'logo' => $this->gateways->logo($gateway->key),
+                    // With a logo, the staff-set name is still shown when it says more than the provider's name.
+                    'show_name' => strcasecmp(trim($gateway->display_name), $driver->name()) !== 0,
+                    // Why this method can't take this invoice (e.g. below the provider's minimum); shown, disabled.
+                    'unavailable_reason' => $unavailable,
+                    // What the customer will actually pay at the provider when it charges in another currency.
+                    'conversion' => $conversion,
                 ];
             }, $gateways)),
             'can_choose_gateway' => $this->settings->bool('clients_choose_gateway'),

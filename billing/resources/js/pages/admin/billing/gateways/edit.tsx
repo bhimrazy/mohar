@@ -1,4 +1,5 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, router, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 import { Head } from '@/components/app/head';
 import { Field } from '@/components/app/field';
 import { StatusBadge } from '@/components/app/status-badge';
@@ -6,6 +7,8 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { GatewayLogo } from '@/components/billing/gateway-logo';
+import type { GatewayLogoData } from '@/components/billing/gateway-logo';
 import { SelectField } from '@/components/billing/select-field';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -15,6 +18,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
     index,
+    test as testConnection,
     update,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/GatewayController';
 import type { SelectOption } from '@/types/app';
@@ -92,6 +96,8 @@ type Props = {
         driver_name: string;
         display_name: string;
         sandbox: boolean;
+        logo: GatewayLogoData | null;
+        capabilities: string[];
         is_active: boolean;
         show_on_order_form: boolean;
         sort_order: number;
@@ -103,6 +109,7 @@ type Props = {
     currencies: string[];
     replacements: SelectOption[];
     webhook_url: string | null;
+    can_test_connection: boolean;
 };
 
 const NO_CONVERSION = 'none';
@@ -139,7 +146,9 @@ export default function GatewayEdit({
     currencies,
     replacements,
     webhook_url,
+    can_test_connection,
 }: Props) {
+    const [testing, setTesting] = useState(false);
     const form = useForm({
         display_name: gateway.display_name,
         is_active: gateway.is_active,
@@ -182,7 +191,20 @@ export default function GatewayEdit({
                             />
                         ) : undefined
                     }
-                    description={gateway.driver_name}
+                    description={
+                        gateway.logo ? (
+                            <span className="flex items-center gap-2">
+                                <GatewayLogo
+                                    name={gateway.driver_name}
+                                    logo={gateway.logo}
+                                    decorative
+                                />
+                                {gateway.driver_name}
+                            </span>
+                        ) : (
+                            gateway.driver_name
+                        )
+                    }
                 />
                 <form onSubmit={submit} className="grid gap-6">
                     <SectionCard title="General">
@@ -329,6 +351,48 @@ export default function GatewayEdit({
                                     );
                                 })}
                             </div>
+                        </SectionCard>
+                    )}
+
+                    {can_test_connection && (
+                        <SectionCard
+                            title="Connection"
+                            description="Checks the saved credentials with the provider. No money moves. Save your changes first."
+                        >
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-fit"
+                                disabled={testing || form.isDirty}
+                                onClick={() =>
+                                    router.post(
+                                        testConnection.url(gateway.key),
+                                        {},
+                                        {
+                                            preserveScroll: true,
+                                            onStart: () => setTesting(true),
+                                            onFinish: () => setTesting(false),
+                                        },
+                                    )
+                                }
+                            >
+                                {testing && <Spinner />}
+                                Test connection
+                            </Button>
+                        </SectionCard>
+                    )}
+
+                    {gateway.capabilities.includes('redirect') && (
+                        <SectionCard title="Refunds">
+                            <p className="text-sm text-muted-foreground">
+                                {!gateway.capabilities.includes('refund')
+                                    ? `${gateway.display_name} has no refund API: refund in the ${gateway.driver_name} merchant portal first, then record the refund on the invoice.`
+                                    : !gateway.capabilities.includes(
+                                            'partial_refund',
+                                        )
+                                      ? `Full refunds go through ${gateway.driver_name}. Refund part of a payment in the ${gateway.driver_name} merchant portal, then record it on the invoice.`
+                                      : `Full and partial refunds go through ${gateway.driver_name}.`}
+                            </p>
                         </SectionCard>
                     )}
 

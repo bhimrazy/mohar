@@ -57,7 +57,8 @@ class PaymentAttemptController extends Controller
     public function check(PaymentAttempt $attempt, SettlePaymentAttempt $settle): RedirectResponse
     {
         $this->authorize('billing.payments.manage');
-        $status = $settle->handle($attempt);
+        // Staff are waiting on this request: one quick provider try, like the customer's return.
+        $status = $settle->handle($attempt, interactive: true);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Attempt :reference is :status.', ['reference' => $attempt->reference, 'status' => $status->value])]);
 
         return back();

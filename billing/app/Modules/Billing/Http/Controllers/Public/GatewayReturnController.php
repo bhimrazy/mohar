@@ -34,9 +34,10 @@ class GatewayReturnController extends Controller
         }
 
         // At most one provider lookup per attempt per minute from this anonymous route; otherwise reuse the last result.
+        // The customer is waiting, so the lookup is a single quick try: anything inconclusive is left to the poller.
         $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt(now()->subMinute())
             ? $attempt->status
-            : $settle->handle($attempt);
+            : $settle->handle($attempt, interactive: true);
 
         Inertia::flash('toast', match ($status) {
             AttemptStatus::Succeeded => ['type' => 'success', 'message' => __('Payment received. Thank you.')],

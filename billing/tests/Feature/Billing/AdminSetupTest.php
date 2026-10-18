@@ -40,7 +40,9 @@ test('gateways can be configured without exposing stored secrets', function () {
             ->where('gateway.settings.webhook_secret', '')
             ->where('gateway.secrets_set.webhook_secret', true));
 
-    $this->get(route('admin.billing.gateways.index'))->assertInertia(fn (Assert $page) => $page->component('admin/billing/gateways/index')->has('gateways', 3));
+    $this->get(route('admin.billing.gateways.index'))->assertInertia(fn (Assert $page) => $page->component('admin/billing/gateways/index')
+        // Billing's own drivers; extension modules (e.g. PaymentsNepal) add theirs.
+        ->where('gateways', fn ($gateways) => collect($gateways)->pluck('key')->intersect(['bank_transfer', 'manual', 'sandbox_card'])->count() === 3));
 });
 
 test('deactivating a gateway can move unpaid invoices to a replacement', function () {
