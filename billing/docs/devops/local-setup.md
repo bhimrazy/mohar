@@ -89,8 +89,8 @@ database is created by `migrate --force`, and parallel workers add `<name>_test_
 DB_DATABASE=billing_test_orders composer test:pgsql
 ```
 
-CI runs the same gates in one job — see [CI.md](CI.md) for the step list, triggers and caching, and
-[DEPENDENCY_POLICY.md](DEPENDENCY_POLICY.md) for pinning, the 7-day cooldown and `composer deps:check`.
+CI runs the same gates in one job — see [ci.md](ci.md) for the step list, triggers and caching, and
+[dependency-policy.md](dependency-policy.md) for pinning, the 7-day cooldown and `composer deps:check`.
 `composer ci` runs, in order: `deps:check` (lockfiles in sync, `composer audit`, `npm audit`, dependency
 cooldown and binding checks — needs network), Pint, Wayfinder, `vp check`, tsc, Vitest (`npm test`), Larastan,
 Pest on SQLite, `test:pgsql`, build.
@@ -115,7 +115,7 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 
 ## Screenshots
 
-Screenshots for `docs/PROGRESS.md` live in `docs/screenshots/` and are captured with headless Playwright
+Screenshots for `docs/progress.md` live in `docs/screenshots/` and are captured with headless Playwright
 (Chromium in `~/.cache/ms-playwright`) against a running instance (`composer dev`,
 `APP_URL=http://localhost:8000`); the design-system showcase is at `/dev/components`.
 

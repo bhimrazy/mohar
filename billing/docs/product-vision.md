@@ -47,4 +47,4 @@ SQLite **and** PostgreSQL and its pages pass design review.
 - Every PR: staff review, QA, AI-slop review, plus security review for money/auth/files/AI, and design review
   of screenshots.
 - Before each release: an end-to-end walkthrough (order → invoice → payment → provisioning → renewal →
-  suspension → ticket) on PostgreSQL with screenshots in `docs/PROGRESS.md`.
+  suspension → ticket) on PostgreSQL with screenshots in `docs/progress.md`.

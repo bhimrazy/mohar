@@ -1,7 +1,7 @@
 <?php
 
 /*
- * Architecture rules enforced in CI (docs/ARCHITECTURE.md → "Dependency rules").
+ * Architecture rules enforced in CI (docs/architecture.md → "Dependency rules").
  * Modules may depend on Core and the shared kernel only; cross-module calls go through
  * App\Contracts, cross-module reactions through App\Events.
  */

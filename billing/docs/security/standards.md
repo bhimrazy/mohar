@@ -81,7 +81,7 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
       encrypted settings stay readable).
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see
-      `docs/devops/LOCAL_SETUP.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
+      `docs/devops/local-setup.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
       proxy, and HSTS is never sent.
 - [ ] HTTPS only. `SESSION_SECURE_COOKIE=true`. Check that `Strict-Transport-Security` and
       `Content-Security-Policy` headers are present on `/login`, on a 404 and on `/admin` as a guest.

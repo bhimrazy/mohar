@@ -72,6 +72,6 @@ check (green via the in-job fast path) and branch protection never waits for a c
 ## Changing the workflow
 
 - Pin actions by SHA with the version comment on the same line; the dependency check enforces it
-  (`DEPENDENCY_POLICY.md`).
+  (`dependency-policy.md`).
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.
