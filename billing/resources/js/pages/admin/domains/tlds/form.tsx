@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import TldController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/TldController';
 import { Field } from '@/components/app/field';
@@ -199,13 +200,10 @@ function SettingsForm({
                                 </SelectItem>
                                 {registrars.map((registrar) => (
                                     <SelectItem
-                                        key={
-                                            registrarNames[registrar] ??
-                                            registrar
-                                        }
+                                        key={registrar}
                                         value={registrar}
                                     >
-                                        {registrar}
+                                        {registrarNames[registrar] ?? registrar}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

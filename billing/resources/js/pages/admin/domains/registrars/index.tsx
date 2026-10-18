@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { PlugZap, Server } from 'lucide-react';
 import type { FormEvent } from 'react';
 import RegistrarController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/RegistrarController';
@@ -78,7 +79,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                         )}
                     </span>
                 }
-                description={`Key "${registrar.key}" · ${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
+                description={`${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
                 actions={
                     <ConfirmDialog
                         trigger={
