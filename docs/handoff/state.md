@@ -20,8 +20,11 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-None. PR #22 (Billing follow-ups: exact quote conversion #20, 90-day demo billing history) merged
-2026-10-18 04:52 UTC as `45441e3`; its non-blocking review items are issue #23.
+| PR  | Workstream             | Status (2026-10-18 05:50 UTC)                                                                                                                                                                                          |
+| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #26 | Nepal payments         | Review board, security and re-review passed (Ready to merge). Combined QA, design and product review running; merge after it.                                                                                          |
+| #28 | Notifications          | Draft. Engineer applying CTO decisions (auth mail via events, no passwords in mail, dedup by event id, Reply-To and support address). Reviews follow. Visual email design replaced later from the email design review. |
+| #38 | Product polish sweep 1 | Draft. Breadcrumbs, date format setting, help pages in the client area, home page, plus 6 smaller fixes. Review waiting for CPU.                                                                                       |
 
 ## In progress
 
@@ -40,6 +43,9 @@ progress is reported to the owner (`product-standards.md`). Engineers commit and
 draft PR into `develop` when their gates pass.
 
 ## Next
+
+Queued until load allows (the codespace has been at load 5–7 with five agents): PR #38 review, social sign-in,
+client dashboard and client profile (#31, #32, after Dashboard v2), Affiliates, Registrars, then wave 3 from the roadmap.
 
 The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
 studies). The items below are the near-term queue.
