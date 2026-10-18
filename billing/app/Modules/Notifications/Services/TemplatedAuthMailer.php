@@ -48,7 +48,7 @@ class TemplatedAuthMailer implements AuthMailer
         $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))->format(DateFormats::current().' H:i');
 
         $sent = $this->send($user, $user->is_staff ? 'staff.password_reset' : 'auth.password_reset', [
-            'auth' => ['reset_url' => new SensitiveValue($url), 'expires_at' => $expiresAt],
+            'auth' => ['reset_url' => new SensitiveValue($url, secret: str_contains($url, $token) ? $token : null), 'expires_at' => $expiresAt],
         ], 'auth-reset|'.$user->id.'|'.hash('sha256', $token));
 
         if (! $this->handled($sent)) {
@@ -66,11 +66,21 @@ class TemplatedAuthMailer implements AuthMailer
             return;
         }
 
-        $sent = $this->send($user, 'auth.email_verification', ['auth' => ['verify_url' => new SensitiveValue($url)]], 'auth-verify|'.$user->id.'|'.hash('sha256', $url));
+        $sent = $this->send($user, 'auth.email_verification', ['auth' => ['verify_url' => new SensitiveValue($url, secret: $this->signature($url))]], 'auth-verify|'.$user->id.'|'.hash('sha256', $url));
 
         if (! $this->handled($sent)) {
             $this->fallback->sendEmailVerification($user);
         }
+    }
+
+    /**
+     * The signature of a signed verification link: the part that grants access (the whole link if none).
+     */
+    private function signature(string $url): ?string
+    {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return is_string($query['signature'] ?? null) ? $query['signature'] : null;
     }
 
     /**

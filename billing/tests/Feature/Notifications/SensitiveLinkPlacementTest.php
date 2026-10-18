@@ -81,7 +81,7 @@ function sendGuestTicketMail(string $body, string $replyHtml = ''): array
     Mail::fake();
     seedEmailTemplates();
     EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole()->translations()->update(['body' => $body."\n\n".$replyHtml]);
-    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())]];
+    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'requester_email' => 'guest@example.test', 'url' => new SensitiveValue(guestUrl(), secret: 'GUESTKEY')]];
 
     app(NotificationMailer::class)->send(new EmailRequest('ticket.autoresponse', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|'.md5($body)));
 
@@ -216,14 +216,14 @@ it('masks the guest\'s own link pasted into a staff reply, and still sends', fun
     Mail::fake();
     seedEmailTemplates();
     $context = [
-        'ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())],
+        'ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'requester_email' => 'guest@example.test', 'url' => new SensitiveValue(guestUrl(), secret: 'GUESTKEY')],
         'reply' => ['author_name' => 'Sam', 'body_html' => '<p>Your link: '.e(guestUrl()).' or <a href="'.e(guestUrl()).'">this</a> ('.rawurlencode(guestUrl()).')</p>', 'excerpt' => ''],
     ];
 
     app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|pasted'));
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => keyOnlyInSystemButton((string) $mail->htmlBody)
-        && str_contains((string) $mail->htmlBody, 'Your link: ••••')
+        && str_contains((string) $mail->htmlBody, 'Your link: '.e(url('/support/tickets/482913?key=••••')))
         && substr_count((string) $mail->plainText, 'GUESTKEY') === 1);
     expect(EmailMessage::query()->sole()->status->value)->not->toBe('failed');
 });
@@ -232,7 +232,7 @@ it('fails closed when the finished mail would hold the key outside the system bu
     Mail::fake();
     seedEmailTemplates();
     app(Settings::class)->set('notifications.footer_address', guestUrl()); // layout text, not staff content
-    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())]];
+    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'requester_email' => 'guest@example.test', 'url' => new SensitiveValue(guestUrl(), secret: 'GUESTKEY')]];
 
     app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|dup'));
 
@@ -388,4 +388,146 @@ it('says why account mail is held when APP_URL is http:// in production', functi
     expect(ActivityLog::query()->where('event', 'security')->sole()->properties['reason'])->toContain('must use https://')
         ->and($health)->toMatchArray(['value' => 'Held', 'tone' => 'danger'])
         ->and($health['detail'])->toContain('emails are held');
+});
+
+/*
+ * Security review at e3906ca: every outgoing and stored field, matching on the secret itself, and the sanitizer as
+ * the last parser of staff content.
+ */
+
+/**
+ * @param  array<string, mixed>  $ticket
+ * @param  array<string, mixed>  $reply
+ * @param  list<string>  $to
+ * @return list<TemplatedMail>
+ */
+function sendGuestReply(string $key, array $ticket = [], array $reply = [], ?string $body = null, array $to = ['guest@example.test']): array
+{
+    Mail::fake();
+    seedEmailTemplates();
+
+    if ($body !== null) {
+        EmailTemplate::query()->where('key', $key)->sole()->translations()->update(['body' => $body]);
+    }
+
+    $context = ['ticket' => [
+        'number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High',
+        'requester_email' => 'guest@example.test', 'url' => new SensitiveValue(guestUrl(), secret: 'GUESTKEY'), ...$ticket,
+    ]];
+
+    if ($reply !== [] || $key === 'ticket.reply') {
+        $context['reply'] = ['author_name' => 'Sam', 'body_html' => '<p>x</p>', 'excerpt' => '', ...$reply];
+    }
+
+    app(NotificationMailer::class)->send(new EmailRequest($key, app(RecipientResolver::class)->addresses($to), $context, 'guest|'.md5(serialize([$key, $ticket, $reply, $body, $to]))));
+
+    return Mail::sent(TemplatedMail::class)->values()->all();
+}
+
+/**
+ * No <a> or <img> pointing at the attacker's host, to either parser.
+ */
+function noOutsideTags(?string $html): bool
+{
+    $html = (string) $html;
+    $libxml = new DOMDocument;
+    @$libxml->loadHTML('<?xml encoding="UTF-8">'.$html);
+
+    foreach ([HTMLDocument::createFromString($html, LIBXML_NOERROR), $libxml] as $document) {
+        foreach (['a' => 'href', 'img' => 'src'] as $tag => $attribute) {
+            foreach ($document->getElementsByTagName($tag) as $element) {
+                if (str_contains((string) $element->getAttribute($attribute), 'evil.test')) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+it('masks the secret in the subject, the stored subject and every other field (B1)', function () {
+    [$mail] = sendGuestReply('ticket.reply', ticket: ['subject' => 'See '.guestUrl()], reply: ['body_html' => '<p>hello</p>']);
+    $row = EmailMessage::query()->sole();
+
+    expect($mail->subjectLine)->not->toContain('GUESTKEY')->toContain('key=••••')
+        ->and($row->subject)->not->toContain('GUESTKEY')
+        ->and(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue()
+        ->and(substr_count((string) $mail->plainText, 'GUESTKEY'))->toBe(1)
+        ->and($row->body_html.$row->body_text)->not->toContain('GUESTKEY');
+});
+
+it('masks any copy of the secret, not only the exact link (M1)', function (Closure|string $variant) {
+    $variant = $variant instanceof Closure ? $variant() : $variant;
+    [$mail] = sendGuestReply('ticket.reply', reply: ['body_html' => '<p>Link: '.e($variant).' <a href="'.e($variant).'">open</a> '.rawurlencode($variant).'</p>']);
+    $row = EmailMessage::query()->sole();
+
+    expect(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue()
+        ->and(substr_count((string) $mail->plainText, 'GUESTKEY'))->toBe(1)
+        ->and(substr_count(strtolower($row->subject.$row->body_html.$row->body_text), 'guestkey'))->toBe(0);
+})->with([
+    'extra query parameter first' => [fn (): string => url('/support/tickets/482913?a=1&key=GUESTKEY')],
+    'upper-case host' => [fn (): string => str_replace('://localhost', '://LOCALHOST', url('/support/tickets/482913?key=GUESTKEY'))],
+    'trailing slash' => [fn (): string => url('/support/tickets/482913/?key=GUESTKEY')],
+    'bare key' => ['GUESTKEY'],
+    'lower-case key' => ['guestkey'],
+]);
+
+it('lets no outside image or link survive: the sanitised body is not parsed as Markdown again (M2)', function (string $body) {
+    [$mail] = sendGuestReply('ticket.autoresponse', body: $body);
+    $row = EmailMessage::query()->sole();
+
+    expect(noOutsideTags($mail->htmlBody))->toBeTrue()
+        ->and(noOutsideTags($row->body_html))->toBeTrue()
+        ->and(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue();
+})->with([
+    'Markdown inside a div' => ["<div>\n![p](https://evil.test/p.png) [go](https://evil.test/phish)\n</div>\n\nHi"],
+    'CR entities end the HTML block' => ['<p>a&#13;&#13;![x](https://evil.test/x.png) [go](https://evil.test/phish)</p>'],
+]);
+
+it('lets no outside image or link in through a staff reply or the ticket subject', function (string $key, array $ticket, array $reply) {
+    [$mail] = sendGuestReply($key, ticket: $ticket, reply: $reply);
+
+    expect(noOutsideTags($mail->htmlBody))->toBeTrue()
+        ->and(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue();
+})->with([
+    'raw CR in a reply' => ['ticket.reply', [], ['body_html' => "<p>a\r\r\\![x](https://evil.test/x.png)</p>"]],
+    'raw CR in the subject' => ['ticket.autoresponse', ['subject' => "x\r\r\\![x](https://evil.test/x.png)"], []],
+    'CR entity in the subject' => ['ticket.autoresponse', ['subject' => 'x&#13;&#13;\![x](https://evil.test/x.png)'], []],
+    'div in the subject' => ['ticket.autoresponse', ['subject' => "<div>\n![x](https://evil.test/x.png)\n</div>"], []],
+]);
+
+it('does not treat the logged-in client\'s ticket link as sensitive', function () {
+    [$mail] = sendGuestReply('ticket.reply', ticket: ['url' => url('/client/support/tickets/482913')], reply: ['body_html' => '<p>hello <img src="'.url('/logo.png').'"></p>']);
+
+    expect(EmailMessage::query()->sole()->has_redactions)->toBeFalse()
+        ->and((string) $mail->htmlBody)->toContain('href="'.e(url('/client/support/tickets/482913')).'" class="button"')
+        ->toContain('<img');
+});
+
+it('sends ticket CCs the reply without the private link, and only the owner gets the button', function () {
+    $mails = sendGuestReply('ticket.reply', reply: ['body_html' => '<p>Fixed.</p>'], to: ['guest@example.test', 'colleague@example.test']);
+    $byRecipient = collect($mails)->keyBy(fn (TemplatedMail $mail): string => $mail->to[0]['address']);
+
+    expect($byRecipient)->toHaveCount(2)
+        ->and(keyOnlyInSystemButton((string) $byRecipient['guest@example.test']->htmlBody))->toBeTrue()
+        ->and((string) $byRecipient['colleague@example.test']->htmlBody.$byRecipient['colleague@example.test']->plainText)
+        ->not->toContain('GUESTKEY')
+        ->toContain('The ticket owner has the private link')
+        ->and((string) $byRecipient['colleague@example.test']->htmlBody)->not->toContain('class="button"');
+});
+
+it('never resends mail that carried a private link, and says why', function () {
+    [$mail] = sendGuestReply('ticket.reply', reply: ['body_html' => '<p>Fixed.</p>']);
+    $row = EmailMessage::query()->sole();
+    $row->update(['related_type' => 'ticket', 'related_id' => 5]);
+    actingAsStaff(['notifications.log.view', 'notifications.log.resend']);
+
+    $this->get(route('admin.notifications.emails.show', $row))->assertInertia(fn ($page) => $page
+        ->where('canResend', false)
+        ->where('resendBlocked', 'This email contained a private link. Send the customer a new link instead.')
+        ->where('newLink.label', 'Open the ticket'));
+    $this->post(route('admin.notifications.emails.resend', $row))->assertStatus(422);
+
+    expect(fn () => app(NotificationMailer::class)->resend($row))->toThrow(LogicException::class);
 });

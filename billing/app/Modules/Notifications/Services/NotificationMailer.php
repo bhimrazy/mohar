@@ -81,6 +81,11 @@ class NotificationMailer
      */
     public function resend(EmailMessage $message): void
     {
+        // The stored copy of mail with a private link has it masked: resending would send a dead button.
+        if ($message->has_redactions) {
+            throw new \LogicException('Mail that carried a private link is never resent from its stored copy.');
+        }
+
         $message->update(['status' => EmailStatus::Queued, 'failure_reason' => null, 'suppressed_reason' => null, 'queued_at' => now()]);
         SendEmailMessage::dispatch($message->id, null, $message->attempts);
     }

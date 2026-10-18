@@ -82,7 +82,7 @@ class SampleContext
                 'number' => '482913', 'subject' => 'Email not working', 'department' => 'Technical Support', 'priority' => 'Medium',
                 'status' => 'Open', 'requester_name' => 'Ann Example',
                 // A guest's ticket link carries its access key: sensitive, linkable only from ticket.* mail.
-                'url' => new SensitiveValue(url('/support/tickets/482913?key=SAMPLE-KEY')),
+                'url' => new SensitiveValue(url('/support/tickets/482913?key=SAMPLE-KEY'), secret: 'SAMPLE-KEY'),
                 'admin_url' => url('/admin/support/tickets/1'),
             ],
             'reply' => [

@@ -249,7 +249,11 @@ Email preferences per user/contact (categories), "email history" list of message
   text), where the button is added to a system slot of the layout after the mail is built. Staff content in mail
   that carries a guest link is reduced to an element allow-list, and the finished HTML must hold the link exactly
   once, as the button's href, to both the HTML5 parser and libxml, or nothing is sent. The text part gets a system
-  "Label: url" line. Reset, verification and invitation text is plain and may use only `company.name`,
+  "Label: url" line. Masking and the final check work on the secret inside the link (`SensitiveValue::secret()`: the
+  access key or token) in any case or encoding, over every field — subject, preheader, HTML, text and the log copies.
+  Notifications bodies are final HTML: the layout prints them without a second Markdown pass. Ticket CCs get the
+  reply without the button and with a note that the ticket owner has the link. Mail that carried a private link is
+  never resent from the log. Reset, verification and invitation text is plain and may use only `company.name`,
   `user.first_name` / `staff.first_name` (URL-like text removed), `auth.expires_at`, `support.email` and `system.today`.
 - Account links are built from `APP_URL` and refused on any other origin (except `notifications.auth_link_host`):
   the email is then not sent at all, and the security log, the dashboard health card and the install pre-flight say

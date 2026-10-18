@@ -4,7 +4,7 @@
     prefers-color-scheme (Apple Mail, iOS, Outlook.com). Table-based for Outlook; CSS is inlined by
     the Markdown renderer from themes/default.css, the <style> block below is kept for media queries.
 --}}
-@props(['preheader' => null])
+@props(['preheader' => null, 'raw' => false])
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
@@ -56,7 +56,8 @@ body, .wrapper, .body, .header-cell, .footer { background-color: #0f1115 !import
 <!-- Body content -->
 <tr>
 <td class="content-cell">
-{!! Illuminate\Mail\Markdown::parse($slot) !!}
+{{-- raw: the body is already final HTML (Notifications templates) and is not parsed as Markdown again. --}}
+{!! $raw ? $slot : Illuminate\Mail\Markdown::parse($slot) !!}
 
 {!! $action ?? '' !!}
 

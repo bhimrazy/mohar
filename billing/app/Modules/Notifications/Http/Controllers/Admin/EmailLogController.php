@@ -10,6 +10,7 @@ use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\NotificationMailer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -65,6 +66,9 @@ class EmailLogController extends Controller
                 'queued_at' => $message->queued_at?->toIso8601String(),
             ],
             'canResend' => $this->canResend($request, $message),
+            // Mail with a private link can't be resent (its copy has the link masked): say why, and where to get a new one.
+            'resendBlocked' => $message->has_redactions ? __('This email contained a private link. Send the customer a new link instead.') : null,
+            'newLink' => $message->has_redactions ? $this->newLinkAction($message) : null,
         ]);
     }
 
@@ -72,7 +76,7 @@ class EmailLogController extends Controller
     {
         $this->authorize('notifications.log.resend');
         abort_if($message->body_purged_at !== null || ($message->body_html === null && $message->body_text === null), 422, __('The body of this email is no longer stored.'));
-        abort_if($message->has_redactions, 422, __('This email contained one-time secrets. Trigger a new one instead (for example a new password reset).'));
+        abort_if($message->has_redactions, 422, __('This email contained a private link. Send the customer a new link instead.'));
 
         $mailer->resend($message);
         $activity->log('Email resent from the log', $message, $message->client_id, ['recipient' => $message->recipient, 'template' => $message->template_key]);
@@ -99,6 +103,21 @@ class EmailLogController extends Controller
             'created_at' => $message->created_at?->toIso8601String(),
             'sent_at' => $message->sent_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Where staff can give the recipient a fresh private link, if there is such a place: the ticket (Support's
+     * "Copy customer link") for ticket mail. Reset and verification links are requested by the user again.
+     *
+     * @return array{label: string, href: string}|null
+     */
+    private function newLinkAction(EmailMessage $message): ?array
+    {
+        if ($message->related_type === 'ticket' && $message->related_id !== null && Route::has('admin.support.tickets.show')) {
+            return ['label' => __('Open the ticket'), 'href' => route('admin.support.tickets.show', $message->related_id)];
+        }
+
+        return null;
     }
 
     private function canResend(Request $request, EmailMessage $message): bool

@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { RefreshCw, ShieldCheck } from 'lucide-react';
 import EmailLogController from '@/actions/App/Modules/Notifications/Http/Controllers/Admin/EmailLogController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -33,9 +33,15 @@ type Message = EmailSummary & {
 export default function EmailLogShow({
     message,
     canResend,
+    resendBlocked,
+    newLink,
 }: {
     message: Message;
     canResend: boolean;
+    /** Why Resend is off (mail with a private link), or null. */
+    resendBlocked: string | null;
+    /** Where staff can give the recipient a new link, if anywhere. */
+    newLink: { label: string; href: string } | null;
 }) {
     return (
         <>
@@ -49,19 +55,41 @@ export default function EmailLogShow({
                     title={message.subject}
                     badges={<DeliveryStatus status={message.status} />}
                     actions={
-                        canResend && (
-                            <ConfirmDialog
-                                trigger={
-                                    <Button variant="outline">
-                                        <RefreshCw />
-                                        Resend
+                        resendBlocked ? (
+                            <div className="flex items-center gap-2">
+                                {newLink && (
+                                    <Button variant="outline" asChild>
+                                        <Link href={newLink.href}>
+                                            {newLink.label}
+                                        </Link>
                                     </Button>
-                                }
-                                title="Resend this email?"
-                                description={`The stored copy is sent again to ${message.to.join(', ')} as a new attempt.`}
-                                confirmLabel="Resend"
-                                action={EmailLogController.resend(message.id)}
-                            />
+                                )}
+                                <Button
+                                    variant="outline"
+                                    disabled
+                                    title={resendBlocked}
+                                >
+                                    <RefreshCw />
+                                    Resend
+                                </Button>
+                            </div>
+                        ) : (
+                            canResend && (
+                                <ConfirmDialog
+                                    trigger={
+                                        <Button variant="outline">
+                                            <RefreshCw />
+                                            Resend
+                                        </Button>
+                                    }
+                                    title="Resend this email?"
+                                    description={`The stored copy is sent again to ${message.to.join(', ')} as a new attempt.`}
+                                    confirmLabel="Resend"
+                                    action={EmailLogController.resend(
+                                        message.id,
+                                    )}
+                                />
+                            )
                         )
                     }
                 />
@@ -71,9 +99,10 @@ export default function EmailLogShow({
                             <Alert>
                                 <ShieldCheck />
                                 <AlertDescription>
-                                    This email contained one-time secrets (links
-                                    or passwords). They are masked as •••• in
-                                    this copy, so it can't be resent.
+                                    {resendBlocked ??
+                                        'This email contained a private link.'}{' '}
+                                    The link is masked as •••• in this copy, so
+                                    it can't be resent.
                                 </AlertDescription>
                             </Alert>
                         )}

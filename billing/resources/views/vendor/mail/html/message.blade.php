@@ -3,7 +3,7 @@
     address, a support link and — for client mail whose category can be switched off — the email
     preferences link. Brand data comes from BrandProvider (Settings → Appearance → Brand).
 --}}
-@props(['preheader' => null, 'preferencesUrl' => null])
+@props(['preheader' => null, 'preferencesUrl' => null, 'raw' => false])
 @php
     $brandProvider = app(\App\Contracts\Branding\BrandProvider::class);
     $brand = $brandProvider->brand();
@@ -16,7 +16,7 @@
     $supportEmail = app(\App\Modules\Notifications\Support\SupportAddresses::class)->general();
     $helpLine = $supportEmail ? str_replace('{{ support.email }}', $supportEmail, (string) $settings->get('notifications.footer_help_text', 'Questions? Reply to this email or write to {{ support.email }}.')) : null;
 @endphp
-<x-mail::layout :preheader="$preheader">
+<x-mail::layout :preheader="$preheader" :raw="$raw">
 {{-- Header --}}
 <x-slot:header>
 <tr>

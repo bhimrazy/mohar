@@ -14,6 +14,7 @@ use Dom\Node;
 use Dom\ProcessingInstruction;
 use Dom\XPath;
 use DOMDocument;
+use DOMNode;
 use DOMXPath;
 use LogicException;
 
@@ -309,20 +310,21 @@ final class SecretTemplatePolicy
             }
         }
 
-        return self::maskValues(trim((string) preg_replace('/\n\s*\n/', "\n", $body->innerHTML)), $sensitive);
+        return self::maskValues(trim((string) preg_replace('/\R\s*\R/', "\n", $body->innerHTML)), $sensitive);
     }
 
     /**
-     * Replaces each sensitive value (as written, HTML-escaped or URL-encoded) with ••••: staff content that quotes
-     * one, e.g. a reply with the guest's link pasted in.
+     * Replaces each secret (the access key or token itself, so any link that carries it is caught) with ••••, in any
+     * case and as written, HTML-escaped or URL-encoded: staff content that quotes one, e.g. a reply with the guest's
+     * link pasted in.
      *
-     * @param  list<string>  $sensitive
+     * @param  list<string>  $secrets
      */
-    public static function maskValues(string $text, array $sensitive): string
+    public static function maskValues(string $text, array $secrets): string
     {
-        foreach ($sensitive as $value) {
-            if ($value !== '') {
-                $text = str_replace(array_unique([$value, e($value), rawurlencode($value), urlencode($value)]), '••••', $text);
+        foreach ($secrets as $secret) {
+            if ($secret !== '') {
+                $text = str_ireplace(self::encodings($secret), '••••', $text);
             }
         }
 
@@ -330,13 +332,35 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * Whether the finished mail holds $value exactly once, as the href of the system button (an <a> with the
-     * "button" class) — read by the HTML5 parser and by libxml (which the CSS inliner and many mail tools use), so a
-     * difference between parsers can't hide a second copy.
+     * How often the secret occurs in $text, in any case or encoding.
      */
-    public static function placedOnlyAsSystemButton(string $html, string $value): bool
+    public static function secretCount(string $text, string $secret): int
     {
-        if ($value === '' || substr_count($html, $value) + ($value !== e($value) ? substr_count($html, e($value)) : 0) !== 1) {
+        if ($secret === '') {
+            return 0;
+        }
+
+        $lower = mb_strtolower($text);
+        $count = 0;
+
+        foreach (self::encodings($secret) as $form) {
+            $count += substr_count($lower, mb_strtolower($form));
+        }
+
+        return $count;
+    }
+
+    /**
+     * Whether the finished mail holds the secret exactly once, in the href of the system button (an <a> with the
+     * "button" class whose href is exactly $url) — read by the HTML5 parser and by libxml (which the CSS inliner and
+     * many mail tools use), so a difference between parsers can't hide a second copy. Attribute and text values
+     * are compared decoded (entities, then percent-encoding) and case-insensitively.
+     */
+    public static function placedOnlyAsSystemButton(string $html, string $url, ?string $secret = null): bool
+    {
+        $secret = $secret !== null && $secret !== '' ? $secret : $url;
+
+        if ($url === '' || self::secretCount($html, $secret) !== 1) {
             return false;
         }
 
@@ -351,6 +375,7 @@ final class SecretTemplatePolicy
             return false;
         }
 
+        $holds = fn (string $value): bool => self::secretCount($value, $secret) > 0 || self::secretCount(rawurldecode($value), $secret) > 0;
         $parsers = [
             [$html5->getElementsByTagName('*'), (new XPath($html5))->query('//text() | //comment()')],
             [$libxml->getElementsByTagName('*'), (new DOMXPath($libxml))->query('//text() | //comment()')],
@@ -361,12 +386,12 @@ final class SecretTemplatePolicy
 
             foreach ($elements as $element) {
                 foreach ($element->attributes ?? [] as $attribute) {
-                    if (! str_contains((string) $attribute->value, $value)) {
+                    if (! $holds((string) $attribute->value)) {
                         continue;
                     }
 
                     $isButton = strtolower($element->localName ?? '') === 'a' && strtolower($attribute->name) === 'href'
-                        && trim((string) $attribute->value) === $value
+                        && trim((string) $attribute->value) === $url
                         && in_array('button', preg_split('/\s+/', (string) $element->getAttribute('class')) ?: [], true);
 
                     if (! $isButton) {
@@ -378,7 +403,7 @@ final class SecretTemplatePolicy
             }
 
             foreach ($texts === false ? [] : $texts as $node) {
-                if (($node instanceof Node || $node instanceof \DOMNode) && str_contains((string) $node->textContent, $value)) {
+                if (($node instanceof Node || $node instanceof DOMNode) && $holds((string) $node->textContent)) {
                     return false;
                 }
             }
@@ -389,6 +414,14 @@ final class SecretTemplatePolicy
         }
 
         return true;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function encodings(string $secret): array
+    {
+        return array_values(array_unique([$secret, e($secret), rawurlencode($secret), urlencode($secret), htmlspecialchars(rawurlencode($secret))]));
     }
 
     /**
@@ -411,6 +444,18 @@ final class SecretTemplatePolicy
         }
 
         return $value->value;
+    }
+
+    /**
+     * The part of the template's one-time link that grants access (the token or signature), for the final check.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public static function actionSecret(string $templateKey, array $context): string
+    {
+        $value = data_get($context, self::ACTION_LINKS[$templateKey] ?? '');
+
+        return $value instanceof SensitiveValue ? $value->secret() : '';
     }
 
     /**
