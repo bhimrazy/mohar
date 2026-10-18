@@ -306,7 +306,7 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
 
 ### 3.4 Refunds
 
-Khalti declares `refund` and `partial_refund` and uses the existing `refund(Gateway, Transaction, Money)`.
+Khalti declares `refund` (and `partial_refund` only once its unit is proven, see §8.2) and uses the existing `refund(Gateway, Transaction, Money)`.
 Every other driver omits `refund`. Staff then use `record_only` / `to_credit` (§4.7) after refunding in the
 provider portal, and the UI shows "Refund in the eSewa/ConnectIPS portal first."
 
@@ -438,6 +438,24 @@ merchants).
         - The provider form is stored per attempt and served once.
         - The form page fails closed for a sandbox attempt once test money is not allowed.
         - An `AMBIGUOUS` lookup records its reason for staff.
+    - Product review (round 2):
+        - **Payment in progress** (`Billing\Support\PaymentInProgress`). An open attempt (pending or under review)
+          shows on the client invoice and the admin invoice until it settles. It shows the provider, amount and
+          start time, and a "Check status" link that runs the quick lookup (staff get "Check now").
+        - While the attempt can still complete at the provider (before `expires_at`), the client pay panel is
+          hidden and a second start is refused, under the invoice lock. After that, "Pay a different way" appears.
+        - **Methods that can't take the invoice** (below a provider's minimum, above its maximum, or wrong currency)
+          are listed but disabled, with the reason ("Khalti needs at least Rs. 10.00."), and are never preselected.
+        - **Failed starts:** after a failed start, the chosen method stays selected and the error appears under it.
+        - **Conversion before redirect:** a converting gateway shows "You'll pay … on Khalti (1 USD = …)", using the
+          same `GatewayCharger::hostedCharge()` that the attempt is created with.
+        - **Refund guidance (§3.4)** in the admin refund dialog, before the password step-up, covering three cases:
+            - no refund API (eSewa): refund in the merchant portal, then record it here;
+            - full only (Khalti while partial refunds are off): the gateway option is offered only for the full
+              original payment, and a partial amount switches to "record";
+            - refunds the provider may refuse (Khalti bank-funded payments).
+        - Each hosted gateway's admin form has a one-line Refunds note. Admin transaction rows carry the SANDBOX
+          badge of a gateway in sandbox mode.
     - New optional contract `ConnectionTester` with DTO `ConnectionCheck`, used by the admin "Test connection" button.
 - **Not built (follow-ups):**
     - ConnectIPS: needs NCHL onboarding and PFX → PEM signing, and its `TXNID` max of 20 characters requires a short
