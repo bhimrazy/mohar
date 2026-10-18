@@ -27,7 +27,9 @@ permissions:
     contents: read
 
 concurrency:
-    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    # Draft and ready runs use separate groups: a skipped draft run (e.g. a push landing just after
+    # "Ready for review") must never cancel the real run.
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.draft && 'draft' || 'ready' }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
