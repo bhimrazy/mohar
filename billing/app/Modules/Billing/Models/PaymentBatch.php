@@ -29,7 +29,7 @@ class PaymentBatch extends Model
 {
     protected function casts(): array
     {
-        return ['invoice_ids' => 'array', 'total' => 'integer', 'gateway_amount' => 'integer', 'exchange_rate' => 'decimal:6', 'fee' => 'integer'];
+        return ['invoice_ids' => 'array', 'total' => 'integer', 'gateway_amount' => 'integer', 'exchange_rate' => 'decimal:12', 'fee' => 'integer'];
     }
 
     /**

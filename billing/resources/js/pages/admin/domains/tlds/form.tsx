@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import TldController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/TldController';
 import { Field } from '@/components/app/field';
@@ -19,7 +20,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { TldPricingGrid } from '@/components/domains/tld-pricing-grid';
 import type { PriceRow } from '@/components/domains/tld-pricing-grid';
-import { fromMinor, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 
 type Tld = {
     id: number;
@@ -49,6 +50,7 @@ type Props = {
     tld: Tld | null;
     prices: PriceRow[];
     registrars: string[];
+    registrarNames: Record<string, string>;
     currencies: string[];
     defaultCurrency: string;
     groups: { id: number; name: string }[];
@@ -62,6 +64,7 @@ const decimal = (amount: number | null) =>
 function SettingsForm({
     tld,
     registrars,
+    registrarNames,
     badges,
     defaultCurrency,
     canManage,
@@ -200,7 +203,7 @@ function SettingsForm({
                                         key={registrar}
                                         value={registrar}
                                     >
-                                        {registrar}
+                                        {registrarNames[registrar] ?? registrar}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -243,7 +246,10 @@ function SettingsForm({
                         'Grace period (days)',
                         '0 turns the grace period off.',
                     )}
-                    {text('grace_fee', `Grace fee (${defaultCurrency})`)}
+                    {text(
+                        'grace_fee',
+                        labelWithCurrency('Grace fee', defaultCurrency),
+                    )}
                     {text(
                         'redemption_days',
                         'Redemption period (days)',
@@ -251,7 +257,7 @@ function SettingsForm({
                     )}
                     {text(
                         'redemption_fee',
-                        `Redemption fee (${defaultCurrency})`,
+                        labelWithCurrency('Redemption fee', defaultCurrency),
                     )}
                     {text(
                         'renew_window_days',
@@ -308,6 +314,7 @@ export default function TldForm(props: Props) {
                 <SettingsForm
                     tld={tld}
                     registrars={props.registrars}
+                    registrarNames={props.registrarNames}
                     badges={props.badges}
                     defaultCurrency={props.defaultCurrency}
                     canManage={props.canManage}
@@ -318,6 +325,7 @@ export default function TldForm(props: Props) {
                         tld={tld}
                         prices={props.prices}
                         currencies={props.currencies}
+                        defaultCurrency={props.defaultCurrency}
                         groups={props.groups}
                         canManage={props.canManage}
                     />

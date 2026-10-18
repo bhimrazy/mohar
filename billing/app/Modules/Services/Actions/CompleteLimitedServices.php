@@ -27,8 +27,7 @@ class CompleteLimitedServices
             ->whereColumn('renewals_invoiced', '>=', 'recurring_cycles_limit')
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<=', $today)
-            ->orderBy('id')
-            ->each(function (Service $service) use (&$count): void {
+            ->eachById(function (Service $service) use (&$count): void {
                 if ($service->next_invoice_date !== null && $service->next_invoice_date->gt($service->next_due_date)) {
                     return;
                 }

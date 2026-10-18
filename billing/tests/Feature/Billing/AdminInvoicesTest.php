@@ -230,14 +230,31 @@ test('staff record manual income applied to invoices', function () {
 
 test('billing forms search clients without a size cap', function () {
     actingAsStaff(['billing.invoices.manage']);
-    billingClient(['first_name' => 'Zara', 'last_name' => 'Quinn', 'company_name' => null]);
-    Client::factory()->count(3)->create();
+    // A made-up surname and fixed decoys (name, company and email are all searched), so no random name can match.
+    billingClient(['first_name' => 'Zara', 'last_name' => 'Quorvath', 'company_name' => null, 'email' => 'zara@example.test']);
+    foreach (['Alex Smith', 'Mina Rai', 'Tom Lee'] as $index => $name) {
+        [$first, $last] = explode(' ', $name);
+        Client::factory()->create(['first_name' => $first, 'last_name' => $last, 'company_name' => "Decoy {$index} Ltd", 'email' => "decoy{$index}@example.test"]);
+    }
 
-    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quinn']))
+    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quorvath']))
         ->assertOk()
         ->assertJsonCount(1)
-        ->assertJsonPath('0.display_name', 'Zara Quinn');
+        ->assertJsonPath('0.display_name', 'Zara Quorvath');
 
     actingAsStaff(['billing.invoices.view']);
-    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quinn']))->assertForbidden();
+    $this->getJson(route('admin.billing.clients.search', ['q' => 'Quorvath']))->assertForbidden();
+});
+
+test('the transaction list date range covers both whole days and nothing after it', function () {
+    actingAsStaff(['billing.transactions.view']);
+    $client = billingClient();
+    $first = Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-10-01 00:00:00']);
+    $last = Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-10-31 23:59:59']);
+    Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-11-01 00:00:00']);
+    Transaction::factory()->create(['client_id' => $client->id, 'occurred_at' => '2026-09-30 23:59:59']);
+
+    $this->get(route('admin.billing.transactions.index', ['from' => '2026-10-01', 'to' => '2026-10-31']))
+        ->assertInertia(fn (Assert $page) => $page->has('transactions.data', 2)
+            ->where('transactions.data.0.id', $last->id)->where('transactions.data.1.id', $first->id));
 });

@@ -1,8 +1,9 @@
-import { Head, usePage } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
 import {
     ReportingCurrencyProvider,
     variantCodes,
 } from '@/components/app/dashboard/reporting-currency';
+import { Head } from '@/components/app/head';
 import { DashboardWidgets } from '@/components/app/dashboard-widgets';
 import type {
     DashboardWidget,

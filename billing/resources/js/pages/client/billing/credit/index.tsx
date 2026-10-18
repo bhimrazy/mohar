@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Wallet } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -19,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { addFunds } from '@/actions/App/Modules/Billing/Http/Controllers/Client/CreditController';
 import type { ResourcePaginated } from '@/types/app';
+import { labelWithCurrency } from '@/lib/money';
 
 type Props = {
     balance: number;
@@ -141,7 +143,10 @@ export default function ClientCredit({
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                                     <Field
                                         htmlFor="add-funds-amount"
-                                        label={`Amount (${currency})`}
+                                        label={labelWithCurrency(
+                                            'Amount',
+                                            currency,
+                                        )}
                                         hint={
                                             <>
                                                 Between{' '}

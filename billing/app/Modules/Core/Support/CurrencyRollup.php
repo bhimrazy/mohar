@@ -3,7 +3,7 @@
 namespace App\Modules\Core\Support;
 
 use App\Modules\Core\Models\Currency;
-use App\Support\Money;
+use App\Support\Currencies\MoneyFormatter;
 
 /**
  * Consolidates per-currency amounts (minor units) into the default currency at today's rates, for dashboard
@@ -37,14 +37,11 @@ final class CurrencyRollup
     }
 
     /**
-     * Formats minor units with the currency's configured prefix, suffix and separators.
+     * Formats minor units with the currency's configured display (MoneyFormatter, the single source).
      */
     public function format(int $amount, string $code): string
     {
-        $currency = $this->currencies[$code] ?? null;
-        $money = Money::of($amount, $code);
-
-        return $currency !== null ? $currency->format($money) : $money->format();
+        return app(MoneyFormatter::class)->amount($amount, $code);
     }
 
     public function toDefault(int $amount, string $code): ?int

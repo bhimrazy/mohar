@@ -42,6 +42,7 @@ class TldController extends Controller
                 ...(new TldResource($tld))->resolve(),
                 'price' => $prices->get($tld->id)?->only(['register', 'transfer', 'renew']),
             ])->values(),
+            'registrarNames' => app(RegistrarManager::class)->names(),
             'canManage' => request()->user()?->hasPermission('domains.tlds.manage') ?? false,
         ]);
     }
@@ -70,7 +71,7 @@ class TldController extends Controller
             ...$this->formOptions($registrars),
             'tld' => new TldResource($tld),
             'prices' => $tld->prices()->orderBy('currency')->orderBy('years')->orderBy('id')
-                ->get(['id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew']),
+                ->get(['id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew', 'is_manual', 'enabled']),
         ]);
     }
 
@@ -86,7 +87,7 @@ class TldController extends Controller
     public function prices(TldPricesRequest $request, Tld $tld, SaveTldPrices $save): RedirectResponse
     {
         $group = $request->filled('client_group_id') ? $request->integer('client_group_id') : null;
-        $save->handle($tld, $request->string('currency')->toString(), $group, $request->rows());
+        $save->handle($tld, $request->string('currency')->toString(), $group, $request->rows(), $request->has('manual') ? $request->boolean('manual') : null);
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':tld prices saved.', ['tld' => $tld->extension])]);
 
         return to_route('admin.domains.tlds.edit', $tld);
@@ -99,6 +100,7 @@ class TldController extends Controller
     {
         return [
             'registrars' => $registrars->keys(),
+            'registrarNames' => $registrars->names(),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'defaultCurrency' => Currency::default()->code,
             'groups' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),

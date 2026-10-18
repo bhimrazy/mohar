@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { ReactNode } from 'react';
 import {
     AlertTriangle,

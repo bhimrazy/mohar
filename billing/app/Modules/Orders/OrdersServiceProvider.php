@@ -32,6 +32,7 @@ use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
@@ -162,7 +163,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
                     'subtitle' => collect(["#{$order->number}", $order->items->first()?->description, $order->created_at?->diffForHumans()])->filter()->implode(' · '),
                     'avatar' => $order->client->display_name,
                     'href' => route('admin.orders.show', $order),
-                    'meta' => Money::of($order->total, $order->currency)->format(),
+                    'meta' => app(MoneyFormatter::class)->format(Money::of($order->total, $order->currency)),
                     'money' => ['amount' => $order->total, 'currency' => $order->currency],
                     'status' => $order->status->value,
                 ])->all(),
@@ -241,7 +242,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             ->get()
             ->map(fn (Order $order): array => [
                 'title' => "Order #{$order->number}",
-                'subtitle' => $order->client->display_name.' · '.$order->status->value,
+                'subtitle' => $order->client->display_name.' · '.ucfirst(str_replace('_', ' ', $order->status->value)),
                 'href' => route('admin.orders.show', $order),
             ])
             ->all()), 'orders.orders.view');

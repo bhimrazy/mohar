@@ -15,6 +15,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 import {
     Table,
     TableBody,
@@ -23,7 +24,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { fromMinor, parseMoneyInput } from '@/lib/money';
+import { fromMinor, labelWithCurrency, parseMoneyInput } from '@/lib/money';
 
 export type PriceRow = {
     id: number;
@@ -33,6 +34,8 @@ export type PriceRow = {
     register: number | null;
     transfer: number | null;
     renew: number | null;
+    is_manual?: boolean;
+    enabled?: boolean;
 };
 
 type GridRow = {
@@ -56,6 +59,8 @@ type TldPricingGridProps = {
     };
     prices: PriceRow[];
     currencies: string[];
+    /** Prices in other currencies can be converted from this one (Currencies → Converted prices). */
+    defaultCurrency: string;
     groups: { id: number; name: string }[];
     canManage: boolean;
 };
@@ -106,6 +111,7 @@ export function TldPricingGrid({
     tld,
     prices,
     currencies,
+    defaultCurrency,
     groups,
     canManage,
 }: TldPricingGridProps) {
@@ -141,7 +147,28 @@ export function TldPricingGrid({
             },
         );
 
-    const form = useForm({ rows: rowsFor(currency, groupId) });
+    const manualFor = (
+        selectedCurrency: string,
+        selectedGroup: number | null,
+    ): boolean =>
+        prices.some(
+            (price) =>
+                price.currency === selectedCurrency &&
+                price.client_group_id === selectedGroup &&
+                price.is_manual === true,
+        );
+
+    const form = useForm({
+        rows: rowsFor(currency, groupId),
+        manual: manualFor(currency, groupId),
+    });
+    const convertible = currency !== defaultCurrency;
+    const turnedOff = prices.some(
+        (price) =>
+            price.currency === currency &&
+            price.client_group_id === groupId &&
+            price.enabled === false,
+    );
     const serverErrors = form.errors as Record<string, string | undefined>;
     const invalid = form.data.rows.some((row) =>
         ACTIONS.some((action) => cellError(row, action) !== null),
@@ -159,12 +186,13 @@ export function TldPricingGrid({
     const applySwitch = (nextCurrency: string, nextGroup: string) => {
         setCurrency(nextCurrency);
         setGroup(nextGroup);
-        const rows = rowsFor(
-            nextCurrency,
-            nextGroup === BASE ? null : Number(nextGroup),
-        );
-        form.setDefaults({ rows });
-        form.setData('rows', rows);
+        const nextGroupId = nextGroup === BASE ? null : Number(nextGroup);
+        const data = {
+            rows: rowsFor(nextCurrency, nextGroupId),
+            manual: manualFor(nextCurrency, nextGroupId),
+        };
+        form.setDefaults(data);
+        form.setData(data);
         form.clearErrors();
     };
 
@@ -178,13 +206,14 @@ export function TldPricingGrid({
         applySwitch(nextCurrency, nextGroup);
     };
 
+    // Typing a price in another currency means staff chose it: keep it out of auto-conversion.
     const setCell = (index: number, action: Action, value: string) =>
-        form.setData(
-            'rows',
-            form.data.rows.map((row, i) =>
+        form.setData((data) => ({
+            rows: data.rows.map((row, i) =>
                 i === index ? { ...row, [action]: value } : row,
             ),
-        );
+            manual: data.manual || convertible,
+        }));
 
     const normaliseCell = (index: number, action: Action) => {
         const parsed = parseCell(form.data.rows[index][action]);
@@ -241,6 +270,7 @@ export function TldPricingGrid({
         form.transform((data) => ({
             currency,
             client_group_id: groupId,
+            ...(convertible ? { manual: data.manual } : {}),
             prices: data.rows.map((row) => ({
                 years: row.years,
                 register: parseCell(row.register),
@@ -342,6 +372,37 @@ export function TldPricingGrid({
                         </SelectContent>
                     </Select>
                 </div>
+                {turnedOff && (
+                    <p className="border-b bg-warning-subtle px-4 py-2 text-sm text-warning-text sm:px-6">
+                        Some of these prices are turned off because their{' '}
+                        {defaultCurrency} price was removed. Save the grid to
+                        offer them again.
+                    </p>
+                )}
+                {convertible && (
+                    <div className="flex items-center justify-between gap-4 border-b px-4 py-3 sm:px-6">
+                        <div className="min-w-0">
+                            <label
+                                htmlFor="tld-prices-manual"
+                                className="text-sm font-medium"
+                            >
+                                Set manually — don't auto-convert
+                            </label>
+                            <p className="text-sm text-muted-foreground">
+                                When off, converting prices recalculates this
+                                grid from the {defaultCurrency} price.
+                            </p>
+                        </div>
+                        <Switch
+                            id="tld-prices-manual"
+                            checked={form.data.manual}
+                            disabled={!canManage}
+                            onCheckedChange={(manual) =>
+                                form.setData('manual', manual)
+                            }
+                        />
+                    </div>
+                )}
                 <div className="overflow-x-auto">
                     <Table>
                         <TableHeader className="bg-muted/40">
@@ -354,7 +415,7 @@ export function TldPricingGrid({
                                         key={action}
                                         className="h-9 text-right text-xs capitalize last:pr-4 sm:last:pr-6"
                                     >
-                                        {action} ({currency})
+                                        {labelWithCurrency(action, currency)}
                                     </TableHead>
                                 ))}
                             </TableRow>

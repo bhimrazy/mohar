@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { FileText } from 'lucide-react';
 import ClientOrderController from '@/actions/App/Modules/Orders/Http/Controllers/Client/OrderController';
 import { DataTable } from '@/components/app/data-table';
@@ -153,7 +153,6 @@ export default function ClientOrderShow({
                                         <Money
                                             amount={order.total}
                                             currency={order.currency}
-                                            showCode
                                         />
                                     ),
                                 },

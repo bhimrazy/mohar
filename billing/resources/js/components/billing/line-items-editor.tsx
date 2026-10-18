@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { labelWithCurrency } from '@/lib/money';
 
 export type EditableLine = {
     description: string;
@@ -103,7 +104,9 @@ export function LineItemsEditor({
                                 htmlFor={`line-${index}-unit`}
                                 className="text-xs text-muted-foreground"
                             >
-                                Unit price{currency ? ` (${currency})` : ''}
+                                {currency
+                                    ? labelWithCurrency('Unit price', currency)
+                                    : 'Unit price'}
                             </Label>
                             <Input
                                 id={`line-${index}-unit`}

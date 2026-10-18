@@ -5,6 +5,7 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\Settings;
 
 require_once __DIR__.'/helpers.php';
 
@@ -56,7 +57,7 @@ test('a Nepal VAT invoice labels the buyer PAN and formats rupees', function () 
 
     $html = renderInvoiceHtml($invoice->fresh());
 
-    expect($html)->toContain('Tax Invoice')->toContain('PAN/VAT No.: 301234567')->toContain('Rs. 11,300.00')->toContain('Paid')
+    expect($html)->toContain('Tax Invoice')->toContain('PAN/VAT No.: 301234567')->toContain('Rs 11,300.00')->toContain('−Rs 5,000.00')->toContain('All amounts in NPR')->toContain('Paid')
         ->not->toContain('Place of supply');
 });
 
@@ -65,4 +66,15 @@ test('untaxed invoices are plain invoices without a SAC column', function () {
     $html = renderInvoiceHtml(issueInvoice(billingClient(), [12_345]));
 
     expect($html)->toContain('<h1>Invoice</h1>')->toContain('$123.45')->not->toContain('SAC');
+});
+
+test('invoice dates follow the date format setting and ignore values off the list', function () {
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'IN', 'currency' => 'INR', 'state' => 'MH']), [10_000]);
+    $due = $invoice->fresh()->due_date;
+
+    app(Settings::class)->set('core.date_format', 'd/m/Y');
+    expect(renderInvoiceHtml($invoice->fresh()))->toContain($due->format('d/m/Y'));
+
+    app(Settings::class)->set('core.date_format', 'YYYY-MM-DD');
+    expect(renderInvoiceHtml($invoice->fresh()))->toContain($due->format('M j, Y'))->not->toContain('YYYY');
 });

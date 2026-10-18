@@ -5,6 +5,7 @@ namespace App\Modules\Orders\Database\Seeders;
 use App\Contracts\Catalog\PriceBook;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Actions\AcceptOrder;
@@ -22,7 +23,6 @@ use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Enums\PromotionType;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\Promotion;
-use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -33,7 +33,7 @@ use Illuminate\Validation\ValidationException;
  * sibling contracts. Products are looked up by the Catalog seeder's slugs (starter, pro, business,
  * vps-s, vps-m); orders whose products don't exist are skipped.
  */
-class OrdersSeeder extends Seeder
+class OrdersSeeder extends DemoSeeder
 {
     public function run(): void
     {

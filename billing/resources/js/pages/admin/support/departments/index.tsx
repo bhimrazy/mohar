@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Inbox, Plus } from 'lucide-react';
 import DepartmentController from '@/actions/App/Modules/Support/Http/Controllers/Admin/DepartmentController';
 import { DataTable } from '@/components/app/data-table';

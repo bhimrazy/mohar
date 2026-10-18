@@ -91,7 +91,8 @@ test('every checked permission and tunable setting is registered', function () {
         expect($permissions->exists($permission))->toBeTrue();
     }
 
-    $registered = collect(app(SettingsRegistry::class)->sections()['domains']['settings'])->pluck('key')->all();
+    $sections = app(SettingsRegistry::class)->sections();
+    $registered = collect([...$sections['domains']['settings'], ...$sections['domains_conversion']['settings']])->pluck('key')->all();
     $defaults = array_map(fn (string $key): string => "domains.{$key}", array_keys(config('domains')));
 
     expect(array_diff($defaults, $registered))->toBe([]);

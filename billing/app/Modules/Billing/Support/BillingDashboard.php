@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Support\BusinessCalendar;
 use App\Modules\Core\Support\CurrencyRollup;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Dashboard\Trend;
 use App\Support\Money;
@@ -275,7 +276,7 @@ class BillingDashboard
                     'title' => $transaction->client->display_name,
                     'subtitle' => collect([$transaction->invoice?->displayNumber() ?? 'Account credit', $transaction->occurred_at->diffForHumans()])->implode(' · '),
                     'href' => $transaction->invoice_id !== null ? route('admin.billing.invoices.show', $transaction->invoice_id) : route('admin.billing.transactions.index'),
-                    'meta' => Money::of($transaction->amount_in, $transaction->currency)->format(),
+                    'meta' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in, $transaction->currency)),
                     'money' => ['amount' => $transaction->amount_in, 'currency' => $transaction->currency],
                     'date' => $transaction->occurred_at->toIso8601String(),
                 ])->all()),

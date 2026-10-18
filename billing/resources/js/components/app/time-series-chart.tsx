@@ -16,7 +16,11 @@ import {
     ChartTooltipContent,
 } from '@/components/ui/chart';
 import type { ChartConfig } from '@/components/ui/chart';
-import { formatMoney, formatMoneyCompact } from '@/lib/money';
+import {
+    formatMoney,
+    formatMoneyCompact,
+    formatNumberCompact,
+} from '@/lib/money';
 import { cn } from '@/lib/utils';
 
 /** Matches the backend `chart` dashboard widget payload (App\Support\Dashboard\Dashboard). */
@@ -48,6 +52,10 @@ type TimeSeriesChartProps = {
     className?: string;
     /** Accessible name, e.g. "Income, last 12 months". */
     label: string;
+    /** 'zero' anchors the y-axis at 0 (amounts, counts); 'fit' zooms to the data (exchange rates). */
+    yScale?: 'zero' | 'fit';
+    /** 'step' holds each value until the next point (rates that change on a date). */
+    curve?: 'smooth' | 'step';
 };
 
 const COMPARE_COLOR = 'var(--muted-foreground)';
@@ -173,6 +181,8 @@ export function TimeSeriesChart({
     showLegend = series.length > 1,
     className,
     label,
+    yScale = 'zero',
+    curve = 'smooth',
 }: TimeSeriesChartProps) {
     const uid = useId().replace(/:/g, '');
     const formatX = makeFormatX(xFormat, series[0]?.points ?? []);
@@ -196,11 +206,14 @@ export function TimeSeriesChart({
     const formatValue = (value: number) =>
         currency
             ? formatMoney(value, currency, locale)
-            : value.toLocaleString(locale);
+            : value.toLocaleString(locale, { maximumFractionDigits: 6 });
+    // Compact amounts and counts use the product's own K/L/Cr and K/M/B units, never Intl's abbreviations.
     const formatAxis = (value: number) =>
         currency
             ? formatMoneyCompact(value, currency, locale)
-            : Intl.NumberFormat(locale, { notation: 'compact' }).format(value);
+            : yScale === 'fit'
+              ? value.toLocaleString(locale, { maximumFractionDigits: 2 })
+              : formatNumberCompact(value);
 
     const common = (
         <>
@@ -224,7 +237,8 @@ export function TimeSeriesChart({
                 tickMargin={8}
                 width={currency ? 64 : 32}
                 tickCount={4}
-                allowDecimals={false}
+                allowDecimals={yScale === 'fit'}
+                domain={yScale === 'fit' ? ['auto', 'auto'] : undefined}
                 tickFormatter={formatAxis}
                 className="tabular-nums"
             />
@@ -347,7 +361,11 @@ export function TimeSeriesChart({
                                 <Area
                                     key={key}
                                     dataKey={key}
-                                    type="monotone"
+                                    type={
+                                        curve === 'step'
+                                            ? 'stepAfter'
+                                            : 'monotone'
+                                    }
                                     stroke={`var(--color-${key})`}
                                     strokeWidth={isCompare ? 1.5 : 2}
                                     strokeDasharray={

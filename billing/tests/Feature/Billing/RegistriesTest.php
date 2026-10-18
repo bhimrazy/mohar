@@ -103,7 +103,7 @@ test('merge fields resolve invoices, quotes and transactions with the client id'
     $quote = Quote::factory()->create();
     $registry = app(MergeFieldRegistry::class);
 
-    expect($registry->resolve('invoice', $invoice->id))->toMatchArray(['client_id' => $invoice->client_id, 'number' => $invoice->number, 'total' => '12.34 USD'])
+    expect($registry->resolve('invoice', $invoice->id))->toMatchArray(['client_id' => $invoice->client_id, 'number' => $invoice->number, 'total' => '$12.34'])
         ->and($registry->resolve('quote', $quote->id))->toHaveKey('client_id', $quote->client_id)
         ->and($registry->resolve('transaction', $transaction->id))->toMatchArray(['client_id' => $invoice->client_id, 'invoice_id' => $invoice->id]);
 });

@@ -1,4 +1,5 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Inbox } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';

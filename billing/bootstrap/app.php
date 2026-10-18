@@ -20,6 +20,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
+        // Reject requests for hosts other than APP_URL's (Laravel skips this check in local and in tests).
+        $middleware->trustHosts();
+
         $middleware->alias([
             'staff' => EnsureStaff::class,
             'client.area' => ResolveClientContext::class,

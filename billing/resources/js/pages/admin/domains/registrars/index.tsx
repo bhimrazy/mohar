@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { PlugZap, Server } from 'lucide-react';
 import type { FormEvent } from 'react';
 import RegistrarController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/RegistrarController';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
+import { capabilityLabel } from '@/components/domains/capabilities';
 
 type SchemaField = {
     key: string;
@@ -77,7 +79,7 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                         )}
                     </span>
                 }
-                description={`Key "${registrar.key}" · ${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
+                description={`${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
                 actions={
                     <ConfirmDialog
                         trigger={
@@ -204,9 +206,9 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                         <Badge
                             key={capability}
                             variant="secondary"
-                            className="font-mono text-xs"
+                            className="text-xs"
                         >
-                            {capability}
+                            {capabilityLabel(capability)}
                         </Badge>
                     ))}
                 </div>

@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Play, Timer } from 'lucide-react';
 import { useState } from 'react';
 import AutomationController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/AutomationController';

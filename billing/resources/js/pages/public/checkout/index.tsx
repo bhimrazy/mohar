@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     AlertTriangle,
     CreditCard,

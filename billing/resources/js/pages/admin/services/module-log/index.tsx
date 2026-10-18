@@ -1,4 +1,5 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CheckCircle2 } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';

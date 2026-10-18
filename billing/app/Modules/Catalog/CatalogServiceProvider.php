@@ -16,6 +16,7 @@ use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Services\CatalogPriceBook;
 use App\Modules\Core\Support\Settings;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\PriceConverters;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -57,6 +58,8 @@ class CatalogServiceProvider extends ModuleServiceProvider
         Event::listen(ServiceActivated::class, [TrackStockReservations::class, 'serviceActivated']);
         Event::listen(OrderCancelled::class, [TrackStockReservations::class, 'orderCancelled']);
 
+        $this->app->make(PriceConverters::class)->register(ConvertPrices::class);
+
         $this->app->make(Automation::class)->task('catalog.convert-prices', Automation::SYNC, function (CarbonImmutable $today): int|string {
             return $this->app->make(Settings::class)->get('catalog.auto_convert_prices', false)
                 ? $this->app->make(ConvertPrices::class)->handle()
@@ -95,11 +98,15 @@ class CatalogServiceProvider extends ModuleServiceProvider
                 ['in:'.implode(',', array_column(AutoSetup::cases(), 'value'))]),
             new SettingDefinition('catalog.default_taxable', 'New products are taxable', 'boolean',
                 'Prevents silently untaxed invoices for products created without ticking "taxable".'),
-            new SettingDefinition('catalog.auto_convert_prices', 'Convert prices from the default currency daily', 'boolean',
-                'Overwrites prices in other currencies with the default-currency price × exchange rate.'),
             new SettingDefinition('catalog.show_monthly_breakdown', 'Show a monthly equivalent for longer billing cycles', 'boolean',
                 'The store shows e.g. an annual price as "$8.25/mo".'),
         ], 'catalog.settings.manage');
+
+        // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.
+        $this->app->make(SettingsRegistry::class)->section('catalog_conversion', 'Converted product prices', [
+            new SettingDefinition('catalog.auto_convert_prices', 'Convert prices from the default currency automatically', 'boolean',
+                'After exchange rates change, prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept. Preview first in Currencies → Converted prices.'),
+        ], 'core.currencies.rates');
     }
 
     private function registerSearch(): void

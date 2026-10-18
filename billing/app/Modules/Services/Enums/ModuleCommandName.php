@@ -27,6 +27,36 @@ enum ModuleCommandName: string
     }
 
     /**
+     * The action as a noun, for the activity log: "Account creation failed for …".
+     */
+    public function noun(): string
+    {
+        return match ($this) {
+            self::Create => 'Account creation',
+            self::Suspend => 'Suspension',
+            self::Unsuspend => 'Unsuspension',
+            self::Terminate => 'Termination',
+            self::ChangePackage => 'Package change',
+            self::ChangePassword => 'Password change',
+        };
+    }
+
+    /**
+     * What a successful run did, for the activity log: "Account created".
+     */
+    public function pastTense(): string
+    {
+        return match ($this) {
+            self::Create => 'Account created',
+            self::Suspend => 'Account suspended',
+            self::Unsuspend => 'Account unsuspended',
+            self::Terminate => 'Account terminated',
+            self::ChangePackage => 'Package changed',
+            self::ChangePassword => 'Password changed',
+        };
+    }
+
+    /**
      * The status a successful run moves the service to, or null when the status does not change.
      */
     public function targetStatus(): ?ServiceStatus

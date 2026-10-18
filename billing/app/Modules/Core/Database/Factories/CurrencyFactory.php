@@ -31,11 +31,11 @@ class CurrencyFactory extends Factory
 
     public function inr(): static
     {
-        return $this->state(['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'exchange_rate' => 84, 'is_default' => false]);
+        return $this->state(['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'format' => '1,23,456.78', 'exchange_rate' => 84, 'is_default' => false]);
     }
 
     public function npr(): static
     {
-        return $this->state(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'exchange_rate' => 134.4, 'is_default' => false]);
+        return $this->state(['code' => 'NPR', 'name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'format' => '1,23,456.78', 'exchange_rate' => 134.4, 'is_default' => false]);
     }
 }

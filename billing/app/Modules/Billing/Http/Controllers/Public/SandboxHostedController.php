@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Http\Controllers\Public;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -21,7 +22,7 @@ class SandboxHostedController extends Controller
 
         return view('billing::sandbox.checkout', [
             'reference' => $reference,
-            'amount' => Money::of($state['amount'], $state['currency'])->format(),
+            'amount' => app(MoneyFormatter::class)->format(Money::of($state['amount'], $state['currency'])),
             'description' => $state['description'],
         ]);
     }

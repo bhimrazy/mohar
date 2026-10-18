@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
+  currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
+  held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
+  `core.*` never grant it, and each change needs a recent password. Roles that held only `core.currencies.manage`
+  keep currency display settings; grant `core.currencies.rates` explicitly to staff who maintain rates.
+- Exchange-rate columns widen to `decimal(24,12)` (currencies, rate history, reviews, transactions, payment
+  batches and attempts). Existing values are kept; rolling the migrations back rounds rates to six decimals.
+- Existing prices in non-default currencies are marked "set manually" (TLD prices always; product prices when
+  automatic conversion was off), so the first price conversion leaves them unchanged.
+
 ### Platform foundation
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
@@ -85,6 +97,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Real UI for the admin dashboard, clients index/show/form, client dashboard and account details.
 - Permission catalog: `core.clients.create|update` replace `core.clients.manage`.
 
+- Product polish (sweep 1): breadcrumbs on every admin and client page; the Date format setting now applies to
+  every screen and the invoice PDF (allowed formats in `Core\Support\DateFormats`; default "Oct 24, 2026", and
+  values off the list fall back to it). Installs where Company settings were saved before have `Y-m-d` stored,
+  so their dates switch to `2026-10-24` until an admin picks another format. Knowledge base, announcements and
+  network status stay inside the client area for signed-in customers; the home page links to the store, domain
+  search and support; registrar names and readable activity entries replace internal keys.
+
 ### Catalog
 
 - Product groups and products with currency × billing-cycle pricing and setup fees (minor units), configurable options
@@ -118,6 +137,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+
+### Database hardening (audit 1)
+
+- Whole-database audit on PostgreSQL with 100k clients and 1M-row log tables:
+  `docs/database/audit-2026-10-18.md` (findings per module, EXPLAIN before/after, queries per page).
+- 55 indexes in eight migrations: every foreign key now has an index (PostgreSQL does not add them), plus the
+  transaction list sort, client sign-up date and `lower(email)` sender matching. Built CONCURRENTLY through the
+  new `OnlineIndex` helper (refuses to run inside a transaction or to reuse a differently defined index). The admin order list went from 0.7–9 s to 4 ms; client service and order lists,
+  service addons, usage history, module and registrar logs, and user deletes stopped scanning whole tables.
+- Constraints: one default currency, and one default-list TLD price per TLD, currency and years (partial
+  unique indexes; NULL `client_group_id` had bypassed the unique key).
+- Fixed: daily automation (suspensions, terminations, cancellations, limited-service completion, upgrade
+  expiry, stale-order cancellation) skipped a page of matches after every 1,000 rows it changed; it now pages by
+  id. Usage sync no longer stores a second snapshot when re-run for an earlier date.
+- Order and transaction date filters use index ranges instead of `whereDate()` on timestamps; settings are read
+  once per request instead of one cache query per lookup (33 per admin page); retention pruning deletes in
+  batches (`ChunkedDelete`, which keeps rows that stopped matching after selection).
+- Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
+  with a known password); production reference data comes from the install path in #47.
 
 ### DevOps
 

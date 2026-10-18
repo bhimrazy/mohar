@@ -18,6 +18,9 @@ use Closure;
  */
 class Automation
 {
+    /** Exchange rates are refreshed first so renewals and converted prices use the day's rates. */
+    public const EXCHANGE_RATES = 5;
+
     public const RENEWALS = 10;
 
     public const LATE_FEES = 20;

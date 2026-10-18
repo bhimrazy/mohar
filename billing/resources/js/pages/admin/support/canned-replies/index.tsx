@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { MessageSquareText, Plus, X } from 'lucide-react';
 import CannedReplyCategoryController from '@/actions/App/Modules/Support/Http/Controllers/Admin/CannedReplyCategoryController';
 import CannedReplyController from '@/actions/App/Modules/Support/Http/Controllers/Admin/CannedReplyController';

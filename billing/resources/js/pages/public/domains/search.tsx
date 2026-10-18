@@ -1,4 +1,5 @@
-import { Head, router } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CheckCircle2, Search, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import type { FormEvent } from 'react';

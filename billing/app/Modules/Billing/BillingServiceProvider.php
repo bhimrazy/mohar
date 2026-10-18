@@ -32,6 +32,7 @@ use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
@@ -42,10 +43,13 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 
 class BillingServiceProvider extends ModuleServiceProvider
 {
@@ -81,6 +85,11 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
+        // signed-in user so one account can't get the key throttled or flagged at the provider.
+        RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
+            ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
 
         // Step-up middleware is owned by Platform; provide the same contract when Platform isn't installed.
         $router = $this->app->make(Router::class);
@@ -184,10 +193,8 @@ class BillingServiceProvider extends ModuleServiceProvider
      */
     private static function moneyValue(Money $money): array
     {
-        $currency = Currency::query()->where('code', $money->currency)->first();
-
         return [
-            'value' => $currency !== null ? $currency->format($money) : $money->format(),
+            'value' => app(MoneyFormatter::class)->format($money),
             'money' => ['amount' => $money->amount, 'currency' => $money->currency],
         ];
     }
@@ -196,6 +203,9 @@ class BillingServiceProvider extends ModuleServiceProvider
      * Money-moving and security-relevant permissions: never granted by wildcards (only explicitly or by "*"),
      * and their routes require a recent password confirmation (password.recent).
      */
+    /** Client pay requests (invoice and batch) per user per minute. */
+    public const PAY_REQUESTS_PER_MINUTE = 10;
+
     public const SENSITIVE_PERMISSIONS = [
         'billing.refunds.manage',
         'billing.payments.manage',
@@ -302,7 +312,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             ->search($term)->latest('id')->limit(5)->get()
             ->map(fn (Invoice $invoice): array => [
                 'title' => $invoice->displayNumber(),
-                'subtitle' => $invoice->client->display_name.' · '.Money::of($invoice->total, $invoice->currency)->format(),
+                'subtitle' => $invoice->client->display_name.' · '.app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
                 'href' => route('admin.billing.invoices.show', $invoice),
             ])->all()), 'billing.invoices.view');
     }
@@ -320,9 +330,9 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'number' => $invoice->displayNumber(),
                 'status' => $invoice->displayStatus(),
                 'currency' => $invoice->currency,
-                'total' => Money::of($invoice->total, $invoice->currency)->format(),
-                'balance' => Money::of($invoice->balance, $invoice->currency)->format(),
-                'amount_paid' => Money::of($invoice->amount_paid, $invoice->currency)->format(),
+                'total' => app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
+                'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
+                'amount_paid' => app(MoneyFormatter::class)->format(Money::of($invoice->amount_paid, $invoice->currency)),
                 'issue_date' => $invoice->issue_date?->toDateString(),
                 'due_date' => $invoice->due_date?->toDateString(),
                 'payment_gateway' => $invoice->payment_gateway,
@@ -339,7 +349,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'number' => $quote->displayNumber(),
                 'subject' => $quote->subject,
                 'stage' => $quote->stage->value,
-                'total' => Money::of($quote->total, $quote->currency)->format(),
+                'total' => app(MoneyFormatter::class)->format(Money::of($quote->total, $quote->currency)),
                 'valid_until' => $quote->valid_until?->toDateString(),
                 'url' => route('client.quotes.show', $quote),
             ];
@@ -355,7 +365,7 @@ class BillingServiceProvider extends ModuleServiceProvider
                 'type' => $transaction->type->value,
                 'gateway' => $transaction->gateway,
                 'reference' => $transaction->gateway_txn_id,
-                'amount' => Money::of($transaction->amount_in > 0 ? $transaction->amount_in : $transaction->amount_out, $transaction->currency)->format(),
+                'amount' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in > 0 ? $transaction->amount_in : $transaction->amount_out, $transaction->currency)),
                 'date' => $transaction->occurred_at->toDateString(),
             ];
         });

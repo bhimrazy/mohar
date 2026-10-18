@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     ArrowUpRight,
     Contact as ContactIcon,
@@ -44,6 +45,21 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { navIcon } from '@/lib/nav-icons';
 import type { ClientRecord } from '@/types';
+
+/** "en" -> "English"; falls back to the stored code. */
+function languageName(code: string): string {
+    if (!code) {
+        return code;
+    }
+
+    try {
+        return (
+            new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+        );
+    } catch {
+        return code;
+    }
+}
 
 type Props = {
     client: ClientRecord;
@@ -487,7 +503,7 @@ export default function ClientShow({
                                     },
                                     {
                                         label: 'Language',
-                                        value: client.language,
+                                        value: languageName(client.language),
                                     },
                                     ...(client.closed_at
                                         ? [
@@ -623,7 +639,7 @@ export default function ClientShow({
                                     },
                                     {
                                         label: 'Language',
-                                        value: client.language,
+                                        value: languageName(client.language),
                                     },
                                     ...(client.closed_at
                                         ? [

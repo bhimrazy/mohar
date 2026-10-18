@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\Settings;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -125,6 +126,46 @@ test('the next read sees an updated setting even through a fresh Settings instan
     expect((new Settings(app(SettingsRegistry::class)))->get('core.company_name'))->toBe('Northwind Hosting');
 });
 
+test('every page receives the date format setting so dates follow it', function () {
+    actingAsClient();
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', 'M j, Y'));
+
+    app(Settings::class)->set('core.date_format', 'd/m/Y');
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', 'd/m/Y'));
+});
+
+test('a stored date format that is not on the list falls back to the default', function () {
+    actingAsClient();
+    app(Settings::class)->set('core.date_format', 'YYYY-MM-DD');
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', DateFormats::DEFAULT));
+});
+
+test('the admin select offers exactly the supported date formats', function () {
+    actingAsStaff(['core.settings.update']);
+
+    $this->put(route('admin.platform.settings.update', ['section' => 'company']), ['core' => [
+        'company_name' => 'Northwind Hosting',
+        'company_email' => 'billing@northwind.test',
+        'default_country' => 'GB',
+        'date_format' => 'F j, Y',
+        'automation_time' => '04:30',
+    ]])->assertSessionHasErrors('core.date_format');
+});
+
+test('the browser formatter accepts the same date formats as the server', function () {
+    $source = file_get_contents(resource_path('js/lib/date.ts'));
+    preg_match('/DATE_FORMATS = new Set\(\[(.*?)\]\)/s', $source, $match);
+    preg_match_all("/'([^']+)'/", $match[1] ?? '', $formats);
+
+    expect($formats[1])->toEqualCanonicalizing(array_keys(DateFormats::OPTIONS));
+});
+
 test('unknown sections return 404', function () {
     actingAsStaff();
 
@@ -180,13 +221,13 @@ test('only registered secrets are decrypted, and only with ciphertext bound to t
 
     // Ciphertext copied into a non-secret setting is shown as the opaque string, never decrypted.
     DB::table('settings')->insert(['key' => 'acme.label', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
-    Cache::forget('core.settings');
+    Cache::memo()->forget('core.settings');
     expect($settings->get('acme.label'))->not->toContain('sk_bound_111');
 
     // Ciphertext copied into another secret setting is refused.
     app(SettingsRegistry::class)->section('acme2', 'Acme 2', [new SettingDefinition('acme.other_key', 'Other key', secret: true)]);
     DB::table('settings')->insert(['key' => 'acme.other_key', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
-    Cache::forget('core.settings');
+    Cache::memo()->forget('core.settings');
     expect($settings->get('acme.other_key', 'fallback'))->toBe('fallback')
         ->and($settings->get('acme.api_key'))->toBe('sk_bound_111');
 });

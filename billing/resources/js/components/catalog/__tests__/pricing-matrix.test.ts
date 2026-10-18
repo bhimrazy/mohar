@@ -31,6 +31,7 @@ describe('rowsFromMatrix', () => {
                 enabled: true,
                 amount: 129950,
                 setup_fee: 500,
+                manual: false,
             },
         ]);
     });
@@ -58,6 +59,7 @@ describe('rowsFromMatrix', () => {
                 enabled: true,
                 amount: null,
                 setup_fee: 0,
+                manual: false,
             },
         ]);
     });
@@ -103,6 +105,7 @@ describe('rowsFromMatrix', () => {
                 enabled: false,
                 amount: 9900,
                 setup_fee: 0,
+                manual: false,
             },
         ]);
     });
@@ -128,11 +131,49 @@ describe('matrixFromRows', () => {
             enabled: true,
             amount: '99.00',
             setup_fee: '',
+            manual: false,
         });
         expect(matrix['USD|monthly']).toEqual({
             enabled: false,
             amount: '',
             setup_fee: '',
+            manual: false,
+        });
+    });
+
+    it('carries the manual flag of stored rows through to the submitted rows', () => {
+        const matrix = matrixFromRows(
+            [
+                {
+                    currency: 'NPR',
+                    cycle: 'monthly',
+                    enabled: true,
+                    amount: 150000,
+                    setup_fee: 0,
+                    manual: true,
+                },
+            ],
+            [
+                ...currencies,
+                {
+                    code: 'NPR',
+                    name: 'Nepalese Rupee',
+                    prefix: 'Rs ',
+                    is_default: false,
+                },
+            ],
+            cycles,
+        );
+
+        expect(
+            rowsFromMatrix(matrix).find((row) => row.currency === 'NPR'),
+        ).toEqual({
+            currency: 'NPR',
+            cycle: 'monthly',
+            enabled: true,
+            amount: 150000,
+            setup_fee: 0,
+            manual: true,
         });
     });
 

@@ -3,7 +3,10 @@
 namespace App\Http\Middleware;
 
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Currencies\CurrencyDirectory;
+use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\DateFormats;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -44,6 +47,8 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $request->user(),
             ],
+            // Display settings per currency (prefix, suffix, grouping) so formatMoney matches server output.
+            'currencyFormats' => fn (): array => array_map(fn (CurrencyDisplay $display): array => $display->toArray(), app(CurrencyDirectory::class)->displays()),
             'area' => $area = $this->area($request),
             'navigation' => fn (): array => $request->user() ? app(Navigation::class)->forUser($area, $request->user()) : [],
             'quickActions' => fn (): array => $area === 'admin' && $request->user() ? app(Navigation::class)->quickActions($request->user()) : [],
@@ -52,6 +57,7 @@ class HandleInertiaRequests extends Middleware
                     ->map(fn ($client): array => ['id' => $client->id, 'name' => $client->display_name])->all()
                 : [],
             'currentClientId' => fn (): ?int => $request->session()->get(ClientContext::SESSION_KEY),
+            'dateFormat' => fn (): string => DateFormats::current(),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

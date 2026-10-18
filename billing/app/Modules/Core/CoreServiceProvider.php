@@ -5,6 +5,7 @@ namespace App\Modules\Core;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Currencies\CurrencyDirectory;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
@@ -13,9 +14,11 @@ use App\Contracts\Services\ProvisioningDrivers;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
+use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\CurrencyRollup;
+use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\NullCatalogUsage;
@@ -51,6 +54,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+        $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
         $this->app->bindIf(CatalogUsage::class, NullCatalogUsage::class);
@@ -98,7 +102,7 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
             new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
-            new SettingDefinition('core.date_format', 'Date format', 'select', options: ['Y-m-d' => '2026-10-24', 'd/m/Y' => '24/10/2026', 'm/d/Y' => '10/24/2026', 'd.m.Y' => '24.10.2026']),
+            new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
         ], 'core.settings.update');
 

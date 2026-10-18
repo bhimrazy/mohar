@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Plus, Puzzle } from 'lucide-react';
 import AddonController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/AddonController';
 import { DataTable } from '@/components/app/data-table';
@@ -61,7 +62,7 @@ export default function AddonsIndex({
         },
         {
             key: 'price',
-            header: `From (${currency})`,
+            header: 'From',
             align: 'right',
             cell: (addon) =>
                 addon.payment_type === 'free' ? (

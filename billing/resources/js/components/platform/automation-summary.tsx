@@ -46,6 +46,7 @@ export type AutomationInsights = {
 };
 
 export const STAGES: Record<number, string> = {
+    5: 'Exchange rates',
     10: 'Renewals',
     20: 'Late fees',
     30: 'Auto-charge',
