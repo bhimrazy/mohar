@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -42,16 +41,8 @@ return new class extends Migration
             $table->timestamps();
             $table->unique(['event_id', 'webhook_endpoint_id']);
             $table->index('created_at');
-            $table->index(['webhook_endpoint_id', 'id']);          // endpoint delivery log (also covers the FK)
+            // Composite and partial lookup indexes: 2026_10_18_800300 (OnlineIndex).
         });
-
-        // notifications:retry-webhooks scans only due, unfinished deliveries: a partial index where the
-        // database supports one, else a composite.
-        if (in_array(DB::connection()->getDriverName(), ['pgsql', 'sqlite'], true)) {
-            DB::statement("CREATE INDEX webhook_deliveries_due_index ON webhook_deliveries (next_attempt_at, id) WHERE status IN ('pending', 'failed') AND next_attempt_at IS NOT NULL");
-        } else {
-            Schema::table('webhook_deliveries', fn (Blueprint $table) => $table->index(['status', 'next_attempt_at'], 'webhook_deliveries_due_index'));
-        }
     }
 
     public function down(): void

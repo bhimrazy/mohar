@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Actions;
 
+use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\WebhookDelivery;
@@ -32,14 +33,8 @@ class PruneNotificationLogs
                     ->update(['body_html' => null, 'body_text' => null, 'body_purged_at' => now()]);
             });
 
-        $deleted = 0;
-        do {
-            $ids = WebhookDelivery::query()
-                ->where('created_at', '<', $today->subDays($deliveryDays)->startOfDay())
-                ->orderBy('id')->limit(1000)->pluck('id');
-            $deleted += $ids->isEmpty() ? 0 : WebhookDelivery::query()->whereKey($ids->all())->delete();
-        } while ($ids->count() === 1000);
+        $deleted = ChunkedDelete::run(WebhookDelivery::query()->where('created_at', '<', $today->subDays($deliveryDays)->startOfDay()));
 
-        return $purged + (int) $deleted;
+        return $purged + $deleted;
     }
 }
