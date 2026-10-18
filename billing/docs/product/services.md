@@ -157,17 +157,22 @@ amount_due        = charge − credit
 
 ## 7. Provisioning driver contract (MUST unless tagged)
 
-`interface ProvisioningDriver`:
+The contract is in the kernel (ADR 0009): `App\Contracts\Services\Provisioning\ProvisioningDriver` plus capability
+interfaces, registered with `App\Support\Services\ProvisioningDriverRegistry::register()`.
 
-- `metadata(): DriverMetadata` — key, display name, `requires_server`, default ports (plain/TLS), capability flags (`change_package, change_password, usage, sso_service, sso_server, renew, list_accounts, custom_actions`), product config field schema, server field schema.
-- `testConnection(Server): Result`
-- `create(ServiceContext): Result` (returns username/password/IP/driver_data), `suspend(ServiceContext, reason)`, `unsuspend`, `terminate`,
-  `changePackage(ServiceContext, previous)`, `changePassword(ServiceContext, newPassword)`, `renew` (SHOULD).
-- `usage(Server): array<accountKey, UsageRow>` per **server**, daily (SHOULD).
-- `serviceSsoUrl(ServiceContext)` / `serverSsoUrl(Server)` → short-lived URL (SHOULD).
-- `listAccounts(Server)` for reconciliation (COULD); `customActions()` admin/client buttons (COULD).
-- `ServiceContext` contains: service, client (minimal), product driver_config, option `module_key → module_value`, custom fields by `module_key`, server with credentials decrypted lazily.
-- `Result{success, message, retryable, data}`; drivers throw `RetryableProvisioningException` for transient faults. Drivers must be idempotent where the panel allows (e.g., `create` for an existing identical account → success).
+- Core: `key()`, `name()`, `metadata(): DriverMetadata` (`requires_server`, default ports, product and server settings
+  as `SettingField`s, optional `UsernamePolicy` and command timeout), `create`, `suspend(context, reason)`,
+  `unsuspend`, `terminate`, each taking a `ProvisioningContext` snapshot (service, server connection with decrypted
+  credentials, client summary, product settings, options and custom fields by `module_key`) and returning a
+  `DriverResult` (completed, rejected, retryable or unknown).
+- Capabilities (detected with `instanceof`, listed for the UI by the registry): `ChangesPackage`, `ChangesPassword`,
+  `ReportsUsage` (per server, daily, SHOULD), `TestsServerConnection`, `ProvidesServiceSso` / `ProvidesServerSso`
+  (SHOULD), `ListsAccounts` (COULD), `RenewsAccounts` (SHOULD), `ProvidesFieldOptions` (remote-filled selects),
+  `ReconcilesCommands` (settle unknown outcomes). `customActions()` admin/client buttons stay COULD.
+- Drivers are stateless, never read or write the host's tables, report changes only through `DriverResult::$data`, throw
+  `RetryableProvisioningException` only when the request provably did not run, and are idempotent where the panel allows
+  (e.g., `create` for an existing identical account → success). Every driver passes
+  `tests/Support/Contracts/ProvisioningDriverContract.php`.
 - Ship drivers: `none` (manual: status changes only, welcome email), `log` (demo: records calls, configurable failure injection for tests).
 
 ## 8. Command execution, logging, retries

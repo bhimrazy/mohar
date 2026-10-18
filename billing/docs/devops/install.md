@@ -162,15 +162,17 @@ The scheduler writes a heartbeat every minute and runs the daily automation pipe
 Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
 
 ```bash
-php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=85
+php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
 php artisan queue:work --queue=default --tries=3
 ```
 
 The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
-calls gateways, control panels and registrars: its `--timeout` must stay above the drivers' own timeouts (module jobs
-use `services.module.job_timeout_seconds`, 60 s) and below the queue connection's `retry_after` (90 s), or a slow job
-is started twice. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+calls gateways, control panels and registrars. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
+or after the driver's declared command timeout up to `services.module.max_job_timeout_seconds` (180 s); the pool's
+`--timeout` (200 s) must be at least that cap plus the 20 s lock slack, and below the queue connection's `retry_after`
+(240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
+the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
 
 A minimal systemd unit for one pool:
 
