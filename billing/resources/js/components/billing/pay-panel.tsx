@@ -1,5 +1,5 @@
 import { router, usePage } from '@inertiajs/react';
-import { CreditCard, Landmark } from 'lucide-react';
+import { CreditCard, Landmark, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Money } from '@/components/app/money';
 import { StatusBadge } from '@/components/app/status-badge';
@@ -160,7 +160,12 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             checked={gateway === option.key}
                             onChange={setGateway}
                         >
-                            {option.kind !== 'offline' ? (
+                            {option.kind === 'redirect' ? (
+                                <Wallet
+                                    className="size-4 text-muted-foreground"
+                                    aria-hidden="true"
+                                />
+                            ) : option.kind === 'card' ? (
                                 <CreditCard
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
