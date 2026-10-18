@@ -55,3 +55,30 @@ test('url-encoded and base64 forms of known secrets are masked', function () {
 test('messages are masked with the same variants', function () {
     expect((new Redactor)->maskValues('login as root:hunter22 failed', ['hunter22', 'ab']))->toBe('login as root:[redacted] failed');
 });
+
+test('cPanel session keys and cpsess tokens are masked, and SSO answers can mark url as secret', function () {
+    $redacted = (new Redactor)->redact([
+        'pass' => 'x1',
+        'cp_security_token' => '/cpsess1234567890',
+        'session' => 'root:abc',
+        'note' => 'redirect to https://web1.test:2087/cpsess9876543210/login',
+        'data' => ['url' => 'https://web1.test:2083/cpsess111/login/?session=u:x', 'expires' => 1700000000],
+    ], sensitiveKeys: ['url']);
+
+    expect($redacted)->toBe([
+        'pass' => '[redacted]',
+        'cp_security_token' => '[redacted]',
+        'session' => '[redacted]',
+        'note' => 'redirect to https://web1.test:2087/[redacted]/login',
+        'data' => ['url' => '[redacted]', 'expires' => 1700000000],
+    ])->and((new Redactor)->redact(['url' => 'https://web1.test/json-api/version']))->toBe(['url' => 'https://web1.test/json-api/version']);
+});
+
+test('raw output excerpts are redacted, masked and capped', function () {
+    $redactor = new Redactor;
+    $json = json_encode(['metadata' => ['reason' => 'Bad password hunter22'], 'data' => ['password' => 'p']]);
+
+    expect($redactor->excerpt((string) $json, ['hunter22']))->toBe('{"metadata":{"reason":"Bad password [redacted]"},"data":{"password":"[redacted]"}}')
+        ->and($redactor->excerpt('token cpsess42 rejected for hunter22', ['hunter22']))->toBe('token [redacted] rejected for [redacted]')
+        ->and(strlen($redactor->excerpt(str_repeat('a', 10_000))))->toBe(Redactor::EXCERPT_BYTES);
+});
