@@ -316,6 +316,9 @@ A lookup on an already-paid attempt that reports Refunded / FULL_REFUND does **n
 creates a staff todo with a "record refund" action, so a refund made in the provider portal does not leave the
 customer with credit they never had.
 
+**Deferred (CTO, 2026-10-18): issue #27.** v1 never looks up an attempt again once it is paid, so a refund made in the
+provider portal after payment is not detected yet. Attempts refunded _before_ we saw them do go to staff review.
+
 ## 4. Security checklist
 
 - [x] Secrets (Khalti key, eSewa secret, ConnectIPS password + PEM, Fonepay secret) stay only in `gateways.config`
@@ -334,15 +337,17 @@ customer with credit they never had.
       applied to `initiate`.
 - [x] IP allow-list: no provider publishes callback ranges, and there are no server callbacks in v1, so this is
       N/A. Restrict **egress** instead (Khalti, eSewa and NCHL hosts; IME port 7979).
-- [x] Outbound HTTP: connect timeout 5s, total 15s, `retry(2)` on lookups only (never on initiate or refund
-      without a fresh reference), TLS verification on, and a pinned host per environment from config (never taken from
-      user input).
+- [x] Outbound HTTP: connect timeout 5s, total 15s, `retry(2)` on background lookups only (never on initiate, refund
+      or the customer's return, which makes one try with a 6 s timeout), TLS verification on, and a pinned host per
+      environment from config (never taken from user input). Pinning chooses which hosts we call; it is not an egress
+      firewall.
 - [x] Sandbox and live keys are separate. The sandbox toggle switches endpoints, and the admin shows a "SANDBOX"
       badge on the gateway and on the invoice payment rows.
 - [x] The open redirect is closed: `return_url`/`success_url` are built server-side from route names, and the
-      reference is validated against `[a-z0-9-]{3,20}`.
+      reference is validated against `[a-z0-9-]{3,40}` (the attempt reference is 26 characters, see §8.4).
 - [x] Rate limits are not published by any provider. Apply our own: throttle the return route (60/min/IP), allow at
-      most 1 lookup per attempt per minute, and back off on 5xx or `code:0`.
+      most 1 lookup per attempt per minute, back off on 5xx or `code:0`, and limit client pay requests (single and
+      batch) to 10 per minute per user, since each can open a provider session with the merchant key.
 
 ## 5. Testing strategy
 
@@ -426,13 +431,19 @@ merchants).
       in sandbox mode can't be activated in production, isn't offered to clients there, and can't be charged.
     - Required settings must be filled before a gateway is activated.
     - A failed initiate closes the attempt with a safe message.
+    - Review round 1:
+        - The customer's return makes one quick lookup (`PaymentAttemptRef::$interactive`, 3 s connect and 6 s
+          total), and anything inconclusive is left to the poller, which keeps the retries.
+        - Client pay requests are limited per user (`throttle:billing-pay`, 10 per minute).
+        - The provider form is stored per attempt and served once.
+        - The form page fails closed for a sandbox attempt once test money is not allowed.
+        - An `AMBIGUOUS` lookup records its reason for staff.
     - New optional contract `ConnectionTester` with DTO `ConnectionCheck`, used by the admin "Test connection" button.
 - **Not built (follow-ups):**
     - ConnectIPS: needs NCHL onboarding and PFX → PEM signing, and its `TXNID` max of 20 characters requires a short
       provider reference (see §8.4).
     - Fonepay and IME Pay.
-    - §3.5: a lookup of an already _paid_ attempt is never repeated, so a refund made in the provider portal after
-      payment does not yet raise a todo. Attempts refunded _before_ we saw them do go to review.
+    - §3.5 out-of-band refunds after payment: deferred to issue #27.
     - eSewa Intent (the mobile-app deeplink flow, see §8.3).
 
 ### 8.2 Khalti: what the official docs say today vs this spec
@@ -447,12 +458,23 @@ merchants).
 - **Lookup of an unknown pidx** answers `{"detail": "Not found.", "error_key": "validation_error"}`. We treat an
   HTTP 404 with no `status` as not found. 401/403/429/5xx keep the attempt open and retry later, and any other 4xx
   without a status goes to review.
-- **Refunds:** the docs give no method or headers. We send `POST` with `Authorization: Key …`, an empty body for a
-  full refund and `{amount}` in **paisa** for a partial one. The docs' `50.00` examples conflict with their own
-  "paisa" wording, so **confirm in sandbox before live**. Khalti returns no refund id, so the refund transaction
-  keeps no gateway reference. Bank-funded payments also need the payer's `mobile`. We never store it in full (it is
-  masked to the last 3 digits), so those refunds are declined by Khalti and must be made in the portal and then
-  recorded.
+- **Refunds:** the docs give no method or headers. We send `POST` with `Authorization: Key …` and an empty body for
+  a full refund, which has no unit question.
+- **Partial refunds are off** (`payments_nepal.khalti.partial_refunds`, env `KHALTI_PARTIAL_REFUNDS`, default
+  `false`). While the flag is off, the driver does not advertise `partial_refund`: Billing offers staff only a full
+  gateway refund or a recorded partial one, and the driver refuses a partial amount anyway. When the flag is on,
+  `{amount}` is sent in **paisa**. The docs say paisa, but their only examples are `50.00` and `75.00`. If Khalti read
+  the value as rupees, a refund would be 100 times too large.
+    - **Keep the flag off until the unit is proven** with a partial refund in the Khalti sandbox (dev.khalti.com, test
+      merchant from test-admin.khalti.com). Record the request and response here.
+    - Not yet proven (2026-10-18): the sandbox needs a merchant account with phone/OTP sign-up, which isn't available
+      to this build. Khalti returns no refund id, so the refund transaction
+      keeps no gateway reference. Bank-funded payments also need the payer's `mobile`. We never store it in full (it is
+      masked to the last 3 digits), so those refunds are declined by Khalti and must be made in the portal and then
+      recorded.
+- **Lookup auth errors:** 401/403 (for example a key rotated after the payment started) send the attempt to staff
+  review with the reason. It stays open and is polled again, so it settles once the key is fixed. 429 and 5xx stay
+  transient.
 - **Connection test:** Khalti has no ping endpoint. We look up a made-up pidx: 401 means the key was rejected, and
   400/404 means it was accepted.
 - **`purchase_order_id`:** no length limit is documented. We send our 26-character attempt reference.
