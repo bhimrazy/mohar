@@ -56,7 +56,7 @@ is a switch blocker in the parity studies.
 ## Decisions pending from the owner
 
 - Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
-- Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
+- Test accounts: not available (owner, 2026-10-18). Integrations are verified against local simulators; real smoke runs wait for real accounts.
 - Repository settings: branch protection and required checks on `develop` and `main`.
 - Business: licence and price model, support model, published security policy, trademark search for "Mohar".
 
