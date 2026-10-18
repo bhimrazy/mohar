@@ -1,0 +1,11 @@
+{
+  "metadata": {
+    "result": 1,
+    "reason": "OK",
+    "command": "version",
+    "version": 1
+  },
+  "data": {
+    "version": "11.124.0.12"
+  }
+}

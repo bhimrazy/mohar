@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "result": 1,
+    "reason": "OK",
+    "command": "listaccts",
+    "version": 1,
+    "chunk": {
+      "start": 3,
+      "size": 2,
+      "records": 3,
+      "current": 2
+    }
+  },
+  "data": {
+    "acct": [
+      {
+        "user": "charlie",
+        "domain": "charlie.whm-temp.example-host.test",
+        "plan": "default",
+        "owner": "root",
+        "email": "*unknown*",
+        "ip": "203.0.113.20",
+        "suspended": 0,
+        "is_locked": 0,
+        "suspendreason": "not suspended",
+        "unix_startdate": 1760000000,
+        "diskused": "2M",
+        "disklimit": "unlimited"
+      }
+    ]
+  }
+}

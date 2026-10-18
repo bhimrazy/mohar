@@ -51,7 +51,7 @@ class ServerRequest extends FormRequest
             'api_token' => ['nullable', 'string', 'max:4000'],
             'access_hash' => ['nullable', 'string', 'max:10000'],
             'secure' => ['boolean'],
-            'port' => ['nullable', 'integer', 'between:1,65535'],
+            'port' => ['nullable', 'integer', 'between:1,65535', Rule::notIn($this->refusedPorts())],
             'max_accounts' => ['required', 'integer', 'min:0', 'max:1000000'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
@@ -80,6 +80,25 @@ class ServerRequest extends FormRequest
         }
 
         return $data;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function refusedPorts(): array
+    {
+        $drivers = app(ProvisioningDriverRegistry::class);
+        $key = (string) $this->input('driver');
+
+        return $drivers->has($key) ? $drivers->metadata($key)->refusedPorts : [];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return ['port.not_in' => __('This port sends credentials without encryption; use the panel\'s TLS port.')];
     }
 
     /**

@@ -1,0 +1,27 @@
+{
+  "metadata": {
+    "result": 1,
+    "reason": "OK",
+    "command": "myprivs",
+    "version": 1
+  },
+  "data": {
+    "privileges": [
+      {
+        "basic-whm-functions": 1,
+        "list-accts": 1,
+        "acct-summary": 1,
+        "create-acct": 1,
+        "suspend-acct": 1,
+        "kill-acct": 1,
+        "upgrade-account": 1,
+        "passwd": 1,
+        "list-pkgs": 1,
+        "show-bandwidth": 1,
+        "ns-config": 1,
+        "create-user-session": 1,
+        "all": 0
+      }
+    ]
+  }
+}

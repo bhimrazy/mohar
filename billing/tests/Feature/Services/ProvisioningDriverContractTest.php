@@ -2,13 +2,15 @@
 
 use App\Support\Services\ProvisioningDriverRegistry;
 use Tests\Support\Contracts\ProvisioningDriverContract;
+use Tests\Support\Cpanel\Whm;
 
 /** Every driver Services registers; a new built-in driver is added here and must pass the contract. */
-const BUILT_IN_PROVISIONING_DRIVERS = ['none', 'log'];
+const BUILT_IN_PROVISIONING_DRIVERS = ['none', 'log', 'cpanel'];
 
-foreach (BUILT_IN_PROVISIONING_DRIVERS as $key) {
-    ProvisioningDriverContract::verify($key);
-}
+ProvisioningDriverContract::verify('none');
+ProvisioningDriverContract::verify('log');
+// A placeholder pin is refused (fail closed) and a placeholder flag reads as off: run with CA verification and SSO on.
+ProvisioningDriverContract::verify('cpanel', arrange: fn () => Whm::contract(), serverSettings: ['spki_pin' => '', 'sso_enabled' => true]);
 
 test('every registered provisioning driver runs the contract', function () {
     expect(app(ProvisioningDriverRegistry::class)->keys())->toEqualCanonicalizing(BUILT_IN_PROVISIONING_DRIVERS);

@@ -1,0 +1,36 @@
+{
+  "metadata": {
+    "result": 1,
+    "reason": "OK",
+    "command": "listpkgs",
+    "version": 1
+  },
+  "data": {
+    "pkg": [
+      {
+        "name": "root_basic",
+        "QUOTA": "10240",
+        "BWLIMIT": "102400",
+        "MAXADDON": "0"
+      },
+      {
+        "name": "root_pro",
+        "QUOTA": "51200",
+        "BWLIMIT": "unlimited",
+        "MAXADDON": "5"
+      },
+      {
+        "name": "reseller1_starter",
+        "QUOTA": "500",
+        "BWLIMIT": "5000",
+        "MAXADDON": "0"
+      },
+      {
+        "name": "default",
+        "QUOTA": "unlimited",
+        "BWLIMIT": "unlimited",
+        "MAXADDON": "unlimited"
+      }
+    ]
+  }
+}
