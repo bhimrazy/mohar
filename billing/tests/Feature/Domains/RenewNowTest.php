@@ -3,6 +3,7 @@
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
 use Tests\Fakes\Domains\FakeInvoicer;
@@ -19,7 +20,12 @@ test('clients renew now at the current price for the chosen term', function () {
     $domain = Domain::factory()->create(['tld_id' => $com->id, 'client_id' => $client->id, 'recurring_amount' => 999]);
 
     $this->get(route('client.domains.show', $domain->id))->assertInertia(fn (Assert $page) => $page->where('canRenewNow', true));
-    $this->post(route('client.domains.renew', $domain->id), ['years' => 2])->assertRedirect(route('client.domains.show', $domain->id));
+    $response = $this->post(route('client.domains.renew', $domain->id), ['years' => 2]);
+
+    // With Billing installed the client is sent to the new invoice; on its own Domains returns to the domain page.
+    $response->assertRedirect(Route::has('client.invoices.show')
+        ? route('client.invoices.show', $this->invoicer->lastInvoiceId())
+        : route('client.domains.show', $domain->id));
 
     $draft = $this->invoicer->issued()[0]['draft'];
     expect($draft->lines[0]->unitAmount)->toBe(2800)
