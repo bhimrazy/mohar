@@ -1,0 +1,11 @@
+{
+  "id": "evt_1MoharEvent0001",
+  "object": "event",
+  "api_version": "2026-09-30.endive",
+  "created": 1792300000,
+  "data": {"object": {"id": "pi_3MoharIntent0001", "object": "payment_intent"}},
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {"id": null, "idempotency_key": null},
+  "type": "payment_intent.succeeded"
+}

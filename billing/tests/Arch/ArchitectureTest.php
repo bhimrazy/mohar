@@ -8,7 +8,7 @@
 
 const FEATURE_MODULES = [
     'Catalog', 'Orders', 'Billing', 'Services', 'Domains', 'Support',
-    'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal',
+    'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal', 'PaymentsStripe',
 ];
 
 /** Read models allowed to depend on every module. */
