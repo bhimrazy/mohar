@@ -205,6 +205,14 @@ class Service extends Model
     }
 
     /**
+     * @return HasMany<UsageSnapshot, $this>
+     */
+    public function usageSnapshots(): HasMany
+    {
+        return $this->hasMany(UsageSnapshot::class);
+    }
+
+    /**
      * @return HasOne<UsageSnapshot, $this>
      */
     public function latestUsage(): HasOne
