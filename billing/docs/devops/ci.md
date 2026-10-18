@@ -6,14 +6,14 @@ jobs, setup work and pointless runs.
 
 ## When it runs
 
-| Event                                         | Runs?                                                       |
-| --------------------------------------------- | ----------------------------------------------------------- |
-| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled           |
-| Draft PR                                      | no — runs when marked ready for review (`ready_for_review`) |
-| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)     |
-| Push to `develop`/`main` (merges)             | yes, never cancelled                                        |
-| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting)     |
-| Manual                                        | `workflow_dispatch`                                         |
+| Event                                         | Runs?                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled                                           |
+| Draft PR                                      | only when labelled `ci`; otherwise runs when marked ready for review                        |
+| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)                                     |
+| Push to `develop`/`main` (merges)             | yes, never cancelled                                                                        |
+| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main` |
+| Manual                                        | `workflow_dispatch`                                                                         |
 
 ## One job
 
@@ -32,7 +32,7 @@ the dependency policy runs **before** anything is installed (no package code —
 | 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 2                   |
 | 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)         | 2                   |
 | 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | ~19                 |
-| 7   | `vp check` (format + lint) — the only step on docs-only PRs                                          | 6                   |
+| 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                               | 6                   |
 | 8   | Pint · tsc · Vitest (`npm test`)                                                                     | 8 + ~3              |
 | 9   | PHPStan (result cache restored)                                                                      | 6                   |
 | 10  | Pest on SQLite (`--parallel`)                                                                        | 3                   |
