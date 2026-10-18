@@ -11,6 +11,8 @@ every item.
 - Dashboards are at least as rich as the design directions in `billing/docs/design/directions/`:
   KPI cards with sparklines and trends, comparison charts, breakdowns, health summaries.
   (2026-10-18)
+- Operational pages (automation, logs, queues, gateways, servers) open with summary cards and a trend
+  chart where the data is time-based, then the detail list. (2026-10-18)
 - Admin screens are at least as capable as WHMCS's equivalent and easier to use; sidebar and
   dashboard at least as rich. (2026-10-17)
 
