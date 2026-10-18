@@ -251,6 +251,8 @@ Email preferences per user/contact (categories), "email history" list of message
   once, as the button's href, to both the HTML5 parser and libxml, or nothing is sent. The text part gets a system
   "Label: url" line. Masking and the final check work on the secret inside the link (`SensitiveValue::secret()`: the
   access key or token) in any case or encoding, over every field — subject, preheader, HTML, text and the log copies.
+  One normaliser (entities and percent-encoding decoded until stable, any case) serves masking and the check on the
+  HTML and text paths. Known limit: a key split across HTML tags (`GUEST<b></b>KEY`) is not recognised as the key.
   Notifications bodies are final HTML: the layout prints them without a second Markdown pass. Ticket CCs get the
   reply without the button and with a note that the ticket owner has the link. Mail that carried a private link is
   never resent from the log. Reset, verification and invitation text is plain and may use only `company.name`,

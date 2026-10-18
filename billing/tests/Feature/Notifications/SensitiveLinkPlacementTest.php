@@ -223,7 +223,7 @@ it('masks the guest\'s own link pasted into a staff reply, and still sends', fun
     app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|pasted'));
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => keyOnlyInSystemButton((string) $mail->htmlBody)
-        && str_contains((string) $mail->htmlBody, 'Your link: '.e(url('/support/tickets/482913?key=••••')))
+        && str_contains((string) $mail->htmlBody, 'Your link: ••••')
         && substr_count((string) $mail->plainText, 'GUESTKEY') === 1);
     expect(EmailMessage::query()->sole()->status->value)->not->toBe('failed');
 });
@@ -401,10 +401,11 @@ it('says why account mail is held when APP_URL is http:// in production', functi
  * @param  list<string>  $to
  * @return list<TemplatedMail>
  */
-function sendGuestReply(string $key, array $ticket = [], array $reply = [], ?string $body = null, array $to = ['guest@example.test']): array
+function sendGuestReply(string $key, array $ticket = [], array $reply = [], ?string $body = null, array $to = ['guest@example.test'], bool $plainTextOnly = false): array
 {
     Mail::fake();
     seedEmailTemplates();
+    EmailTemplate::query()->where('key', $key)->sole()->update(['plain_text_only' => $plainTextOnly]);
 
     if ($body !== null) {
         EmailTemplate::query()->where('key', $key)->sole()->translations()->update(['body' => $body]);
@@ -419,7 +420,7 @@ function sendGuestReply(string $key, array $ticket = [], array $reply = [], ?str
         $context['reply'] = ['author_name' => 'Sam', 'body_html' => '<p>x</p>', 'excerpt' => '', ...$reply];
     }
 
-    app(NotificationMailer::class)->send(new EmailRequest($key, app(RecipientResolver::class)->addresses($to), $context, 'guest|'.md5(serialize([$key, $ticket, $reply, $body, $to]))));
+    app(NotificationMailer::class)->send(new EmailRequest($key, app(RecipientResolver::class)->addresses($to), $context, 'guest|'.md5(serialize([$key, $ticket, $reply, $body, $to, $plainTextOnly]))));
 
     return Mail::sent(TemplatedMail::class)->values()->all();
 }
@@ -450,22 +451,30 @@ it('masks the secret in the subject, the stored subject and every other field (B
     [$mail] = sendGuestReply('ticket.reply', ticket: ['subject' => 'See '.guestUrl()], reply: ['body_html' => '<p>hello</p>']);
     $row = EmailMessage::query()->sole();
 
-    expect($mail->subjectLine)->not->toContain('GUESTKEY')->toContain('key=••••')
+    expect($mail->subjectLine)->not->toContain('GUESTKEY')->toContain('See ••••')
         ->and($row->subject)->not->toContain('GUESTKEY')
         ->and(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue()
         ->and(substr_count((string) $mail->plainText, 'GUESTKEY'))->toBe(1)
         ->and($row->body_html.$row->body_text)->not->toContain('GUESTKEY');
 });
 
-it('masks any copy of the secret, not only the exact link (M1)', function (Closure|string $variant) {
+it('masks any copy of the secret, not only the exact link (M1)', function (Closure|string $variant, bool $plainTextOnly = false) {
     $variant = $variant instanceof Closure ? $variant() : $variant;
-    [$mail] = sendGuestReply('ticket.reply', reply: ['body_html' => '<p>Link: '.e($variant).' <a href="'.e($variant).'">open</a> '.rawurlencode($variant).'</p>']);
+    [$mail] = sendGuestReply('ticket.reply', reply: ['body_html' => '<p>Link: '.e($variant).' <a href="'.e($variant).'">open</a> '.rawurlencode($variant).'</p>'], plainTextOnly: $plainTextOnly);
     $row = EmailMessage::query()->sole();
+    $decodedHits = fn (?string $field): int => substr_count(SecretTemplatePolicy::normalise((string) $field), 'guestkey');
 
-    expect(keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue()
-        ->and(substr_count((string) $mail->plainText, 'GUESTKEY'))->toBe(1)
-        ->and(substr_count(strtolower($row->subject.$row->body_html.$row->body_text), 'guestkey'))->toBe(0);
+    expect($plainTextOnly ? $mail->htmlBody === null : keyOnlyInSystemButton((string) $mail->htmlBody))->toBeTrue()
+        ->and($decodedHits($mail->plainText))->toBe(1)
+        ->and($decodedHits($mail->subjectLine.$row->subject.$row->body_html.$row->body_text))->toBe(0);
 })->with([
+    // Security re-check at e80d639: partial, double and mixed encodings, in HTML and plain-text-only mail.
+    'partly percent-encoded' => [fn (): string => url('/support/tickets/482913?key=%47UEST%4BEY')],
+    'partly percent-encoded, plain-text-only mail' => [fn (): string => url('/support/tickets/482913?key=%47UEST%4BEY'), true],
+    'double percent-encoded' => [fn (): string => url('/support/tickets/482913?key=%2547UESTKEY')],
+    'entity and percent mixed' => [fn (): string => url('/support/tickets/482913?key=%47UEST&#x4b;EY')],
+    'entity in text' => ['GUEST&#75;EY'],
+    'bare key, plain-text-only mail' => ['GUESTKEY', true],
     'extra query parameter first' => [fn (): string => url('/support/tickets/482913?a=1&key=GUESTKEY')],
     'upper-case host' => [fn (): string => str_replace('://localhost', '://LOCALHOST', url('/support/tickets/482913?key=GUESTKEY'))],
     'trailing slash' => [fn (): string => url('/support/tickets/482913/?key=GUESTKEY')],
@@ -531,3 +540,22 @@ it('never resends mail that carried a private link, and says why', function () {
 
     expect(fn () => app(NotificationMailer::class)->resend($row))->toThrow(LogicException::class);
 });
+
+it('finds the secret with one normaliser on the HTML and the text path', function (string $value) {
+    $html = '<p>'.$value.'</p><table class="action"><tr><td><a href="'.e(guestUrl()).'" class="button">View</a></td></tr></table>';
+    $found = SecretTemplatePolicy::secretCount($value, 'GUESTKEY') > 0;
+
+    // Text path (masking and counting) and HTML path (final check) agree on every encoding.
+    expect($found)->toBe(str_contains(SecretTemplatePolicy::normalise($value), 'guestkey'))
+        ->and(SecretTemplatePolicy::maskValues($value, ['GUESTKEY']) === '••••')->toBe($found)
+        ->and(SecretTemplatePolicy::placedOnlyAsSystemButton($html, guestUrl(), 'GUESTKEY'))->toBe(! $found);
+})->with([
+    'plain' => ['GUESTKEY'],
+    'lower case' => ['guestkey'],
+    'partly percent-encoded' => ['%47UEST%4BEY'],
+    'double percent-encoded' => ['%2547UESTKEY'],
+    'numeric entity' => ['GUEST&#75;EY'],
+    'hex entity and percent' => ['%47UEST&#x4b;EY'],
+    'inside a link' => ['http://x/?key=%47UESTKEY'],
+    'unrelated' => ['GUEST-KEY'],
+]);

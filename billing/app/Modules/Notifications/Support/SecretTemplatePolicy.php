@@ -280,9 +280,9 @@ final class SecretTemplatePolicy
      * unwrapped to their text, raw-text and embedding elements are dropped with their content, links keep an href
      * only to a configured origin, styles that load anything are dropped, and blank lines are removed so the
      * layout's Markdown pass keeps the result as one HTML block. Parsed and serialised once by the HTML5 parser,
-     * so what follows is plain, balanced, escaped markup that every later parser reads the same way. Any of the
-     * $sensitive values staff pasted in (e.g. the guest's own link in a reply) becomes •••• — in text and in
-     * attributes, after entity decoding — so only the system button carries it.
+     * so what follows is plain, balanced, escaped markup that every later parser reads the same way. Any word in a
+     * text node or attribute value that holds one of the $sensitive secrets (e.g. the guest's own link pasted into a
+     * reply) becomes •••• (maskValues, the shared normaliser), so only the system button carries it.
      *
      * @param  list<string>  $sensitive
      */
@@ -310,44 +310,65 @@ final class SecretTemplatePolicy
             }
         }
 
-        return self::maskValues(trim((string) preg_replace('/\R\s*\R/', "\n", $body->innerHTML)), $sensitive);
+        return trim((string) preg_replace('/\R\s*\R/', "\n", $body->innerHTML));
     }
 
     /**
-     * Replaces each secret (the access key or token itself, so any link that carries it is caught) with ••••, in any
-     * case and as written, HTML-escaped or URL-encoded: staff content that quotes one, e.g. a reply with the guest's
-     * link pasted in.
+     * The one normaliser for finding a secret, shared by masking, counting and the final check on every path (HTML
+     * and text): HTML entities and percent-encoding decoded until nothing changes (so partial and double encodings
+     * are caught), then lower case.
+     */
+    public static function normalise(string $text): string
+    {
+        for ($pass = 0; $pass < 6; $pass++) {
+            $decoded = rawurldecode(html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+            if ($decoded === $text) {
+                break;
+            }
+
+            $text = $decoded;
+        }
+
+        return mb_strtolower($text);
+    }
+
+    /**
+     * Replaces every word (a run without whitespace) whose normalised form holds a secret — the access key or token
+     * itself, so any link or encoding that carries it is caught — with ••••. For plain text and single DOM values
+     * (text nodes, attribute values), never for markup.
      *
      * @param  list<string>  $secrets
      */
     public static function maskValues(string $text, array $secrets): string
     {
-        foreach ($secrets as $secret) {
-            if ($secret !== '') {
-                $text = str_ireplace(self::encodings($secret), '••••', $text);
-            }
+        $needles = array_values(array_filter(array_map(self::normalise(...), $secrets), fn (string $needle): bool => $needle !== ''));
+
+        if ($needles === []) {
+            return $text;
         }
 
-        return $text;
+        return (string) preg_replace_callback('/\S+/u', function (array $word) use ($needles): string {
+            $normalised = self::normalise($word[0]);
+
+            foreach ($needles as $needle) {
+                if (str_contains($normalised, $needle)) {
+                    return '••••';
+                }
+            }
+
+            return $word[0];
+        }, $text);
     }
 
     /**
-     * How often the secret occurs in $text, in any case or encoding.
+     * How often the secret occurs in $text once normalised (any case, entity or percent encoding).
      */
     public static function secretCount(string $text, string $secret): int
     {
-        if ($secret === '') {
-            return 0;
-        }
+        $needle = self::normalise($secret);
 
-        $lower = mb_strtolower($text);
-        $count = 0;
-
-        foreach (self::encodings($secret) as $form) {
-            $count += substr_count($lower, mb_strtolower($form));
-        }
-
-        return $count;
+        return $needle === '' ? 0 : substr_count(self::normalise($text), $needle);
     }
 
     /**
@@ -375,7 +396,7 @@ final class SecretTemplatePolicy
             return false;
         }
 
-        $holds = fn (string $value): bool => self::secretCount($value, $secret) > 0 || self::secretCount(rawurldecode($value), $secret) > 0;
+        $holds = fn (string $value): bool => self::secretCount($value, $secret) > 0;
         $parsers = [
             [$html5->getElementsByTagName('*'), (new XPath($html5))->query('//text() | //comment()')],
             [$libxml->getElementsByTagName('*'), (new DOMXPath($libxml))->query('//text() | //comment()')],
@@ -414,14 +435,6 @@ final class SecretTemplatePolicy
         }
 
         return true;
-    }
-
-    /**
-     * @return list<string>
-     */
-    private static function encodings(string $secret): array
-    {
-        return array_values(array_unique([$secret, e($secret), rawurlencode($secret), urlencode($secret), htmlspecialchars(rawurlencode($secret))]));
     }
 
     /**
