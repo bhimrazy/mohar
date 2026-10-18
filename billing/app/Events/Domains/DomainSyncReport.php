@@ -2,6 +2,7 @@
 
 namespace App\Events\Domains;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -9,7 +10,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class DomainSyncReport
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  list<array{domain_id: int, domain: string, field: string, from: string|null, to: string|null, applied: bool}>  $changes

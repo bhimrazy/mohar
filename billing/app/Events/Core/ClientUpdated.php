@@ -2,11 +2,12 @@
 
 namespace App\Events\Core;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 final class ClientUpdated
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     public function __construct(
         public int $clientId,

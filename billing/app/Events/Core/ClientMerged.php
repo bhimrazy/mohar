@@ -2,11 +2,12 @@
 
 namespace App\Events\Core;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 final class ClientMerged
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * Dispatched after $sourceClientId was merged into $targetClientId (source is closed).

@@ -2,6 +2,7 @@
 
 namespace App\Events\Core;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -9,7 +10,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class SettingsUpdated
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  list<string>  $keys

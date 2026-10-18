@@ -2,6 +2,7 @@
 
 namespace App\Events\Orders;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -10,7 +11,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class OrderSetPending
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     public function __construct(
         public int $orderId,

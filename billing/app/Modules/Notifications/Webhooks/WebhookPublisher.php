@@ -34,7 +34,7 @@ class WebhookPublisher
         $object = $entity !== null ? $this->context->resolve($entity, $id) : [];
 
         if ($object === []) {
-            $object = array_filter($properties, fn (mixed $value, string $key): bool => is_scalar($value) && ! array_key_exists($key, $ids), ARRAY_FILTER_USE_BOTH);
+            $object = array_filter($properties, fn (mixed $value, string $key): bool => is_scalar($value) && ! array_key_exists($key, $ids) && $key !== 'occurrenceId', ARRAY_FILTER_USE_BOTH);
         }
 
         return $this->publish($type, $object, $this->snakeKeys($ids), EventKey::of($event));

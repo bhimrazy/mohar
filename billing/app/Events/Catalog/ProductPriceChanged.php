@@ -2,6 +2,7 @@
 
 namespace App\Events\Catalog;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -12,7 +13,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class ProductPriceChanged
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     public function __construct(
         public string $priceableType,

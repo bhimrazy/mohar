@@ -2,11 +2,12 @@
 
 namespace App\Events\Support;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 final class TicketClosed
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  string  $closedBy  client|staff|system

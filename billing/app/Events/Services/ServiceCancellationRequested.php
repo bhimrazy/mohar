@@ -2,11 +2,12 @@
 
 namespace App\Events\Services;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 final class ServiceCancellationRequested
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  string  $type  immediate|end_of_period

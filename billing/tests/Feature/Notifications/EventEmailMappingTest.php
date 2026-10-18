@@ -100,6 +100,23 @@ it('creates exactly one log row per recipient when an event is replayed (criteri
     Mail::assertSentCount(2);
 });
 
+it('dedupes the same occurrence even after serialisation', function () {
+    $event = new InvoiceCreated(10, $this->client->id);
+
+    $this->listener->invoiceCreated($event);
+    $this->listener->invoiceCreated(unserialize(serialize($event)));
+
+    expect(loggedRecipients('invoice.created'))->toBe(['owner@example.test']);
+});
+
+it('sends twice for two separate events with identical payloads', function () {
+    $this->listener->invoiceCreated(new InvoiceCreated(10, $this->client->id));
+    $this->listener->invoiceCreated(new InvoiceCreated(10, $this->client->id));
+
+    expect(loggedRecipients('invoice.created'))->toBe(['owner@example.test', 'owner@example.test']);
+    Mail::assertSentCount(2);
+});
+
 it('logs messages as suppressed without calling the transport when mail is disabled (criterion 5)', function () {
     app(Settings::class)->set('notifications.mail_disabled', true);
 

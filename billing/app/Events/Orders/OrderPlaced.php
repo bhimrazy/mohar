@@ -2,6 +2,7 @@
 
 namespace App\Events\Orders;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -10,7 +11,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class OrderPlaced
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  list<array{type: string, id: int, product_id: ?int}>  $items  items created by the order: type is service|service_addon|domain

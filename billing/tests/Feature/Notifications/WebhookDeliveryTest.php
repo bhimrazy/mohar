@@ -85,6 +85,16 @@ it('delivers a replayed event only once per endpoint', function () {
     Http::assertSentCount(1);
 });
 
+it('delivers two separate events with identical payloads as two webhook events', function () {
+    Http::fake(['hooks.example.com/*' => Http::response('ok')]);
+
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+
+    Http::assertSentCount(2);
+    expect(WebhookDelivery::query()->distinct()->count('event_id'))->toBe(2);
+});
+
 it('records a 500 and schedules the next attempt a minute later (criterion 14)', function () {
     Http::fake(['hooks.example.com/*' => Http::response('receiver exploded', 500)]);
     $this->freezeTime();

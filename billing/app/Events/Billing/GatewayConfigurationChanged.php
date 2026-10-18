@@ -2,6 +2,7 @@
 
 namespace App\Events\Billing;
 
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
@@ -10,7 +11,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  */
 final class GatewayConfigurationChanged
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  array<string, array{from: mixed, to: mixed}|string>  $changes  field => before/after, or "rotated" for secrets
