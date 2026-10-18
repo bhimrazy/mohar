@@ -25,6 +25,7 @@ use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
+use App\Modules\Billing\Support\PaymentInProgress;
 use App\Modules\Core\Http\Middleware\SecurityHeaders;
 use App\Modules\Core\Support\ClientContext;
 use App\Support\Billing\SandboxPolicy;
@@ -77,7 +78,7 @@ class InvoiceController extends Controller
         ]);
     }
 
-    public function show(int $invoice, ClientPaymentOptions $options): Response
+    public function show(int $invoice, ClientPaymentOptions $options, PaymentInProgress $inProgress): Response
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
@@ -89,6 +90,7 @@ class InvoiceController extends Controller
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
             'transactions' => TransactionResource::collection($invoice->transactions()->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
+            'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
         ]);
     }
 
@@ -100,10 +102,11 @@ class InvoiceController extends Controller
         return Storage::disk('objects')->download($pdf->ensure($invoice), $pdf->filename($invoice), ['Content-Type' => 'application/pdf']);
     }
 
-    public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options, StartHostedPayment $start): RedirectResponse|SymfonyResponse
+    public function pay(PayInvoiceRequest $request, int $invoice, CaptureInvoice $capture, ManagePayMethods $payMethods, ClientPaymentOptions $options, StartHostedPayment $start, PaymentInProgress $inProgress): RedirectResponse|SymfonyResponse
     {
         $this->context->authorize('billing');
         $invoice = $this->find($invoice);
+        $inProgress->assertCanStart($invoice);
 
         if ($options->kind($request->string('gateway')->toString()) === 'redirect') {
             return $this->startHosted($invoice, $request->string('gateway')->toString(), $start, $request);

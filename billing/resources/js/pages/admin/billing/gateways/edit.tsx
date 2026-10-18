@@ -96,6 +96,7 @@ type Props = {
         display_name: string;
         sandbox: boolean;
         logo: GatewayLogoData | null;
+        capabilities: string[];
         is_active: boolean;
         show_on_order_form: boolean;
         sort_order: number;
@@ -377,6 +378,20 @@ export default function GatewayEdit({
                                 {testing && <Spinner />}
                                 Test connection
                             </Button>
+                        </SectionCard>
+                    )}
+
+                    {gateway.capabilities.includes('redirect') && (
+                        <SectionCard title="Refunds">
+                            <p className="text-sm text-muted-foreground">
+                                {!gateway.capabilities.includes('refund')
+                                    ? `${gateway.display_name} has no refund API: refund in the ${gateway.driver_name} merchant portal first, then record the refund on the invoice.`
+                                    : !gateway.capabilities.includes(
+                                            'partial_refund',
+                                        )
+                                      ? `Full refunds go through ${gateway.driver_name}. Refund part of a payment in the ${gateway.driver_name} merchant portal, then record it on the invoice.`
+                                      : `Full and partial refunds go through ${gateway.driver_name}.`}
+                            </p>
                         </SectionCard>
                     )}
 

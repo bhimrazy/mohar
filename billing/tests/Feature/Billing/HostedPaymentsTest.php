@@ -29,6 +29,7 @@ use App\Support\Money;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -237,7 +238,8 @@ test('clients get 429 after too many pay requests a minute, on single and batch 
     }
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet'])->assertTooManyRequests();
-    expect(PaymentAttempt::query()->count())->toBe(BillingServiceProvider::PAY_REQUESTS_PER_MINUTE)
+    // Only the first request opens an attempt; the rest are refused while it can still complete at the provider.
+    expect(PaymentAttempt::query()->count())->toBe(1)
         ->and(app('router')->getRoutes()->getByName('client.invoices.batches.pay')->gatherMiddleware())->toContain('throttle:billing-pay');
 });
 
@@ -276,10 +278,18 @@ test('clients cannot start payments on other clients invoices and returns are bo
 
 test('every hosted driver honours the contract', function (string $key) {
     hostedSandbox();
+    // The extension drivers (PaymentsNepal) with sandbox credentials; their providers answer "still pending".
+    Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
+    Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
+        'https://rc.esewa.com.np/api/epay/transaction/status/*' => Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'inv-0-a1', 'total_amount' => 50.0, 'status' => 'PENDING', 'ref_id' => null]),
+    ]);
     $registry = app(GatewayRegistry::class);
     $driver = $registry->driver($key);
     $config = app(GatewayManager::class)->config($key);
-    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]));
+    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]), providerRef: 'PIDX1');
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
         ->and($driver->currencies())->not->toBeEmpty()
@@ -290,7 +300,12 @@ test('every hosted driver honours the contract', function (string $key) {
 
     expect($first->status)->toBeIn(LookupResult::STATUSES)->toBe($second->status);
 
-    foreach ($config->secretValues() as $secret) {
+    // Values of the driver's secret settings (public ones such as eSewa's product code may be echoed back).
+    $secrets = collect($driver->settingsFields())->whereIn('type', ['secret', 'secret_text'])
+        ->map(fn (array $field) => (string) $config->setting($field['key'], ''))->filter();
+
+    expect($secrets)->not->toBeEmpty();
+    foreach ($secrets as $secret) {
         expect(json_encode($first->raw))->not->toContain($secret);
     }
-})->with(['sandbox_card', 'fake_wallet']);
+})->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa']);

@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Services;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\HostedPaymentDriver;
 use App\Data\Billing\ChargeRequest;
 use App\Data\Billing\ChargeResult;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -21,6 +22,7 @@ class GatewayCharger
         private GatewayManager $gateways,
         private CurrencyConverter $converter,
         private GatewayLogger $log,
+        private MoneyFormatter $formatter,
     ) {}
 
     public function activeGateway(string $key): Gateway
@@ -51,6 +53,48 @@ class GatewayCharger
         $rate = $this->converter->rate($balance->currency, $target);
 
         return [Money::of($this->converter->convert($balance->amount, $rate), $target), $rate];
+    }
+
+    /**
+     * What a hosted driver will collect for a document balance: the balance itself when the driver settles in its
+     * currency, else the balance converted to the gateway's convert_to_currency (null when neither applies). Used
+     * both to start the payment and to show the customer the converted amount beforehand.
+     *
+     * @return array{0: Money, 1: float|null}|null charge amount and conversion rate (null when not converted)
+     */
+    public function hostedCharge(Gateway $gateway, HostedPaymentDriver $driver, Money $balance): ?array
+    {
+        if (in_array($balance->currency, $driver->currencies(), true)) {
+            return [$balance, null];
+        }
+
+        $target = $gateway->convert_to_currency !== null ? strtoupper($gateway->convert_to_currency) : null;
+
+        if ($target === null || ! in_array($target, $driver->currencies(), true)) {
+            return null;
+        }
+
+        $rate = $this->converter->rate($balance->currency, $target);
+
+        return [Money::of($this->converter->convert($balance->amount, $rate), $target), $rate];
+    }
+
+    /**
+     * Why a hosted driver can't take this amount (outside its limits), in words for the customer; null when it can.
+     */
+    public function limitReason(Gateway $gateway, HostedPaymentDriver $driver, Money $amount): ?string
+    {
+        $limits = $driver->limits($this->gateways->config($gateway));
+
+        if ($amount->amount < $limits->min) {
+            return __(':gateway needs at least :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->format($limits->min, $amount->currency)]);
+        }
+
+        if ($limits->max !== null && $amount->amount > $limits->max) {
+            return __(':gateway takes at most :amount.', ['gateway' => $gateway->display_name, 'amount' => $this->formatter->format($limits->max, $amount->currency)]);
+        }
+
+        return null;
     }
 
     public function charge(Gateway $gateway, string $token, Money $amount, string $reference, int $clientId, ?int $invoiceId = null): ChargeResult
