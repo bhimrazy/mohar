@@ -17,6 +17,7 @@ use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Begin a hosted payment: store an attempt with our reference and the exact amount the provider must collect,
@@ -90,16 +91,26 @@ class StartHostedPayment
         });
 
         $snapshot = $invoice->client_snapshot ?? [];
-        $instruction = $driver->initiate($config, new PaymentIntent(
-            reference: $attempt->reference,
-            amount: $amount,
-            description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
-            returnUrl: route('billing.gateways.return', $gatewayKey),
-            cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
-            customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
-            customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
-            invoiceId: $invoice->id,
-        ));
+
+        try {
+            $instruction = $driver->initiate($config, new PaymentIntent(
+                reference: $attempt->reference,
+                amount: $amount,
+                description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
+                returnUrl: route('billing.gateways.return', $gatewayKey),
+                cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
+                customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
+                customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
+                invoiceId: $invoice->id,
+            ));
+        } catch (Throwable $exception) {
+            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
+            $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
+            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr($exception->getMessage(), 0, 500)], $invoice->id);
+            report($exception);
+
+            throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
+        }
 
         $attempt->update(['provider_ref' => $instruction->providerRef]);
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);

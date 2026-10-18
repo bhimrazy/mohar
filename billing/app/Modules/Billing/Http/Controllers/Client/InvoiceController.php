@@ -10,6 +10,7 @@ use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\StartHostedPayment;
+use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
@@ -18,10 +19,12 @@ use App\Modules\Billing\Http\Resources\InvoiceItemResource;
 use App\Modules\Billing\Http\Resources\InvoiceResource;
 use App\Modules\Billing\Http\Resources\TransactionResource;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Billing\Support\ClientPaymentOptions;
+use App\Modules\Core\Http\Middleware\SecurityHeaders;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -37,6 +40,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class InvoiceController extends Controller
 {
+    /** Session slot holding the provider form of the client's latest hosted payment. */
+    private const HOSTED_FORM_SESSION = 'billing.hosted_form';
+
     public function __construct(private ClientContext $context) {}
 
     public function index(Request $request, CreditLedgerService $credit, BillingSettings $settings): Response
@@ -98,7 +104,7 @@ class InvoiceController extends Controller
         $invoice = $this->find($invoice);
 
         if ($options->kind($request->string('gateway')->toString()) === 'redirect') {
-            return $this->startHosted($invoice, $request->string('gateway')->toString(), $start);
+            return $this->startHosted($invoice, $request->string('gateway')->toString(), $start, $request);
         }
 
         [$gateway, $token, $method] = $options->resolve($invoice, $request);
@@ -133,7 +139,7 @@ class InvoiceController extends Controller
     /**
      * Hosted gateways: store the attempt and hand the customer to the provider (redirect, auto-posted form or QR).
      */
-    private function startHosted(Invoice $invoice, string $gateway, StartHostedPayment $start): SymfonyResponse
+    private function startHosted(Invoice $invoice, string $gateway, StartHostedPayment $start, Request $request): SymfonyResponse
     {
         [$attempt, $instruction] = $start->handle($invoice, $gateway);
 
@@ -141,13 +147,56 @@ class InvoiceController extends Controller
             return Inertia::location($instruction->url);
         }
 
+        if ($instruction instanceof FormPost) {
+            // The SPA document's CSP only allows forms to post to this site (form-action 'self'), so the auto-posted
+            // form needs a full page load whose CSP adds exactly the provider's origin (see checkout()).
+            $request->session()->put(self::HOSTED_FORM_SESSION, ['reference' => $attempt->reference, 'action' => $instruction->action, 'fields' => $instruction->fields]);
+
+            return Inertia::location(route('client.invoices.checkout', [$invoice->id, $attempt->reference]));
+        }
+
+        return $this->renderCheckout($invoice, $attempt, $gateway, null, $instruction)->toResponse($request);
+    }
+
+    /**
+     * Full-page checkout that auto-posts the provider form of an open attempt of this client's invoice.
+     */
+    public function checkout(Request $request, int $invoice, string $reference): SymfonyResponse
+    {
+        $this->context->authorize('billing');
+        $invoice = $this->find($invoice);
+        $attempt = PaymentAttempt::query()
+            ->where('client_id', $this->context->id())
+            ->where('invoice_id', $invoice->id)
+            ->where('reference', $reference)
+            ->where('status', AttemptStatus::Pending)
+            ->first();
+        $form = $request->session()->get(self::HOSTED_FORM_SESSION);
+
+        if ($attempt === null || ($attempt->expires_at !== null && $attempt->expires_at->isPast()) || ! is_array($form)
+            || ($form['reference'] ?? null) !== $reference || ! is_string($form['action'] ?? null) || ! is_array($form['fields'] ?? null)) {
+            Inertia::flash('toast', ['type' => 'warning', 'message' => __('This payment session has ended. Start the payment again.')]);
+
+            return to_route('client.invoices.show', $invoice->id);
+        }
+
+        SecurityHeaders::allowFormAction($request, $form['action']);
+
+        /** @var array<string, string> $fields */
+        $fields = $form['fields'];
+
+        return $this->renderCheckout($invoice, $attempt, $attempt->gateway, new FormPost($form['action'], $fields), null)->toResponse($request);
+    }
+
+    private function renderCheckout(Invoice $invoice, PaymentAttempt $attempt, string $gateway, ?FormPost $form, ?QrPayload $qr): Response
+    {
         return Inertia::render('client/billing/invoices/checkout', [
             'invoice' => ['id' => $invoice->id, 'number' => $invoice->displayNumber()],
             'reference' => $attempt->reference,
-            'form' => $instruction instanceof FormPost ? ['action' => $instruction->action, 'fields' => (object) $instruction->fields] : null,
-            'qr' => $instruction instanceof QrPayload ? ['payload' => $instruction->payload, 'expires_at' => $instruction->expiresAt->toIso8601String()] : null,
+            'form' => $form !== null ? ['action' => $form->action, 'fields' => (object) $form->fields] : null,
+            'qr' => $qr !== null ? ['payload' => $qr->payload, 'expires_at' => $qr->expiresAt->toIso8601String()] : null,
             'status_url' => route('billing.gateways.return', [$gateway, 'ref' => $attempt->reference]),
-        ])->toResponse(request());
+        ]);
     }
 
     /**

@@ -58,6 +58,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
     Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', '[a-z_]+');
     Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->middleware('password.recent')->name('gateways.update')->where('gateway', '[a-z_]+');
+    Route::post('gateways/{gateway}/test', [GatewayController::class, 'test'])->middleware('throttle:10,1')->name('gateways.test')->where('gateway', '[a-z_]+');
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');
     Route::resource('tax-rules', TaxRuleController::class)->only(['store', 'update', 'destroy'])->parameters(['tax-rules' => 'taxRule'])->middleware('password.recent');
@@ -75,6 +76,7 @@ Route::clientArea(function (): void {
         Route::get('{invoice}', 'show')->whereNumber('invoice')->name('show');
         Route::get('{invoice}/pdf', 'pdf')->whereNumber('invoice')->name('pdf');
         Route::post('{invoice}/pay', 'pay')->whereNumber('invoice')->name('pay');
+        Route::get('{invoice}/checkout/{reference}', 'checkout')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->name('checkout');
         Route::post('{invoice}/credit', 'applyCredit')->whereNumber('invoice')->name('credit');
     });
 

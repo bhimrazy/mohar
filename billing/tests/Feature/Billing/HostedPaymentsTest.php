@@ -206,10 +206,15 @@ test('NPR-only gateways require NPR or a configured conversion, and use form pos
     $this->post(route('client.invoices.pay', $usd->id), ['gateway' => 'fake_wallet'])->assertSessionHasErrors('billing');
 
     Gateway::query()->where('key', 'fake_wallet')->update(['convert_to_currency' => 'NPR']);
-    $this->post(route('client.invoices.pay', $usd->id), ['gateway' => 'fake_wallet'])
-        ->assertInertia(fn (Assert $page) => $page->component('client/billing/invoices/checkout')->where('form.action', 'https://wallet.test/form')->where('form.fields.total_amount', '1344000'));
-
+    $checkoutUrl = $this->post(route('client.invoices.pay', $usd->id), ['gateway' => 'fake_wallet'])->assertRedirect()->headers->get('Location');
     $attempt = PaymentAttempt::query()->firstOrFail();
+    expect($checkoutUrl)->toBe(route('client.invoices.checkout', [$usd->id, $attempt->reference]));
+
+    // A full page load whose CSP lets the form post to the provider's origin (the SPA document only allows 'self').
+    $checkout = $this->get($checkoutUrl)
+        ->assertInertia(fn (Assert $page) => $page->component('client/billing/invoices/checkout')->where('form.action', 'https://wallet.test/form')->where('form.fields.total_amount', '1344000'));
+    expect($checkout->headers->get('Content-Security-Policy'))->toContain("form-action 'self' https://wallet.test;");
+
     expect($attempt)->amount->toBe(1_344_000)->currency->toBe('NPR')->document_amount->toBe(10_000)->document_currency->toBe('USD');
 
     FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::SUCCEEDED, 'wallet-txn-1', 1_344_000, 'NPR');

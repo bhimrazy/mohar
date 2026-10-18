@@ -9,6 +9,7 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\UnsupportedCapabilityException;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
+use App\Support\Billing\SandboxPolicy;
 use App\Support\Money;
 
 /**
@@ -26,7 +27,8 @@ class GatewayCharger
     {
         $gateway = $this->gateways->gateway($key);
 
-        if (! $gateway->exists || ! $gateway->is_active) {
+        // A gateway left in sandbox mode never takes payments where test money is not allowed (production).
+        if (! $gateway->exists || ! $gateway->is_active || (! SandboxPolicy::allowed() && $this->gateways->isSandbox($gateway))) {
             throw new BillingException(__('This payment method is not available.'));
         }
 

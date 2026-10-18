@@ -8,6 +8,7 @@ use App\Contracts\Billing\HostedPaymentDriver;
 use App\Data\Billing\GatewayConfig;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
+use App\Support\Billing\SandboxPolicy;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -78,7 +79,19 @@ class GatewayManager implements GatewayRegistry
     }
 
     /**
-     * Active gateways clients may pay with, in display order.
+     * Whether the gateway takes test money: the simulated sandbox driver, or a provider driver whose sandbox mode
+     * (the "sandbox" setting) is on.
+     */
+    public function isSandbox(string|Gateway $gateway): bool
+    {
+        $key = is_string($gateway) ? $gateway : $gateway->key;
+
+        return str_starts_with($key, 'sandbox') || ($this->has($key) && $this->config($gateway)->sandbox);
+    }
+
+    /**
+     * Active gateways clients may pay with, in display order. A gateway left in sandbox mode is never offered
+     * where test money is not allowed (production), even if it was activated before the deployment changed.
      *
      * @return Collection<int, Gateway>
      */
@@ -90,7 +103,9 @@ class GatewayManager implements GatewayRegistry
             ->whereIn('key', array_keys($this->drivers))
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get();
+            ->get()
+            ->reject(fn (Gateway $gateway): bool => ! SandboxPolicy::allowed() && $this->isSandbox($gateway))
+            ->values();
     }
 
     public function isActive(string $key): bool
