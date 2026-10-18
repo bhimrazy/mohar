@@ -30,6 +30,7 @@ final readonly class ServerConnection
         public ?string $apiToken = null,
         #[\SensitiveParameter]
         public ?string $accessHash = null,
+        #[\SensitiveParameter]
         public array $settings = [],
         public array $nameservers = [],
         public array $secretSettingKeys = [],

@@ -258,12 +258,24 @@ class CatalogPriceBook implements PriceBook
                 continue;
             }
 
+            if ($option->type === ConfigOptionType::Quantity) {
+                $options[$option->module_key] = (int) $selected;
+
+                continue;
+            }
+
+            if ($option->type === ConfigOptionType::YesNo) {
+                $options[$option->module_key] = (int) $selected === 0 ? '0' : '1';
+
+                continue;
+            }
+
+            // A value that no longer belongs to the option (deleted, moved) is left out: its id means nothing to a driver.
             $value = $option->values->firstWhere('id', (int) $selected);
-            $options[$option->module_key] = match ($option->type) {
-                ConfigOptionType::Quantity => (int) $selected,
-                ConfigOptionType::YesNo => (int) $selected === 0 ? '0' : ($option->values->first()?->module_value ?: '1'),
-                default => $value === null ? (string) $selected : ($value->module_value ?: $value->label),
-            };
+
+            if ($value !== null) {
+                $options[$option->module_key] = $value->module_value !== null && $value->module_value !== '' ? $value->module_value : $value->label;
+            }
         }
 
         $fields = [];

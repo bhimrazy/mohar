@@ -45,3 +45,23 @@ test('products for a driver include hidden ones and leave retired ones out', fun
 
     expect(array_map(fn ($product) => $product->id, app(PriceBook::class)->productsForDriver('cpanel')))->toBe([$visible->id, $hidden->id]);
 });
+
+test('a ticked yes/no option is "1" whatever its module value, a "0" module value is kept, and stale value ids are left out', function () {
+    $product = Product::factory()->create();
+    $group = ConfigOptionGroup::factory()->create();
+    $product->configOptionGroups()->attach($group);
+
+    $backups = ConfigOption::factory()->create(['config_option_group_id' => $group->id, 'module_key' => 'backups', 'type' => ConfigOptionType::YesNo]);
+    $backupsValue = ConfigOptionValue::factory()->create(['config_option_id' => $backups->id, 'label' => 'Daily backups', 'module_value' => 'daily']);
+    $raid = ConfigOption::factory()->create(['config_option_group_id' => $group->id, 'module_key' => 'raid', 'type' => ConfigOptionType::Dropdown]);
+    $noRaid = ConfigOptionValue::factory()->create(['config_option_id' => $raid->id, 'label' => 'No RAID', 'module_value' => '0']);
+    $os = ConfigOption::factory()->create(['config_option_group_id' => $group->id, 'module_key' => 'os', 'type' => ConfigOptionType::Dropdown]);
+    $otherOption = ConfigOption::factory()->create(['config_option_group_id' => $group->id, 'module_key' => 'other']);
+    $foreignValue = ConfigOptionValue::factory()->create(['config_option_id' => $otherOption->id, 'module_value' => 'foreign']);
+
+    $inputs = app(PriceBook::class)->moduleInputs($product->id, [$backups->id => $backupsValue->id, $raid->id => $noRaid->id, $os->id => 987_654, $otherOption->id => null], []);
+    $foreign = app(PriceBook::class)->moduleInputs($product->id, [$os->id => $foreignValue->id], []);
+
+    expect($inputs->configOptions)->toBe(['backups' => '1', 'raid' => '0'])
+        ->and($foreign->configOptions)->toBe([]);
+});

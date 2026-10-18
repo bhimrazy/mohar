@@ -21,6 +21,8 @@ class SaveServer
     public function handle(?Server $server, array $data): Server
     {
         return DB::transaction(function () use ($server, $data): Server {
+            // Re-read under a lock: a blank secret keeps the stored value, which must be the latest one.
+            $server = $server?->exists ? Server::query()->lockForUpdate()->findOrFail($server->id) : $server;
             $existing = $server !== null && $server->exists;
             $merged = $this->settings->merge((string) ($data['driver'] ?? $server?->driver), $server, (array) ($data['settings'] ?? []));
             $server ??= new Server;

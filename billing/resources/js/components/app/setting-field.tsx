@@ -66,6 +66,7 @@ export function SettingFieldControl({
         return (
             <SelectField
                 id={id}
+                placeholder="Select…"
                 value={value}
                 onValueChange={onChange}
                 disabled={disabled}
@@ -111,7 +112,7 @@ export function SettingFieldControl({
 
 type InputProps = ControlProps & {
     error?: string;
-    /** A secret value is stored for this field; an empty input keeps it. */
+    /** A secret value is stored for this field (declared secret, or masked by name); an empty input keeps it. */
     secretStored?: boolean;
     className?: string;
 };
@@ -130,9 +131,9 @@ export function SettingFieldInput({
             className={className}
             htmlFor={id}
             label={field.label}
-            optional={!field.required}
+            optional={!field.required && field.type !== 'boolean'}
             hint={
-                field.secret && secretStored
+                secretStored
                     ? 'Stored encrypted. Leave blank to keep it.'
                     : (field.help ?? undefined)
             }

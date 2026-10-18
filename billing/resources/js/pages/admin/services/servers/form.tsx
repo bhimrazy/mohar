@@ -32,6 +32,21 @@ type Props = {
     currencies: string[];
 };
 
+/** Non-secret defaults of a driver's server settings, so the values the form shows are the values it submits. */
+const defaultsFor = (fields: SettingFieldData[] = []): Record<string, string> =>
+    Object.fromEntries(
+        fields
+            .filter((field) => !field.secret && field.default !== null)
+            .map((field) => [
+                field.key,
+                typeof field.default === 'boolean'
+                    ? field.default
+                        ? '1'
+                        : '0'
+                    : String(field.default),
+            ]),
+    );
+
 export default function ServerForm({
     server,
     drivers,
@@ -60,7 +75,9 @@ export default function ServerForm({
         currency: server?.currency ?? currencies[0] ?? 'USD',
         datacenter: server?.datacenter ?? '',
         status_url: server?.status_url ?? '',
-        settings: (server?.settings.values ?? {}) as Record<string, string>,
+        settings: server
+            ? server.settings.values
+            : defaultsFor(driverFields[drivers[0]?.value ?? 'none']),
     });
     const { data, setData, errors, processing } = form;
     const errorFor = (prefix: string) =>
@@ -189,7 +206,16 @@ export default function ServerForm({
                                 <Select
                                     value={data.driver}
                                     onValueChange={(value) =>
-                                        setData('driver', value)
+                                        setData((current) => ({
+                                            ...current,
+                                            driver: value,
+                                            settings:
+                                                value === server?.driver
+                                                    ? server.settings.values
+                                                    : defaultsFor(
+                                                          driverFields[value],
+                                                      ),
+                                        }))
                                     }
                                 >
                                     <SelectTrigger
@@ -333,8 +359,7 @@ export default function ServerForm({
                                             id={`settings-${field.key}`}
                                             field={field}
                                             value={
-                                                data.settings[field.key] ??
-                                                String(field.default ?? '')
+                                                data.settings[field.key] ?? ''
                                             }
                                             onChange={(value) =>
                                                 setData('settings', {

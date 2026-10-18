@@ -4,6 +4,7 @@ namespace App\Modules\Services\Http\Requests;
 
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -14,6 +15,8 @@ use Illuminate\Validation\Rule;
  */
 class ServerRequest extends FormRequest
 {
+    use KeepsSecretsOutOfOldInput;
+
     public function authorize(): bool
     {
         return $this->user()?->hasPermission('services.servers.manage') ?? false;
@@ -21,7 +24,10 @@ class ServerRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        $settings = app(ServerSettings::class);
+
         $this->merge([
+            'settings' => $settings->withDefaults((string) $this->input('driver'), (array) $this->input('settings', [])),
             'hostname' => strtolower(trim((string) $this->input('hostname'))),
             'nameservers' => array_values(array_filter(array_map(fn ($value): string => strtolower(trim((string) $value)), (array) $this->input('nameservers', [])))),
             'assigned_ips' => array_values(array_filter(array_map(fn ($value): string => trim((string) $value), preg_split('/[\s,]+/', (string) $this->input('assigned_ips_text', '')) ?: []))),
@@ -74,6 +80,14 @@ class ServerRequest extends FormRequest
         }
 
         return $data;
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function secretInputPaths(): array
+    {
+        return ['api_token', 'access_hash', ...$this->settingInputPaths('settings', app(ServerSettings::class)->fields((string) $this->input('driver')))];
     }
 
     private function routeServer(): ?Server

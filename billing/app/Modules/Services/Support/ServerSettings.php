@@ -4,9 +4,12 @@ namespace App\Modules\Services\Support;
 
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\Server;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use InvalidArgumentException;
 
 /**
  * A server's driver-declared settings (DriverMetadata::$serverFields): validation, merging a submitted form into what
@@ -15,7 +18,7 @@ use Illuminate\Validation\Rule;
  */
 class ServerSettings
 {
-    public function __construct(private ProvisioningDriverRegistry $drivers) {}
+    public function __construct(private ProvisioningDriverRegistry $drivers, private ActivityLogger $activity) {}
 
     /**
      * @return list<SettingField>
@@ -41,7 +44,8 @@ class ServerSettings
         $rules = ['settings' => ['array']];
 
         foreach ($this->fields($driverKey) as $field) {
-            $stored = $field->isSecret() && (string) ($server?->settings[$field->key] ?? '') !== '';
+            // A secret counts as stored only when it was stored for this driver: switching drivers drops the old values.
+            $stored = $field->isSecret() && $server?->driver === $driverKey && (string) ($server->settings[$field->key] ?? '') !== '';
             $rules["settings.{$field->key}"] = [
                 $field->required && ! $stored && $field->type !== FieldType::Boolean ? 'required' : 'nullable',
                 ...match ($field->type) {
@@ -67,6 +71,7 @@ class ServerSettings
     public function merge(string $driverKey, ?Server $server, array $submitted): array
     {
         $stored = $server?->driver === $driverKey ? ($server->settings ?? []) : [];
+        $submitted = $this->withDefaults($driverKey, $submitted);
         $settings = [];
         $changes = [];
 
@@ -88,6 +93,58 @@ class ServerSettings
         }
 
         return ['settings' => $settings, 'changes' => $changes];
+    }
+
+    /**
+     * Submitted settings with each absent non-secret field set to its default, so a default the form shows is the
+     * value that is validated and stored.
+     *
+     * @param  array<string, mixed>  $submitted
+     * @return array<string, mixed>
+     */
+    public function withDefaults(string $driverKey, array $submitted): array
+    {
+        foreach ($this->fields($driverKey) as $field) {
+            if (! $field->isSecret() && $field->default !== null && ! array_key_exists($field->key, $submitted)) {
+                $submitted[$field->key] = is_bool($field->default) ? ($field->default ? '1' : '0') : (string) $field->default;
+            }
+        }
+
+        return $submitted;
+    }
+
+    /**
+     * Store one setting outside the server form (e.g. a certificate pin staff trusted after a connection test),
+     * audited like a form save: secrets as "rotated".
+     */
+    public function put(Server $server, string $key, mixed $value, ?string $reason = null): void
+    {
+        $field = collect($this->fields($server->driver))->first(fn (SettingField $field): bool => $field->key === $key)
+            ?? throw new InvalidArgumentException("The {$server->driver} driver declares no server setting [{$key}].");
+
+        DB::transaction(function () use ($server, $field, $key, $value, $reason): void {
+            $locked = Server::query()->lockForUpdate()->findOrFail($server->id);
+            $settings = $locked->settings ?? [];
+            $before = $settings[$key] ?? null;
+            $value = $this->cast($field, $value);
+
+            if ($value === $before) {
+                return;
+            }
+
+            if ($value === null || $value === '') {
+                unset($settings[$key]);
+            } else {
+                $settings[$key] = $value;
+            }
+
+            $locked->update(['settings' => $settings ?: null]);
+            $server->setRawAttributes($locked->getAttributes(), true);
+            $this->activity->log("Server {$locked->name} settings changed", $locked, properties: array_filter([
+                'changes' => ["settings.{$key}" => $field->isSecret() ? 'rotated' : ['from' => $before, 'to' => $value]],
+                'reason' => $reason,
+            ]));
+        });
     }
 
     /**
