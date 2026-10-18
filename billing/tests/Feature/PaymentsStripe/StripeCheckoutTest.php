@@ -228,3 +228,12 @@ test('the connection test catches keys from the other mode without calling Strip
     'live publishable key' => [['publishable_key' => 'pk_live_51MoharFakePublishable0000'], 'publishable key isn\'t a test key'],
     'webhook secret without prefix' => [['webhook_secret' => 'not-a-signing-secret'], 'should start with whsec_'],
 ]);
+
+test('the pay panel lists the staff-chosen name and names the provider the customer is sent to', function () {
+    Gateway::query()->where('key', StripeDriver::KEY)->update(['display_name' => 'Credit or debit card']);
+    [, $invoice] = usdInvoice();
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->contains(fn (array $option) => $option['key'] === StripeDriver::KEY
+            && $option['name'] === 'Credit or debit card' && $option['provider'] === 'Stripe' && $option['kind'] === 'redirect')));
+});

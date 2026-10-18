@@ -150,7 +150,10 @@ export type CreditEntry = {
 
 export type ClientGatewayOption = {
     key: string;
+    /** Staff-chosen method name, shown in the method list. */
     name: string;
+    /** The provider the customer is sent to (e.g. "Stripe"), used in redirect copy. */
+    provider: string;
     kind: 'card' | 'redirect' | 'offline';
     instructions: string | null;
     vault_url: string | null;
