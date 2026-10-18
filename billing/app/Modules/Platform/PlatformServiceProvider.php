@@ -100,7 +100,8 @@ class PlatformServiceProvider extends ModuleServiceProvider
         // One queued, unique conversion per rate change; modules' daily convert-prices tasks are the backstop.
         Event::listen(ExchangeRatesUpdated::class, fn (ExchangeRatesUpdated $event) => ConvertPricesAfterRateChange::dispatch($event->currencies));
 
-        $this->app->make(Automation::class)->task(ExchangeRateTask::KEY, Automation::EXCHANGE_RATES, fn (): string => $this->app->make(ExchangeRateTask::class)->pipeline());
+        $this->app->make(Automation::class)->task(ExchangeRateTask::KEY, Automation::EXCHANGE_RATES, fn (): string => $this->app->make(ExchangeRateTask::class)->pipeline(),
+            label: 'Update exchange rates', description: 'Fetches the day\'s exchange rates from the configured provider, or records that they are fetched at their own time.');
 
         $dashboard = $this->app->make(Dashboard::class);
         $dashboard->todo('admin', 'platform.exchange_rates.review', fn (): array => [
@@ -108,12 +109,14 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'count' => ExchangeRateReview::query()->pending()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
+            'icon' => 'Coins',
         ], 'core.currencies.rates', 30);
         $dashboard->todo('admin', 'platform.exchange_rates.stale', fn (): array => [
             'label' => 'Exchange rates out of date',
             'count' => $this->app->make(ExchangeRateStatus::class)->staleQuery()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
+            'icon' => 'Coins',
         ], 'core.currencies.manage', 31);
     }
 
@@ -148,7 +151,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
                     ->where(fn ($query) => $query->whereNull('accepted_at')->where('expires_at', '<', $today->subDays(30)))
                     ->orWhere(fn ($query) => $query->whereNotNull('accepted_at')->where('accepted_at', '<', $today->subDays(90))))
                 ->delete(),
-        ));
+        ), label: 'Delete old staff invitations', description: 'Removes expired and used staff invitations.');
 
         $automation->task('platform.prune_activity_log', Automation::HOUSEKEEPING, function (CarbonImmutable $today): string {
             $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
@@ -157,7 +160,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days)));
 
             return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
-        });
+        }, label: 'Prune the activity log', description: 'Deletes activity log entries older than the retention period (client entries are kept).');
     }
 
     /**

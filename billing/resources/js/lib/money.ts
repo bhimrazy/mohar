@@ -311,6 +311,13 @@ function compactNumber(value: number, units: [number, string][]): string {
  * Our own suffixes (K/L/Cr for Indian grouping, K/M/B otherwise), never the browser's locale abbreviations
  * (CLDR en-IN writes thousand as "T", which reads as trillion).
  */
+/** Compact counts for chart axes: "950", "1.2K", "3.4M" (the product's own units, never Intl's). */
+export function formatNumberCompact(value: number): string {
+    const number = compactNumber(Math.abs(value), INTERNATIONAL_UNITS);
+
+    return value < 0 ? `${MINUS}${number}` : number;
+}
+
 export function formatMoneyCompact(
     amountMinor: number,
     currency: string,

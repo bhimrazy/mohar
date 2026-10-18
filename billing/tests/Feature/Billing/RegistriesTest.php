@@ -74,8 +74,8 @@ test('dashboards show billing cards', function () {
     Invoice::factory()->overdue()->create();
 
     $this->get(route('admin.dashboard'))->assertInertia(fn (Assert $page) => $page
-        ->where('cards', fn ($cards) => collect($cards)->firstWhere('key', 'billing.overdue')['value'] === 1
-            && collect($cards)->firstWhere('key', 'billing.unpaid')['money']['currency'] === 'USD'));
+        ->where('widgets', fn ($widgets) => collect($widgets)->firstWhere('key', 'billing.overdue')['count'] === 1
+            && collect($widgets)->firstWhere('key', 'billing.unpaid')['money']['currency'] === 'USD'));
 
     $client = Client::factory()->withOwner()->create();
     $this->actingAs($client->users()->firstOrFail());
@@ -120,8 +120,10 @@ test('the admin dashboard gets billing widgets and to-dos, the nav gets badges a
 
     expect($chart)->type->toBe('chart')
         ->and(collect($dashboard->resolveWidgets('admin', $staff, deferred: true))->pluck('key'))->toContain('billing.income_chart')
-        ->and($chart['series'][0]['points'])->toHaveCount(30)
+        ->and($chart['series'][0]['points'])->toHaveCount(12)
         ->and(collect($chart['series'][0]['points'])->last()['y'])->toBe(2_500)
+        ->and($chart['ranges']['30d']['series'][0]['points'])->toHaveCount(30)
+        ->and(collect($chart['ranges']['30d']['series'][0]['points'])->last()['y'])->toBe(2_500)
         ->and($widgets->firstWhere('key', 'billing.recent_payments')['items'])->toHaveCount(1)
         ->and(collect($dashboard->resolveTodos('admin', $staff))->firstWhere('key', 'billing.overdue')['count'])->toBe(1);
 

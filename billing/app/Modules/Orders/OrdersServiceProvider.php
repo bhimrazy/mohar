@@ -14,6 +14,7 @@ use App\Events\Domains\DomainTransferred;
 use App\Events\Services\ServiceActivated;
 use App\Models\User;
 use App\Modules\Core\Support\Like;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Actions\CancelStalePendingOrders;
 use App\Modules\Orders\Actions\PruneExpiredCarts;
@@ -29,6 +30,7 @@ use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
+use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -41,6 +43,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Carbon\CarbonInterface;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
@@ -128,7 +131,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Orders', 'admin.orders.index', 'ShoppingCart', 'Orders', 10, 'orders.orders.view', 'admin.orders.*',
-            badge: fn (?User $user): ?int => Order::query()->where('status', OrderStatus::Pending)->count() ?: null));
+            badge: fn (?User $user): ?int => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()) ?: null));
         $navigation->add('admin-create', new NavItem('New order', 'admin.orders.create', 'ShoppingCart', order: 20, permission: 'orders.orders.create'));
         $navigation->add('admin', new NavItem('Promotions', 'admin.promotions.index', 'Percent', 'Orders', 20, 'orders.promotions.manage', 'admin.promotions.*'));
         $navigation->add('client', new NavItem('Order history', 'client.orders.index', 'Receipt', 'Orders', 10, null, 'client.orders.*'));
@@ -138,43 +141,58 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $dashboard = $this->app->make(Dashboard::class);
         $dashboard->card('admin', 'orders.pending', fn (?User $user): array => [
             'label' => 'Pending orders',
-            'value' => Order::query()->where('status', OrderStatus::Pending)->count(),
+            'value' => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'icon' => 'ShoppingCart',
-        ], 'orders.orders.view', 10);
+        ], 'orders.orders.view', 20, mirrorsTodo: true);
         $dashboard->card('admin', 'orders.today', fn (?User $user): array => [
             'label' => 'Orders today',
             'value' => Order::query()->where('created_at', '>=', $this->app->make(CompanyClock::class)->now()->startOfDay()->utc())->count(),
             'href' => route('admin.orders.index', ['from' => $this->app->make(CompanyClock::class)->now()->toDateString()]),
             'icon' => 'TrendingUp',
-        ], 'orders.orders.view', 15);
+        ], 'orders.orders.view', 21);
 
         $dashboard->widget('admin', 'orders.recent', 'list', fn (?User $user): array => [
             'title' => 'Recent orders',
             'href' => route('admin.orders.index'),
             'empty' => 'No orders yet.',
-            'items' => Order::query()->with('client')->orderByDesc('created_at')->orderByDesc('id')->limit(5)->get()
+            'items' => Order::query()->with(['client', 'items' => fn ($query) => $query->whereNull('parent_id')->orderBy('id')])
+                ->orderByDesc('created_at')->orderByDesc('id')->limit(5)->get()
                 ->map(fn (Order $order): array => [
-                    'title' => "#{$order->number}",
-                    'subtitle' => $order->client->display_name,
+                    'title' => $order->client->display_name,
+                    'subtitle' => collect(["#{$order->number}", $order->items->first()?->description, $order->created_at?->diffForHumans()])->filter()->implode(' · '),
+                    'avatar' => $order->client->display_name,
                     'href' => route('admin.orders.show', $order),
                     'meta' => app(MoneyFormatter::class)->format(Money::of($order->total, $order->currency)),
+                    'money' => ['amount' => $order->total, 'currency' => $order->currency],
                     'status' => $order->status->value,
                 ])->all(),
-        ], 'orders.orders.view', 30, 'md');
+        ], 'orders.orders.view', 50, 'md');
+
+        $this->app->make(OrdersDashboard::class)->register($dashboard);
 
         $dashboard->todo('admin', 'orders.pending', fn (?User $user): array => [
             'label' => 'Orders awaiting review',
-            'count' => Order::query()->where('status', OrderStatus::Pending)->count(),
+            'count' => RequestMemo::remember('orders.pending_count', fn (): int => Order::query()->where('status', OrderStatus::Pending)->count()),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Pending->value]),
             'tone' => 'warning',
+            'icon' => 'ShoppingCart',
+            'hint' => $this->oldestPendingHint(),
         ], 'orders.orders.view', 10);
         $dashboard->todo('admin', 'orders.fraud', fn (?User $user): array => [
             'label' => 'Orders flagged as fraud',
             'count' => Order::query()->where('status', OrderStatus::Fraud)->count(),
             'href' => route('admin.orders.index', ['status' => OrderStatus::Fraud->value]),
             'tone' => 'danger',
+            'icon' => 'ShieldAlert',
         ], 'orders.orders.view', 11);
+    }
+
+    private function oldestPendingHint(): ?string
+    {
+        $oldest = Order::query()->where('status', OrderStatus::Pending)->min('created_at');
+
+        return $oldest === null ? null : 'Oldest waiting '.CarbonImmutable::parse((string) $oldest)->diffForHumans(syntax: CarbonInterface::DIFF_ABSOLUTE);
     }
 
     private function registerPermissionsAndSettings(): void
@@ -258,7 +276,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         // Resolve the action (and its Billing dependency) only when auto-cancel is switched on.
         $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => (int) $this->app->make(Settings::class)->get('orders.auto_cancel_unpaid_days', 0) > 0
             ? $this->app->make(CancelStalePendingOrders::class)->handle($today)
-            : 0);
-        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle());
+            : 0, label: 'Cancel stale unpaid orders', description: 'Cancels pending orders whose invoice is still unpaid after the configured number of days.');
+        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
     }
 }

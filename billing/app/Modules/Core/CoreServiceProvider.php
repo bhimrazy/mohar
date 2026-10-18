@@ -19,6 +19,7 @@ use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
+use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
@@ -49,6 +50,9 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
+        // One currency-table read per request for every dashboard widget that converts or formats money.
+        $this->app->scoped(CurrencyRollup::class);
+
         $this->app->singleton(Settings::class);
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);

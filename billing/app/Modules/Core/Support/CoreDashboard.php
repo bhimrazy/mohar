@@ -16,8 +16,8 @@ class CoreDashboard
     {
         $dashboard->card('admin', 'core.clients', fn (?User $user): array => $this->activeClients(), 'core.clients.view', 10);
         $dashboard->card('admin', 'core.clients.new', fn (?User $user): array => $this->newClients(), 'core.clients.view', 11);
-        $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 40, 'md');
-        $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 30, 'md', deferred: true);
+        $dashboard->widget('admin', 'core.clients.newest', 'list', fn (?User $user): array => $this->newestClients(), 'core.clients.view', 55, 'md');
+        $dashboard->widget('admin', 'core.clients.signups', 'chart', fn (?User $user): array => $this->signups(), 'core.clients.view', 35, 'md', deferred: true);
     }
 
     /**
@@ -74,6 +74,7 @@ class CoreDashboard
             'items' => Client::query()->latest('id')->limit(5)->get()->map(fn (Client $client): array => [
                 'title' => $client->display_name,
                 'subtitle' => $client->email,
+                'avatar' => $client->display_name,
                 'meta' => $client->created_at?->toIso8601String(),
                 'status' => $client->status,
                 'href' => route('admin.clients.show', $client),
@@ -82,21 +83,22 @@ class CoreDashboard
     }
 
     /**
-     * New clients per week for the last 12 weeks (bucketed in PHP: portable across databases).
+     * New clients per week for the last 12 weeks, in the company's calendar (bucketed in PHP over one column).
      *
      * @return array<string, mixed>
      */
     private function signups(): array
     {
-        $start = CarbonImmutable::now()->startOfWeek()->subWeeks(11);
+        $calendar = app(BusinessCalendar::class);
+        $start = $calendar->today()->startOfWeek()->subWeeks(11);
         $weeks = [];
 
         for ($week = 0; $week < 12; $week++) {
             $weeks[$start->addWeeks($week)->toDateString()] = 0;
         }
 
-        Client::query()->where('created_at', '>=', $start)->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks): void {
-            $key = CarbonImmutable::parse($createdAt)->startOfWeek()->toDateString();
+        Client::query()->where('created_at', '>=', $calendar->startOfDayUtc($start))->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks, $calendar): void {
+            $key = CarbonImmutable::parse((string) $calendar->localDate($createdAt))->startOfWeek()->toDateString();
 
             if (array_key_exists($key, $weeks)) {
                 $weeks[$key]++;
@@ -105,7 +107,9 @@ class CoreDashboard
 
         return [
             'title' => 'New clients',
-            'description' => 'Per week, last 12 weeks',
+            'description' => 'Per week, last 12 weeks · '.trans_choice('{0} none|{1} 1 new client|[2,*] :count new clients', array_sum($weeks)),
+            'xFormat' => 'week',
+            'empty' => 'No new clients in the last 12 weeks.',
             'kind' => 'bar',
             'href' => route('admin.clients.index'),
             'series' => [[

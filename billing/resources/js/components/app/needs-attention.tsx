@@ -40,7 +40,7 @@ export function NeedsAttention({
     title = 'Needs attention',
     className,
 }: NeedsAttentionProps) {
-    // Badge = number of queues needing action, coloured by the most severe one.
+    // Badge = everything waiting across the queues, coloured by the most severe one.
     const severity: StatusTone[] = ['danger', 'warning', 'info', 'neutral'];
     const worst =
         severity.find((tone) =>
@@ -64,7 +64,7 @@ export function NeedsAttention({
                             ICON_SURFACE[worst],
                         )}
                     >
-                        {items.length} {items.length === 1 ? 'item' : 'items'}
+                        {items.reduce((sum, item) => sum + item.count, 0)} open
                     </span>
                 )}
             </header>

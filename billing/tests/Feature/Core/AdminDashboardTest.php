@@ -16,7 +16,6 @@ it('passes kernel widgets, deferred widgets and todos to the admin dashboard', f
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/dashboard')
-            ->has('cards')
             ->where('widgets', fn ($widgets) => collect($widgets)->contains('key', 'test.list') && ! collect($widgets)->contains('key', 'test.chart'))
             ->where('todos', fn ($todos) => collect($todos)->contains('label', 'Tickets awaiting reply') && ! collect($todos)->contains('key', 'test.zero'))
             ->missing('deferredWidgets')

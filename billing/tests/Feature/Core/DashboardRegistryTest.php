@@ -1,7 +1,9 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Support\RequestMemo;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Dashboard\Trend;
 
 test('widgets are filtered by permission, ordered and typed', function () {
     $dashboard = new Dashboard;
@@ -27,4 +29,61 @@ test('todo items with zero counts are hidden', function () {
     expect($dashboard->resolveTodos('admin', User::factory()->staff()->create()))
         ->toHaveCount(1)
         ->sequence(fn ($todo) => $todo->key->toBe('orders.pending'));
+});
+
+test('health checks are aggregated in order and filtered by permission', function () {
+    $dashboard = new Dashboard;
+    $dashboard->health('admin', 'b.queue', fn () => ['label' => 'Queue', 'value' => 'OK', 'tone' => 'success'], order: 20);
+    $dashboard->health('admin', 'a.gateways', fn () => ['label' => 'Gateways', 'value' => '1 to review', 'tone' => 'danger'], 'billing.transactions.view', order: 10);
+
+    expect(array_column($dashboard->resolveHealth('admin', User::factory()->staff(['billing.*'])->create()), 'key'))->toBe(['a.gateways', 'b.queue'])
+        ->and($dashboard->resolveHealth('admin', User::factory()->staff(['support.*'])->create()))->toBe([['key' => 'b.queue', 'label' => 'Queue', 'value' => 'OK', 'tone' => 'success']])
+        ->and($dashboard->resolveHealth('client', null))->toBe([]);
+});
+
+test('breakdown is a widget type and optional payload fields pass through untouched', function () {
+    $dashboard = new Dashboard;
+    $dashboard->widget('admin', 'x.split', 'breakdown', fn () => ['title' => 'Split', 'rows' => [['key' => 'USD', 'label' => 'US Dollar', 'share' => 100]], 'variants' => ['USD' => ['title' => 'Split']]]);
+    $dashboard->card('admin', 'x.kpi', fn () => ['label' => 'MRR', 'value' => '$1', 'sparkline' => [1, 2], 'trend' => ['value' => '5%', 'direction' => 'up']]);
+
+    $widgets = collect($dashboard->resolveWidgets('admin', User::factory()->staff()->create()))->keyBy('key');
+
+    expect($widgets['x.split']['type'])->toBe('breakdown')
+        ->and($widgets['x.split']['variants'])->toBe(['USD' => ['title' => 'Split']])
+        ->and($widgets['x.kpi'])->toMatchArray(['sparkline' => [1, 2], 'trend' => ['value' => '5%', 'direction' => 'up']]);
+});
+
+test('trend pills compare against the previous period and say nothing without one', function () {
+    expect(Trend::percent(1_200, 1_000))->toBe(['value' => '20.0%', 'direction' => 'up', 'upIsGood' => true])
+        ->and(Trend::percent(500, 1_000, upIsGood: false))->toBe(['value' => '50.0%', 'direction' => 'down', 'upIsGood' => false])
+        ->and(Trend::percent(1_000, 1_000))->toMatchArray(['direction' => 'flat'])
+        ->and(Trend::percent(1_000, 0))->toBeNull();
+});
+
+test('cards that mirror a to-do are returned by resolve() but skipped by resolveWidgets() without running', function () {
+    $dashboard = new Dashboard;
+    $runs = 0;
+    $dashboard->card('admin', 'x.pending', function () use (&$runs) {
+        $runs++;
+
+        return ['label' => 'Pending', 'value' => 2];
+    }, mirrorsTodo: true);
+    $user = User::factory()->staff()->create();
+
+    expect($dashboard->resolveWidgets('admin', $user))->toBe([])
+        ->and($runs)->toBe(0)
+        ->and($dashboard->resolve('admin', $user)[0])->toMatchArray(['key' => 'x.pending', 'mirrorsTodo' => true, 'value' => 2]);
+});
+
+test('a nav badge and its to-do share one count per request', function () {
+    $calls = 0;
+    $count = function () use (&$calls): int {
+        $calls++;
+
+        return 3;
+    };
+
+    expect(RequestMemo::remember('test.count', $count))->toBe(3)
+        ->and(RequestMemo::remember('test.count', $count))->toBe(3)
+        ->and($calls)->toBe(1);
 });
