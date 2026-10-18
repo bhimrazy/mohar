@@ -13,6 +13,7 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Tests\Fakes\Services\ServicesTestKit;
 
 /**
@@ -112,8 +113,30 @@ test('a proposed name another service holds is not taken; the host chooses the n
         ->and($driver->contexts[1]->service->username)->toBe('example2');
 });
 
-test('a username is unique per server', function () {
-    Service::factory()->create(['server_id' => $this->server->id, 'username' => 'shop1']);
+test('two live services cannot share a username on a server, but a terminated one does not count', function () {
+    Service::factory()->create(['server_id' => $this->server->id, 'username' => 'shop1', 'status' => ServiceStatus::Terminated]);
+    Service::factory()->create(['server_id' => $this->server->id, 'username' => 'shop1', 'status' => ServiceStatus::Active]);
 
-    expect(fn () => Service::factory()->create(['server_id' => $this->server->id, 'username' => 'shop1']))->toThrow(UniqueConstraintViolationException::class);
+    expect(Service::query()->where('username', 'shop1')->count())->toBe(2)
+        ->and(fn () => Service::factory()->create(['server_id' => $this->server->id, 'username' => 'shop1', 'status' => ServiceStatus::Suspended]))
+        ->toThrow(UniqueConstraintViolationException::class);
+});
+
+test('a rename that loses a race for the name is settled by the index and takes the next free one', function () {
+    $driver = renamingDriver(['example1']);
+    $service = renamingService($driver, $this->server);
+    $raced = false;
+
+    // Another service takes example1 right after the host checked it was free.
+    DB::listen(function ($query) use (&$raced): void {
+        if (! $raced && str_contains($query->sql, 'select exists') && in_array('example1', $query->bindings, true)) {
+            $raced = true;
+            Service::factory()->create(['server_id' => $this->server->id, 'username' => 'example1', 'status' => ServiceStatus::Active]);
+        }
+    });
+
+    app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+
+    expect($raced)->toBeTrue()
+        ->and($service->refresh()->username)->toBe('example2');
 });

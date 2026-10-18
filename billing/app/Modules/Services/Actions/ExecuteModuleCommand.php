@@ -15,6 +15,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
+use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\NoServerCapacity;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleCommand;
@@ -321,14 +322,16 @@ class ExecuteModuleCommand
         }
 
         foreach ($candidates as $candidate) {
-            if (Service::withTrashed()->where('server_id', $service->server_id)->where('username', $candidate)->whereKeyNot($service->id)->exists()) {
+            // Only services that hold an account count; the server's own check decides about the rest.
+            if (Service::query()->whereIn('status', ServiceStatus::occupyingValues())->where('server_id', $service->server_id)->where('username', $candidate)->whereKeyNot($service->id)->exists()) {
                 continue;
             }
 
             try {
-                // The unique (server_id, username) index settles a race with another service. No transaction is open
-                // here, so a refused statement aborts nothing else (PostgreSQL rule 7).
-                Service::withTrashed()->whereKey($service->id)->update(['username' => $candidate]);
+                // The unique (server_id, username) index over live services settles a race with another service. The
+                // write runs in its own transaction (a savepoint inside an open one), so a refused statement leaves any
+                // surrounding transaction usable on PostgreSQL (rule 7).
+                DB::transaction(fn () => Service::withTrashed()->whereKey($service->id)->update(['username' => $candidate]));
             } catch (UniqueConstraintViolationException) {
                 continue;
             }
