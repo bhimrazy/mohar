@@ -20,7 +20,7 @@ class CoreSeeder extends Seeder
         // System roles are kept in sync on every seed (explicit lists; sensitive permissions are never wildcard-granted).
         $roles = [
             'Full Administrator' => ['Unrestricted access to everything.', ['*']],
-            'Billing' => ['Clients, orders, invoices and billing reports.', ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'orders.*', 'reports.*']],
+            'Billing' => ['Clients, orders, invoices and billing reports.', ['core.clients.view', 'core.clients.create', 'core.clients.update', 'core.contacts.manage', 'billing.*', 'billing.payments.manage', 'billing.transactions.manage', 'billing.refunds.manage', 'billing.credit.adjust', 'orders.*', 'reports.*']],
             'Support' => ['Tickets plus read access to clients, services and domains.', ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view']],
             'Sales' => ['Read clients and orders, accept orders, manage quotes.', ['core.clients.view', 'orders.orders.view', 'orders.orders.accept', 'billing.quotes.view', 'billing.quotes.manage']],
         ];
