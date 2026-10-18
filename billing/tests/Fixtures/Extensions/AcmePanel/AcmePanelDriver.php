@@ -12,6 +12,8 @@ use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Enums\FieldType;
+use App\Support\Integrations\OutboundAddressGuard;
+use App\Support\Integrations\OutboundAddressRefused;
 use App\Support\Services\RetryableProvisioningException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -27,6 +29,9 @@ use Illuminate\Support\Facades\Http;
  */
 final class AcmePanelDriver implements ChangesPassword, ProvisioningDriver, TestsServerConnection
 {
+    /** Staff type the panel's hostname, so every connection goes through the kernel guard (ADR 0015). */
+    public function __construct(private OutboundAddressGuard $guard) {}
+
     public function key(): string
     {
         return 'acme_panel';
@@ -86,6 +91,8 @@ final class AcmePanelDriver implements ChangesPassword, ProvisioningDriver, Test
     {
         try {
             $response = $this->client($server)->get('/api/status');
+        } catch (OutboundAddressRefused $refused) {
+            return new ConnectionCheck(false, $refused->getMessage());
         } catch (ConnectionException) {
             return new ConnectionCheck(false, "Couldn't reach {$server->hostname}.");
         }
@@ -119,6 +126,8 @@ final class AcmePanelDriver implements ChangesPassword, ProvisioningDriver, Test
 
         try {
             $response = $this->client($server)->{$method}($path, $payload);
+        } catch (OutboundAddressRefused $refused) {
+            return DriverResult::fail($refused->getMessage());
         } catch (ConnectionException $exception) {
             if (str_contains($exception->getMessage(), 'timed out')) {
                 return DriverResult::unknown('Acme Panel did not answer in time; check the account before retrying.', $payload);
@@ -138,7 +147,8 @@ final class AcmePanelDriver implements ChangesPassword, ProvisioningDriver, Test
     {
         $scheme = $server->secure ? 'https' : 'http';
         $port = $server->port ?? ($server->secure ? 8443 : 8080);
+        $address = $this->guard->resolve($server->hostname, $port);
 
-        return Http::baseUrl("{$scheme}://{$server->hostname}:{$port}")->withToken((string) $server->apiToken)->acceptJson()->timeout(20);
+        return $this->guard->pin(Http::baseUrl("{$scheme}://{$server->hostname}:{$port}")->withToken((string) $server->apiToken)->acceptJson()->timeout(20), $address);
     }
 }

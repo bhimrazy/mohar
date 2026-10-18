@@ -71,12 +71,13 @@ class ExecuteModuleCommand
 
     /**
      * @param  array<string, mixed>  $args
+     * @param  int|null  $jobTimeout  the run time allowed to this attempt (the job's timeout); the lock outlives it
      *
      * @throws LockTimeoutException when another command for the service holds the lock too long
      */
-    public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1): CommandOutcome
+    public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1, ?int $jobTimeout = null): CommandOutcome
     {
-        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($this->serviceDrivers->jobTimeoutFor($serviceId)))
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout ?? $this->serviceDrivers->jobTimeoutFor($serviceId)))
             ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt));
     }
 
@@ -96,7 +97,7 @@ class ExecuteModuleCommand
         }
 
         if ($jobDied && $this->markUnfinishedAsUnknown($service->id, $command) > 0) {
-            $this->openQueueItem($service, $command, $args, "Outcome unknown: {$error}. Check the server before retrying.", 1, ModuleQueueItem::KIND_VERIFY);
+            $this->openQueueItem($service, $command, $args, self::unknownMessage($error), 1, ModuleQueueItem::KIND_VERIFY);
         } else {
             $this->openQueueItem($service, $command, $args, $error, 1, ModuleQueueItem::KIND_FAILURE);
         }
@@ -151,7 +152,7 @@ class ExecuteModuleCommand
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
             $context = $this->snapshots->context($service, $server, $product, $driver);
             $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt);
-            $result = $this->call($driver, $context, $command, $args);
+            $result = $this->callDriver($driver, $context, $command, $args);
         } catch (RetryableProvisioningException $exception) {
             $result = DriverResult::fail($exception->getMessage(), retryable: true);
         } catch (NoServerCapacity $exception) {
@@ -195,7 +196,7 @@ class ExecuteModuleCommand
         }
 
         $kind = $outcome === DriverOutcome::Unknown ? ModuleQueueItem::KIND_VERIFY : ModuleQueueItem::KIND_FAILURE;
-        $error = $outcome === DriverOutcome::Unknown ? "Outcome unknown: {$error} Check the server before retrying." : (string) $error;
+        $error = $outcome === DriverOutcome::Unknown ? self::unknownMessage((string) $error) : (string) $error;
 
         return $this->failed($service, $command, $args, $error, $attempt, $kind);
     }
@@ -273,6 +274,34 @@ class ExecuteModuleCommand
         $service->save();
 
         return $service->server;
+    }
+
+    private static function unknownMessage(string $error): string
+    {
+        return 'Outcome unknown: '.rtrim($error, '. ').'. Check the server before retrying.';
+    }
+
+    /**
+     * Call the driver. Anything it throws other than RetryableProvisioningException happened while the request may
+     * already have been sent, so the outcome is unknown: never retried, settled by staff (ADR 0009 §4). Failures
+     * before the call (server selection, snapshot building) stay rejected.
+     *
+     * @param  array<string, mixed>  $args
+     *
+     * @throws RetryableProvisioningException
+     */
+    private function callDriver(ProvisioningDriver $driver, ProvisioningContext $context, ModuleCommandName $command, array $args): DriverResult
+    {
+        try {
+            return $this->call($driver, $context, $command, $args);
+        } catch (RetryableProvisioningException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            $message = $this->redactor->maskValues($exception->getMessage(), $context->secrets());
+            report(new \RuntimeException($message));
+
+            return DriverResult::unknown("The {$driver->name()} driver failed during the call: {$message}");
+        }
     }
 
     /**

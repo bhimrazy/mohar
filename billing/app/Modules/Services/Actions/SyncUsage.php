@@ -27,13 +27,13 @@ class SyncUsage
                 return;
             }
 
-            $driver = $this->drivers->get($server->driver);
-
-            if (! $driver instanceof ReportsUsage) {
-                return;
-            }
-
             try {
+                $driver = $this->drivers->get($server->driver);
+
+                if (! $driver instanceof ReportsUsage) {
+                    return;
+                }
+
                 $rows = $driver->usage($this->snapshots->connection($server));
             } catch (Throwable $exception) {
                 report($exception);

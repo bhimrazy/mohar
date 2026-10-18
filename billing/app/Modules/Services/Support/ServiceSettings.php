@@ -110,6 +110,14 @@ class ServiceSettings
         return min($this->maxJobTimeoutSeconds(), max($default, $driverSeconds ?? 0));
     }
 
+    /**
+     * Longest a command may run inside a page request (staff "run now"); a driver that needs more is queued.
+     */
+    public function syncTimeoutSeconds(): int
+    {
+        return max(5, (int) config('services.module.sync_timeout_seconds', 60));
+    }
+
     public function maxJobTimeoutSeconds(): int
     {
         return max(5, (int) config('services.module.max_job_timeout_seconds', 180));

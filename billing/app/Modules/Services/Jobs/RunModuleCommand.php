@@ -46,9 +46,10 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
         public string $initiator = 'system',
         public int $attempt = 1,
         public int $lockRetries = 0,
+        ?int $timeoutSeconds = null,
     ) {
         $this->onQueue('provisioning');
-        $this->timeout = app(ServiceDrivers::class)->jobTimeoutFor($serviceId);
+        $this->timeout = $timeoutSeconds ?? app(ServiceDrivers::class)->jobTimeoutFor($serviceId);
     }
 
     public function uniqueId(): string
@@ -59,7 +60,7 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
     public function handle(ExecuteModuleCommand $execute): void
     {
         try {
-            $outcome = $execute->handle($this->serviceId, ModuleCommandName::from($this->command), $this->args, $this->initiator, $this->attempt);
+            $outcome = $execute->handle($this->serviceId, ModuleCommandName::from($this->command), $this->args, $this->initiator, $this->attempt, jobTimeout: $this->timeout);
         } catch (LockTimeoutException) {
             if ($this->lockRetries >= (int) config('services.module.lock_retries', 20)) {
                 $execute->abandon($this->serviceId, ModuleCommandName::from($this->command), $this->args, 'Another action kept this service busy; the command was not run.', jobDied: false);
@@ -67,13 +68,13 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
                 return;
             }
 
-            self::dispatch($this->serviceId, $this->command, $this->args, $this->initiator, $this->attempt, $this->lockRetries + 1)->delay(15);
+            self::dispatch($this->serviceId, $this->command, $this->args, $this->initiator, $this->attempt, $this->lockRetries + 1, timeoutSeconds: $this->timeout)->delay(15);
 
             return;
         }
 
         if ($outcome->status === CommandOutcome::RETRY) {
-            self::dispatch($this->serviceId, $this->command, $this->args, $this->initiator, $this->attempt + 1)
+            self::dispatch($this->serviceId, $this->command, $this->args, $this->initiator, $this->attempt + 1, timeoutSeconds: $this->timeout)
                 ->delay($outcome->retryDelay);
         }
     }

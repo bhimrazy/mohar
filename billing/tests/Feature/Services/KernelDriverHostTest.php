@@ -10,8 +10,12 @@ use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Data\Services\Provisioning\UsernamePolicy;
 use App\Enums\FieldType;
+use App\Events\Services\ProvisioningFailed;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\ApplyServiceChange;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
+use App\Modules\Services\Enums\ChangeKind;
+use App\Modules\Services\Enums\ChangeStatus;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Jobs\RunModuleCommand;
@@ -19,12 +23,17 @@ use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
+use App\Modules\Services\Models\ServiceChange;
+use App\Modules\Services\Models\UsageSnapshot;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Support\ServiceSettings;
 use App\Modules\Services\Support\UsernameGenerator;
+use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Fixtures\Extensions\AcmePanel\AcmePanelServiceProvider;
@@ -33,6 +42,8 @@ beforeEach(function () {
     Currency::factory()->create();
     $this->kit = ServicesTestKit::bind();
     $this->app->register(AcmePanelServiceProvider::class);
+    // Package drivers connect through the kernel guard; *.acme.test is a public address here.
+    $this->app->instance(OutboundAddressGuard::class, new OutboundAddressGuard(fn (string $host): array => str_ends_with($host, '.acme.test') ? ['93.184.216.34'] : []));
 });
 
 /**
@@ -222,4 +233,139 @@ test('remote field options are merged across servers, keyed by server id, cached
 
     $drivers->remoteOptions('strict_panel', 'package', [$a->id, $b->id], refresh: true);
     expect($driver->optionCalls)->toBe($calls + 2);
+});
+
+function pendingChange(Service $service, int $fromProductId, int $toProductId): ServiceChange
+{
+    $snapshot = fn (int $productId, int $amount): array => ['product_id' => $productId, 'product_name' => "Product {$productId}", 'cycle' => 'monthly', 'recurring_amount' => $amount, 'next_due_date' => null, 'billing_anchor_day' => null];
+
+    return ServiceChange::query()->create([
+        'service_id' => $service->id, 'kind' => ChangeKind::Product, 'from_snapshot' => $snapshot($fromProductId, 1000), 'to_snapshot' => $snapshot($toProductId, 2000),
+        'currency' => $service->currency, 'credit_amount' => 0, 'charge_amount' => 0, 'amount_due' => 0, 'status' => ChangeStatus::PendingPayment,
+    ]);
+}
+
+test('a driver that throws during the call leaves the outcome unknown, and a redispatched create does not run again', function () {
+    $calls = 0;
+    app(ProvisioningDriverRegistry::class)->register('throwing_panel', function () use (&$calls): ProvisioningDriver {
+        return new class($calls) implements ProvisioningDriver
+        {
+            public function __construct(private int &$calls) {}
+
+            public function key(): string
+            {
+                return 'throwing_panel';
+            }
+
+            public function name(): string
+            {
+                return 'Throwing panel';
+            }
+
+            public function metadata(): DriverMetadata
+            {
+                return new DriverMetadata(requiresServer: true);
+            }
+
+            public function create(ProvisioningContext $context): DriverResult
+            {
+                $this->calls++;
+
+                throw new RuntimeException('Malformed JSON in the answer after the account request was sent.');
+            }
+
+            public function suspend(ProvisioningContext $context, string $reason): DriverResult
+            {
+                return DriverResult::ok();
+            }
+
+            public function unsuspend(ProvisioningContext $context): DriverResult
+            {
+                return DriverResult::ok();
+            }
+
+            public function terminate(ProvisioningContext $context): DriverResult
+            {
+                return DriverResult::ok();
+            }
+        };
+    });
+    $this->kit->priceBook->addProduct(35, 'Throwing', driver: 'throwing_panel');
+    $service = Service::factory()->pending()->create(['product_id' => 35, 'server_id' => Server::factory()->create(['driver' => 'throwing_panel'])->id]);
+
+    RunModuleCommand::dispatch($service->id, 'create');
+    RunModuleCommand::dispatch($service->id, 'create');
+
+    expect($calls)->toBe(1)
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->orderBy('id')->first()->status)->toBe(ModuleCommand::UNKNOWN)
+        ->and(ModuleQueueItem::query()->where('subject_id', $service->id)->sole()->kind)->toBe(ModuleQueueItem::KIND_VERIFY)
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Pending);
+});
+
+test('an upgrade on a driver without package changes stays applied and is noted, not failed', function () {
+    Event::fake([ProvisioningFailed::class]);
+    $server = Server::factory()->create(['driver' => 'acme_panel']);
+    $this->kit->priceBook->addProduct(36, 'Acme small', driver: 'acme_panel');
+    $this->kit->priceBook->addProduct(37, 'Acme large', driver: 'acme_panel');
+    $service = Service::factory()->onServer($server)->create(['product_id' => 36]);
+    $change = pendingChange($service, 36, 37);
+
+    app(ApplyServiceChange::class)->handle($change->id);
+
+    expect($change->refresh()->status)->toBe(ChangeStatus::Applied)
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->exists())->toBeFalse()
+        ->and(ModuleQueueItem::query()->where('subject_id', $service->id)->exists())->toBeFalse();
+    $this->assertDatabaseHas('activity_log', ['subject_id' => $service->id, 'description' => "Package change for {$service->label()} not sent to the server: this driver can't change packages"]);
+    Event::assertNotDispatched(ProvisioningFailed::class);
+    Http::assertNothingSent();
+});
+
+test('an upgrade on a driver with package changes is sent to the server', function () {
+    $service = Service::factory()->onServer()->create(['product_id' => 38]);
+    $this->kit->priceBook->addProduct(38, 'Small');
+    $this->kit->priceBook->addProduct(39, 'Large');
+    $change = pendingChange($service, 38, 39);
+
+    app(ApplyServiceChange::class)->handle($change->id);
+
+    expect($this->kit->driver->callsFor('change_package'))->toHaveCount(1)
+        ->and($this->kit->driver->callsFor('change_package')[0]['args']['from_product'])->toBe(38);
+});
+
+test('manual services keep free-form usernames: only a declared driver policy constrains them', function () {
+    actingAsStaff(['services.services.view', 'services.services.manage']);
+    $service = Service::factory()->create(['server_id' => null]);
+
+    $this->put(route('admin.services.services.update', $service), ['username' => 'Administrator', 'cycle' => $service->cycle->value, 'quantity' => 1, 'first_payment_amount' => 0, 'recurring_amount' => 0, 'recurring_cycles_limit' => 0])
+        ->assertSessionHasNoErrors();
+
+    expect($service->refresh()->username)->toBe('Administrator');
+});
+
+test('a broken package driver does not stop automation for the other services', function () {
+    app(ProvisioningDriverRegistry::class)->register('broken_panel', fn () => new stdClass);
+    $this->kit->priceBook->addProduct(40, 'Broken', driver: 'broken_panel');
+    $brokenServer = Server::factory()->create(['driver' => 'broken_panel']);
+    Service::factory()->dueOn('2026-11-15')->onServer($brokenServer)->create(['product_id' => 40]);
+    $healthy = Service::factory()->dueOn('2026-11-15')->onServer()->create();
+    $this->kit->driver->rememberAccount((int) $healthy->server_id, (string) $healthy->username);
+
+    $this->artisan('automation:run', ['--date' => '2026-11-15', '--only' => 'services.renewals'])->assertSuccessful();
+    $this->artisan('automation:run', ['--date' => '2026-11-22', '--only' => 'services.suspensions', '--force' => true])->assertSuccessful();
+    $this->artisan('automation:run', ['--date' => '2026-11-22', '--only' => 'services.usage-sync', '--force' => true])->assertSuccessful();
+
+    expect($healthy->refresh()->status)->toBe(ServiceStatus::Suspended)
+        ->and(UsageSnapshot::query()->where('service_id', $healthy->id)->exists())->toBeTrue();
+});
+
+test('staff "run now" queues commands whose driver needs longer than a page request', function () {
+    Queue::fake();
+    app(ProvisioningDriverRegistry::class)->register('strict_panel', fn () => strictPanel());
+    $this->kit->priceBook->addProduct(42, 'Strict', driver: 'strict_panel');
+    $service = Service::factory()->onServer(Server::factory()->create(['driver' => 'strict_panel']))->create(['product_id' => 42]);
+
+    $outcome = app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Suspend);
+
+    expect($outcome->status)->toBe('queued');
+    Queue::assertPushed(RunModuleCommand::class, fn (RunModuleCommand $job) => $job->serviceId === $service->id && $job->timeout === 150);
 });

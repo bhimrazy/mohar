@@ -28,6 +28,7 @@ use App\Data\Services\Provisioning\SsoLink;
 use App\Data\Services\Provisioning\UsageRow;
 use App\Enums\BillingCycle;
 use App\Enums\DriverOutcome;
+use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
@@ -42,23 +43,29 @@ use Illuminate\Support\Facades\Http;
  *
  * `arrange` runs before each check and fakes the remote system so every call succeeds; failure modes are
  * driver-specific and belong in the driver's own tests. The driver is resolved through the kernel registry, as the
- * host resolves it. Checks:
+ * host resolves it. The kernel OutboundAddressGuard is bound with a resolver that answers `panel.contract.test`
+ * with a public address, so a driver that obeys ADR 0015 (resolve() + pin()) runs through the real guard. Checks:
  * - identity, and resolution without queries or HTTP;
  * - typed settings: secrets are typed as secrets and have no default;
  * - lifecycle calls answer with exactly one outcome, report only documented data keys and never touch the database;
  * - whatever a driver echoes into its request, response or message is fully masked by the host's redaction set
  *   (ProvisioningContext::secrets()), including secret product and server settings;
- * - every capability the driver implements returns its documented type (one check per capability interface).
+ * - every capability the driver implements returns its documented type (one check per capability interface);
+ * - a server whose hostname resolves to a forbidden address (cloud metadata) receives no request at all.
  */
 final class ProvisioningDriverContract
 {
+    /** The public address `panel.contract.test` resolves to (documentation ranges are refused by the guard). */
+    public const SERVER_IP = '93.184.216.34';
+
     /**
      * @param  (Closure(): void)|null  $arrange
      */
     public static function verify(string $key, ?Closure $arrange = null): void
     {
-        $setUp = function () use ($arrange): void {
+        $setUp = function (string $resolvesTo = self::SERVER_IP) use ($arrange): void {
             Http::preventStrayRequests();
+            app()->instance(OutboundAddressGuard::class, new OutboundAddressGuard(fn (string $host): array => $host === 'panel.contract.test' ? [$resolvesTo] : []));
 
             if ($arrange !== null) {
                 $arrange();
@@ -74,6 +81,7 @@ final class ProvisioningDriverContract
                 $metadata = $driver->metadata();
             });
 
+            Http::assertNothingSent();
             expect($driver)->toBeInstanceOf(ProvisioningDriver::class)
                 ->and($driver?->key())->toBe($key)
                 ->and(trim((string) $driver?->name()))->not->toBe('')
@@ -126,6 +134,22 @@ final class ProvisioningDriverContract
 
             expect($results['create']->data['driver_data'] ?? [])->toBeArray()
                 ->and($queries)->toBe(0);
+        });
+
+        test("{$key} driver: sends nothing to a server whose hostname resolves to a forbidden address", function () use ($key, $setUp) {
+            $setUp('169.254.169.254');
+            $driver = app(ProvisioningDriverRegistry::class)->get($key);
+            $context = ProvisioningDriverContract::context($driver->metadata());
+
+            foreach (['create', 'unsuspend', 'terminate'] as $command) {
+                try {
+                    $driver->{$command}($context);
+                } catch (\Throwable) {
+                    // Refusing by exception is acceptable; sending is not.
+                }
+            }
+
+            Http::assertNothingSent();
         });
 
         test("{$key} driver: everything it echoes is masked by the host's redaction set, secret settings included", function () use ($key, $setUp) {
@@ -213,8 +237,16 @@ final class ProvisioningDriverContract
                 }
             },
             ProvidesServiceSso::class => function (ProvidesServiceSso $driver, ProvisioningContext $context): void {
+                $targets = $driver->ssoTargets();
+                expect(array_filter(array_keys($targets), 'is_int'))->toBe([], 'SSO targets are keyed by target name')
+                    ->and($targets)->each->toBeString();
+
                 self::assertSsoLink($driver->serviceSsoLink($context));
                 self::assertSsoLink($driver->serviceSsoLink($context, 'no-such-target'));
+
+                foreach (array_keys($targets) as $target) {
+                    self::assertSsoLink($driver->serviceSsoLink($context, (string) $target));
+                }
             },
             ProvidesServerSso::class => function (ProvidesServerSso $driver, ProvisioningContext $context): void {
                 self::assertSsoLink($driver->serverSsoLink(self::server($context)));

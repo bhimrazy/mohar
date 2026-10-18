@@ -7,6 +7,7 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\ServiceSettings;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Throwable;
 
 /**
  * Which provisioning driver a service uses (the product's driver, else its server's, else manual) and the limits
@@ -52,13 +53,22 @@ class ServiceDrivers
     }
 
     /**
-     * Run time allowed to one command job for the service (DriverMetadata::$commandTimeoutSeconds within the cap).
+     * Run time allowed to one command job for the service (DriverMetadata::$commandTimeoutSeconds within the cap). A
+     * driver that cannot be resolved gets the host default: the command itself then fails, and nothing before it
+     * (automation loops, dispatching) does.
      */
-    public function jobTimeoutFor(int $serviceId): int
+    public function jobTimeoutFor(Service|int $service): int
     {
-        $service = Service::withTrashed()->with('server')->find($serviceId);
-        $key = $service === null ? null : $this->keyFor($service);
+        $service = $service instanceof Service ? $service : Service::withTrashed()->with('server')->find($service);
 
-        return $this->settings->jobTimeoutSeconds($key !== null && $this->drivers->has($key) ? $this->drivers->metadata($key)->commandTimeoutSeconds : null);
+        try {
+            $key = $service === null ? null : $this->keyFor($service);
+            $seconds = $key !== null && $this->drivers->has($key) ? $this->drivers->metadata($key)->commandTimeoutSeconds : null;
+        } catch (Throwable $exception) {
+            report($exception);
+            $seconds = null;
+        }
+
+        return $this->settings->jobTimeoutSeconds($seconds);
     }
 }

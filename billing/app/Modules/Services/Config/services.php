@@ -58,6 +58,8 @@ return [
          * provisioning queue run with --timeout at or above the cap.
          */
         'job_timeout_seconds' => 60,
+        /** Longest a staff "run now" may block a page request; longer driver commands are queued instead. */
+        'sync_timeout_seconds' => 60,
         'max_job_timeout_seconds' => 180,
         'lock_ttl_seconds' => 80,
         /** Times a job waiting for the per-service lock is re-queued before it is reported as failed. */

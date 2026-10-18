@@ -33,7 +33,8 @@ class ProvisioningSnapshots
             server: $server === null ? null : $this->connection($server),
             client: new ClientSummary($service->client->id, $service->client->display_name, $service->client->email, $service->client->country),
             productConfig: $productConfig,
-            configOptions: $service->config_options['selections'] ?? [],
+            // Filled by module key once PriceBook::moduleInputs() lands (PR B2); install-specific ids are never sent.
+            configOptions: [],
             customFields: $this->catalog->customFieldsByModuleKey($service->product_id, $customFieldValues),
             secretValues: [
                 ...$this->secretSettingValues($driver->metadata()->productConfigFields, $productConfig),
