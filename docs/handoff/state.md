@@ -20,8 +20,17 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-None. PR #22 (Billing follow-ups: exact quote conversion #20, 90-day demo billing history) merged
-2026-10-18 04:52 UTC as `45441e3`; its non-blocking review items are issue #23.
+Planned merge order: #26 → #43 → #41 → #38 → #28. Later PRs adopt the kernel money formatter from #43; #28 adopts the date-format allowlist from #38.
+
+| PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
+| --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #26 | Nepal payments         | Board, security and re-review passed. Combined QA, design and product review running; merges after it.                                             |
+| #43 | Currencies             | Gates green on SQLite and PostgreSQL. Engineer applying CTO decisions (NRB rate type, market-rate seeds, manual-rate stale warning). Reviews next. |
+| #41 | Dashboard v2           | Gates green. Designer fixing NPR to "Rs", historical-rate "All" total, Slate chart colours, duplicate counters. Reviews next.                      |
+| #28 | Notifications          | Engineer applying CTO decisions (auth mail via events, no passwords, dedup by event id, Reply-To, From name, subject style). Reviews next.         |
+| #38 | Product polish sweep 1 | Review board running.                                                                                                                              |
+
+Merged since the last update: #40 (doc images optimised with sharp, 50 MB → 18 MB, CI image size check).
 
 ## In progress
 
@@ -41,7 +50,20 @@ draft PR into `develop` when their gates pass.
 
 ## Next
 
+Queued until load allows (the codespace has been at load 5–7 with five agents): PR #38 review, social sign-in,
+client dashboard and client profile (#31, #32, after Dashboard v2), Affiliates, Registrars, then wave 3 from the roadmap.
+
+The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
+studies). The items below are the near-term queue.
+
 1. Wave 2, when a build slot frees (at most two engineers at a time):
+   - **Social sign-in** (owner request 2026-10-18; raised from P2 in the parity study). Admin → Settings →
+     Sign-in integrations: per-provider enable, client ID and secret (write-only, encrypted), callback URL
+     to copy. Google first, then GitHub, Facebook, X and LinkedIn, all via first-party `laravel/socialite`
+     (to be added at a version at least 7 days old). Microsoft and Apple later via a provider registry.
+     Client sign-up and login, link and unlink from the profile. Accounts are matched only by a verified
+     email, with confirmation, to prevent takeover. Staff SSO optional, restricted by domain, with 2FA
+     still enforced.
    - Affiliates (`product/affiliates.md`), worktree `.worktrees/affiliates` exists.
    - Registrars (`product/registrars.md`): prerequisites PR first (C1 remote ids, C2 `findSubmission`
      reconcile, C3 stale-claim sweep = issue #12, C5 redaction gaps), then the `.np` manual driver,
