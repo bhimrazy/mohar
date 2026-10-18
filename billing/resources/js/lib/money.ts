@@ -92,16 +92,26 @@ export type FormatMoneyOptions = {
  * formatMoney(129900, 'USD') → "$1,299.00"
  * formatMoney(-500, 'EUR', 'de-DE') → "-5,00 €"
  */
+/**
+ * Grouping convention per currency when no locale is given: INR and NPR use Indian lakh/crore grouping
+ * (₹12,34,567.89); everything else the default locale.
+ */
+export function localeForCurrency(currency: string): string {
+    return ['INR', 'NPR'].includes(currency.toUpperCase())
+        ? 'en-IN'
+        : DEFAULT_LOCALE;
+}
+
 export function formatMoney(
     amountMinor: number,
     currency: string,
-    locale: string = DEFAULT_LOCALE,
+    locale?: string,
     options: FormatMoneyOptions = {},
 ): string {
     const code = currency.toUpperCase();
     const formatter = getFormatter(
         code,
-        locale,
+        locale ?? localeForCurrency(code),
         options.signed ? 'exceptZero' : 'auto',
     );
     const value = fromMinor(amountMinor);

@@ -1,0 +1,50 @@
+<?php
+
+namespace App\Data\Billing;
+
+/**
+ * Authoritative status from the provider's status API.
+ */
+final readonly class LookupResult
+{
+    public const SUCCEEDED = 'succeeded';
+
+    public const PENDING = 'pending';
+
+    public const AMBIGUOUS = 'ambiguous';
+
+    public const FAILED = 'failed';
+
+    public const CANCELLED = 'cancelled';
+
+    public const EXPIRED = 'expired';
+
+    public const NOT_FOUND = 'not_found';
+
+    public const REFUNDED = 'refunded';
+
+    public const PARTIALLY_REFUNDED = 'partially_refunded';
+
+    public const STATUSES = [self::SUCCEEDED, self::PENDING, self::AMBIGUOUS, self::FAILED, self::CANCELLED, self::EXPIRED, self::NOT_FOUND, self::REFUNDED, self::PARTIALLY_REFUNDED];
+
+    /**
+     * @param  int|null  $amount  minor units actually paid, as reported by the provider
+     * @param  array<string, mixed>  $raw  response (redacted before storage)
+     * @param  bool  $retryable  transient provider error: try again later
+     */
+    public function __construct(
+        public string $status,
+        public ?string $providerTxnId = null,
+        public ?int $amount = null,
+        public ?string $currency = null,
+        public int $fee = 0,
+        public ?string $payerRef = null,
+        public array $raw = [],
+        public bool $retryable = false,
+    ) {}
+
+    public function succeeded(): bool
+    {
+        return $this->status === self::SUCCEEDED;
+    }
+}
