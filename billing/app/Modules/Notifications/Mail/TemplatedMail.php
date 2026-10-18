@@ -22,6 +22,7 @@ class TemplatedMail extends Mailable
         public string $plainText,
         public ?string $fromEmail = null,
         public ?string $fromName = null,
+        public ?string $replyToEmail = null,
         public ?string $messageUuid = null,
     ) {}
 
@@ -29,6 +30,7 @@ class TemplatedMail extends Mailable
     {
         return new Envelope(
             from: $this->fromEmail !== null ? new Address($this->fromEmail, $this->fromName) : null,
+            replyTo: $this->replyToEmail !== null ? [new Address($this->replyToEmail)] : [],
             subject: $this->subjectLine,
         );
     }

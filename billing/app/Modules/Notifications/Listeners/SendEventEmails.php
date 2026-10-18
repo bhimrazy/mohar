@@ -51,6 +51,7 @@ use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Enums\EmailCategory;
 use App\Modules\Notifications\Enums\StaffCategory;
+use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
@@ -59,6 +60,8 @@ use App\Modules\Notifications\Support\EventKey;
 use App\Modules\Notifications\Support\MoneyText;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 use Throwable;
 
@@ -126,44 +129,55 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
 
     // ── Auth (always sent, ignores preferences) ─────────────────────────────────────────────────
 
+    /**
+     * Falls back to Laravel's own notification when no template could be used, so a reset never gets lost.
+     */
     public function passwordReset(PasswordResetRequested $event): void
     {
-        $this->safely(function () use ($event): void {
-            $user = User::query()->find($event->userId);
+        $user = User::query()->find($event->userId);
 
-            if ($user === null) {
-                return;
-            }
+        if ($user === null) {
+            return;
+        }
 
+        $sent = $this->safelyCollect(function () use ($event, $user): array {
             $client = $user->is_staff ? null : $user->clients()->orderBy('clients.id')->first();
             $recipient = $this->recipients->user($user->id, $client);
 
-            $this->send($user->is_staff ? 'staff.password_reset' : 'auth.password_reset', $recipient === null ? [] : [$recipient], [
+            return $this->send($user->is_staff ? 'staff.password_reset' : 'auth.password_reset', $recipient === null ? [] : [$recipient], [
                 ...$this->context->client($client?->id),
                 'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
                 'auth' => ['reset_url' => $event->resetUrl, 'expires_at' => $event->expiresAt],
             ], $event, $client?->id, 'user', $user->id);
         });
+
+        if ($sent === [] && $event->token !== '') {
+            $user->notify(new ResetPassword($event->token));
+        }
     }
 
     public function emailVerification(EmailVerificationRequested $event): void
     {
-        $this->safely(function () use ($event): void {
-            $user = User::query()->find($event->userId);
+        $user = User::query()->find($event->userId);
 
-            if ($user === null) {
-                return;
-            }
+        if ($user === null) {
+            return;
+        }
 
+        $sent = $this->safelyCollect(function () use ($event, $user): array {
             $client = $user->clients()->orderBy('clients.id')->first();
             $recipient = $this->recipients->user($user->id, $client);
 
-            $this->send('auth.email_verification', $recipient === null ? [] : [$recipient], [
+            return $this->send('auth.email_verification', $recipient === null ? [] : [$recipient], [
                 ...$this->context->client($client?->id),
                 'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
                 'auth' => ['verify_url' => $event->verifyUrl],
             ], $event, $client?->id, 'user', $user->id);
         });
+
+        if ($sent === []) {
+            $user->notify(new VerifyEmail);
+        }
     }
 
     // ── Clients & orders ────────────────────────────────────────────────────────────────────────
@@ -202,7 +216,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function serviceActivated(ServiceActivated $event): void
     {
         $this->safely(function () use ($event): void {
-            $context = $this->context->service($event->serviceId, withCredentials: true);
+            $context = $this->context->service($event->serviceId);
             $templateKey = $this->welcomeTemplate((int) ($context['service']['product_id'] ?? 0));
 
             if ($templateKey !== null) {
@@ -601,14 +615,15 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     /**
      * @param  list<Recipient>  $recipients
      * @param  array<string, mixed>  $context
+     * @return list<EmailMessage>
      */
-    private function send(string $templateKey, array $recipients, array $context, object $event, ?int $clientId = null, ?string $relatedType = null, ?int $relatedId = null): void
+    private function send(string $templateKey, array $recipients, array $context, object $event, ?int $clientId = null, ?string $relatedType = null, ?int $relatedId = null): array
     {
         if ($recipients === []) {
-            return;
+            return [];
         }
 
-        $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId));
+        return $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId));
     }
 
     /**
@@ -669,6 +684,21 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         }
 
         return 'service.welcome.'.($product !== null && in_array($product->type, ['shared_hosting', 'reseller_hosting', 'server'], true) ? $product->type : 'other');
+    }
+
+    /**
+     * @param  Closure(): list<EmailMessage>  $callback
+     * @return list<EmailMessage>
+     */
+    private function safelyCollect(Closure $callback): array
+    {
+        try {
+            return $callback();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return [];
+        }
     }
 
     /**

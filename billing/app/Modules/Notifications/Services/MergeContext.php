@@ -7,6 +7,7 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\Recipient;
+use App\Modules\Notifications\Support\SupportAddresses;
 use Illuminate\Support\Facades\Route;
 use Throwable;
 
@@ -19,7 +20,7 @@ class MergeContext
     /**
      * Paths whose values are secrets: sent to the recipient, but replaced by •••• in the stored log copy.
      */
-    public const SECRET_PATHS = ['service.password', 'auth.reset_url', 'auth.verify_url', 'auth.invite_url'];
+    public const SECRET_PATHS = ['auth.reset_url', 'auth.verify_url', 'auth.invite_url'];
 
     public function __construct(
         private MergeFieldRegistry $registry,
@@ -50,6 +51,10 @@ class MergeContext
                 'today' => now()->toDateString(),
             ], fn (mixed $value): bool => $value !== null),
             'signature' => (string) $this->settings->get('notifications.signature', ''),
+            'support' => [
+                'email' => app(SupportAddresses::class)->general(),
+                'url' => $this->settings->get('notifications.support_url') ?: $this->link('client.support.tickets.index'),
+            ],
         ];
     }
 
@@ -141,11 +146,12 @@ class MergeContext
     }
 
     /**
-     * The service with product and (when Services exposes it) one-time credentials for welcome emails.
+     * The service with its client-area link. Credentials are never emailed: welcome mail links to the
+     * service page, which shows them after sign-in. Any password a resolver returns is dropped.
      *
      * @return array<string, mixed>
      */
-    public function service(?int $serviceId, bool $withCredentials = false): array
+    public function service(?int $serviceId): array
     {
         $service = $this->resolve('service', $serviceId);
 
@@ -155,10 +161,8 @@ class MergeContext
 
         $service['id'] = $service['service_id'] ?? $serviceId;
         $service['admin_url'] = $this->link('admin.services.services.show', $serviceId);
-
-        if ($withCredentials) {
-            $service['password'] = $this->resolve('service_credentials', $serviceId)['password'] ?? null;
-        }
+        $service['url'] = $this->link('client.services.show', $serviceId);
+        unset($service['password']);
 
         return ['service' => $service];
     }

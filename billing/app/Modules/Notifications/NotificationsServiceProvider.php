@@ -2,15 +2,18 @@
 
 namespace App\Modules\Notifications;
 
+use App\Contracts\Notifications\EmailTemplates;
 use App\Models\User;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
+use App\Modules\Notifications\Listeners\BrandOutgoingMail;
 use App\Modules\Notifications\Listeners\PublishEventWebhooks;
 use App\Modules\Notifications\Listeners\SendEventEmails;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Notifications\Services\TemplateDirectory;
 use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
@@ -23,6 +26,8 @@ use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\DevCommands;
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 
 class NotificationsServiceProvider extends ModuleServiceProvider
@@ -40,6 +45,7 @@ class NotificationsServiceProvider extends ModuleServiceProvider
         $this->app->singleton(TemplateCatalog::class);
         $this->app->bind(TemplateEngine::class);
         $this->app->singleton(HostResolver::class);
+        $this->app->bind(EmailTemplates::class, TemplateDirectory::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -49,6 +55,13 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Email and webhook jobs run on their own queues; the dev runner (composer dev) must consume them too.
+        DevCommands::artisan('queue:listen --queue=notifications,webhooks --timeout=0', 'mail-queue');
+
+        // Framework and module notifications (password reset fallback, security notices, invitations) get the
+        // company sender name and the support Reply-To too; templated mail sets its own per category.
+        Event::listen(MessageSending::class, [BrandOutgoingMail::class, 'handle']);
+
         foreach (SendEventEmails::EVENTS as $event => $method) {
             Event::listen($event, [SendEventEmails::class, $method]);
         }
@@ -117,6 +130,10 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('notifications.mail_disabled', 'Stop sending email', 'boolean', 'Messages are still logged, with status "suppressed".'),
             new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses.', rules: ['max:500']),
             new SettingDefinition('notifications.signature', 'Email signature', 'text', 'Inserted where templates use {{ signature }}.', rules: ['max:2000']),
+            new SettingDefinition('notifications.from.default', 'Send email from', 'email', 'Sender address for client and staff email. Defaults to MAIL_FROM_ADDRESS. The sender name is always the company name.', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.from.billing', 'Send billing email from', 'email', 'Sender for invoices, receipts and reminders, e.g. a billing alias. Defaults to the address above.', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.support_email', 'Support email address', 'email', 'Replies to general email go here and it is shown in every footer. Defaults to the billing email address. Never use a no-reply mailbox.', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.footer_help_text', 'Footer help line', help: 'Shown in every email footer. {{ support.email }} is replaced by the support address.', rules: ['max:300']),
             new SettingDefinition('notifications.footer_address', 'Address in the email footer', 'text', 'Defaults to the seller address on invoices.', rules: ['max:500']),
             new SettingDefinition('notifications.support_url', 'Help link in the email footer', help: 'Defaults to the client area ticket list.', rules: ['nullable', 'url', 'max:500']),
             new SettingDefinition('notifications.default_locale', 'Default email language', help: 'Locale code used when a client has no translation, e.g. en.', rules: ['required', 'max:10', 'alpha_dash']),

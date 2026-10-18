@@ -22,6 +22,7 @@ class SampleContext
 
         return [
             ...$this->context->base($forStaff),
+            'support' => ['email' => 'support@example.test', 'url' => url('/client/support/tickets')],
             'recipient' => ['name' => 'Ann Example', 'first_name' => 'Ann', 'email' => 'ann@example.test'],
             'client' => [
                 'id' => 1042, 'first_name' => 'Ann', 'last_name' => 'Example', 'full_name' => 'Ann Example',
@@ -55,7 +56,7 @@ class SampleContext
             'refund' => ['amount' => '$28.98'],
             'service' => [
                 'id' => 501, 'product_name' => 'Starter Hosting', 'domain' => 'example.com', 'username' => 'examplec',
-                'password' => 'sample-password', 'status' => 'active', 'cycle' => 'annually', 'currency' => 'USD',
+                'status' => 'active', 'url' => url('/client/services/501'), 'cycle' => 'annually', 'currency' => 'USD',
                 'recurring_amount' => 1899, 'next_due_date' => $due, 'suspension_reason' => 'Overdue invoice',
                 'dedicated_ip' => null, 'server_hostname' => 'web01.example.net', 'server_ip' => '198.51.100.10',
                 'nameservers' => ['ns1.example.net', 'ns2.example.net'], 'admin_url' => url('/admin/services/501'),
@@ -110,6 +111,7 @@ class SampleContext
         $sample = $this->build($type === TemplateType::Admin);
         $fields = [
             'company' => $this->paths('company', $sample['company']),
+            'support' => $this->paths('support', $sample['support']),
             'system' => $this->paths('system', $sample['system']),
             'recipient' => $this->paths('recipient', $sample['recipient']),
         ];

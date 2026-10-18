@@ -2,10 +2,14 @@
 
 namespace App\Models;
 
+use App\Events\Core\EmailVerificationRequested;
+use App\Events\Core\PasswordResetRequested;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
 use Carbon\CarbonInterface;
 use Database\Factories\UserFactory;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -16,6 +20,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\URL;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
@@ -118,6 +124,49 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     public function clients(): BelongsToMany
     {
         return $this->belongsToMany(Client::class)->withPivot(['is_owner', 'permissions'])->withTimestamps();
+    }
+
+    /**
+     * Password reset links go out as an event when something handles it (Notifications: editable, logged,
+     * branded); without a listener (e.g. MODULES= without Notifications) Laravel's default notification is sent.
+     *
+     * @param  string  $token
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        if (! Event::hasListeners(PasswordResetRequested::class)) {
+            parent::sendPasswordResetNotification($token);
+
+            return;
+        }
+
+        $url = ResetPassword::$createUrlCallback !== null
+            ? (string) call_user_func(ResetPassword::$createUrlCallback, $this, $token)
+            : url(route('password.reset', ['token' => $token, 'email' => $this->getEmailForPasswordReset()], false));
+        $broker = (string) config('auth.defaults.passwords', 'users');
+        $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60));
+
+        PasswordResetRequested::dispatch($this->id, $url, $expiresAt->format('Y-m-d H:i'), $token);
+    }
+
+    /**
+     * Same pattern as password resets for the signed email-verification link.
+     */
+    public function sendEmailVerificationNotification(): void
+    {
+        if (! Event::hasListeners(EmailVerificationRequested::class)) {
+            parent::sendEmailVerificationNotification();
+
+            return;
+        }
+
+        EmailVerificationRequested::dispatch($this->id, VerifyEmail::$createUrlCallback !== null
+            ? (string) call_user_func(VerifyEmail::$createUrlCallback, $this)
+            : URL::temporarySignedRoute(
+                'verification.verify',
+                now()->addMinutes((int) config('auth.verification.expire', 60)),
+                ['id' => $this->getKey(), 'hash' => sha1($this->getEmailForVerification())],
+            ));
     }
 
     /**

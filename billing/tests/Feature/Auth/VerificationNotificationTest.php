@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Events\Core\EmailVerificationRequested;
 use App\Models\User;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Fortify\Features;
 use Tests\TestCase;
@@ -44,5 +46,20 @@ class VerificationNotificationTest extends TestCase
             ->assertRedirect(route('dashboard', absolute: false));
 
         Notification::assertNothingSent();
+    }
+
+    /**
+     * Without an EmailVerificationRequested listener Laravel's own VerifyEmail notification is sent directly.
+     */
+    public function test_verification_uses_laravel_notification_without_a_listener(): void
+    {
+        Notification::fake();
+        Event::forget(EmailVerificationRequested::class);
+
+        $user = User::factory()->unverified()->create();
+
+        $this->actingAs($user)->post(route('verification.send'));
+
+        Notification::assertSentTo($user, VerifyEmail::class);
     }
 }

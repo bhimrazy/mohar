@@ -15,6 +15,11 @@ return [
     // §3 rendering
     'default_locale' => 'en',
     'signature' => '',
+    'support_email' => '',
+
+    // Sender per category; empty = MAIL_FROM_ADDRESS. The display name is always core.company_name.
+    'from' => ['billing' => '', 'default' => ''],
+    'footer_help_text' => 'Questions? Reply to this email or write to {{ support.email }}.',
     'footer_address' => '',
     'support_url' => '',
 

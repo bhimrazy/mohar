@@ -30,6 +30,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property list<string>|null $cc
  * @property list<string>|null $bcc
  * @property string|null $from
+ * @property string|null $from_name
+ * @property string|null $reply_to
  * @property string $subject
  * @property string|null $body_html
  * @property string|null $body_text
@@ -52,7 +54,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[UseFactory(EmailMessageFactory::class)]
 #[Fillable([
     'uuid', 'dedupe_key', 'template_key', 'client_id', 'user_id', 'contact_id', 'staff_id', 'recipient', 'to', 'cc', 'bcc',
-    'from', 'subject', 'body_html', 'body_text', 'has_redactions', 'locale', 'related_type', 'related_id',
+    'from', 'from_name', 'reply_to', 'subject', 'body_html', 'body_text', 'has_redactions', 'locale', 'related_type', 'related_id',
     'status', 'suppressed_reason', 'failure_reason', 'attempts', 'provider_message_id', 'queued_at', 'sent_at', 'body_purged_at',
 ])]
 class EmailMessage extends Model

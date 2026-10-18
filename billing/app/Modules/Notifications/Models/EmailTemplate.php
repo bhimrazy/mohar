@@ -75,6 +75,14 @@ class EmailTemplate extends Model
         return $translations->firstWhere('locale', $locale) ?? $translations->firstWhere('locale', $defaultLocale);
     }
 
+    /** Account-access mail that must always go out: disabling the template has no effect. */
+    public const ALWAYS_SENT = ['auth.password_reset', 'auth.email_verification', 'staff.password_reset'];
+
+    public function isAlwaysSent(): bool
+    {
+        return in_array($this->key, self::ALWAYS_SENT, true);
+    }
+
     /**
      * Support subjects keep a fixed format so mail clients thread replies (spec §3).
      */

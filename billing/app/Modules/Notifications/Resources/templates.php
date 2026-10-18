@@ -35,17 +35,19 @@ Someone asked to reset the password for {{ user.email }}. If that was you, choos
 [Choose a new password]({{ auth.reset_url }})
 
 The link works until {{ auth.expires_at }} and only once. If you didn't ask for this, ignore this email — your password stays the same.
+
+{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
 MD),
     $client('auth.password_changed', 'general', 'Password changed', 'Your {{ company.name }} password was changed', <<<'MD'
 # Your password was changed
 
 The password for {{ user.email }} was changed on {{ system.today | date }}.
 
-If this wasn't you, reset your password now and contact us at {{ company.email }}.
+If this wasn't you, reset your password now{% if support.email %} and contact {{ support.email }}{% endif %}.
 
 [Open the client area]({{ system.client_area_url }})
 MD),
-    $client('auth.email_verification', 'general', 'Verify email address', 'Confirm your email address', <<<'MD'
+    $client('auth.email_verification', 'general', 'Verify email address', 'Confirm your {{ company.name }} email address', <<<'MD'
 # Confirm your email address
 
 Confirm that {{ user.email }} is yours so we can keep you informed about your account.
@@ -53,6 +55,8 @@ Confirm that {{ user.email }} is yours so we can keep you informed about your ac
 [Confirm email address]({{ auth.verify_url }})
 
 If you didn't create an account with {{ company.name }}, you can ignore this email.
+
+{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
 MD),
     $client('auth.user_invitation', 'general', 'Account invitation', 'You have been invited to manage {{ client.company_name | default(client.full_name) }}', <<<'MD'
 # You're invited
@@ -72,7 +76,7 @@ We noticed a new sign-in to {{ user.email }}.
 |---|---|
 | Date | {{ system.today | date }} |
 
-If this wasn't you, change your password now.
+If this wasn't you, change your password now{% if support.email %} and contact {{ support.email }}{% endif %}.
 
 [Change password]({{ system.client_area_url }})
 MD),
@@ -85,7 +89,7 @@ From the client area you can order services, pay invoices, manage domains and co
 
 [Open the client area]({{ system.client_area_url }})
 MD.$signOff),
-    $client('order.confirmation', 'general', 'Order confirmation', 'We received your order #{{ order.number }}', <<<'MD'
+    $client('order.confirmation', 'general', 'Order confirmation', 'Order #{{ order.number }} from {{ company.name }}: {{ order.total | money(order.currency) }} received', <<<'MD'
 # Thanks for your order
 
 We received order #{{ order.number }} and will let you know as soon as everything is set up.
@@ -97,7 +101,7 @@ We received order #{{ order.number }} and will let you know as soon as everythin
 
 [View your account]({{ system.client_area_url }})
 MD.$signOff),
-    $client('quote.delivered', 'general', 'Quote delivered', 'Your quote {{ quote.number }}: {{ quote.subject }}', <<<'MD'
+    $client('quote.delivered', 'general', 'Quote delivered', 'Quote {{ quote.number }} from {{ company.name }}: {{ quote.total }}, valid until {{ quote.valid_until | date }}', <<<'MD'
 # Your quote is ready
 
 We've prepared a quote for {{ quote.subject }}.
@@ -143,56 +147,59 @@ MD.$signOff),
     $client('service.welcome.shared_hosting', 'product', 'Welcome: shared hosting', 'Your hosting for {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your hosting is ready
 
-{{ service.product_name }} for {{ service.domain }} is active. Here are your details.
+{{ service.product_name }} for {{ service.domain }} is active. Sign in to see your login details.
 
 | Domain | {{ service.domain }} |
 |---|---|
 | Username | {{ service.username }} |
-{% if service.password %}| Password | {{ service.password }} |
-{% endif %}| Server | {{ service.server_hostname }} ({{ service.server_ip }}) |
+| Server | {{ service.server_hostname }} ({{ service.server_ip }}) |
 | Next renewal | {{ service.next_due_date | date }} |
 
 Point your domain to these nameservers:
 
 {% for nameserver in service.nameservers %}- {{ nameserver }}
 {% endfor %}
-[Open the client area]({{ system.client_area_url }})
+[View login details]({{ service.url }})
+
+For your security we never send passwords by email.
 MD.$signOff),
     $client('service.welcome.reseller_hosting', 'product', 'Welcome: reseller hosting', 'Your reseller account is ready', <<<'MD'
 # Your reseller account is ready
 
-{{ service.product_name }} is active. Here are your details.
+{{ service.product_name }} is active. Sign in to see your login details.
 
 | Username | {{ service.username }} |
 |---|---|
-{% if service.password %}| Password | {{ service.password }} |
-{% endif %}| Server | {{ service.server_hostname }} ({{ service.server_ip }}) |
+| Server | {{ service.server_hostname }} ({{ service.server_ip }}) |
 
 Nameservers for your customers:
 
 {% for nameserver in service.nameservers %}- {{ nameserver }}
 {% endfor %}
-[Open the client area]({{ system.client_area_url }})
+[View login details]({{ service.url }})
+
+For your security we never send passwords by email.
 MD.$signOff),
     $client('service.welcome.server', 'product', 'Welcome: server', 'Your server {{ service.domain | default(service.product_name) }} is ready', <<<'MD'
 # Your server is online
 
-{{ service.product_name }} is ready to use. Change the password after your first sign-in.
+{{ service.product_name }} is ready to use. Sign in to see the root login details.
 
 | Hostname | {{ service.domain }} |
 |---|---|
 | Primary IP | {{ service.dedicated_ip | default(service.server_ip) }} |
 | Username | {{ service.username }} |
-{% if service.password %}| Password | {{ service.password }} |
-{% endif %}
-[Open the client area]({{ system.client_area_url }})
+
+[View login details]({{ service.url }})
+
+For your security we never send passwords by email.
 MD.$signOff),
     $client('service.welcome.other', 'product', 'Welcome: other products', 'Your {{ service.product_name }} is active', <<<'MD'
 # {{ service.product_name }} is active
 
 You can manage it from the client area at any time.
 
-[Open the client area]({{ system.client_area_url }})
+[Manage service]({{ service.url }})
 MD.$signOff),
     $client('service.suspended', 'product', 'Service suspended', '{{ service.product_name }} has been suspended', <<<'MD'
 # {{ service.product_name }} is suspended
@@ -245,7 +252,7 @@ If you think this is a mistake, reply to this email.
 MD.$signOff),
 
     // ── Invoice ──────────────────────────────────────────────────────────────────────────────────
-    $client('invoice.created', 'invoice', 'Invoice created', 'Invoice {{ invoice.number }} is ready', <<<'MD'
+    $client('invoice.created', 'invoice', 'Invoice created', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
 # Invoice {{ invoice.number }}
 
 Your new invoice is ready. Payment is due by {{ invoice.due_date | date }}.
@@ -257,7 +264,7 @@ Your new invoice is ready. Payment is due by {{ invoice.due_date | date }}.
 
 [View and pay invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.created_autocharge', 'invoice', 'Invoice created (automatic payment)', 'Invoice {{ invoice.number }} will be charged automatically', <<<'MD'
+    $client('invoice.created_autocharge', 'invoice', 'Invoice created (automatic payment)', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.total }} charged {{ invoice.due_date | date }}', <<<'MD'
 # Invoice {{ invoice.number }}
 
 We'll charge your saved payment method on {{ invoice.due_date | date }}. No action needed.
@@ -269,7 +276,7 @@ We'll charge your saved payment method on {{ invoice.due_date | date }}. No acti
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Reminder: invoice {{ invoice.number }} is due {{ invoice.due_date | date }}', <<<'MD'
+    $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
 # Payment due soon
 
 A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_date | date }}.
@@ -281,7 +288,7 @@ A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_d
 
 [Pay invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.overdue_first', 'invoice', 'First overdue notice', 'Invoice {{ invoice.number }} is overdue', <<<'MD'
+    $client('invoice.overdue_first', 'invoice', 'First overdue notice', 'Payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Invoice {{ invoice.number }} is overdue
 
 The due date has passed and a balance is still open. Please pay it when you can.
@@ -293,7 +300,7 @@ The due date has passed and a balance is still open. Please pay it when you can.
 
 [Pay invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.overdue_second', 'invoice', 'Second overdue notice', 'Second notice: invoice {{ invoice.number }}', <<<'MD'
+    $client('invoice.overdue_second', 'invoice', 'Second overdue notice', 'Second notice — payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Second notice: invoice {{ invoice.number }}
 
 This invoice is {{ invoice.days_overdue }} days overdue. Pay it now to avoid interruption to your services.
@@ -305,7 +312,7 @@ This invoice is {{ invoice.days_overdue }} days overdue. Pay it now to avoid int
 
 [Pay invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.overdue_third', 'invoice', 'Final overdue notice', 'Final notice: invoice {{ invoice.number }}', <<<'MD'
+    $client('invoice.overdue_third', 'invoice', 'Final overdue notice', 'Final notice — payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Final notice: invoice {{ invoice.number }}
 
 Related services may be suspended if this invoice stays unpaid.
@@ -319,7 +326,7 @@ Related services may be suspended if this invoice stays unpaid.
 
 Already paid? Reply to this email and we'll check.
 MD.$signOff),
-    $client('invoice.payment_confirmation', 'invoice', 'Payment confirmation', 'Payment received for invoice {{ invoice.number }}', <<<'MD'
+    $client('invoice.payment_confirmation', 'invoice', 'Payment confirmation', 'Your receipt from {{ company.name }} #{{ payment.reference | default(invoice.number) }}', <<<'MD'
 # Payment received
 
 Thanks — we received {{ payment.amount }} for invoice {{ invoice.number }}.
@@ -333,7 +340,7 @@ Thanks — we received {{ payment.amount }} for invoice {{ invoice.number }}.
 {% endif %}
 [View receipt]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.payment_failed', 'invoice', 'Payment failed', 'We could not collect payment for invoice {{ invoice.number }}', <<<'MD'
+    $client('invoice.payment_failed', 'invoice', 'Payment failed', 'Payment failed: invoice {{ invoice.number }} ({{ invoice.balance }}) from {{ company.name }}', <<<'MD'
 # Payment didn't go through
 
 We couldn't charge your saved payment method for invoice {{ invoice.number }}. Pay with another method to keep your services running.
@@ -345,7 +352,7 @@ We couldn't charge your saved payment method for invoice {{ invoice.number }}. P
 
 [Pay with another method]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.refunded', 'invoice', 'Refund issued', 'Refund issued for invoice {{ invoice.number }}', <<<'MD'
+    $client('invoice.refunded', 'invoice', 'Refund issued', 'Your refund from {{ company.name }}: {{ refund.amount }} for invoice {{ invoice.number }}', <<<'MD'
 # Refund issued
 
 We've refunded part or all of invoice {{ invoice.number }}. Depending on your bank, it can take a few days to appear.
@@ -356,7 +363,7 @@ We've refunded part or all of invoice {{ invoice.number }}. Depending on your ba
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.modified', 'invoice', 'Invoice updated', 'Invoice {{ invoice.number }} was updated', <<<'MD'
+    $client('invoice.modified', 'invoice', 'Invoice updated', 'Invoice {{ invoice.number }} from {{ company.name }} updated: {{ invoice.balance }} due', <<<'MD'
 # Invoice {{ invoice.number }} was updated
 
 We changed this invoice. Here are the new amounts.
@@ -367,14 +374,14 @@ We changed this invoice. Here are the new amounts.
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('payment_method.expiring', 'invoice', 'Payment method expiring', 'Your saved payment method expires soon', <<<'MD'
+    $client('payment_method.expiring', 'invoice', 'Payment method expiring', 'Your {{ company.name }} payment method expires soon', <<<'MD'
 # Your payment method expires soon
 
 Add a new one so renewals continue without interruption.
 
 [Update payment method]({{ system.client_area_url }})
 MD.$signOff),
-    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note for invoice {{ invoice.number }}', <<<'MD'
+    $client('credit_note.issued', 'invoice', 'Credit note issued', 'Credit note from {{ company.name }} for invoice {{ invoice.number }}', <<<'MD'
 # Credit note issued
 
 We've issued a credit note against invoice {{ invoice.number }}.
@@ -664,7 +671,9 @@ Use the button below to choose a new password for {{ staff.email }}.
 
 [Choose a new password]({{ auth.reset_url }})
 
-The link expires at {{ auth.expires_at }}. If you didn't ask for this, tell an administrator.
+The link expires at {{ auth.expires_at }}.
+
+{% if support.email %}If this wasn't you, contact {{ support.email }}.{% endif %}
 MD),
     $staff('staff.invitation', 'Staff invitation', 'You are invited to the {{ company.name }} admin area', <<<'MD'
 # Join the {{ company.name }} team

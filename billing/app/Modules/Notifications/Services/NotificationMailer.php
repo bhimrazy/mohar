@@ -16,6 +16,7 @@ use App\Modules\Notifications\Jobs\SendEmailMessage;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
+use App\Modules\Notifications\Support\SupportAddresses;
 use Illuminate\Support\Str;
 
 /**
@@ -31,6 +32,7 @@ class NotificationMailer
         private MergeContext $mergeContext,
         private RecipientResolver $recipients,
         private Settings $settings,
+        private SupportAddresses $addresses,
     ) {}
 
     /**
@@ -96,7 +98,9 @@ class NotificationMailer
             'to' => [$recipient->key()],
             'cc' => $this->addresses($template->cc ?? []),
             'bcc' => $this->addresses([...($template->bcc ?? []), ...($isClientMail ? $this->globalBcc() : [])]),
-            'from' => $request->fromEmail ?? $template->from_email,
+            'from' => $request->fromEmail ?? $template->from_email ?? $this->addresses->from($template->type),
+            'from_name' => $template->from_name ?? $this->addresses->fromName(),
+            'reply_to' => $this->addresses->replyTo($template->type, $context),
             'locale' => $locale,
             'related_type' => $request->relatedType,
             'related_id' => $request->relatedId,
@@ -114,7 +118,7 @@ class NotificationMailer
         }
 
         $suppressedReason = match (true) {
-            ! $template->is_enabled => 'template_disabled',
+            ! $template->is_enabled && ! $template->isAlwaysSent() => 'template_disabled',
             (bool) $this->settings->get('notifications.mail_disabled', false) => 'mail_disabled',
             default => null,
         };

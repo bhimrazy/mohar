@@ -7,6 +7,10 @@ use App\Modules\Core\Models\Currency;
 /**
  * Email money formatting per the product standard: currency symbol, Indian lakh grouping for INR/NPR
  * ($1,234.50 · ₹1,23,456.00 · Rs 1,23,456.00). Other currencies use their configured prefix, else the code.
+ *
+ * @deprecated Temporary module-local copy. The Currencies workstream (feature/currencies) adds one kernel
+ *             formatter for all server-rendered amounts; whichever PR merges second switches Notifications
+ *             (and Billing's merge fields) to it and deletes this class.
  */
 final class MoneyText
 {

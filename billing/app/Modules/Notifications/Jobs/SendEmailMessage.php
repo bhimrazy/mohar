@@ -73,6 +73,8 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
                     htmlBody: $this->content !== null ? $this->content['html'] : $message->body_html,
                     plainText: $this->content['text'] ?? (string) $message->body_text,
                     fromEmail: $message->from,
+                    fromName: $message->from_name,
+                    replyToEmail: $message->reply_to,
                     messageUuid: $message->uuid,
                 ));
         } catch (Throwable $exception) {

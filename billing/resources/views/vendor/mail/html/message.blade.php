@@ -12,7 +12,9 @@
     $settings = app(\App\Modules\Core\Support\Settings::class);
     $footerAddress = trim((string) ($settings->get('notifications.footer_address') ?: $settings->get('billing.seller.address', '')));
     $supportUrl = (string) ($settings->get('notifications.support_url') ?: (\Illuminate\Support\Facades\Route::has('client.support.tickets.index') ? route('client.support.tickets.index') : ''));
-    $supportEmail = (string) $settings->get('core.company_email', config('mail.from.address'));
+    // Support address (never a no-reply mailbox): notifications.support_email, else the billing email.
+    $supportEmail = app(\App\Modules\Notifications\Support\SupportAddresses::class)->general();
+    $helpLine = $supportEmail ? str_replace('{{ support.email }}', $supportEmail, (string) $settings->get('notifications.footer_help_text', 'Questions? Reply to this email or write to {{ support.email }}.')) : null;
 @endphp
 <x-mail::layout :preheader="$preheader">
 {{-- Header --}}
@@ -56,11 +58,12 @@
 @if ($footerAddress !== '')
 <p>{!! nl2br(e($footerAddress)) !!}</p>
 @endif
+@if ($helpLine)
+<p class="footer-help">{{ $helpLine }}</p>
+@endif
 <p>
 @if ($supportUrl !== '')
-<a href="{{ $supportUrl }}">{{ __('Get help') }}</a>
-@elseif ($supportEmail !== '')
-<a href="mailto:{{ $supportEmail }}">{{ $supportEmail }}</a>
+<a href="{{ $supportUrl }}">{{ __('Help centre') }}</a>
 @endif
 @if (filled($preferencesUrl))
 &nbsp;·&nbsp; <a href="{{ $preferencesUrl }}">{{ __('Email preferences') }}</a>

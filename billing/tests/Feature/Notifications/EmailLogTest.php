@@ -23,25 +23,23 @@ use Tests\Fakes\Services\FakePriceBook;
 
 require_once __DIR__.'/helpers.php';
 
-it('sends the service password but stores only a redacted copy (criterion 9)', function () {
+it('never emails a service password and links to the service page instead (criterion 9, CTO decision)', function () {
     Mail::fake();
     seedEmailTemplates();
     $priceBook = new FakePriceBook;
     $priceBook->products[9] = new ProductSummary(9, 'Starter Hosting', 'Hosting', 'shared_hosting', 'log', null, [], 'payment', null, false, true, null, true);
     app()->instance(PriceBook::class, $priceBook);
     fakeMergeFields([
-        'service' => ['service_id' => 4, 'product_id' => 9, 'product_name' => 'Starter Hosting', 'domain' => 'example.com', 'username' => 'ann', 'nameservers' => ['ns1.example.net']],
-        'service_credentials' => ['password' => 'S3cret!pass'],
+        'service' => ['service_id' => 4, 'product_id' => 9, 'product_name' => 'Starter Hosting', 'domain' => 'example.com', 'username' => 'ann', 'password' => 'S3cret!pass', 'nameservers' => ['ns1.example.net']],
     ]);
     $client = Client::factory()->create(['email' => 'owner@example.test']);
 
     app(SendEventEmails::class)->serviceActivated(new ServiceActivated(4, $client->id));
 
-    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'S3cret!pass') && str_contains($mail->plainText, 'S3cret!pass'));
-    $logged = EmailMessage::query()->where('template_key', 'service.welcome.shared_hosting')->sole();
-    expect($logged->body_html)->not->toContain('S3cret')->toContain('••••')
-        ->and($logged->body_text)->not->toContain('S3cret')->toContain('••••')
-        ->and($logged->has_redactions)->toBeTrue();
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => ! str_contains((string) $mail->htmlBody, 'S3cret')
+        && ! str_contains($mail->plainText, 'S3cret')
+        && str_contains((string) $mail->htmlBody, route('client.services.show', 4)));
+    expect(EmailMessage::query()->where('template_key', 'service.welcome.shared_hosting')->sole()->body_text)->not->toContain('S3cret');
 });
 
 it('marks a message failed after three transport failures and resends it as a new attempt (criterion 10)', function () {
