@@ -3,12 +3,14 @@
 namespace App\Modules\Catalog\Services;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Data\Catalog\ModuleInputs;
 use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Events\Catalog\ProductStockDepleted;
 use App\Modules\Catalog\Enums\ConfigOptionType;
+use App\Modules\Catalog\Enums\CustomFieldType;
 use App\Modules\Catalog\Enums\FreeDomain;
 use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Models\Addon;
@@ -226,6 +228,53 @@ class CatalogPriceBook implements PriceBook
         }
 
         return $result;
+    }
+
+    public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs
+    {
+        $product = Product::query()->with(['configOptionGroups.options.values', 'customFields'])->find($productId);
+
+        if ($product === null) {
+            return new ModuleInputs;
+        }
+
+        $options = [];
+
+        foreach ($this->optionsOf($product) as $option) {
+            $selected = $optionSelections[$option->id] ?? null;
+
+            if ($option->module_key === null || $option->module_key === '' || $selected === null || $selected === '') {
+                continue;
+            }
+
+            $value = $option->values->firstWhere('id', (int) $selected);
+            $options[$option->module_key] = match ($option->type) {
+                ConfigOptionType::Quantity => (int) $selected,
+                ConfigOptionType::YesNo => (int) $selected === 0 ? '0' : ($option->values->first()?->module_value ?: '1'),
+                default => $value === null ? (string) $selected : ($value->module_value ?: $value->label),
+            };
+        }
+
+        $fields = [];
+        $secrets = [];
+
+        foreach ($product->customFields as $field) {
+            if (! array_key_exists($field->id, $customFieldValues)) {
+                continue;
+            }
+
+            $value = $customFieldValues[$field->id];
+
+            if ($field->type === CustomFieldType::Password && is_scalar($value) && (string) $value !== '') {
+                $secrets[] = (string) $value;
+            }
+
+            if ($field->module_key !== null && $field->module_key !== '') {
+                $fields[$field->module_key] = $value;
+            }
+        }
+
+        return new ModuleInputs($options, $fields, $secrets);
     }
 
     /**

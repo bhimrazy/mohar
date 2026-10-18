@@ -3,6 +3,7 @@
 namespace Tests\Fakes\Services;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Data\Catalog\ModuleInputs;
 use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
@@ -30,6 +31,9 @@ class FakePriceBook implements PriceBook
 
     /** @var array<int, list<array{id: int, name: string, type: string, required: bool, options: list<string>, module_key?: string}>> */
     public array $customFields = [];
+
+    /** @var array<int, array<int, string>> product id => option id => module key */
+    public array $moduleOptions = [];
 
     /**
      * @param  array<string, int>  $prices  cycle value => recurring amount
@@ -124,6 +128,40 @@ class FakePriceBook implements PriceBook
     public function customFieldsFor(int $productId): array
     {
         return $this->customFields[$productId] ?? [];
+    }
+
+    /**
+     * Custom fields from $customFields (module key, password type); options from $moduleOptions (option id => module
+     * key), passing the selected value through.
+     */
+    public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs
+    {
+        $fields = [];
+        $secrets = [];
+
+        foreach ($this->customFields[$productId] ?? [] as $field) {
+            if (! array_key_exists($field['id'], $customFieldValues)) {
+                continue;
+            }
+
+            if ($field['type'] === 'password' && is_scalar($customFieldValues[$field['id']])) {
+                $secrets[] = (string) $customFieldValues[$field['id']];
+            }
+
+            if (($field['module_key'] ?? '') !== '') {
+                $fields[$field['module_key']] = $customFieldValues[$field['id']];
+            }
+        }
+
+        $options = [];
+
+        foreach ($this->moduleOptions[$productId] ?? [] as $optionId => $moduleKey) {
+            if (isset($optionSelections[$optionId])) {
+                $options[$moduleKey] = $optionSelections[$optionId];
+            }
+        }
+
+        return new ModuleInputs($options, $fields, $secrets);
     }
 
     public function reserveStock(int $productId): bool
