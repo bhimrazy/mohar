@@ -28,18 +28,19 @@ return new class extends Migration
 
     public function up(): void
     {
+        // Data check first, so a deploy with bad data fails before minutes of index builds.
+        $defaults = DB::table('currencies')->where('is_default', true)->count();
+
+        if ($defaults > 1) {
+            throw new RuntimeException("{$defaults} currencies are marked as the default (find them: select id, code from currencies where is_default). Keep exactly one (Settings → Currencies), then run the migration again.");
+        }
+
         foreach (self::INDEXES as [$table, $columns]) {
             OnlineIndex::create($table, $columns);
         }
 
         foreach (self::EMAIL_TABLES as $table) {
             OnlineIndex::create($table, [], "{$table}_email_lower_index", expression: 'lower(email)');
-        }
-
-        $defaults = DB::table('currencies')->where('is_default', true)->count();
-
-        if ($defaults > 1) {
-            throw new RuntimeException("{$defaults} currencies are marked as the default. Keep exactly one (Settings → Currencies), then run the migration again.");
         }
 
         OnlineIndex::create('currencies', ['is_default'], 'currencies_single_default_unique', unique: true, where: 'is_default = true');

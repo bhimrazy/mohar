@@ -27,15 +27,18 @@ return new class extends Migration
 
     public function up(): void
     {
-        foreach (self::INDEXES as [$table, $columns]) {
-            OnlineIndex::create($table, $columns);
-        }
-
+        // Data check first, so a deploy with bad data fails before the index builds.
         $duplicates = DB::table('tld_prices')->whereNull('client_group_id')
             ->select('tld_id', 'currency', 'years')->groupBy('tld_id', 'currency', 'years')->havingRaw('count(*) > 1')->count();
 
         if ($duplicates > 0) {
-            throw new RuntimeException("{$duplicates} default TLD prices are stored twice (same TLD, currency and years). Remove the extra rows, then run the migration again.");
+            throw new RuntimeException("{$duplicates} default TLD prices are stored twice (same TLD, currency and years). Find them with: "
+                .'select tld_id, currency, years, array_agg(id) from tld_prices where client_group_id is null group by 1, 2, 3 having count(*) > 1; '
+                .'remove the extra rows, then run the migration again.');
+        }
+
+        foreach (self::INDEXES as [$table, $columns]) {
+            OnlineIndex::create($table, $columns);
         }
 
         OnlineIndex::create('tld_prices', ['tld_id', 'currency', 'years'], 'tld_prices_default_price_unique', unique: true, where: 'client_group_id is null');

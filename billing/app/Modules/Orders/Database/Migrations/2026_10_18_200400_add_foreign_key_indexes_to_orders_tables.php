@@ -6,7 +6,7 @@ use Illuminate\Database\Migrations\Migration;
 /**
  * Database audit 2026-10-18 (docs/database/audit-2026-10-18.md): a client's orders (client area, checkout
  * rules, merge counts) and every foreign key that a delete cascades or nulls through were unindexed.
- * order_items.order_id is also added by the dashboard v2 branch under the same name; whichever runs second skips.
+ * This migration owns order_items_order_id_index (the dashboard v2 branch drops its own copy).
  * Built CONCURRENTLY on PostgreSQL (no write lock) and skipped when an index of the same name exists.
  */
 return new class extends Migration
