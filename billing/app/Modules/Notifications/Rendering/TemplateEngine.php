@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Rendering;
 
+use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Notifications\Support\MoneyText;
 use Carbon\CarbonImmutable;
@@ -289,6 +290,15 @@ final class TemplateEngine
             switch ($node['type']) {
                 case 'var':
                     $paths[] = $node['path'];
+
+                    // Paths used as filter arguments count too: default(auth.reset_url) must be checked like the field.
+                    foreach ($node['filters'] as $filter) {
+                        foreach ($filter['args'] as $argument) {
+                            if (! $argument['literal']) {
+                                $paths[] = $argument['value'];
+                            }
+                        }
+                    }
                     break;
                 case 'if':
                     $paths = [...$paths, $node['path'], ...$this->collectPaths($node['then'], $loopVariables), ...$this->collectPaths($node['else'], $loopVariables)];
@@ -389,6 +399,13 @@ final class TemplateEngine
                 fn (array $argument): mixed => $argument['literal'] ? $argument['value'] : $this->lookup($argument['value'], $scopes),
                 $filter['args'],
             )));
+        }
+
+        if ($value instanceof SensitiveValue) {
+            // Never printed by the engine: the composer decides where (if anywhere) such a value may appear.
+            $this->warnings[] = "\"{$node['path']}\" is an access link and can't be printed here.";
+
+            return '';
         }
 
         if (is_array($value) || is_object($value)) {

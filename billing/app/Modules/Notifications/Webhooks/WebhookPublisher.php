@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Webhooks;
 
+use App\Data\Notifications\SensitiveValue;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Jobs\DeliverWebhook;
 use App\Modules\Notifications\Models\WebhookDelivery;
@@ -99,7 +100,7 @@ class WebhookPublisher
         $clean = [];
 
         foreach ($data as $key => $value) {
-            if (is_string($key) && preg_match(self::SECRET_KEY_PATTERN, $key)) {
+            if ($value instanceof SensitiveValue || (is_string($key) && preg_match(self::SECRET_KEY_PATTERN, $key))) {
                 continue;
             }
 

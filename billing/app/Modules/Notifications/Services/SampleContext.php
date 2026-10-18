@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
@@ -37,9 +38,9 @@ class SampleContext
             'staff' => ['first_name' => 'Sam', 'email' => 'sam@example.test'],
             // Previews and test sends never generate a real token: these links are visibly fake and do nothing.
             'auth' => [
-                'reset_url' => url('/reset-password/SAMPLE-LINK-NOT-VALID'),
-                'verify_url' => url('/email/verify/SAMPLE-LINK-NOT-VALID'),
-                'invite_url' => url('/invitation/SAMPLE-LINK-NOT-VALID'),
+                'reset_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/reset-password/SAMPLE-LINK-NOT-VALID'),
+                'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
+                'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
                 'expires_at' => now()->addHour()->format(DateFormats::current().' H:i'),
                 'ip' => '203.0.113.24',
             ],
@@ -79,7 +80,9 @@ class SampleContext
             ],
             'ticket' => [
                 'number' => '482913', 'subject' => 'Email not working', 'department' => 'Technical Support', 'priority' => 'Medium',
-                'status' => 'Open', 'requester_name' => 'Ann Example', 'url' => url('/client/support/tickets/482913'),
+                'status' => 'Open', 'requester_name' => 'Ann Example',
+                // A guest's ticket link carries its access key: sensitive, linkable only from ticket.* mail.
+                'url' => new SensitiveValue(url('/support/tickets/482913?key=SAMPLE-KEY'), allowedIn: ['ticket.*']),
                 'admin_url' => url('/admin/support/tickets/1'),
             ],
             'reply' => [
@@ -135,7 +138,7 @@ class SampleContext
      */
     private function paths(string $prefix, mixed $value): array
     {
-        if (SecretTemplatePolicy::isSecretPath($prefix)) {
+        if ($value instanceof SensitiveValue || SecretTemplatePolicy::isSecretName($prefix)) {
             return [];
         }
 

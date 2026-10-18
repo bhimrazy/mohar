@@ -2,6 +2,7 @@
 
 use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Jobs\DeliverWebhook;
@@ -39,7 +40,7 @@ it('2: sends the reset when the default language has no translation', function (
     expect(EmailMessage::query()->sole())->locale->toBe('fr')->status->value->not->toBe('failed');
 });
 
-it('2: falls back to Laravel\'s reset mail when the link\'s host is not configured', function () {
+it('2: fails closed when the link is not on a configured origin: no template mail, no fallback', function () {
     Mail::fake();
     Notification::fake();
     seedEmailTemplates();
@@ -52,8 +53,10 @@ it('2: falls back to Laravel\'s reset mail when the link\'s host is not configur
         ResetPassword::$createUrlCallback = null;
     }
 
-    Notification::assertSentTo($user, ResetPassword::class);
+    Notification::assertNothingSent();
     Mail::assertNothingSent();
+    expect(ActivityLog::query()->where('description', 'Account email blocked: link host not allowed')->sole()->properties)
+        ->toMatchArray(['kind' => 'password reset', 'host' => 'portal.example.test']);
 });
 
 it('2: a repeated request for the same token neither sends again nor triggers the fallback', function () {

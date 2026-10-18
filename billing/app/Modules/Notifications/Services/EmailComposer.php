@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
@@ -42,6 +43,16 @@ class EmailComposer
      */
     public function compose(EmailTemplate $template, string $locale, array $context, bool $carriesSecret = false): ComposedEmail
     {
+        return AccountLinks::withAppOrigin(fn (): ComposedEmail => $this->composeTemplate($template, $locale, $context, $carriesSecret));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     *
+     * @throws TemplateSyntaxError
+     */
+    private function composeTemplate(EmailTemplate $template, string $locale, array $context, bool $carriesSecret): ComposedEmail
+    {
         $translation = $template->translationFor($locale, $this->defaultLocale());
 
         if ($translation === null) {
@@ -52,6 +63,11 @@ class EmailComposer
             return $this->composeSecret($template, $translation, $context);
         }
 
+        // Fail closed: a one-time link only ever goes out in one of the fixed secret templates.
+        if ($carriesSecret) {
+            throw new TemplateSyntaxError("Template [{$template->key}] cannot carry a one-time link.");
+        }
+
         return $this->composeSource(
             $template->hasFixedSubject() ? self::FIXED_SUPPORT_SUBJECT : $translation->subject,
             $translation->body,
@@ -59,34 +75,56 @@ class EmailComposer
             $translation->locale,
             $template->plain_text_only,
             $this->preferencesUrl($template),
+            $template->key,
         );
     }
 
     /**
-     * Free-form Markdown (non-secret templates, ad-hoc mail). Secret fields are never available here.
+     * Free-form Markdown (non-secret templates, ad-hoc mail). Sensitive values reach it only if allowed for this
+     * template ($templateKey; never ad-hoc), and only as whole link targets; the log copy masks them.
      *
      * @param  array<string, mixed>  $context
      *
      * @throws TemplateSyntaxError
      */
-    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null): ComposedEmail
+    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null, ?string $templateKey = null): ComposedEmail
     {
-        $context = SecretTemplatePolicy::withoutSecrets($context);
+        return AccountLinks::withAppOrigin(fn (): ComposedEmail => $this->composeFreeForm($subject, $body, $context, $locale, $plainTextOnly, $preferencesUrl, $templateKey));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     *
+     * @throws TemplateSyntaxError
+     */
+    private function composeFreeForm(string $subject, string $body, array $context, string $locale, bool $plainTextOnly, ?string $preferencesUrl, ?string $templateKey): ComposedEmail
+    {
+        [$context, $sensitive] = SecretTemplatePolicy::prepareContext($context, $templateKey);
         $options = $this->options($locale, $context);
 
         $renderedSubject = $this->engine->render($subject, $context, false, $options);
         $html = $this->engine->render($body, $context, true, $options);
         $text = $this->engine->render($body, $context, false, $options);
-        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml(EmailBody::html($html->output), $preferencesUrl);
-        $wrappedText = $this->wrapText(EmailBody::text($text->output), $preferencesUrl);
+        $usedSensitive = array_filter(array_keys($sensitive), fn (string $placeholder): bool => str_contains($html->output.$text->output, $placeholder)) !== [];
+
+        $parts = function (bool $reveal) use ($html, $text, $sensitive, $plainTextOnly, $preferencesUrl): array {
+            return [
+                $plainTextOnly ? null : $this->wrapHtml(EmailBody::html(SecretTemplatePolicy::placeSensitive($html->output, $sensitive, $reveal)), $preferencesUrl),
+                $this->wrapText(EmailBody::text(SecretTemplatePolicy::placeSensitive($text->output, $sensitive, $reveal)), $preferencesUrl),
+            ];
+        };
+
+        [$wrappedHtml, $wrappedText] = $parts(true);
+        [$storedHtml, $storedText] = $usedSensitive ? $parts(false) : [$wrappedHtml, $wrappedText];
+        $subjectLine = $this->subjectLine(SecretTemplatePolicy::placeSensitive($renderedSubject->output, $sensitive, false));
 
         return new ComposedEmail(
-            subject: $this->subjectLine($renderedSubject->output),
+            subject: $subjectLine,
             html: $wrappedHtml,
             text: $wrappedText,
-            storedHtml: $wrappedHtml,
-            storedText: $wrappedText,
-            hasRedactions: false,
+            storedHtml: $storedHtml,
+            storedText: $storedText,
+            hasRedactions: $usedSensitive,
             warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
         );
     }

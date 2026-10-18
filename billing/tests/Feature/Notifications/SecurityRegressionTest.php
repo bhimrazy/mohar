@@ -1,9 +1,12 @@
 <?php
 
+use App\Contracts\Auth\AuthMailer;
+use App\Data\Notifications\SensitiveValue;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Mail\TemplatedMail;
@@ -18,6 +21,7 @@ use App\Modules\Notifications\Support\EventKey;
 use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\UnsafeWebhookTarget;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
+use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 
@@ -133,7 +137,7 @@ it('L3: a custom template can\'t put the one-time link in its subject (it render
     $template = EmailTemplate::factory()->withBody('Reset via {{ auth.reset_url }}', 'Body')->create(['key' => 'custom.reset_subject']);
     $owner = Client::factory()->create(['email' => 'owner@example.test']);
 
-    app(NotificationMailer::class)->send(new EmailRequest($template->key, [app(RecipientResolver::class)->owner($owner)], ['auth' => ['reset_url' => 'https://billing.test/reset/SECRET']], 'l3', $owner->id));
+    app(NotificationMailer::class)->send(new EmailRequest($template->key, [app(RecipientResolver::class)->owner($owner)], ['auth' => ['reset_url' => new SensitiveValue('https://billing.test/reset/SECRET')]], 'l3', $owner->id));
 
     expect(EmailMessage::query()->sole()->subject)->toBe('Reset via');
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->subjectLine === 'Reset via');
@@ -173,4 +177,62 @@ it('L7: webhook URLs are logged without path, query or credentials', function ()
 
     $logged = json_encode(ActivityLog::query()->where('description', 'Webhook endpoint created')->sole()->properties);
     expect($logged)->not->toContain('SECRETTOKEN')->not->toContain('key=abc')->toContain('hooks.example.com');
+});
+
+it('B1: the logged copy of a reset email shows •••• and never the token', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    $user = User::factory()->create();
+
+    app(AuthMailer::class)->sendPasswordReset($user, 'LOGGED-TOKEN-1');
+
+    $logged = EmailMessage::query()->where('template_key', 'auth.password_reset')->sole();
+    expect($logged->has_redactions)->toBeTrue()
+        ->and($logged->subject.$logged->body_html.$logged->body_text)->not->toContain('LOGGED-TOKEN-1')
+        ->and($logged->body_text)->toContain('••••');
+});
+
+it('B1: senders, copies and the account-link host need notifications.delivery.manage, not templates or settings rights', function () {
+    actingAsStaff(['notifications.templates.view', 'notifications.templates.manage', 'notifications.settings.manage']);
+    confirmPassword();
+
+    $this->put(route('admin.platform.settings.update', ['section' => 'email_delivery']), ['email_delivery' => ['notifications.auth_link_host' => 'evil.test']])
+        ->assertForbidden();
+    expect(app(Settings::class)->get('notifications.auth_link_host'))->toBe('');
+});
+
+it('B1: a forged Host on forgot-password never produces a foreign link, on either mail path', function (bool $templated) {
+    Mail::fake();
+    Notification::fake();
+    config(['app.url' => 'https://billing.example.test']);
+    seedEmailTemplates();
+    if (! $templated) {
+        app()->instance(AuthMailer::class, new LaravelAuthMailer);
+    }
+    $user = User::factory()->create(['email' => 'victim@example.test']);
+
+    $this->post('https://evil.test/forgot-password', ['email' => $user->email]);
+
+    if ($templated) {
+        Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'https://billing.example.test/reset-password/')
+            && ! str_contains((string) $mail->htmlBody.$mail->plainText, 'evil.test'));
+    } else {
+        Notification::assertSentTo($user, ResetPassword::class, function ($notification) use ($user): bool {
+            $url = $notification->toMail($user)->actionUrl;
+
+            return str_starts_with($url, 'https://billing.example.test/reset-password/') && ! str_contains($url, 'evil.test');
+        });
+    }
+})->with(['templated (Notifications)' => [true], 'Laravel default (no Notifications)' => [false]]);
+
+it('B1: a forged Host never produces a foreign verification link either', function () {
+    Mail::fake();
+    config(['app.url' => 'https://billing.example.test']);
+    seedEmailTemplates();
+    $user = User::factory()->unverified()->create();
+
+    $this->actingAs($user)->post('https://evil.test/email/verification-notification');
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains((string) $mail->htmlBody, 'https://billing.example.test/email/verify/')
+        && ! str_contains((string) $mail->htmlBody.$mail->plainText, 'evil.test'));
 });

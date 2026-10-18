@@ -2,22 +2,27 @@
 
 namespace App\Modules\Notifications\Support;
 
+use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
+use App\Modules\Notifications\Services\SampleContext;
+use LogicException;
 
 /**
- * The single gate for one-time links (security review PR #28, B1 final design). Used by template store and
- * update, preview, test-send and every render.
+ * The single gate for values that grant access by themselves — one-time links, guest ticket links (security review
+ * PR #28, B1). Used by template store and update, preview, ad-hoc send, test-send and every render.
  *
- *  1. Secret merge fields are a closed set: only the fixed system templates in ACTION_LINKS receive them, and
- *     even those never reference them in staff-editable text. Every other template is rejected on save if it
- *     references one, and renders it as empty (the field is removed from its context).
- *  2. Secret templates are structure-only: subject, heading, body paragraphs and button label are plain text —
- *     no Markdown links or images, no HTML, nothing that parses as a URL, only allow-listed merge fields. The
- *     system renders the action button and the text-part link line from the secret field.
- *  3. The link host must be one configured here (config('app.url') and notifications.auth_link_host), never
- *     derived from the link being rendered.
+ *  1. Sensitivity is declared by type: merge-field resolvers return a SensitiveValue. A SensitiveValue reaches
+ *     only templates it names in allowedIn (never custom or ad-hoc mail), and only as the whole target of a link;
+ *     anywhere else it is masked. The account-link fields reach only the fixed system templates in ACTION_LINKS,
+ *     and those never print them in editable text. A name check (isSecretName) is kept as a backstop: a secret-looking
+ *     field that is not a SensitiveValue is stripped, and fails the test suite so the resolver gets fixed.
+ *  2. Secret templates are structure-only: subject, heading, paragraphs and button label are plain text — no
+ *     Markdown links or images, no HTML, nothing URL-like, only allow-listed merge fields without filter arguments.
+ *     The system renders the action button and the text-part link line.
+ *  3. Account links must be on a configured origin — APP_URL or notifications.auth_link_host: same scheme, host
+ *     and port, no user info — never derived from the request or the link itself.
  */
 final class SecretTemplatePolicy
 {
@@ -37,8 +42,15 @@ final class SecretTemplatePolicy
         'auth.expires_at', 'support.email', 'system.today',
     ];
 
-    /** Anything a mail client could turn into a link. Merge placeholders are removed before this runs. */
-    private const URL_PATTERN = '~(?:\b[a-z][a-z0-9+.\-]*:/*\S+)|(?://\S+)|(?:\bwww\.\S+)|(?:\b[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9\-]*[a-z0-9])?)*\.[a-z]{2,}\b\S*)~i';
+    /** Filters a secret template may apply (none take arguments). */
+    public const ALLOWED_FILTERS = ['upper', 'lower'];
+
+    private const DOT = '[.。．｡]';
+
+    private const LABEL = '[\p{L}\p{N}](?:[\p{L}\p{N}\-]*[\p{L}\p{N}])?';
+
+    /** @var array<string, bool>|null sample paths holding a SensitiveValue */
+    private static ?array $sensitiveSamplePaths = null;
 
     public static function isSecretTemplate(string $templateKey): bool
     {
@@ -46,18 +58,30 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * Whether a merge-field path is (or could hold) a secret: the one-time link fields and anything named like a token.
+     * Backstop only: a name that looks like it carries a credential. Real classification is by type (SensitiveValue).
      */
-    public static function isSecretPath(string $path): bool
+    public static function isSecretName(string $path): bool
     {
-        return preg_match('/^auth\.[a-z_]*url$/', $path) === 1 || preg_match('/token|secret|password/i', $path) === 1;
+        return preg_match('/^auth\.[a-z_]*(url|link)$/i', $path) === 1 || preg_match('/token|secret|password|access_?key|magic_?link|login_?link/i', $path) === 1;
     }
 
     /**
-     * Problems with a template's editable text; empty when it may be saved. For any template: no secret fields.
-     * For secret templates additionally: plain text only, allow-listed fields, a heading and a button label.
+     * Whether a template may not reference this path: a sensitive field (by type, in the sample data every template
+     * is checked against) or a secret-looking name.
+     */
+    public static function isSensitivePath(string $path): bool
+    {
+        if (self::$sensitiveSamplePaths === null) {
+            self::$sensitiveSamplePaths = self::sensitivePaths(app(SampleContext::class)->build(true));
+        }
+
+        return isset(self::$sensitiveSamplePaths[$path]) || self::isSecretName($path);
+    }
+
+    /**
+     * Problems with a template's editable text; empty when it may be saved.
      *
-     * @param  array{subject?: string|null, heading?: string|null, body?: string|null, action_label?: string|null}  $fields
+     * @param  array<string, mixed>  $fields  subject, heading, body, action_label
      * @return array<string, list<string>> field => problems
      */
     public static function violations(string $templateKey, array $fields): array
@@ -67,7 +91,7 @@ final class SecretTemplatePolicy
         $problems = [];
 
         foreach ($fields as $field => $text) {
-            if (! is_string($text) || $text === '') {
+            if (! is_string($text) || trim($text) === '') {
                 if ($secretTemplate && in_array($field, ['heading', 'action_label'], true)) {
                     $problems[$field][] = __('Required.');
                 }
@@ -82,8 +106,8 @@ final class SecretTemplatePolicy
             }
 
             foreach ($paths as $path) {
-                if (self::isSecretPath($path)) {
-                    $problems[$field][] = __('One-time links and tokens can\'t be used in templates; the system adds the action button itself.');
+                if (self::isSensitivePath($path) && ! self::allowedAsLinkTarget($templateKey, $path, $text)) {
+                    $problems[$field][] = __('Access links and tokens can\'t be used here; the system adds the action button itself.');
                 } elseif ($secretTemplate && ! in_array($path, self::ALLOWED_FIELDS, true)) {
                     $problems[$field][] = __('This email carries a one-time link, so it can only use these merge fields: :fields.', ['fields' => implode(', ', self::ALLOWED_FIELDS)]);
                 }
@@ -93,17 +117,21 @@ final class SecretTemplatePolicy
                 continue;
             }
 
-            $plain = self::withoutPlaceholders($text);
+            if (self::hasDisallowedFilters($text)) {
+                $problems[$field][] = __('This email carries a one-time link, so merge fields can only use the upper and lower filters, without arguments.');
+            }
+
+            $plain = (string) preg_replace('/\{\{.*?\}\}/s', ' ', $text);
 
             if (str_contains($text, '{%')) {
                 $problems[$field][] = __('Plain text only: no {% %} blocks.');
             }
 
-            if (preg_match('/!?\[[^\]]*\]\([^)]*\)|<\s*[a-z!\/]/i', $plain)) {
+            if (preg_match('/!?\[[^\]]*\]\([^)]*\)|<\s*[a-z!\/]/iu', $plain)) {
                 $problems[$field][] = __('Plain text only: no links, images or HTML.');
             }
 
-            if (preg_match(self::URL_PATTERN, $plain)) {
+            if (self::containsUrlLike($plain)) {
                 $problems[$field][] = __('This email carries a one-time link, so its text can\'t contain web addresses.');
             }
         }
@@ -112,26 +140,29 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * Defence in depth for text written to the database directly: drop HTML, Markdown link/image syntax, block
-     * tags and anything URL-like from a secret template's source before merge fields are filled in.
+     * Defence in depth for secret-template text written to the database directly: drop HTML, Markdown link/image
+     * syntax, block tags, URL-like text and filter arguments before merge fields are filled in.
      */
     public static function plainCopy(string $source): string
     {
         $source = strip_tags($source);
-        $source = (string) preg_replace('/!?\[([^\]]*)\]\([^)]*\)/', '$1', $source);
+        $source = (string) preg_replace('/!?\[([^\]]*)\]\([^)]*\)/u', '$1', $source);
         $source = (string) preg_replace('/\{%.*?%\}/s', '', $source);
-
-        // Remove URL-like text outside {{ placeholders }}.
         $parts = preg_split('/(\{\{.*?\}\})/s', $source, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [];
 
         return implode('', array_map(
-            fn (string $part): string => str_starts_with($part, '{{') ? $part : (string) preg_replace(self::URL_PATTERN, '', $part),
+            fn (string $part): string => str_starts_with($part, '{{') ? self::simplePlaceholder($part) : self::withoutUrlLike($part),
             $parts,
         ));
     }
 
+    public static function containsUrlLike(string $text): bool
+    {
+        return preg_match(self::urlPattern(), $text) === 1;
+    }
+
     /**
-     * The context a secret template's text renders against: allow-listed fields only.
+     * The context a secret template's text renders against: allow-listed plain fields only.
      *
      * @param  array<string, mixed>  $context
      * @return array<string, mixed>
@@ -141,76 +172,245 @@ final class SecretTemplatePolicy
         $allowed = [];
 
         foreach (self::ALLOWED_FIELDS as $path) {
-            data_set($allowed, $path, data_get($context, $path));
+            $value = data_get($context, $path);
+            data_set($allowed, $path, is_scalar($value) ? $value : null);
         }
 
         return $allowed;
     }
 
     /**
-     * Any context minus secret fields — what every non-secret template renders against.
+     * The context a free-form template renders against. SensitiveValues it may use become opaque placeholders (see
+     * placeSensitive()); every other SensitiveValue — and any secret-looking plain value (backstop) — is removed.
      *
      * @param  array<string, mixed>  $context
-     * @return array<string, mixed>
+     * @return array{0: array<string, mixed>, 1: array<string, string>} [context, placeholder => value]
      */
-    public static function withoutSecrets(array $context, string $prefix = ''): array
+    public static function prepareContext(array $context, ?string $templateKey): array
     {
-        foreach ($context as $key => $value) {
-            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
+        $placeholders = [];
+        $walk = function (array $node, string $prefix) use (&$walk, &$placeholders, $templateKey): array {
+            foreach ($node as $key => $value) {
+                $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
 
-            if (self::isSecretPath($path)) {
-                unset($context[$key]);
-            } elseif (is_array($value)) {
-                $context[$key] = self::withoutSecrets($value, $path);
+                if ($value instanceof SensitiveValue) {
+                    if ($templateKey !== null && $value->allowedIn($templateKey)) {
+                        $placeholder = 'zzsensitive'.count($placeholders).bin2hex(random_bytes(4)).'zz';
+                        $placeholders[$placeholder] = $value->value;
+                        $node[$key] = $placeholder;
+                    } else {
+                        unset($node[$key]);
+                    }
+                } elseif (is_array($value)) {
+                    $node[$key] = $walk($value, $path);
+                } elseif (is_string($value) && $value !== '' && self::isSecretName($path)) {
+                    if (app()->runningUnitTests()) {
+                        throw new LogicException("Merge field [{$path}] looks like a credential but is not a SensitiveValue. Wrap it in the resolver.");
+                    }
+
+                    unset($node[$key]); // fail closed in production
+                }
             }
-        }
 
-        return $context;
+            return $node;
+        };
+
+        return [$walk($context, ''), $placeholders];
     }
 
     /**
-     * The template's one-time link, if it is on a configured host and uses https (http only in local).
+     * Puts sensitive values back into rendered Markdown, only as the whole target of a link — [label](placeholder) —
+     * and masks every other occurrence (text, query strings, image sources, subjects). $reveal = false masks all
+     * (the log copy).
+     *
+     * @param  array<string, string>  $placeholders
+     */
+    public static function placeSensitive(string $markdown, array $placeholders, bool $reveal): string
+    {
+        foreach ($placeholders as $placeholder => $value) {
+            if ($reveal) {
+                $markdown = (string) preg_replace_callback(
+                    '/(?<!!)(\[[^\]]*\])\(\s*'.preg_quote($placeholder, '/').'\s*\)/',
+                    fn (array $match): string => $match[1].'(<'.str_replace(['<', '>', "\n", "\r"], '', $value).'>)',
+                    $markdown,
+                );
+            }
+
+            $markdown = str_replace($placeholder, '••••', $markdown);
+        }
+
+        return $markdown;
+    }
+
+    /**
+     * The template's one-time link, unwrapped from its SensitiveValue, if it is on a configured origin.
      *
      * @param  array<string, mixed>  $context
      *
-     * @throws TemplateSyntaxError when the link is missing or points elsewhere (the send fails and AuthMailer falls back)
+     * @throws TemplateSyntaxError when the link is missing or not allowed (the send fails closed)
      */
     public static function actionUrl(string $templateKey, array $context): string
     {
-        $url = data_get($context, self::ACTION_LINKS[$templateKey] ?? '');
+        $value = data_get($context, self::ACTION_LINKS[$templateKey] ?? '');
 
-        if (! is_string($url) || $url === '') {
+        if (! $value instanceof SensitiveValue || $value->value === '') {
             throw new TemplateSyntaxError('The one-time link is missing.');
         }
 
-        $parts = parse_url($url);
-        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
-        $host = strtolower(rtrim((string) ($parts['host'] ?? ''), '.'));
-
-        if (! in_array($host, self::allowedHosts(), true) || ! ($scheme === 'https' || ($scheme === 'http' && ! app()->isProduction()))) {
-            throw new TemplateSyntaxError('The one-time link is not on an allowed host (APP_URL or notifications.auth_link_host).');
+        if (! self::isAllowedLink($value->value)) {
+            throw new TemplateSyntaxError('The one-time link is not on an allowed origin (APP_URL or notifications.auth_link_host).');
         }
 
-        return $url;
+        return $value->value;
     }
 
     /**
-     * @return list<string>
+     * Same scheme, host and port as a configured origin (https only in production), no user info or backslashes.
      */
-    public static function allowedHosts(): array
+    public static function isAllowedLink(string $url): bool
     {
-        $hosts = [(string) parse_url((string) config('app.url'), PHP_URL_HOST)];
-        $extra = app(Settings::class)->get('notifications.auth_link_host');
-
-        foreach (is_string($extra) ? explode(',', $extra) : [] as $host) {
-            $hosts[] = trim($host);
+        if (preg_match('/[\\\\\s\x00-\x1f]/', $url) === 1) {
+            return false;
         }
 
-        return array_values(array_unique(array_filter(array_map(fn (string $host): string => strtolower(rtrim($host, '.')), $hosts))));
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || isset($parts['user']) || isset($parts['pass']) || ! isset($parts['scheme'], $parts['host'])) {
+            return false;
+        }
+
+        $scheme = strtolower($parts['scheme']);
+
+        if (! ($scheme === 'https' || ($scheme === 'http' && ! app()->isProduction()))) {
+            return false;
+        }
+
+        $origin = $scheme.'://'.strtolower(rtrim($parts['host'], '.')).':'.($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+
+        return in_array($origin, self::allowedOrigins(), true);
     }
 
-    private static function withoutPlaceholders(string $text): string
+    /**
+     * @return list<string> scheme://host:port
+     */
+    public static function allowedOrigins(): array
     {
-        return (string) preg_replace('/\{\{.*?\}\}/s', ' ', $text);
+        $appUrl = parse_url((string) config('app.url'));
+        $scheme = strtolower((string) ($appUrl['scheme'] ?? 'https'));
+        $origins = [];
+
+        if (isset($appUrl['host'])) {
+            $origins[] = $scheme.'://'.strtolower(rtrim($appUrl['host'], '.')).':'.($appUrl['port'] ?? ($scheme === 'https' ? 443 : 80));
+        }
+
+        $extra = app(Settings::class)->get('notifications.auth_link_host');
+
+        foreach (is_string($extra) ? explode(',', $extra) : [] as $entry) {
+            $entry = strtolower(trim($entry));
+
+            if (preg_match('/^([a-z0-9.\-]+?)\.?(?::(\d+))?$/', $entry, $match)) {
+                $origins[] = 'https://'.$match[1].':'.($match[2] ?? 443);
+            }
+        }
+
+        return array_values(array_unique($origins));
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array<string, bool>
+     */
+    private static function sensitivePaths(array $context, string $prefix = ''): array
+    {
+        $paths = [];
+
+        foreach ($context as $key => $value) {
+            $path = $prefix === '' ? (string) $key : $prefix.'.'.$key;
+
+            if ($value instanceof SensitiveValue) {
+                $paths[$path] = true;
+            } elseif (is_array($value)) {
+                $paths += self::sensitivePaths($value, $path);
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Free-form templates may use a sensitive field only if it is allowed for them and every use is the whole
+     * target of a link. Secret system templates never print one (the system renders their button).
+     */
+    private static function allowedAsLinkTarget(string $templateKey, string $path, string $text): bool
+    {
+        if (self::isSecretTemplate($templateKey)) {
+            return false;
+        }
+
+        $sample = data_get(app(SampleContext::class)->build(true), $path);
+
+        if (! $sample instanceof SensitiveValue || ! $sample->allowedIn($templateKey)) {
+            return false;
+        }
+
+        $quoted = preg_quote($path, '/');
+        $uses = preg_match_all('/\{\{\s*'.$quoted.'\b[^}]*\}\}/', $text);
+        $asTargets = preg_match_all('/(?<!!)\[[^\]]*\]\(\s*\{\{\s*'.$quoted.'\s*\}\}\s*\)/', $text);
+
+        return $uses === $asTargets;
+    }
+
+    private static function hasDisallowedFilters(string $text): bool
+    {
+        preg_match_all('/\{\{(.*?)\}\}/s', $text, $placeholders);
+
+        foreach ($placeholders[1] as $inner) {
+            foreach (array_slice(array_map('trim', explode('|', $inner)), 1) as $filter) {
+                if (! in_array($filter, self::ALLOWED_FILTERS, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * {{ path | upper(…) | default("…") }} → {{ path | upper }}: no filter arguments survive.
+     */
+    private static function simplePlaceholder(string $placeholder): string
+    {
+        $segments = array_map('trim', explode('|', trim(substr($placeholder, 2, -2))));
+        $path = (string) array_shift($segments);
+
+        if (! preg_match('/^[a-z_][a-z0-9_]*(?:\.[a-z0-9_]+)*$/', $path)) {
+            return '';
+        }
+
+        $filters = array_values(array_filter($segments, fn (string $filter): bool => in_array($filter, self::ALLOWED_FILTERS, true)));
+
+        return '{{ '.implode(' | ', [$path, ...$filters]).' }}';
+    }
+
+    private static function withoutUrlLike(string $text): string
+    {
+        return (string) preg_replace(self::urlPattern(), '', $text);
+    }
+
+    /**
+     * Schemes, protocol-relative and www. links, IPv4/IPv6 literals and domain names — including IDN, punycode and
+     * full-width dots — i.e. anything a mail client could turn into a link.
+     */
+    private static function urlPattern(): string
+    {
+        $dot = self::DOT;
+        $label = self::LABEL;
+
+        return '~(?:\b[a-z][a-z0-9+.\-]*:/*\S+)'
+            .'|(?://\S+)'
+            .'|(?:\bwww'.$dot.'\S+)'
+            .'|(?:\b\d{1,3}(?:'.$dot.'\d{1,3}){3}\b\S*)'
+            .'|(?:\[[0-9a-f:]{2,}\]\S*)'
+            .'|(?:(?<![\p{L}\p{N}\-])'.$label.'(?:'.$dot.$label.')*'.$dot.'(?:\p{L}{2,}|xn--[a-z0-9\-]+)(?![\p{L}\p{N}])\S*)~iu';
     }
 }
