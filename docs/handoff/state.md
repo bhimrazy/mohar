@@ -19,7 +19,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #43 → #41 → #28)
+## Open pull requests (merge order: #43 → #57 → #41 → #28)
 
 | PR  | Workstream    | Size          | Status                                                                                                                                                                             |
 | --- | ------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

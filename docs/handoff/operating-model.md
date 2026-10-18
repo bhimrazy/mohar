@@ -70,6 +70,8 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 - PR size cap is about 3,000 changed lines; split larger work before review.
 - Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
   `ci` label so PostgreSQL CI runs before review.
+  The label takes effect on the next push (adding the label from the codespace token does not start a run), and
+  GitHub runs no PR workflow while a PR has merge conflicts with its base: merge `develop` first.
 - Batch handoff and standards doc edits per session instead of one commit per line.
 
 ## Gates
