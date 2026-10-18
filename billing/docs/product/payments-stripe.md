@@ -174,7 +174,7 @@ stored:
 
 ## 7. Saved payment methods and auto-capture (second PR, design revision 2)
 
-Status: **proposed, revision 2** (2026-10-18). Revision 1 was reviewed by the architect on #58 (review 5562273636,
+Status: **proposed, revision 3** (2026-10-18; revision 3 applies the architect's re-check N1–N3, review 5562315584). Revision 1 was reviewed by the architect on #58 (review 5562273636,
 changes requested). This revision applies B1–B5 and the customer decision. The general rules are drafted as the
 ADR 0012 addendum "Saved payment methods". The SCA email itself belongs to Notifications (#28); without it the new
 event has no listener and the behaviour stays correct.
@@ -201,6 +201,12 @@ interface HostedPayMethodSetup extends GatewayDriver
 
     /** Close an unfinished provider session (customer cancelled). Best effort. */
     public function cancelSetup(GatewayConfig $gateway, PayMethodSetupRef $setup): void;
+
+    /**
+     * How long, from the first send, an identical charge request may be replayed safely (the provider's idempotency
+     * retention, minus a margin). Null: Billing resolves an unknown outcome by lookup() on our reference instead.
+     */
+    public function chargeReplayWindow(GatewayConfig $gateway): ?CarbonInterval;
 }
 
 /** Separate capability: forget a stored token at the provider (card removed, client erased). Best effort. */
@@ -218,7 +224,7 @@ DTOs in `app/Data/Billing` (final, readonly) and one kernel enum:
 | `PayMethodSetupStart`     | `RedirectInstruction $instruction` (provider ref and expiry), `?customerRef` (set when the driver created a customer)                                                                      |
 | `PayMethodSetupRef`       | `reference`, `clientId`, `?providerRef`, `?customerRef`, `?expiresAt`, `interactive`                                                                                                       |
 | `PayMethodSetupResult`    | `status` (completed, pending, cancelled, expired, failed), `?token` (opaque), `PayMethodKind $kind`, `?brand`, `?last4`, `?expiryMonth`, `?expiryYear`, `?label`, `?customerRef`, `raw`    |
-| `App\Enums\PayMethodKind` | `card`, `wallet`, `upi`, `bank` (`pay_methods.kind` gains `upi`)                                                                                                                           |
+| `App\Enums\PayMethodKind` | `card`, `wallet`, `upi`, `bank`; an **open set** (new kinds may be added; consumers handle unknown values) (`pay_methods.kind` gains `upi`)                                                |
 
 Compatible additions (ADR 0010, trailing and defaulted):
 
@@ -239,7 +245,7 @@ $payMethodId)` in the ADR 0011 shape (final, after commit, occurrence id once `D
 Migration (portable, foreign keys with explicit on-delete):
 
 - `pay_method_setups`: `id`, `reference` (unique, 40), `gateway`, `mode` (test|live), `client_id` (cascade),
-  `provider_ref` (nullable), `status` (pending|completed|cancelled|expired|failed), `expires_at`, `completed_at`,
+  `provider_ref` (nullable), `customer_ref` (nullable, the provider customer this setup used or created), `status` (pending|completed|cancelled|expired|failed), `expires_at`, `completed_at`,
   `pay_method_id` (nullable, null on delete), `created_by` (user, null on delete), `ip` (45), `consented_at`,
   `consent_text` (255, the wording the customer agreed to), `raw` (redacted json), timestamps. Index
   `(status, expires_at)` for the poller. It has the same shape and lifecycle as `payment_attempts`, and it is the
@@ -254,17 +260,23 @@ Flow:
 
 1. **Start:** `POST /client/payment-methods/setup/{gateway}` (client area, `ClientContext` billing permission,
    `throttle:billing-pay`, consent checkbox required). Billing creates the setup row (pending, `expires_at = now +
-setupTtl()`), reads the client's `gateway_customers` ref, calls `beginSetup()`, stores the provider ref, and
-   inserts the returned customer ref if there was none (`insertOrIgnore`; on a race the first ref wins, and the
-   other setup still completes because the token names its own customer). Then `Inertia::location()`.
+setupTtl()`), reads the client's `gateway_customers` ref and calls `beginSetup()`. It stores the provider ref and
+   the customer ref used on the setup row.
+    - **First setup for a client** (no `gateway_customers` row): Billing holds a short `Cache::lock` on
+      `(client, gateway, mode)` around the begin call, so two first setups can't create two provider customers.
+      Later setups need no lock.
+    - **Customer replacement happens only at begin:** when `beginSetup()` returns a customer ref that differs from
+      the stored one (the provider lost it), Billing updates `gateway_customers` with a compare-and-set against the
+      old value (`where provider_customer_ref = old`). A lost race keeps the winner, and this setup's token still
+      names its own customer.
+    - Then `Inertia::location()`.
 2. **Complete**, from three places that all call one action: the browser return
    (`GET /client/payment-methods/setup/{gateway}/return?ref=`, authenticated, the reference must belong to the
    current `ClientContext`), the reconcile poller (`billing:reconcile-payments` also walks pending setups until
    `expires_at` plus the lookup grace), and staff "Check now". Under `lockForUpdate` on the setup row, only a
    `pending → completed` transition stores a `pay_methods` row (kind, opaque token encrypted, brand, last 4, expiry,
    label; the first usable method becomes the default) and links it. A second completion finds the row completed and
-   does nothing. A result's `customerRef` that differs from the stored one replaces it (the provider lost the old
-   customer, for example after staff switched accounts).
+   does nothing. Completion never changes `gateway_customers`.
 3. **Cancel return:** `cancelSetup()`, status cancelled. Expired or failed results close the row.
 4. **Webhooks:** setup sessions are acknowledged as ignored ("setup session, completed by the return or the
    poller"), not as "unknown attempt".
@@ -284,14 +296,26 @@ For a gateway whose driver is a `HostedPaymentDriver` and declares `CAPTURE`, ev
 3. `SUCCESS` settles the attempt through the same code as `SettlePaymentAttempt::succeed()` (guards included).
    `PENDING` keeps it open with the provider ref, and `ATTEMPT_UPDATED` webhooks and the poller settle it. `DECLINED`
    fails it.
-4. **`ERROR` or no answer leaves the attempt pending; it is not counted as a decline.** While `providerRef` is null,
-   the poller repeats the identical `capture()` request (same reference, so the same idempotency key) for up to 24
-   hours. The provider replays its stored answer or performs the charge once, so a crash between the provider's
-   success and `ApplyPayment` can't lead to a second charge. Past 24 hours the attempt goes to staff review. A
-   provider without idempotent creates must implement `lookup()` by our reference instead. Stripe search can't do
-   that: it isn't available to businesses in India and lags about a minute.
-5. While a charge attempt is open, auto-capture skips the invoice. This is the same `PaymentInProgress` rule as for
-   checkout attempts.
+4. **An unknown outcome leaves the attempt pending; it is not counted as a decline.** This covers `ERROR`, no
+   answer, 5xx, 409 and 400 on mismatched idempotent parameters.
+    - **Replay:** while `providerRef` is null and the driver's `chargeReplayWindow()` (counted from the first send)
+      hasn't passed, the poller repeats the identical `capture()` request.
+        - The request is rebuilt only from the attempt row: reference, amount, currency, the pay method's stored
+          token and `merchant_initiated`. Nothing comes from the invoice's current balance or rate.
+        - The provider replays its stored answer or performs the charge once, so a crash between the provider's
+          success and `ApplyPayment` can't lead to a second charge.
+        - A webhook carrying the attempt's reference (`ATTEMPT_UPDATED`) ends replays: from then on the attempt is
+          settled by lookup.
+    - **No replay window** (`null`): the poller resolves the attempt with `lookup()` by our reference.
+    - **After the window**, or when lookup can't decide: staff review.
+    - Stripe returns 23 hours (its idempotency results are kept at least 24 hours). Stripe search is not used for
+      lookup by reference: it isn't available to businesses in India and lags about a minute.
+5. **An unresolved charge attempt blocks** new charges for that invoice and pay method (auto-capture, the pay
+   panel, batches) until it is resolved: settled, failed, or resolved by staff. Its `expires_at` doesn't end the
+   block. `PaymentInProgress::blocks()` treats a charge attempt with an unknown outcome (open, `flow=charge`) as
+   blocking regardless of expiry.
+    - **Planned test:** a charge times out. Past `expires_at`, auto-capture and the pay panel still refuse to charge
+      the invoice. After the replay settles it, exactly one transaction exists.
 
 ### 7.4 Billing: who started the charge, and SCA (B3, B5)
 
@@ -313,6 +337,7 @@ For a gateway whose driver is a `HostedPaymentDriver` and declares `CAPTURE`, ev
 ### 7.5 Stripe driver
 
 - `setupTtl`: 35 minutes, sent as the session's `expires_at`.
+- `chargeReplayWindow`: 23 hours (Stripe keeps idempotent results for at least 24 hours).
 - `beginSetup`: without a customer ref, `POST /v1/customers` (`metadata[mohar_client_id]`, idempotency
   `mohar-customer-<setup ref>`). Then a Checkout Session `mode=setup` with `customer`, `currency` (required in
   setup mode without explicit method types), `client_reference_id`, `expires_at`, `metadata` and
@@ -341,7 +366,8 @@ For a gateway whose driver is a `HostedPaymentDriver` and declares `CAPTURE`, ev
 - Every call: `Authorization: Bearer <secret>`, `Stripe-Version: 2026-09-30.endive`, TLS verification on, pinned
   host `https://api.stripe.com/v1/`, 5 s connect and `billing.gateways.http_timeout_seconds` total timeout. Every
   `POST` sends an `Idempotency-Key` (`mohar-checkout-<ref>` for sessions; a random UUID per refund, because two
-  equal partial refunds are legitimate). POSTs are never retried automatically; background lookups retry on
+  equal partial refunds are legitimate). POSTs are never retried automatically, with one exception: the identical
+  charge replay of §7.3 step 4, inside the driver's `chargeReplayWindow()`. Background lookups retry on
   connection errors and 5xx.
 - Test mode follows `SandboxPolicy`: never activatable, offered or chargeable in production, and the driver itself
   refuses test mode there. Keys are checked against the mode (`sk_test_`/`rk_test_` vs `sk_live_`/`rk_live_`).
