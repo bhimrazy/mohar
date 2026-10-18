@@ -672,7 +672,7 @@ class BillingDashboard
                     $amount = (int) $row->{"tax{$slot}_amount"};
 
                     if ($amount !== 0) {
-                        $key = ($row->{"tax{$slot}_name"} ?: 'Tax').'|'.$row->currency;
+                        $key = $row->currency.'|'.($row->{"tax{$slot}_name"} ?: 'Tax');
                         $totals[$key] = ($totals[$key] ?? 0) + $amount;
                     }
                 }
@@ -681,7 +681,7 @@ class BillingDashboard
         ksort($totals);
 
         return array_map(function (string $key, int $amount): array {
-            [$label, $currency] = explode('|', $key);
+            [$currency, $label] = explode('|', $key, 2);
 
             return ['label' => $label, 'money' => ['amount' => $amount, 'currency' => $currency]];
         }, array_keys($totals), $totals);

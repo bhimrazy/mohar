@@ -102,6 +102,20 @@ export function localeForCurrency(currency: string): string {
         : DEFAULT_LOCALE;
 }
 
+/**
+ * Symbols Intl does not use in our locales: Nepalese rupee prints as "NPR 1,200.00" in en-IN, while the
+ * customary symbol (and the seeded currency prefix) is "रू".
+ */
+const SYMBOLS: Record<string, string> = { NPR: 'रू' };
+
+function withSymbol(formatted: string, code: string): string {
+    const symbol = SYMBOLS[code];
+
+    return symbol
+        ? formatted.replace(new RegExp(`${code}\\s?`), `${symbol} `)
+        : formatted;
+}
+
 export function formatMoney(
     amountMinor: number,
     currency: string,
@@ -120,7 +134,7 @@ export function formatMoney(
         : `${value.toFixed(2)} ${code}`;
 
     // Use a true minus sign (U+2212) so negatives align in tabular columns.
-    const normalized = formatted.replace('-', '−');
+    const normalized = withSymbol(formatted.replace('-', '−'), code);
 
     // Some locales already print the ISO code (e.g. "NPR 1,200.00"); never print it twice.
     return options.showCode && formatter && !normalized.includes(code)
@@ -128,20 +142,25 @@ export function formatMoney(
         : normalized;
 }
 
-/** Compact amounts for chart axes and dense summaries: "$48K", "₹12L" (en-IN), "NPR 1.2M". */
+/** Compact amounts for chart axes and dense summaries: "$48K", "₹12L" (en-IN), "रू 1.2L". */
 export function formatMoneyCompact(
     amountMinor: number,
     currency: string,
-    locale: string = DEFAULT_LOCALE,
+    locale?: string,
 ): string {
+    const code = currency.toUpperCase();
+
     try {
-        return new Intl.NumberFormat(locale, {
-            style: 'currency',
-            currency: currency.toUpperCase(),
-            notation: 'compact',
-            maximumFractionDigits: 1,
-        }).format(fromMinor(amountMinor));
+        return withSymbol(
+            new Intl.NumberFormat(locale ?? localeForCurrency(code), {
+                style: 'currency',
+                currency: code,
+                notation: 'compact',
+                maximumFractionDigits: 1,
+            }).format(fromMinor(amountMinor)),
+            code,
+        );
     } catch {
-        return formatMoney(amountMinor, currency, locale);
+        return formatMoney(amountMinor, code, locale);
     }
 }

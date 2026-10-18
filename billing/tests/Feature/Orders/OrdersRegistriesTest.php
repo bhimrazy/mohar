@@ -38,7 +38,9 @@ it('lists recent orders and flags pending and fraud orders as to-dos', function 
 
     expect($widget['type'])->toBe('list')
         ->and($widget['items'])->toHaveCount(3)
-        ->and($widget['items'][0]['title'])->toBe("#{$recent->number}")
+        ->and($widget['items'][0]['title'])->toBe($recent->client->display_name)
+        ->and($widget['items'][0]['subtitle'])->toStartWith("#{$recent->number}")
+        ->and($widget['items'][0]['money'])->toBe(['amount' => $recent->total, 'currency' => $recent->currency])
         ->and($todos['orders.pending']['count'])->toBe(2)
         ->and($todos['orders.fraud']['count'])->toBe(1);
 });

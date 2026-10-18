@@ -11,6 +11,7 @@ use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Support\Facades\DB;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -115,4 +116,17 @@ test('registrar sync has one owner: the hourly schedule, not the daily pipeline'
     expect(app(Automation::class)->ordered())->not->toHaveKey('domains.sync')
         ->and($sync)->toHaveCount(1)
         ->and($sync->first()->expression)->toBe('0 * * * *');
+});
+
+test('the registrar health check reports the 7-day command success rate', function () {
+    $staff = actingAsStaff(['domains.*']);
+    $log = fn (bool $success) => DB::table('registrar_command_log')->insert(['registrar_key' => 'sandbox', 'command' => 'register', 'success' => $success, 'created_at' => now()]);
+    $check = fn () => collect(app(Dashboard::class)->resolveHealth('admin', $staff))->firstWhere('key', 'domains.registrars');
+
+    expect($check())->toMatchArray(['value' => 'Idle', 'tone' => 'neutral']);
+
+    $log(true);
+    $log(false);
+
+    expect($check())->toMatchArray(['value' => '50%', 'tone' => 'warning', 'detail' => '1 of 2 succeeded (7 days)']);
 });

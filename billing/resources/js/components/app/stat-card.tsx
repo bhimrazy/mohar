@@ -68,9 +68,7 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
             <span className="sr-only">
                 {trend.direction === 'flat'
                     ? 'No change'
-                    : trend.direction === 'up'
-                      ? 'Up'
-                      : 'Down'}
+                    : `${trend.direction === 'up' ? 'Up' : 'Down'} (${isGood ? 'good' : 'needs attention'})`}
             </span>
             {trend.value}
         </span>
@@ -95,10 +93,8 @@ export function StatCard({
     tone = 'default',
     className,
 }: StatCardProps) {
-    const sparkColor =
-        trend && trendIsGood(trend) === false
-            ? 'var(--danger)'
-            : 'var(--chart-1)';
+    // The pill says whether a change is good; the line stays calm unless the card itself is money at risk.
+    const sparkColor = tone === 'danger' ? 'var(--danger)' : 'var(--chart-1)';
 
     const body = (
         <>
