@@ -26,7 +26,9 @@ function useDocumentTitle(): string {
 }
 
 /** Declared breadcrumbs, completed from the sidebar and the page title. */
-export function usePageBreadcrumbs(declared: BreadcrumbItem[]): BreadcrumbItem[] {
+export function usePageBreadcrumbs(
+    declared: BreadcrumbItem[],
+): BreadcrumbItem[] {
     const { url, props } = usePage();
     const documentTitle = useDocumentTitle();
 

@@ -199,7 +199,10 @@ function SettingsForm({
                                 </SelectItem>
                                 {registrars.map((registrar) => (
                                     <SelectItem
-                                        key={registrarNames[registrar] ?? registrar}
+                                        key={
+                                            registrarNames[registrar] ??
+                                            registrar
+                                        }
                                         value={registrar}
                                     >
                                         {registrar}

@@ -49,9 +49,7 @@ export function Breadcrumbs({
                                         )}
                                     </BreadcrumbItem>
                                     {!isLast && (
-                                        <BreadcrumbSeparator
-                                            className="hidden sm:list-item"
-                                        />
+                                        <BreadcrumbSeparator className="hidden sm:list-item" />
                                     )}
                                 </Fragment>
                             );

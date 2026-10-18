@@ -186,8 +186,7 @@ export function DetailsForm({
                                         key={registrar}
                                         value={registrar}
                                     >
-                                        {registrarNames[registrar] ??
-                                            registrar}
+                                        {registrarNames[registrar] ?? registrar}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

@@ -1,5 +1,10 @@
 import { Head, useForm } from '@inertiajs/react';
-import { AlertTriangle, CalendarClock, CalendarPlus, Wallet } from 'lucide-react';
+import {
+    AlertTriangle,
+    CalendarClock,
+    CalendarPlus,
+    Wallet,
+} from 'lucide-react';
 import { useState } from 'react';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';

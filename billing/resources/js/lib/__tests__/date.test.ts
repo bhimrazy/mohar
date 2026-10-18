@@ -28,7 +28,9 @@ describe('formatDate with the date format setting', () => {
     it('keeps the time for date-times', () => {
         setDateFormat('Y-m-d');
 
-        expect(formatDate('2026-10-24T09:30:00Z', 'datetime')).toMatch(/^2026-10-2[45], \d{1,2}:\d{2}/);
+        expect(formatDate('2026-10-24T09:30:00Z', 'datetime')).toMatch(
+            /^2026-10-2[45], \d{1,2}:\d{2}/,
+        );
     });
 
     it('falls back to the locale format without a setting', () => {

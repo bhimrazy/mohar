@@ -4,7 +4,7 @@ import { toUrl } from '@/lib/utils';
 /** Sidebar groups that add nothing as a breadcrumb level. */
 const SILENT_GROUPS = ['General'];
 
-function pathOf(href: BreadcrumbItem['href'] | string): string {
+function pathOf(href: NonNullable<BreadcrumbItem['href']>): string {
     return new URL(toUrl(href), 'http://localhost').pathname.replace(/\/$/, '');
 }
 

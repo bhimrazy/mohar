@@ -1,8 +1,3 @@
-type LayoutProps = {
-    auth?: { user?: unknown } | null;
-    clientAccounts?: unknown[] | null;
-};
-
 /**
  * Public help pages (knowledge base, announcements, network status, support
  * tickets) stay inside the client area for a signed-in customer, so the
@@ -10,11 +5,14 @@ type LayoutProps = {
  */
 export function showsPublicPageInClientArea(
     pageName: string,
-    props: LayoutProps,
+    props: Record<string, unknown>,
 ): boolean {
+    const auth = props.auth as { user?: unknown } | null | undefined;
+    const accounts = props.clientAccounts as unknown[] | null | undefined;
+
     return (
         pageName.startsWith('public/support/') &&
-        Boolean(props.auth?.user) &&
-        (props.clientAccounts?.length ?? 0) > 0
+        Boolean(auth?.user) &&
+        (accounts?.length ?? 0) > 0
     );
 }
