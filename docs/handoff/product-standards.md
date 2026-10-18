@@ -37,6 +37,8 @@ every item.
 - Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
   modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
   primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
+- Email content sits in a centred card with a fixed maximum width of 600px. Wider screens only widen the
+  background, and narrow screens shrink the card to fit.
 - Email templates pass on every screen size (320px phone to desktop) and in light mode, dark mode and
   clients that force-invert colours (Gmail, Outlook), with no overflow and AA contrast in each.
   (2026-10-18)
