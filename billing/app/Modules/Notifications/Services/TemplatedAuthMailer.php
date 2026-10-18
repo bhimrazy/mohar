@@ -3,21 +3,26 @@
 namespace App\Modules\Notifications\Services;
 
 use App\Contracts\Auth\AuthMailer;
+use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
+use App\Modules\Core\Support\AccountLinks;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
-use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
  * AuthMailer bound by the Notifications module: reset and verification mail from editable, logged,
- * branded templates — never copied to anyone (secret-bearing). When no message could be queued (template
- * missing or unrenderable), Laravel's own notification goes out instead, so access mail is never lost.
+ * branded templates — never copied to anyone (secret-bearing). Links are built on APP_URL; one outside the
+ * configured origins is never mailed. When no message could be queued (template missing or unrenderable),
+ * Laravel's own notification (same, already-checked link) goes out instead, so access mail is never lost.
  */
 class TemplatedAuthMailer implements AuthMailer
 {
@@ -30,14 +35,20 @@ class TemplatedAuthMailer implements AuthMailer
 
     public function sendPasswordReset(User $user, #[\SensitiveParameter] string $token): void
     {
+        // AccountLinks (APP_URL) unless the application configured its own builder, which is then host-checked.
         $url = ResetPassword::$createUrlCallback !== null
             ? (string) call_user_func(ResetPassword::$createUrlCallback, $user, $token)
-            : url(route('password.reset', ['token' => $token, 'email' => $user->getEmailForPasswordReset()], false));
+            : AccountLinks::passwordReset($user, $token);
+
+        if (! $this->linkAllowed($url, $user, 'password reset')) {
+            return;
+        }
+
         $broker = (string) config('auth.defaults.passwords', 'users');
         $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))->format(DateFormats::current().' H:i');
 
         $sent = $this->send($user, $user->is_staff ? 'staff.password_reset' : 'auth.password_reset', [
-            'auth' => ['reset_url' => $url, 'expires_at' => $expiresAt],
+            'auth' => ['reset_url' => new SensitiveValue($url), 'expires_at' => $expiresAt],
         ], 'auth-reset|'.$user->id.'|'.hash('sha256', $token));
 
         if (! $this->handled($sent)) {
@@ -49,17 +60,34 @@ class TemplatedAuthMailer implements AuthMailer
     {
         $url = VerifyEmail::$createUrlCallback !== null
             ? (string) call_user_func(VerifyEmail::$createUrlCallback, $user)
-            : URL::temporarySignedRoute(
-                'verification.verify',
-                now()->addMinutes((int) config('auth.verification.expire', 60)),
-                ['id' => $user->getKey(), 'hash' => sha1($user->getEmailForVerification())],
-            );
+            : AccountLinks::emailVerification($user);
 
-        $sent = $this->send($user, 'auth.email_verification', ['auth' => ['verify_url' => $url]], 'auth-verify|'.$user->id.'|'.hash('sha256', $url));
+        if (! $this->linkAllowed($url, $user, 'email verification')) {
+            return;
+        }
+
+        $sent = $this->send($user, 'auth.email_verification', ['auth' => ['verify_url' => new SensitiveValue($url)]], 'auth-verify|'.$user->id.'|'.hash('sha256', $url));
 
         if (! $this->handled($sent)) {
             $this->fallback->sendEmailVerification($user);
         }
+    }
+
+    /**
+     * Fail closed: a link outside the configured origins (APP_URL, notifications.auth_link_host) is never mailed —
+     * not by the template, not by the Laravel fallback. The attempt is recorded as a security event (host only).
+     */
+    private function linkAllowed(string $url, User $user, string $kind): bool
+    {
+        if (SecretTemplatePolicy::isAllowedLink($url)) {
+            return true;
+        }
+
+        $host = (string) parse_url($url, PHP_URL_HOST);
+        Log::warning('Account email blocked: its link is not on a configured host.', ['kind' => $kind, 'host' => $host, 'user_id' => $user->id]);
+        app(ActivityLogger::class)->log('Account email blocked: link host not allowed', $user, properties: ['kind' => $kind, 'host' => mb_substr($host, 0, 255)], event: 'security');
+
+        return false;
     }
 
     /**

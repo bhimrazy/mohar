@@ -44,6 +44,7 @@ use App\Events\Support\TicketOpened;
 use App\Events\Support\TicketReplied;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Data\Recipient;
@@ -129,7 +130,8 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function handle(object $event): void
     {
         try {
-            match (true) {
+            // Resolvers and templates build links (route(), url()): root them at APP_URL, never the request's Host.
+            AccountLinks::withAppOrigin(fn () => match (true) {
                 $event instanceof ClientRegistered => $this->clientRegistered($event),
                 $event instanceof ClientUpdated => $this->clientUpdated($event),
                 $event instanceof OrderPlaced => $this->orderPlaced($event),
@@ -170,7 +172,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof AutomationRunCompleted => $this->automationCompleted($event),
                 $event instanceof WebhookEndpointDisabled => $this->webhookEndpointDisabled($event),
                 default => null,
-            };
+            });
         } catch (Throwable $exception) {
             report($exception);
         }

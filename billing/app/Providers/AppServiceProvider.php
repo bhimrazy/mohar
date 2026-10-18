@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Modules\Core\Support\AccountLinks;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Dashboard\Dashboard;
@@ -59,10 +60,16 @@ class AppServiceProvider extends ServiceProvider
      */
     protected function configureAuthMail(): void
     {
+        // Account links are built on APP_URL, never on the request's Host header (host-header poisoning).
+        ResetPassword::createUrlUsing(fn (CanResetPassword $notifiable, string $token): string => $notifiable instanceof User
+            ? AccountLinks::passwordReset($notifiable, $token)
+            : rtrim((string) config('app.url'), '/').route('password.reset', ['token' => $token, 'email' => $notifiable->getEmailForPasswordReset()], false));
+        VerifyEmail::createUrlUsing(fn (object $notifiable): string => $notifiable instanceof User
+            ? AccountLinks::emailVerification($notifiable)
+            : throw new \LogicException('Email verification is only sent to users.'));
+
         ResetPassword::toMailUsing(function (CanResetPassword $notifiable, string $token): MailMessage {
-            $url = ResetPassword::$createUrlCallback !== null
-                ? (string) call_user_func(ResetPassword::$createUrlCallback, $notifiable, $token)
-                : url(route('password.reset', ['token' => $token, 'email' => $notifiable->getEmailForPasswordReset()], false));
+            $url = (string) call_user_func(ResetPassword::$createUrlCallback ?? fn (): string => '', $notifiable, $token);
             $broker = (string) config('auth.defaults.passwords', 'users');
 
             return (new MailMessage)

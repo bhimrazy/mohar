@@ -5,6 +5,7 @@ namespace App\Modules\Notifications\Services;
 use App\Events\Notifications\EmailFailed;
 use App\Events\Notifications\EmailQueued;
 use App\Events\Notifications\EmailSuppressed;
+use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
 use App\Modules\Notifications\Data\EmailRequest;
@@ -52,6 +53,15 @@ class NotificationMailer
      *                            same occurrence already logged
      */
     public function sendTemplate(EmailTemplate $template, EmailRequest $request): array
+    {
+        // Every link in the message (merge context, layout, preferences) is rooted at APP_URL.
+        return AccountLinks::withAppOrigin(fn (): array => $this->sendEach($template, $request));
+    }
+
+    /**
+     * @return list<EmailMessage>
+     */
+    private function sendEach(EmailTemplate $template, EmailRequest $request): array
     {
         $created = [];
 
@@ -109,6 +119,11 @@ class NotificationMailer
         try {
             $composed = $this->composer->compose($template, $locale, $context, $request->carriesSecret);
         } catch (TemplateSyntaxError $error) {
+            if ($template->carriesSecret() || $request->carriesSecret) {
+                $attributes['cc'] = null;
+                $attributes['bcc'] = null;
+            }
+
             $message = EmailMessage::query()->createOrFirst(['dedupe_key' => $dedupeKey], [...$attributes, 'subject' => Str::limit($template->name, 250, ''), 'status' => EmailStatus::Failed, 'failure_reason' => $error->getMessage()]);
 
             if (! $message->wasRecentlyCreated) {

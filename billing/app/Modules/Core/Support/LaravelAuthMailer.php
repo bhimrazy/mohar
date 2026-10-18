@@ -8,17 +8,18 @@ use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 
 /**
- * Default AuthMailer: Laravel's own notifications (branded through the shared mail layout).
+ * Default AuthMailer: Laravel's own notifications (branded through the shared mail layout), rendered with every
+ * link rooted at APP_URL.
  */
 class LaravelAuthMailer implements AuthMailer
 {
     public function sendPasswordReset(User $user, #[\SensitiveParameter] string $token): void
     {
-        $user->notify(new ResetPassword($token));
+        AccountLinks::withAppOrigin(fn () => $user->notify(new ResetPassword($token)));
     }
 
     public function sendEmailVerification(User $user): void
     {
-        $user->notify(new VerifyEmail);
+        AccountLinks::withAppOrigin(fn () => $user->notify(new VerifyEmail));
     }
 }
