@@ -4,16 +4,25 @@ use App\Support\Services\ProvisioningDriverRegistry;
 use Tests\Support\Contracts\ProvisioningDriverContract;
 use Tests\Support\Cpanel\Whm;
 
-/** Every driver Services registers; a new built-in driver is added here and must pass the contract. */
-const BUILT_IN_PROVISIONING_DRIVERS = ['none', 'log', 'cpanel'];
+/**
+ * Every driver Services registers, with how its remote system is faked and any server settings whose placeholder
+ * would be invalid. A new built-in driver is added here and must pass the contract.
+ *
+ * cpanel: a placeholder pin is refused (fail closed) and a placeholder flag reads as off, so it runs with CA
+ * verification and SSO on.
+ */
+$builtInDrivers = [
+    'none' => [null, []],
+    'log' => [null, []],
+    'cpanel' => [fn () => Whm::contract(), ['spki_pin' => '', 'sso_enabled' => true]],
+];
 
-ProvisioningDriverContract::verify('none');
-ProvisioningDriverContract::verify('log');
-// A placeholder pin is refused (fail closed) and a placeholder flag reads as off: run with CA verification and SSO on.
-ProvisioningDriverContract::verify('cpanel', arrange: fn () => Whm::contract(), serverSettings: ['spki_pin' => '', 'sso_enabled' => true]);
+foreach ($builtInDrivers as $key => [$arrange, $serverSettings]) {
+    ProvisioningDriverContract::verify($key, $arrange, $serverSettings);
+}
 
-test('every registered provisioning driver runs the contract', function () {
-    expect(app(ProvisioningDriverRegistry::class)->keys())->toEqualCanonicalizing(BUILT_IN_PROVISIONING_DRIVERS);
+test('every registered provisioning driver runs the contract', function () use ($builtInDrivers) {
+    expect(app(ProvisioningDriverRegistry::class)->keys())->toEqualCanonicalizing(array_keys($builtInDrivers));
 });
 
 test('the contract has a check for every capability the registry knows', function () {

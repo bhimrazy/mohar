@@ -55,14 +55,23 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     private const MAX_PAGES = 200;
 
+    /** An account created this long before our unknown attempt began is still taken as that attempt's (clock skew). */
+    private const CLOCK_SKEW_MINUTES = 5;
+
+    /** Seconds a person waits for test connection, the package list or a login link. */
+    private const INTERACTIVE_SECONDS = 30;
+
+    /** Seconds for background reads of every account (usage sync, import). */
+    private const BACKGROUND_SECONDS = 120;
+
     private const MIN_TESTED_VERSION = '11.110';
 
     private const TOKEN_EXPIRY_WARNING_DAYS = 14;
 
     /**
-     * Seconds one operation's calls may take together, inside the host's 60-second command timeout, so staff and
-     * client actions stay synchronous. createacct gets what the checks before it left (normally most of its 50 s);
-     * if it runs out, the outcome is unknown and the verify sweep settles it (§6).
+     * Seconds one command's calls may take together when the host sets no ProvisioningContext::$deadline: inside the
+     * host's 60-second default, so staff and client actions stay synchronous. createacct gets what the checks before
+     * it left (normally most of its 50 s); if it runs out, the outcome is unknown and the verify sweep settles it (§6).
      */
     private const OPERATION_SECONDS = 55;
 
@@ -131,7 +140,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                 new SettingField('login_method', 'Sign in with', FieldType::Select, help: 'An API token can be limited to the permissions this driver needs. Password sign-in fails when WHM requires two-factor authentication.', options: [WhmClient::LOGIN_TOKEN => 'API token (recommended)', WhmClient::LOGIN_PASSWORD => 'Username and password'], default: WhmClient::LOGIN_TOKEN),
                 new SettingField('spki_pin', 'Trusted certificate (SPKI SHA-256)', help: 'Set by "Trust this certificate" after Test connection. Empty: the certificate is checked against its authority and the hostname.'),
                 new SettingField('sso_enabled', 'Single sign-on into cPanel and WHM', FieldType::Boolean, help: 'Needs the token permission create-user-session. Whoever holds the token can then sign in as any account its owner owns.', default: true),
-                new SettingField('keep_dns_on_terminate', 'Keep the DNS zone when an account is terminated', FieldType::Boolean, help: 'A kept zone blocks creating an account for that domain again until it is removed in WHM.', default: false),
+                new SettingField('keepdns_on_auto_terminate', 'Keep the DNS zone when an account is terminated automatically', FieldType::Boolean, help: 'A kept zone blocks creating an account for that domain again until it is removed in WHM. Until the terminate dialog offers the choice, staff terminations follow this setting too.', default: false),
                 new SettingField('reserved_usernames', 'Extra reserved usernames', FieldType::Text, help: 'One per line. New accounts never get these usernames.'),
             ],
             usernamePolicy: new UsernamePolicy(
@@ -141,13 +150,13 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                 reservedSuffixes: ['assword'],
                 reservedNames: self::RESERVED_NAMES,
             ),
-            refusedPorts: WhmClient::PLAIN_PORTS,
+            refusedPorts: WhmClient::refusedPorts(),
         );
     }
 
     public function create(ProvisioningContext $context): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
             $username = (string) $context->service->username;
             $domain = $this->domain($context);
             $package = $this->package($context);
@@ -166,14 +175,23 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             }
 
             $this->assertPackage($client, $server, $package);
-            $claim = $this->claimUsername($client, $server, $username, $domain);
+            $check = $client->read('verify_new_username', ['user' => $username]);
 
-            if ($claim['existing'] !== null) {
-                return $this->created($client, $context, $claim['username'], $claim['existing'], 'The account already existed on the server for this service.');
+            if (! $check->ok) {
+                $this->refuseOnAccessProblem($check, $server);
+                $existing = $this->findAccount($client, $server, 'user', $username);
+
+                if ($existing !== null && $this->adoptable($existing, $domain, $context->unknownAttemptAt, $server)) {
+                    return $this->created($client, $context, $existing, 'The account was created by the earlier attempt whose outcome was unknown.');
+                }
+
+                $free = $this->freeUsername($client, $server, $username);
+
+                return DriverResult::renameUsername($free, "The username \"{$username}\" is taken on {$server->name} by another account; the account will be created as \"{$free}\".");
             }
 
             $params = array_filter([
-                'username' => $claim['username'],
+                'username' => $username,
                 'domain' => $domain,
                 'plan' => $package,
                 'password' => (string) $context->service->password,
@@ -187,17 +205,22 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
             $response = $client->write('createacct', $params);
 
-            if (! $response->ok) {
-                throw $this->refusal($response, $server, $claim['username'], $domain, $package);
+            if (! $response->ok && WhmReasons::classify($response->reason) === WhmReasons::USERNAME_TAKEN) {
+                // Taken between the check and the create (another order raced us): nothing ran, the retry picks a new name.
+                return DriverResult::fail("The username \"{$username}\" was taken on {$server->name} while the account was being created.", retryable: true);
             }
 
-            return $this->created($client, $context, $claim['username'], null, 'Account created.');
+            if (! $response->ok) {
+                throw $this->refusal($response, $server, $username, $domain, $package);
+            }
+
+            return $this->created($client, $context, null, 'Account created.');
         });
     }
 
     public function suspend(ProvisioningContext $context, string $reason): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context, $reason): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context, $reason): DriverResult {
             $username = (string) $context->service->username;
             $text = mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $reason)), 0, 100);
             $response = $client->write('suspendacct', ['user' => $username, 'reason' => $text, 'disallowun' => 0]);
@@ -218,7 +241,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     public function unsuspend(ProvisioningContext $context): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
             $username = (string) $context->service->username;
             $response = $client->write('unsuspendacct', ['user' => $username]);
 
@@ -243,9 +266,9 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     public function terminate(ProvisioningContext $context): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
             $username = (string) $context->service->username;
-            $response = $client->write('removeacct', ['username' => $username, 'keepdns' => $this->flag($server->settings, 'keep_dns_on_terminate') ? 1 : 0]);
+            $response = $client->write('removeacct', ['username' => $username, 'keepdns' => $this->flag($server->settings, 'keepdns_on_auto_terminate') ? 1 : 0]);
 
             if ($response->ok) {
                 return DriverResult::ok('Account removed from the server.');
@@ -263,7 +286,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     public function changePackage(ProvisioningContext $context, PreviousPackage $previous): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context): DriverResult {
             $username = (string) $context->service->username;
             $package = $this->package($context);
 
@@ -290,7 +313,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     public function changePassword(ProvisioningContext $context, #[\SensitiveParameter] string $newPassword): DriverResult
     {
-        return $this->run($context->server, function (WhmClient $client, ServerConnection $server) use ($context, $newPassword): DriverResult {
+        return $this->run($context, function (WhmClient $client, ServerConnection $server) use ($context, $newPassword): DriverResult {
             $username = (string) $context->service->username;
             // db_pass_update keeps the MySQL password in step, so database logins match the new password.
             $response = $client->write('passwd', ['user' => $username, 'password' => $newPassword, 'db_pass_update' => 1]);
@@ -308,7 +331,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      */
     public function usage(ServerConnection $server): array
     {
-        $client = $this->client($server);
+        $client = $this->client($server, self::BACKGROUND_SECONDS);
         $accounts = $this->allAccounts($client, $server, ['want' => 'user,diskused,disklimit']);
         $now = CarbonImmutable::now();
         $bandwidth = $client->read('showbw', ['month' => $now->month, 'year' => $now->year]);
@@ -349,7 +372,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      */
     public function listAccounts(ServerConnection $server): array
     {
-        return array_map($this->remoteAccount(...), $this->allAccounts($this->client($server), $server));
+        return array_map($this->remoteAccount(...), $this->allAccounts($this->client($server, self::BACKGROUND_SECONDS), $server));
     }
 
     /**
@@ -363,7 +386,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         $options = [];
 
-        foreach ($this->packages($this->client($server), $server) as $package) {
+        foreach ($this->packages($this->client($server, $this->interactiveSeconds()), $server) as $package) {
             $name = (string) ($package['name'] ?? '');
             $options[$name] = sprintf('%s (%s disk, %s bandwidth)', $name, $this->sizeLabel($package['QUOTA'] ?? null), $this->sizeLabel($package['BWLIMIT'] ?? null));
         }
@@ -407,7 +430,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             return new CommandLookup(ReconcileStatus::Unknown, message: 'The service has no server to check.');
         }
 
-        $client = $this->client($server);
+        $client = new WhmClient($server, app(OutboundAddressGuard::class), $this->deadline($context));
         $username = (string) $context->service->username;
 
         try {
@@ -447,7 +470,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
     public function testConnection(ServerConnection $server): ConnectionCheck
     {
-        $client = $this->client($server);
+        $client = $this->client($server, $this->interactiveSeconds());
         $steps = [];
         $details = [];
 
@@ -461,7 +484,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             $version = $client->read('version');
         } catch (WhmFailure $failure) {
             if (in_array($failure->kind, [WhmFailure::TLS, WhmFailure::PIN], true)) {
-                $certificate = $this->certificates->inspect($address, $client->host());
+                $certificate = $this->certificates->inspect($address, $client->host(), max(1, min(10, $client->secondsLeft())));
 
                 foreach ($certificate ?? [] as $key => $value) {
                     $details["certificate_{$key}"] = $value;
@@ -491,6 +514,14 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         }
 
         $details['version'] = (string) ($version->data['version'] ?? '');
+
+        if ($details['version'] === '') {
+            unset($details['version']);
+            $steps[] = new ConnectionCheckStep('Sign in', CheckStatus::Fail, 'Signed in, but WHM did not report its version.');
+
+            return $this->check($steps, $details);
+        }
+
         $steps[] = version_compare($details['version'], self::MIN_TESTED_VERSION, '>=')
             ? new ConnectionCheckStep('Sign in', CheckStatus::Pass, 'Signed in as '.WhmClient::connectionUser($server)." to WHM {$details['version']}.")
             : new ConnectionCheckStep('Sign in', CheckStatus::Warn, "Signed in, but WHM {$details['version']} is older than ".self::MIN_TESTED_VERSION.' and untested.');
@@ -511,13 +542,15 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      *
      * @param  Closure(WhmClient, ServerConnection): DriverResult  $operation
      */
-    private function run(?ServerConnection $server, Closure $operation): DriverResult
+    private function run(ProvisioningContext $context, Closure $operation): DriverResult
     {
+        $server = $context->server;
+
         if ($server === null) {
             return DriverResult::fail('cPanel services need a server.');
         }
 
-        $client = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + self::OPERATION_SECONDS);
+        $client = new WhmClient($server, app(OutboundAddressGuard::class), $this->deadline($context));
 
         try {
             $result = $operation($client, $server);
@@ -532,16 +565,29 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         return new DriverResult($result->success, $result->message, $result->retryable, $result->data, $client->requestLog(), $client->responseLog(), $result->outcomeUnknown);
     }
 
-    private function client(ServerConnection $server): WhmClient
+    /**
+     * A client whose calls must all finish within $seconds (every WHM call runs under a deadline).
+     */
+    private function client(ServerConnection $server, int $seconds): WhmClient
     {
-        return new WhmClient($server, app(OutboundAddressGuard::class));
+        return new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + $seconds);
+    }
+
+    /**
+     * The host's deadline for this command, or the driver's own budget when the host sets none.
+     */
+    private function deadline(ProvisioningContext $context): float
+    {
+        return $context->deadline !== null ? (float) $context->deadline->format('U.u') : microtime(true) + self::OPERATION_SECONDS;
     }
 
     /**
      * @param  array<string, mixed>|null  $account  the account already found on the server, or null to read it back
      */
-    private function created(WhmClient $client, ProvisioningContext $context, string $username, ?array $account, string $message): DriverResult
+    private function created(WhmClient $client, ProvisioningContext $context, ?array $account, string $message): DriverResult
     {
+        $username = (string) $context->service->username;
+
         if ($account === null) {
             try {
                 $account = $this->summary($client, $username);
@@ -558,10 +604,6 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             'created_at' => $created,
         ], fn (mixed $value): bool => $value !== null && $value !== '')];
 
-        if ($username !== $context->service->username) {
-            $data['username'] = $username;
-        }
-
         if ($this->wantsDedicatedIp($context) && is_string($account['ip'] ?? null) && $account['ip'] !== '') {
             $data['dedicated_ip'] = $account['ip'];
         }
@@ -570,50 +612,42 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     }
 
     /**
-     * The username to create (the assigned one, or the next free variant), or an existing account that is ours.
-     *
-     * @return array{username: string, existing: array<string, mixed>|null}
+     * The first free variant of a taken username (`examples` → `example1`, at most MAX_RENAMES tries), checked with
+     * read-only calls. The create itself is sent in a later attempt, after the host has stored the name (§4.1).
      *
      * @throws WhmFailure
      */
-    private function claimUsername(WhmClient $client, ServerConnection $server, string $username, string $domain): array
+    private function freeUsername(WhmClient $client, ServerConnection $server, string $username): string
     {
         $policy = $this->metadata()->usernamePolicy ?? new UsernamePolicy;
         $reserved = $this->serverReservedNames($server);
         $base = rtrim($username, '0123456789') ?: $username;
-        $candidates = [$username];
+        $tried = 0;
 
-        for ($suffix = 1; count($candidates) <= self::MAX_RENAMES; $suffix++) {
+        for ($suffix = 1; $tried < self::MAX_RENAMES && $suffix <= self::MAX_RENAMES * 2; $suffix++) {
             $candidate = substr($base, 0, $policy->maxLength - strlen((string) $suffix)).$suffix;
 
-            if (! in_array($candidate, $candidates, true)) {
-                $candidates[] = $candidate;
-            }
-        }
-
-        foreach ($candidates as $candidate) {
-            if ($policy->violation($candidate) !== null || in_array($candidate, $reserved, true)) {
+            if ($candidate === $username || $policy->violation($candidate) !== null || in_array($candidate, $reserved, true)) {
                 continue;
             }
 
+            $tried++;
             $check = $client->read('verify_new_username', ['user' => $candidate]);
 
             if ($check->ok) {
-                return ['username' => $candidate, 'existing' => null];
+                return $candidate;
             }
 
             $this->refuseOnAccessProblem($check, $server);
-            $existing = $this->findAccount($client, $server, 'user', $candidate);
-
-            if ($existing !== null && $this->isOurs($existing, $domain, $server)) {
-                return ['username' => $candidate, 'existing' => $existing];
-            }
         }
 
         throw WhmFailure::rejected("No free username near \"{$username}\" on {$server->name} after ".self::MAX_RENAMES.' tries; set one on the service.');
     }
 
     /**
+     * The attempt sent exactly this username and domain (the host records them before the call), so only an account
+     * with both, created no earlier than the attempt, is its account. Anything else is someone else's (§6.2).
+     *
      * @throws WhmFailure
      */
     private function reconcileCreate(WhmClient $client, ServerConnection $server, string $username, string $domain, CarbonImmutable $attemptedAt): CommandLookup
@@ -621,18 +655,15 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         $account = $this->findAccount($client, $server, 'user', $username);
 
         if ($account !== null) {
-            return $this->isOurs($account, $domain, $server)
+            return $this->adoptable($account, $domain, $attemptedAt, $server)
                 ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($account), 'The account is on the server.')
-                : new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($account), sprintf('The username %s on %s belongs to %s with the domain %s, not to this service.', $username, $server->name, $account['owner'] ?? 'another owner', $account['domain'] ?? 'unknown'));
+                : new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($account), sprintf('The username %s on %s belongs to an account (owner %s, domain %s, created %s) that this attempt did not make.', $username, $server->name, $account['owner'] ?? 'unknown', $account['domain'] ?? 'unknown', $this->createdLabel($account)));
         }
 
-        // The account may exist under a renamed username (the create picked the next free name before it timed out).
         $byDomain = $domain === '' ? null : $this->findAccount($client, $server, 'domain', $domain);
 
         if ($byDomain !== null) {
-            return $this->isOurs($byDomain, $domain, $server)
-                ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($byDomain), "The account is on the server as {$byDomain['user']}.")
-                : new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($byDomain), sprintf('The domain %s is on %s under the account %s, owned by %s.', $domain, $server->name, $byDomain['user'] ?? 'unknown', $byDomain['owner'] ?? 'another owner'));
+            return new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($byDomain), sprintf('The domain %s is on %s under the account %s (owner %s), not %s.', $domain, $server->name, $byDomain['user'] ?? 'unknown', $byDomain['owner'] ?? 'unknown', $username));
         }
 
         return $attemptedAt->addMinutes(self::SETTLE_MINUTES)->isFuture()
@@ -641,12 +672,30 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     }
 
     /**
+     * Whether an existing account is the one our attempt with an unknown outcome created: same username (the caller
+     * looked it up by the exact name sent), the same non-empty domain, our connection as owner, and created no earlier
+     * than the attempt less CLOCK_SKEW_MINUTES. Without that attempt, or without a domain, nothing is ever adopted.
+     *
      * @param  array<string, mixed>  $account  a listaccts or accountsummary row
      */
-    private function isOurs(array $account, string $domain, ServerConnection $server): bool
+    private function adoptable(array $account, string $domain, ?CarbonImmutable $attemptAt, ServerConnection $server): bool
     {
-        return ($domain === '' || strtolower((string) ($account['domain'] ?? '')) === $domain)
-            && ($account['owner'] ?? null) === WhmClient::connectionUser($server);
+        $created = $account['unix_startdate'] ?? null;
+
+        return $attemptAt !== null
+            && $domain !== ''
+            && strtolower((string) ($account['domain'] ?? '')) === $domain
+            && ($account['owner'] ?? null) === WhmClient::connectionUser($server)
+            && is_numeric($created)
+            && (int) $created >= $attemptAt->subMinutes(self::CLOCK_SKEW_MINUTES)->getTimestamp();
+    }
+
+    /**
+     * @param  array<string, mixed>  $account
+     */
+    private function createdLabel(array $account): string
+    {
+        return is_numeric($account['unix_startdate'] ?? null) ? CarbonImmutable::createFromTimestamp((int) $account['unix_startdate'])->toDateTimeString() : 'unknown';
     }
 
     /**
@@ -697,25 +746,52 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     {
         $rows = [];
         $start = 1;
+        $size = $this->pageSize();
+        $previousFirst = null;
 
         for ($page = 0; $page < self::MAX_PAGES; $page++) {
-            $response = $client->read('listaccts', [...$params, 'api.chunk.enable' => 1, 'api.chunk.verbose' => 1, 'api.chunk.size' => self::PAGE_SIZE, 'api.chunk.start' => $start]);
+            // api.chunk.enable, .size and .start are the documented paging parameters (WHM API 1 "paginate output").
+            $response = $client->read('listaccts', [...$params, 'api.chunk.enable' => 1, 'api.chunk.size' => $size, 'api.chunk.start' => $start]);
 
             if (! $response->ok) {
                 throw $this->refusal($response, $server);
             }
 
             $batch = $response->rows('acct');
-            array_push($rows, ...$batch);
-            $start += count($batch);
-            $total = (int) ($response->metadata['chunk']['records'] ?? 0);
+            $first = $batch[0]['user'] ?? null;
 
-            if ($batch === [] || ($total > 0 ? $start > $total : count($batch) < self::PAGE_SIZE)) {
+            // A server that ignores paging answers with everything, or with the same page again: stop rather than loop.
+            if (count($batch) > $size || ($first !== null && $first === $previousFirst)) {
+                throw WhmFailure::rejected("{$server->name} did not page its account list as asked; the list cannot be read safely.");
+            }
+
+            array_push($rows, ...$batch);
+
+            if (count($batch) < $size) {
                 break;
             }
+
+            $start += count($batch);
+            $previousFirst = $first;
         }
 
         return $rows;
+    }
+
+    /**
+     * Seconds a person waits for test connection, the package list or a login link.
+     */
+    protected function interactiveSeconds(): int
+    {
+        return self::INTERACTIVE_SECONDS;
+    }
+
+    /**
+     * Accounts per listaccts page.
+     */
+    protected function pageSize(): int
+    {
+        return self::PAGE_SIZE;
     }
 
     /**
@@ -760,7 +836,8 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             throw WhmFailure::rejected('Single sign-on is turned off for this server.', WhmFailure::CONFIG);
         }
 
-        $response = $this->client($server)->write('create_user_session', $params);
+        $client = $this->client($server, $this->interactiveSeconds());
+        $response = $client->write('create_user_session', $params);
 
         if (! $response->ok) {
             throw $this->refusal($response, $server, $params['user']);
@@ -768,13 +845,29 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         $url = (string) ($response->data['url'] ?? '');
 
-        if (! str_starts_with($url, 'https://')) {
-            throw WhmFailure::rejected('WHM did not return a login link.');
+        if (! $this->isLoginLinkFor($url, $client)) {
+            throw WhmFailure::rejected('WHM did not return a login link for this server.');
         }
 
         $expires = $response->data['expires'] ?? null;
 
         return new SsoLink($url, is_numeric($expires) ? CarbonImmutable::createFromTimestamp((int) $expires) : null);
+    }
+
+    /**
+     * A login link is followed by the user's browser through our redirect, so it must lead to this server: https, the
+     * server's own host, a cPanel or WHM port (or the configured one), and no credentials in the authority.
+     */
+    private function isLoginLinkFor(string $url, WhmClient $client): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts)
+            && ($parts['scheme'] ?? null) === 'https'
+            && strtolower(trim((string) ($parts['host'] ?? ''), '[]')) === strtolower($client->host())
+            && in_array($parts['port'] ?? 443, [2083, 2087, 443, $client->port()], true)
+            && ! isset($parts['user'])
+            && ! isset($parts['pass']);
     }
 
     /**
@@ -843,23 +936,29 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     {
         $acls = $privileges;
         $expiry = null;
+        $notes = [];
 
         if (WhmClient::loginMethod($server) === WhmClient::LOGIN_TOKEN) {
             try {
-                $token = $client->read('api_token_get_details');
+                // The token is a parameter here: sent in the POST body, kept out of the request log.
+                $token = $client->read('api_token_get_details', ['token' => (string) $server->apiToken], post: true);
+                $tokenError = $token->ok ? null : $this->refusal($token, $server)->getMessage();
+            } catch (WhmFailure $failure) {
+                $token = null;
+                $tokenError = $failure->getMessage();
+            }
 
-                if ($token->ok) {
-                    $list = $token->data['acls'] ?? [];
-                    $acls = array_fill_keys(array_map('strval', array_is_list((array) $list) ? (array) $list : array_keys(array_filter((array) $list))), true);
-                    $expiry = is_numeric($token->data['expires_at'] ?? null) ? CarbonImmutable::createFromTimestamp((int) $token->data['expires_at']) : null;
-                }
-            } catch (WhmFailure) {
-                // The token cannot read itself; myprivs is the fallback.
+            if ($token !== null && $tokenError === null) {
+                $list = $token->data['acls'] ?? [];
+                $acls = array_fill_keys(array_map('strval', array_is_list((array) $list) ? (array) $list : array_keys(array_filter((array) $list))), true);
+                $expiry = is_numeric($token->data['expires_at'] ?? null) ? CarbonImmutable::createFromTimestamp((int) $token->data['expires_at']) : null;
+            } else {
+                $notes[] = "The token's own permissions and expiry could not be read ({$tokenError}); the WHM user's privileges are shown instead.";
             }
         }
 
         if ($acls === null) {
-            return new ConnectionCheckStep('Permissions', CheckStatus::Warn, 'The permissions could not be read; actions may fail with "access denied".');
+            return new ConnectionCheckStep('Permissions', CheckStatus::Warn, implode(' ', [...$notes, 'The permissions could not be read; actions may fail with "access denied".']));
         }
 
         $all = isset($acls['all']);
@@ -872,10 +971,10 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         }
 
         if ($missing !== []) {
-            return new ConnectionCheckStep('Permissions', CheckStatus::Fail, 'The token lacks: '.implode('; ', array_map(fn (string $acl, string $use): string => "{$acl} ({$use})", array_keys($missing), $missing)).'.');
+            return new ConnectionCheckStep('Permissions', CheckStatus::Fail, implode(' ', [...$notes, 'The token lacks: '.implode('; ', array_map(fn (string $acl, string $use): string => "{$acl} ({$use})", array_keys($missing), $missing)).'.']));
         }
 
-        $warnings = array_map(fn (string $acl, string $effect): string => "Missing {$acl}, so {$effect}.", array_keys($optional), $optional);
+        $warnings = [...$notes, ...array_map(fn (string $acl, string $effect): string => "Missing {$acl}, so {$effect}.", array_keys($optional), $optional)];
 
         if ($expiry !== null && $expiry->isBefore(CarbonImmutable::now()->addDays(self::TOKEN_EXPIRY_WARNING_DAYS))) {
             $warnings[] = 'The token expires on '.$expiry->toDateString().'.';

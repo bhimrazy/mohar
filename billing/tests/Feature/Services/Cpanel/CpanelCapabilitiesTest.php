@@ -3,6 +3,7 @@
 use App\Data\Services\Provisioning\PreviousPackage;
 use App\Data\Services\Provisioning\UsageRow;
 use App\Enums\DriverOutcome;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmFailure;
 use Illuminate\Support\Facades\Http;
@@ -51,17 +52,38 @@ test('usage maps disk in MiB and bandwidth in bytes, with unlimited as null, fro
         ->and(Http::recorded())->toHaveCount(2);
 });
 
+/**
+ * The driver with two accounts per listaccts page, so the fixtures span pages.
+ */
+function pagedDriver(): CpanelDriver
+{
+    return new class(app(CertificateInspector::class)) extends CpanelDriver
+    {
+        protected function pageSize(): int
+        {
+            return 2;
+        }
+    };
+}
+
 test('accounts are listed across pages, with suspension, owner and temporary domains as the server reports them', function () {
     Whm::fake(['listaccts' => Http::sequence()->push(Whm::fixture('listaccts_page1'))->push(Whm::fixture('listaccts_page2'))]);
 
-    $accounts = $this->driver->listAccounts(Whm::server());
+    $accounts = pagedDriver()->listAccounts(Whm::server());
 
     expect(array_map(fn ($account) => $account->username, $accounts))->toBe(['alpha', 'bravo', 'charlie'])
         ->and($accounts[0]->email)->toBe('anna@alpha-books.com')
         ->and($accounts[0]->diskLimitMb)->toBe(1024)
         ->and($accounts[1])->toMatchObject(['owner' => 'reseller1', 'suspended' => true, 'suspendReason' => 'Abuse report', 'plan' => 'reseller1_starter'])
         ->and($accounts[2])->toMatchObject(['email' => null, 'suspendReason' => null, 'diskLimitMb' => null])
-        ->and(Whm::params(Whm::sent('listaccts')[1]))->toMatchArray(['api.chunk.start' => '3']);
+        ->and(Whm::params(Whm::sent('listaccts')[1]))->toMatchArray(['api.chunk.enable' => '1', 'api.chunk.size' => '2', 'api.chunk.start' => '3']);
+});
+
+test('a server that ignores paging stops the listing with an error instead of looping', function () {
+    Whm::fake(['listaccts' => Whm::fixture('listaccts_page1')]);
+
+    expect(fn () => pagedDriver()->listAccounts(Whm::server()))->toThrow(WhmFailure::class, 'did not page its account list');
+    expect(Whm::sent('listaccts'))->toHaveCount(2);
 });
 
 test('the package select lists what the connection can assign, with quotas in the label', function () {
@@ -91,6 +113,17 @@ test('client SSO opens cPanel for the account, optionally at a shortcut, and sta
         ->and($staff->data())->toBe(['user' => 'root', 'service' => 'whostmgrd'])
         ->and(array_keys($this->driver->ssoTargets()))->toBe(['email', 'files', 'databases', 'backups']);
 });
+
+test('a login link that does not lead to this server is refused', function (string $url) {
+    Whm::fake(['create_user_session' => Whm::fixture('create_user_session', ['data' => ['url' => $url]])]);
+
+    expect(fn () => $this->driver->serviceSsoLink(Whm::context()))->toThrow(WhmFailure::class, 'did not return a login link for this server');
+})->with([
+    'plain http' => ['http://whm.example.test:2083/cpsess1/login/'],
+    'another host' => ['https://evil.example.net:2083/cpsess1/login/'],
+    'another port' => ['https://whm.example.test:8443/cpsess1/login/'],
+    'credentials in the authority' => ['https://whm.example.test@evil.example.net:2083/'],
+]);
 
 test('SSO is refused when the server turns it off, without contacting WHM', function () {
     Whm::fake();

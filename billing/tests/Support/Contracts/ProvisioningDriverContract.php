@@ -259,9 +259,8 @@ final class ProvisioningDriverContract
     /**
      * A plausible service on a plausible server, with every declared setting filled (secret ones with recognisable
      * values, so the redaction check can look for them).
-     */
-    /**
-     * @param  array<string, mixed>  $serverSettings
+     *
+     * @param  array<string, mixed>  $serverSettings  replaces the placeholders of these server settings
      */
     public static function context(?DriverMetadata $metadata = null, array $serverSettings = []): ProvisioningContext
     {

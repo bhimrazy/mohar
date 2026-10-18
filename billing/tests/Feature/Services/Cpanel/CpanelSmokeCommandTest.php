@@ -29,14 +29,16 @@ test('without --lifecycle it only reads', function () {
 
     $this->artisan('provisioning:cpanel-smoke', ['--host' => Whm::HOST, '--token-file' => $this->tokenFile])->assertSuccessful();
 
-    Http::assertNotSent(fn ($request) => $request->method() === 'POST');
+    foreach (['createacct', 'suspendacct', 'unsuspendacct', 'removeacct', 'changepackage', 'passwd', 'create_user_session'] as $function) {
+        expect(Whm::sent($function))->toBeEmpty();
+    }
 });
 
 test('a lifecycle run changes and removes only its own throwaway account, and records nothing secret', function () {
     // A pretend server that remembers the smoke account's state, so every check after a step can pass.
     $state = ['user' => null, 'suspended' => 0, 'removed' => false];
     $account = function () use (&$state): array {
-        return ['user' => $state['user'], 'domain' => 'smoke.example.test', 'owner' => 'root', 'plan' => 'root_basic', 'suspended' => $state['suspended']];
+        return ['user' => $state['user'], 'domain' => 'smoke.example.test', 'owner' => 'root', 'plan' => 'root_basic', 'suspended' => $state['suspended'], 'unix_startdate' => time()];
     };
     Whm::fake([
         'createacct' => function (Request $request) use (&$state) {
@@ -82,4 +84,15 @@ test('a lifecycle run changes and removes only its own throwaway account, and re
 
     $recorded = (string) file_get_contents(glob("{$directory}/*.json")[0]);
     expect($recorded)->not->toContain(Whm::TOKEN)->and($recorded)->toContain('createacct');
+});
+
+test('a lifecycle run whose terminate fails names the account it left behind', function () {
+    Whm::fake(['removeacct' => Whm::fixture('access_denied'), 'listaccts' => 'listaccts_example']);
+
+    $this->artisan('provisioning:cpanel-smoke', [
+        '--host' => Whm::HOST, '--token-file' => $this->tokenFile, '--lifecycle' => true, '--confirm-lifecycle' => true,
+        '--domain' => 'smoke.example.test', '--package' => 'root_basic',
+    ])->expectsConfirmation('The server holds 1 accounts. The smoke test creates and removes only its own mhsmk account. Continue?', 'yes')
+        ->expectsOutputToContain('may still be on the server; remove it in WHM')
+        ->assertFailed();
 });

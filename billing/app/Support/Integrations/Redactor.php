@@ -61,6 +61,9 @@ final class Redactor
     /** Values that are secret wherever they appear, whatever the key (cPanel session tokens). */
     private const SENSITIVE_VALUE_PATTERNS = ['/cpsess\d+/'];
 
+    /** Credentials in URL query strings, masked before the name=value pass (which can swallow a whole URL). */
+    private const URL_CREDENTIAL_PATTERN = '/([?&;]session=)[^&\s"\'#]+/i';
+
     /** @var array<string, bool> */
     private array $keyCache = [];
 
@@ -246,6 +249,7 @@ final class Redactor
         }
 
         $value = (string) preg_replace(self::SENSITIVE_VALUE_PATTERNS, self::MASK, $value);
+        $value = (string) preg_replace(self::URL_CREDENTIAL_PATTERN, '$1'.self::MASK, $value);
 
         return (string) preg_replace_callback(
             '/(?<![A-Za-z0-9_.\-\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63})(\s*[=:]\s*)(?!\/\/)((?:(?:Bearer|Basic|Digest|Token|whm)\s+)?(?:"[^"]*"|[^\s&;,"]+))/i',

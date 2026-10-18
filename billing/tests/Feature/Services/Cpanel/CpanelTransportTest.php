@@ -2,6 +2,7 @@
 
 use App\Data\Services\Provisioning\PreviousPackage;
 use App\Enums\DriverOutcome;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmFailure;
@@ -49,23 +50,68 @@ test('a password login that WHM answers with a two-factor demand says to use a t
         ->and($check->message)->toContain('two-factor')->toContain('API token');
 });
 
-test('plain-HTTP ports are refused before anything is sent, and cannot be saved', function () {
+test('ports the driver refuses are refused before anything is sent, and cannot be saved', function (int $port) {
     Whm::fake();
 
-    $result = $this->driver->create(Whm::context(server: Whm::server(port: 2086)));
+    $result = $this->driver->create(Whm::context(server: Whm::server(port: $port)));
 
     expect($result->outcome())->toBe(DriverOutcome::Rejected)
-        ->and($result->message)->toContain('Port 2086 is not allowed');
+        ->and($result->message)->toContain("Port {$port} is not allowed");
     Http::assertNothingSent();
 
     actingAsStaff();
     confirmPassword();
     $this->post(route('admin.services.servers.store'), [
-        'name' => 'Plain', 'hostname' => 'whm.example.test', 'driver' => 'cpanel', 'port' => 2086,
+        'name' => 'Plain', 'hostname' => 'whm.example.test', 'driver' => 'cpanel', 'port' => $port,
         'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => 'USD',
     ])->assertSessionHasErrors('port');
     expect(Server::query()->where('name', 'Plain')->exists())->toBeFalse();
+})->with([2086, 2082, 80, 22]);
+
+test('the form and the driver share one port rule: 2087, 443 and high ports are allowed', function () {
+    expect(app(CpanelDriver::class)->metadata()->refusedPorts)->toBe(WhmClient::refusedPorts())
+        ->and(WhmClient::refusedPorts())->not->toContain(443)->not->toContain(2087)->not->toContain(8443);
 });
+
+test('a certificate pin is checked when the server is saved', function () {
+    actingAsStaff();
+    confirmPassword();
+    $currency = Currency::factory()->create()->code;
+    $base = ['name' => 'Pinned', 'hostname' => 'whm.example.test', 'driver' => 'cpanel', 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
+
+    $this->post(route('admin.services.servers.store'), [...$base, 'settings' => ['spki_pin' => 'changeme']])->assertSessionHasErrors('settings.spki_pin');
+    $this->post(route('admin.services.servers.store'), [...$base, 'settings' => ['spki_pin' => str_repeat('A', 43).'=']])->assertSessionHasNoErrors();
+});
+
+test('test connection is throttled per staff member', function () {
+    Whm::fake();
+    actingAsStaff();
+    confirmPassword();
+    $server = Server::factory()->create(['driver' => 'cpanel', 'hostname' => Whm::HOST, 'api_token' => Whm::TOKEN, 'username' => 'root', 'port' => null]);
+
+    foreach (range(1, 6) as $ignored) {
+        $this->post(route('admin.services.servers.test', $server))->assertRedirect();
+    }
+
+    $this->post(route('admin.services.servers.test', $server))->assertTooManyRequests();
+});
+
+test('certificate verification stays on unless a valid pin replaces it, whatever else the settings hold', function (array $settings, bool $verify) {
+    $options = [];
+    Whm::fake(['version' => function (Request $request, array $sent) use (&$options) {
+        $options = $sent;
+
+        return Http::response(Whm::fixture('version'));
+    }]);
+
+    $this->driver->testConnection(Whm::server($settings));
+
+    expect($options['verify'] ?? null)->toBe($verify);
+})->with([
+    'no settings' => [[], true],
+    'undeclared switches' => [['verify' => false, 'verify_tls' => '0', 'insecure' => true], true],
+    'a valid pin' => [['spki_pin' => str_repeat('A', 43).'='], false],
+]);
 
 test('hostnames resolving to loopback or link-local addresses are refused before connecting', function (string $ip) {
     Whm::fake(resolvesTo: $ip);
@@ -134,6 +180,8 @@ test('transport failures map to the outcome vocabulary', function (mixed $answer
     'truncated body' => [fn () => Http::response(Whm::raw('truncated-body.txt')), DriverOutcome::Unknown, 'did not answer like the WHM API'],
     'HTML 401' => [fn () => Http::response(Whm::raw('http_401.html'), 401), DriverOutcome::Rejected, 'credentials'],
     'redirect' => [fn () => Http::response('', 302, ['Location' => 'https://elsewhere.test/']), DriverOutcome::Rejected, 'redirect'],
+    'HTTP 408 after sending' => [fn () => Http::response('', 408), DriverOutcome::Unknown, 'HTTP 408'],
+    'HTTP 429' => [fn () => Http::response('', 429), DriverOutcome::Retryable, 'limiting requests'],
     'access denied' => ['access_denied', DriverOutcome::Rejected, 'permission (ACL)'],
     'licence' => ['license_invalid', DriverOutcome::Rejected, 'licence'],
     'unrecognised reason' => ['unrecognised', DriverOutcome::Rejected, 'WHM refused createacct'],
@@ -169,19 +217,22 @@ test('module log entries never hold the token, passwords, session values or long
         $logged[] = json_encode([$redactor->redact($result->request, $secrets), $redactor->redact($result->response, $secrets), $result->message]);
     }
 
-    $this->driver->serviceSsoLink($context);
+    // The login link is never logged by the driver; were a host to log it, the redactor masks its session.
+    $link = $this->driver->serviceSsoLink($context);
+    $logged[] = json_encode($redactor->redact(['note' => "session created at {$link->url}"], $context->secrets()));
     $all = implode("\n", $logged);
 
     expect($all)->not->toContain(Whm::TOKEN)
         ->not->toContain(Whm::PASSWORD)
         ->not->toContain('N3w-Secret-Pass!')
         ->not->toContain('cpsess')
-        ->not->toContain('CREATE_USER_SESSION');
+        ->not->toContain('CREATE_USER_SESSION')
+        ->not->toContain('AbCdEf0123456789');
 
     $output = collect(json_decode($logged[0], true)[1]['calls'])->firstWhere('function', 'createacct')['output'];
     expect(strlen($output))->toBeLessThanOrEqual(4096)
         ->and(Whm::sent('createacct')[0]->data())->toHaveKey('password');
-    Http::assertSent(fn (Request $request): bool => ! str_contains($request->url(), Whm::PASSWORD));
+    Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), Whm::PASSWORD) || str_contains($request->url(), Whm::TOKEN));
 });
 
 test('a call with no time left in the operation is not sent, so it stays safely retryable', function () {

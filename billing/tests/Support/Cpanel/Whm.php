@@ -7,6 +7,7 @@ use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Data\Services\Provisioning\ServiceSnapshot;
 use App\Support\Integrations\OutboundAddressGuard;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -88,7 +89,10 @@ final class Whm
             'listpkgs' => self::fixture('listpkgs', ['data' => ['pkg' => [4 => ['name' => 'contract-package', 'QUOTA' => '1024', 'BWLIMIT' => '10240']]]]),
             'accountsummary' => self::fixture('accountsummary', ['data' => ['acct' => [0 => $account]]]),
             'listaccts' => self::fixture('listaccts_example', ['data' => ['acct' => [0 => $account]]]),
-            'create_user_session' => self::fixture('create_user_session', ['data' => ['expires' => now()->addMinutes(15)->getTimestamp()]]),
+            'create_user_session' => self::fixture('create_user_session', ['data' => [
+                'expires' => now()->addMinutes(15)->getTimestamp(),
+                'url' => 'https://panel.contract.test:2083/cpsess1234567890/login/?session=contract%3aAbC',
+            ]]),
         ], resolvesTo: null);
     }
 
@@ -141,7 +145,7 @@ final class Whm
      * @param  array<string, mixed>  $productConfig
      * @param  array<string, mixed>  $configOptions
      */
-    public static function context(array $productConfig = ['package' => 'root_basic'], ?ServerConnection $server = null, string $username = 'example', ?string $domain = 'example-shop.com', array $configOptions = []): ProvisioningContext
+    public static function context(array $productConfig = ['package' => 'root_basic'], ?ServerConnection $server = null, string $username = 'example', ?string $domain = 'example-shop.com', array $configOptions = [], ?CarbonImmutable $unknownAttemptAt = null, ?CarbonImmutable $deadline = null): ProvisioningContext
     {
         return new ProvisioningContext(
             service: new ServiceSnapshot(id: 31, clientId: 8, productId: 3, status: 'pending', domain: $domain, username: $username, password: self::PASSWORD),
@@ -149,7 +153,20 @@ final class Whm
             client: new ClientSummary(8, 'Example Shop', 'owner@example-shop.com', 'NP'),
             productConfig: $productConfig,
             configOptions: $configOptions,
+            deadline: $deadline,
+            unknownAttemptAt: $unknownAttemptAt,
         );
+    }
+
+    /**
+     * A listaccts answer holding one account (overrides on the example account).
+     *
+     * @param  array<string, mixed>  $account
+     * @return array<string, mixed>
+     */
+    public static function accounts(array $account): array
+    {
+        return self::fixture('listaccts_example', ['data' => ['acct' => [0 => $account]]]);
     }
 
     /**

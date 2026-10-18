@@ -66,6 +66,8 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an
   arch rule keeps the old names out.
+- `DriverMetadata` gains `?int $commandTimeoutSeconds` and `?UsernamePolicy $usernamePolicy` (cPanel K9 and K6;
+  compatible, trailing). The host caps the timeout at `services.module.max_job_timeout_seconds`.
 
 ### Module inputs, server settings and one field shape (ADR 0009 amendment 1, PR B2)
 
@@ -87,3 +89,19 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   Implementers MUST return both keys until then. Catalog reads `fields`. The gateway
   `fields` prop and the server form's `driverFields` use the same shape, rendered by one React component
   (`components/app/setting-field.tsx`).
+
+### cPanel driver (#69)
+
+- `DriverMetadata` gains trailing `refusedPorts: list<int>` (compatible): ports a server of the driver may not use.
+  The host's server form refuses them, and the cPanel driver checks the same list before every call.
+- `ProvisioningContext` gains trailing `?CarbonImmutable $deadline` (compatible): when the host stops waiting for the
+  call. The host sets it from the command's timeout less 5 s; a driver without one applies its own budget.
+- `ProvisioningContext` gains trailing `?CarbonImmutable $unknownAttemptAt` (compatible): when an earlier attempt of the
+  command, sent with the same username and domain, ended with an unknown outcome. The host records each create's
+  target on its module command row before calling the driver. A driver may adopt only what that attempt created.
+- `DriverResult::renameUsername(username, message)` (compatible): a retryable create that carries `data.username`,
+  the free name to use when the assigned one is taken on the server. The host stores it and runs the create again at
+  once (at most 5 times), so the name is recorded before it is ever sent.
+- `Redactor` also masks `session=` credentials in URL query strings (cPanel login links), wherever they appear.
+- Test support: `ProvisioningDriverContract::verify()` gains a trailing `serverSettings` override (compatible; not ADR
+  0010 public surface) for server settings whose placeholder would be invalid, such as a certificate pin.

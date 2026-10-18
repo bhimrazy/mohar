@@ -14,6 +14,7 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Support\UsernameGenerator;
+use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
@@ -55,18 +56,34 @@ test('create sends the account with its package and contact email, and the read-
         ->and($service->driver_data)->toMatchArray(['ip' => '203.0.113.20', 'owner' => 'root', 'plan' => 'root_basic']);
 });
 
-test('a username taken by someone else moves to the next free name and reports it', function () {
+test('a username taken by an account that is not ours is not created: the driver proposes the next free name', function () {
     Whm::fake([
-        'verify_new_username' => Http::sequence()->push(Whm::fixture('verify_new_username_taken'))->push(Whm::fixture('verify_new_username_ok')),
+        'verify_new_username' => fn (Request $request) => Http::response(Whm::fixture(Whm::params($request)['user'] === 'examples' ? 'verify_new_username_taken' : 'verify_new_username_ok')),
         'listaccts' => 'listaccts_foreign',
     ]);
 
     $result = $this->driver->create(Whm::context(username: 'examples'));
 
-    expect($result->success)->toBeTrue()
-        ->and($result->data['username'])->toBe('example1')
-        ->and(Whm::params(Whm::sent('verify_new_username')[1]))->toMatchArray(['user' => 'example1'])
-        ->and(Whm::sent('createacct')[0]->data()['username'])->toBe('example1');
+    expect($result->outcome())->toBe(DriverOutcome::Retryable)
+        ->and($result->data)->toBe(['username' => 'example1'])
+        ->and(Whm::sent('createacct'))->toBeEmpty();
+});
+
+test('the host stores the proposed name before sending it, so the account is created as example1', function () {
+    Whm::fake([
+        'verify_new_username' => fn (Request $request) => Http::response(Whm::fixture(Whm::params($request)['user'] === 'examples' ? 'verify_new_username_taken' : 'verify_new_username_ok')),
+        'listaccts' => 'listaccts_foreign',
+    ]);
+    $service = pendingCpanelService();
+    $service->update(['username' => 'examples']);
+
+    $outcome = app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+
+    expect($outcome->succeededNow())->toBeTrue()
+        ->and($service->refresh()->username)->toBe('example1')
+        ->and(Whm::sent('createacct'))->toHaveCount(1)
+        ->and(Whm::sent('createacct')[0]->data()['username'])->toBe('example1')
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->orderBy('id')->pluck('request')->map(fn ($request) => $request['target']['username'] ?? null)->all())->toBe(['examples', 'example1']);
 });
 
 test('generated usernames never start with test or end with assword, and fit 8 characters', function (string $domain) {
@@ -79,16 +96,51 @@ test('generated usernames never start with test or end with assword, and fit 8 c
         ->and($policy?->violation($username))->toBeNull();
 })->with(['testsite.com', 'password.com']);
 
-test('an existing account with the same domain and owner is taken as ours, and nothing is created', function () {
-    Whm::fake(['verify_new_username' => 'verify_new_username_taken']);
+test('an existing account is adopted only when our earlier unknown attempt created it', function () {
+    $attempt = now()->subMinutes(20)->toImmutable();
+    $ours = Whm::accounts(['unix_startdate' => $attempt->addMinutes(2)->getTimestamp()]);
+    Whm::fake(['verify_new_username' => 'verify_new_username_taken', 'listaccts' => $ours, 'accountsummary' => 'accountsummary']);
 
-    $result = $this->driver->create(Whm::context());
+    $result = $this->driver->create(Whm::context(unknownAttemptAt: $attempt));
 
     expect($result->success)->toBeTrue()
-        ->and($result->message)->toContain('already existed')
+        ->and($result->message)->toContain('earlier attempt')
         ->and($result->data)->not->toHaveKey('username')
-        ->and($result->data['driver_data']['ip'])->toBe('203.0.113.20')
         ->and(Whm::sent('createacct'))->toBeEmpty();
+});
+
+test('an account our attempt did not create is never adopted, whatever its owner', function (array $account, ?string $domain, bool $withAttempt) {
+    $attempt = now()->subMinutes(20)->toImmutable();
+    Whm::fake([
+        'verify_new_username' => fn (Request $request) => Http::response(Whm::fixture(Whm::params($request)['user'] === 'example' ? 'verify_new_username_taken' : 'verify_new_username_ok')),
+        'listaccts' => Whm::accounts($account),
+    ]);
+
+    $result = $this->driver->create(Whm::context(['package' => 'root_basic', 'allow_temporary_domain' => true], domain: $domain, unknownAttemptAt: $withAttempt ? $attempt : null));
+
+    expect($result->success)->toBeFalse()
+        ->and($result->data)->toBe(['username' => 'example1'])
+        ->and(Whm::sent('createacct'))->toBeEmpty();
+})->with([
+    'another customer, same domain, no attempt of ours' => [['unix_startdate' => 1893456000], 'example-shop.com', false],
+    'created before our attempt' => [['unix_startdate' => 1262304000], 'example-shop.com', true],
+    'no domain on the service' => [['unix_startdate' => 1893456000, 'domain' => 'unrelated-customer.com'], null, true],
+    'another domain' => [['unix_startdate' => 1893456000, 'domain' => 'other-site.net'], 'example-shop.com', true],
+]);
+
+test('a retried create after an unknown outcome adopts the account that attempt made', function () {
+    Whm::fake(['createacct' => Http::failedConnection('cURL error 28: Operation timed out after 50001 milliseconds with 0 bytes received')]);
+    $service = pendingCpanelService();
+    app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+    $item = ModuleQueueItem::query()->where('subject_id', $service->id)->sole();
+
+    Whm::fake(['verify_new_username' => 'verify_new_username_taken', 'listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
+    actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
+    $this->post(route('admin.services.module-log.retry', $item))->assertSessionHasNoErrors();
+
+    expect($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and(Whm::sent('createacct'))->toBeEmpty()
+        ->and($item->refresh()->status)->toBe(QueueStatus::Resolved);
 });
 
 test('a username outside cPanel\'s rules, or a missing domain, is rejected without a remote call', function (string $username, ?string $domain, string $message) {
@@ -137,12 +189,17 @@ test('WHM refusals of createacct are rejected with our own message, and the raw 
         ->and(collect($result->response['calls'])->firstWhere('function', 'createacct')['reason'])->toBe($raw);
 })->with([
     'reserved' => ['createacct_reserved', 'cPanel reserves the username "example"'],
-    'taken' => ['createacct_username_taken', 'already taken on Shared 1'],
     'domain exists' => ['createacct_domain_exists', 'Domain already on server: example-shop.com'],
     'package not allowed' => ['createacct_package_not_allowed', 'Package root_basic is not available to root on Shared 1'],
     'weak password' => ['createacct_weak_password', 'too weak'],
     'theme' => ['createacct_invalid_theme', 'theme or language'],
 ]);
+
+test('a username taken between the check and the create is retried, not refused', function () {
+    Whm::fake(['createacct' => 'createacct_username_taken']);
+
+    expect($this->driver->create(Whm::context())->outcome())->toBe(DriverOutcome::Retryable);
+});
 
 test('a package the connection cannot assign is rejected before any mutating call, naming package and server', function () {
     Whm::fake();
@@ -215,7 +272,7 @@ test('unsuspending an account the administrator locked is rejected', function ()
 test('terminate removes the DNS zone unless the server keeps it, and an absent account completes', function () {
     Whm::fake();
     $this->driver->terminate(Whm::context());
-    $this->driver->terminate(Whm::context(server: Whm::server(['keep_dns_on_terminate' => true])));
+    $this->driver->terminate(Whm::context(server: Whm::server(['keepdns_on_auto_terminate' => true])));
     expect(array_map(fn ($request) => $request->data()['keepdns'], Whm::sent('removeacct')))->toEqual([0, 1]);
 
     Whm::fake(['removeacct' => 'removeacct_missing', 'listaccts' => 'listaccts_empty']);
@@ -231,4 +288,18 @@ test('a credential or permission refusal is never taken for an absent account', 
 
     expect($result->outcome())->toBe(DriverOutcome::Rejected)
         ->and(Whm::sent('listaccts'))->toBeEmpty();
+});
+
+test('the driver works to the deadline the host sets, and sends nothing once it has passed', function () {
+    Whm::fake();
+    expect($this->driver->create(Whm::context(deadline: now()->toImmutable()->subSecond()))->outcome())->toBe(DriverOutcome::Retryable);
+    Http::assertNothingSent();
+
+    // The host's deadline is the command timeout from its own clock; a clock an hour behind puts it in the past.
+    $service = pendingCpanelService();
+    $this->travelTo(now()->subHour());
+    app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+
+    expect(Whm::sent('createacct'))->toBeEmpty()
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toContain('ran out of time');
 });

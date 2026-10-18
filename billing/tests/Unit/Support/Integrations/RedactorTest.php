@@ -173,6 +173,12 @@ test('messages are masked with the same variants', function () {
     expect((new Redactor)->maskValues('login as root:hunter22 failed', ['hunter22', 'ab']))->toBe('login as root:[redacted] failed');
 });
 
+test('a session credential in a URL query is masked wherever the URL appears', function () {
+    $url = 'https://h.example.test:2083/cpsess1/login/?session=root:Zz9:create_user_session,ffeedd&locale=en';
+
+    expect((new Redactor)->redact(['note' => "opened {$url}"]))->toBe(['note' => 'opened https://h.example.test:2083/[redacted]/login/?session=[redacted]&locale=en']);
+});
+
 test('cPanel session keys and cpsess tokens are masked, and SSO answers can mark url as secret', function () {
     $redacted = (new Redactor)->redact([
         'pass' => 'x1',

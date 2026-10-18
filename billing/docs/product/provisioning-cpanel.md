@@ -50,7 +50,7 @@ queueing, locking, retries, the module log, the module queue and every status ch
 
 | ACL                                                 | Needed for                                             | Required     |
 | --------------------------------------------------- | ------------------------------------------------------ | ------------ |
-| `basic-whm-functions`, `basic-system-info`          | `version`, `applist`                                   | MUST         |
+| `basic-whm-functions`                               | `version`                                              | MUST         |
 | `list-accts`, `acct-summary`                        | `listaccts`, `accountsummary` (lookups, import, usage) | MUST         |
 | `create-acct`                                       | `createacct`, `verify_new_username`                    | MUST         |
 | `suspend-acct`                                      | `suspendacct`, `unsuspendacct`                         | MUST         |
@@ -89,8 +89,10 @@ smallest ACL set, and testing it (§8.1), means a leaked token can do less harm.
 1. Services assigns and persists `username` and `password` before the first attempt, so retries reuse them. A username
    that breaks the cPanel policy (§4.1) is rejected without a remote call.
 2. **Pre-check (read-only):** `verify_new_username`. On a conflict, run the existing-account check (§6.2). If the account
-   is not ours, pick the next free name (§4.1, at most 5 tries, each logged) and return it in `DriverResult::$data['username']`
-   (ADR 0009 §2).
+   is not the one an earlier unknown attempt made, pick the next free name (§4.1, at most 5 tries, each logged) and
+   return it with `DriverResult::renameUsername()`, without sending `createacct`. Services stores the name on the
+   service and runs the create again at once, so every `createacct` is sent with a username recorded beforehand.
+   Services records the username and domain of every create on its module command row before calling the driver.
 3. `createacct` with:
     - `username`, `domain`, `plan` = product `driver_config.package` (§4.2), `password`
     - `contactemail` = `ClientSummary.email`, unless the product setting `send_contact_email` is off
@@ -118,7 +120,8 @@ are stripped and it is cut to 100 characters. It never holds client names or ema
 `removeacct` deletes the home directory, mail, databases and, by default, the DNS zone. **Nothing is kept on the
 server** except WHM's own scheduled backups, if the host runs them, and Mohar takes none; the terminate dialog says so.
 "Keep DNS zone" (`keepdns=1`) is a dialog checkbox and a server setting for automated terminations, both off by default,
-with a warning that a kept zone blocks re-creating that domain. An account already absent (§6.2) completes, with
+with a warning that a kept zone blocks re-creating that domain. The setting is `keepdns_on_auto_terminate`; until
+PR 2 adds the dialog checkbox, staff terminations follow it too. An account already absent (§6.2) completes, with
 "account was not on the server" logged. The service keeps `username`, `domain` and `server_id` for history.
 
 ### 3.4 Usage
@@ -192,12 +195,21 @@ says nothing about whether the account exists, and "absent" straight after a tim
 
 `listaccts searchtype=user searchmethod=exact search=<username>`, plus `searchtype=domain` for the domain. `listaccts`
 is used instead of `accountsummary` because "no such account" then comes back as an empty list with `result=1`, which
-is unambiguous. The account is **ours** when the username matches, its `domain` equals the service domain, and its
-`owner` is the connection user (or, for root, `root`). The result is one of four:
+is unambiguous. An existing account is adopted as this service's only when **all** of these hold (CTO decision,
+2026-10-18, after the #69 security review):
 
-- `executed`: ours. Create is completed with the read-back data (§3.1 step 4).
-- `conflict`: the username or domain exists but is not ours. Create is rejected and needs attention, with the conflicting
-  owner and domain shown.
+1. this service has an earlier create attempt whose outcome is unknown, sent with exactly this username (Services
+   recorded it before the call and passes the attempt's start as `ProvisioningContext::$unknownAttemptAt`, or as
+   `$attemptedAt` to `reconcile()`);
+2. the account's `domain` equals the domain that attempt sent, and the service has a domain;
+3. the account's `unix_startdate` is at or after the attempt's start, less 5 minutes of clock skew;
+4. its `owner` is the connection user.
+
+Owner matching alone is never enough, and a service without a domain never adopts. The result is one of four:
+
+- `executed`: adopted. Create is completed with the read-back data (§3.1 step 4).
+- `conflict`: the username or domain exists but fails the rule above. Create picks a new username (§4.1); a verify
+  item stays open and needs attention, with the conflicting owner, domain and creation time shown.
 - `absent`: neither exists. If at least `services.cpanel.unknown_settle_minutes` (default 10) have passed since the
   unknown attempt, staff get a one-click "Create again". It is never automatic.
 - `unknown`: the lookup itself failed. The item stays open.
@@ -230,9 +242,9 @@ One button runs these steps and shows a checklist; each line is pass, warn or fa
    and SPKI SHA-256, with "Trust this certificate" (§9.3).
 2. `version`: credentials work. Shows the WHM version. If it is older than 11.110, warn that it is untested
    (`verify_new_username` needs 11.58+ and `getdomainowner` needs 11.78+).
-3. `api_token_get_details` (token auth) reads the token's ACLs, expiry and IP allow-list. When the token cannot read
-   itself, fall back to `myprivs` (**verify** which ACL `api_token_get_details` needs). Missing MUST ACLs fail, missing
-   SSO or name-server ACLs warn, and an expiry within 14 days warns.
+3. `api_token_get_details` (token auth, the token sent in a POST body) reads the token's ACLs, expiry and IP
+   allow-list. When it fails, the checklist says so and shows the WHM user's `myprivs` instead. Missing MUST ACLs fail,
+   missing SSO or name-server ACLs warn, and an expiry within 14 days warns.
 4. Root or reseller (`myprivs` `all=1` means root). Resellers also see `acctcounts` (active, suspended, limit).
 5. `listpkgs want=creatable`: the count. Zero warns "no packages this user can assign".
 6. `get_nameserver_config`: offers to copy the name servers into the server record (§8.3).
@@ -343,7 +355,7 @@ service from an import. An import adds services that staff approved, and nothing
 - **Contracts (ADR 0008/0009):** Catalog reads `productConfigFields` through `Services\ProvisioningDrivers`, with dynamic
   package options (K2). Orders provisions through `ServiceRegistry::provision`. Notifications gets the §8.3 merge fields.
   Import uses `PriceBook` for amounts and product lookup (K10), and finds clients by email through Core.
-- **Driver settings.** `serverFields`: `auth_type` (`token`/`password`), `spki_pin` (String), `keepdns_on_auto_terminate`,
+- **Driver settings.** `serverFields`: `login_method` (`token`/`password`), `spki_pin` (String), `keepdns_on_auto_terminate`,
   `sso_enabled` (Boolean), `reserved_usernames` (Text). `productConfigFields`: `package` (Select, dynamic), `dedicated_ip`,
   `send_contact_email` (default on), `allow_temporary_domain` (default off) (Boolean), `cpmod`, `language` (String).
 
@@ -368,8 +380,9 @@ service from an import. An import adds services that staff approved, and nothing
       removeacct → check absent.
     - It never removes an account it did not create in that run. It asks for confirmation when the server holds other
       accounts. It prints each step's outcome and timing.
-    - It settles every **verify** item: POST support, the ACL that `api_token_get_details` needs, `result=0` having no
-      side effects, and the read-back fields. `--record` writes redacted responses for refreshing fixtures.
+    - It settles every **verify** item: POST support, `result=0` having no side effects, the read-back fields, and the
+      real `metadata.reason` wording (refresh the fixtures, whose reasons are our own text). `--record` writes redacted
+      responses for refreshing fixtures.
 
 ## 13. Contract changes this spec implies (for the CTO and principal architect)
 
@@ -519,11 +532,11 @@ console. Remote access keys.
 v1 ships in four stacked pull requests (CTO decisions, 2026-10-18), so each stays reviewable at about 3,000 changed
 lines. PR 1b, 2 and 3 stack on PR 1a; import does not depend on PR 2's code, so their reviews can run in parallel.
 
-| PR  | Contents                                                                                                                                                                                                                                                                                           | Acceptance criteria                                                                      |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 1a  | The driver (#69, on #65): transport, sign-in, address guard, SPKI pinning, the §5 outcome table, lifecycle with idempotency, reconcile, change package and password, usage, SSO links, package options, account listing; fixtures, the contract dataset, the smoke command                         | 1–5, 9–12, 13 for the server setting, 14–20, 21 for the checklist data, 29, 33 (command) |
-| 1b  | Host pieces, generic for any driver: the test-connection checklist on the server form with "Trust this certificate", and the verify sweep that settles unknown outcomes (Check now, Create again)                                                                                                  | 6–8, 20 and 21 on screen                                                                 |
-| 2   | SSO host flow (client and staff buttons, rate limit, sensitive permissions, audit, shortcuts), the Catalog package select with per-server warnings, server health (stored check result, token-expiry warning, credentials hold, "Fetch from WHM"), the terminate dialog's "Keep DNS zone" checkbox | 13 for the dialog, 21 for hiding the SSO buttons, 22–24, 30–32                           |
-| 3   | Account import (Admin → Servers → server → Import accounts), `ServiceImported`                                                                                                                                                                                                                     | 25–28                                                                                    |
+| PR  | Contents                                                                                                                                                                                                                                                                                                                                                                                                                        | Acceptance criteria                                                                  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 1a  | The driver (#69): transport, sign-in, address guard, SPKI pinning, the §5 outcome table, lifecycle with idempotency, reconcile, change package and password, usage, SSO links, package options, account listing; fixtures, the contract dataset, the smoke command                                                                                                                                                              | 1–5, 9–12, 13 for the server setting, 14–19, 20 and 21 driver side, 29, 33 (command) |
+| 1b  | Host pieces, generic for any driver: the test-connection checklist on the server form with "Trust this certificate", and the verify sweep that settles unknown outcomes (Check now, Create again)                                                                                                                                                                                                                               | 6–8; 20 and 21 on screen (1a has the driver side)                                    |
+| 2   | SSO host flow (client and staff buttons, rate limit, sensitive permissions, audit, shortcuts), the Catalog package select with per-server warnings, server health (stored check result, token-expiry warning, credentials hold, "Fetch from WHM"), the terminate dialog's "Keep DNS zone" checkbox, which first needs a kernel change (per-command option fields stored on the module command row; called out in the PR 2 body) | 13 for the dialog, 21 for hiding the SSO buttons, 22–24, 30–32                       |
+| 3   | Account import (Admin → Servers → server → Import accounts); dispatches `ServiceImported`                                                                                                                                                                                                                                                                                                                                       | 25–28                                                                                |
 
 AC 33 needs the owner's server: PR 1a ships the command, and the recorded run goes in the PR body once it exists.

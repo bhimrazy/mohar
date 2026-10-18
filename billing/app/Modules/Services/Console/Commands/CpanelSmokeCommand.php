@@ -8,6 +8,7 @@ use App\Data\Services\Provisioning\PreviousPackage;
 use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Data\Services\Provisioning\ServiceSnapshot;
+use App\Enums\DriverOutcome;
 use App\Enums\ReconcileStatus;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Support\Integrations\Redactor;
@@ -47,9 +48,16 @@ class CpanelSmokeCommand extends Command
     public function handle(CpanelDriver $driver, Redactor $redactor): int
     {
         $host = strtolower(trim((string) $this->option('host')));
+
+        if ($host === '') {
+            $this->components->error('Give --host and an API token (--token-file, or type it when asked). Nothing was sent.');
+
+            return self::FAILURE;
+        }
+
         $token = $this->token();
 
-        if ($host === '' || $token === '') {
+        if ($token === '') {
             $this->components->error('Give --host and an API token (--token-file, or type it when asked). Nothing was sent.');
 
             return self::FAILURE;
@@ -136,17 +144,32 @@ class CpanelSmokeCommand extends Command
         $created = null;
 
         $this->step('Create', function () use ($driver, &$context, &$created): string {
-            $created = $this->result('create', $driver->create($context));
+            // A taken name comes back as a rename to try; follow it as the host would (at most 5 times).
+            for ($try = 0; $try <= 5; $try++) {
+                $result = $driver->create($context);
+                $renamed = $result->outcome() === DriverOutcome::Retryable ? ($result->data['username'] ?? null) : null;
 
-            if (isset($created->data['username'])) {
-                $context = $this->smokeContext($context->server ?? throw new \LogicException, (string) $created->data['username'], (string) $this->option('package'));
+                if (! is_string($renamed)) {
+                    break;
+                }
+
+                $context = $this->smokeContext($context->server ?? throw new \LogicException, $renamed, (string) $this->option('package'));
             }
 
-            return $created->message.' Read back: '.implode(', ', array_keys((array) ($created->data['driver_data'] ?? []))).'.';
+            $result = $this->result('create', $result);
+
+            // Only an account this run actually sent createacct for is ever changed or removed.
+            if (! in_array('createacct', array_column((array) ($result->request['calls'] ?? []), 'function'), true)) {
+                throw new \RuntimeException("{$context->service->username} was not created by this run; nothing else will be changed.");
+            }
+
+            $created = $result;
+
+            return $result->message.' Read back: '.implode(', ', array_keys((array) ($result->data['driver_data'] ?? []))).'.';
         });
 
         if ($created === null) {
-            $this->components->warn("Create did not complete. If WHM may have created {$context->service->username}, check and remove it by hand.");
+            $this->components->warn("Create did not complete. If WHM may have created {$context->service->username}, check it and remove it in WHM by hand.");
 
             return;
         }
@@ -169,8 +192,16 @@ class CpanelSmokeCommand extends Command
         });
 
         // Only the account this run created is ever removed.
+        $failedBefore = $this->failed;
+        $this->failed = false;
         $this->step('Terminate', fn (): string => (string) $this->result('terminate', $driver->terminate($context))->message);
         $this->step('Check removed', fn (): string => $this->expect($driver->reconcile($context, 'terminate', CarbonImmutable::now())->status, ReconcileStatus::Executed));
+
+        if ($this->failed) {
+            $this->components->warn("The smoke account {$context->service->username} may still be on the server; remove it in WHM.");
+        }
+
+        $this->failed = $this->failed || $failedBefore;
     }
 
     /**

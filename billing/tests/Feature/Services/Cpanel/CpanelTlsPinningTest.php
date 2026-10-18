@@ -3,7 +3,11 @@
 use App\Enums\DriverOutcome;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmFailure;
+use App\Support\Integrations\OutboundAddressGuard;
 use Symfony\Component\Process\ExecutableFinder;
+use Symfony\Component\Process\InputStream;
 use Symfony\Component\Process\Process;
 use Tests\Support\Cpanel\Whm;
 
@@ -16,6 +20,11 @@ beforeEach(function () {
     $this->openssl = (new ExecutableFinder)->find('openssl');
 
     if ($this->openssl === null) {
+        // CI must run this test: it is the proof that pinning holds against curl itself.
+        if (env('CI')) {
+            $this->fail('openssl is required for the TLS pinning tests in CI.');
+        }
+
         $this->markTestSkipped('openssl is not installed.');
     }
 
@@ -35,7 +44,7 @@ afterEach(function () {
  *
  * @return array{int, string}
  */
-function startTlsServer(object $test): array
+function startTlsServer(object $test, bool $www = true): array
 {
     $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
     $csr = openssl_csr_new(['commonName' => Whm::HOST], $key);
@@ -46,7 +55,10 @@ function startTlsServer(object $test): array
     openssl_pkey_export_to_file($key, "{$directory}/key.pem");
     $port = random_int(20000, 40000);
 
-    $process = new Process([$test->openssl, 's_server', '-accept', "127.0.0.1:{$port}", '-cert', "{$directory}/cert.pem", '-key', "{$directory}/key.pem", '-www', '-quiet']);
+    // -www answers every request with a status page; without it the server prints whatever the client sends.
+    $process = new Process([$test->openssl, 's_server', '-accept', "127.0.0.1:{$port}", '-cert', "{$directory}/cert.pem", '-key', "{$directory}/key.pem", ...($www ? ['-www'] : []), '-quiet']);
+    // Without -www the server exits when its stdin closes, so keep stdin open for the life of the test.
+    $process->setInput(new InputStream);
     $process->start();
     $test->servers[] = $process;
 
@@ -83,4 +95,23 @@ test('a trusted pin lets the handshake succeed, and a changed key is rejected as
 
     expect($result->outcome())->toBe(DriverOutcome::Rejected)
         ->and($result->message)->toStartWith('Server certificate changed');
+});
+
+test('a pin check that fails in any way aborts before a single request byte is sent', function () {
+    [$port, $pin] = startTlsServer($this, www: false);
+    $echo = end($this->servers);
+    $server = Whm::server(['spki_pin' => $pin], port: $port);
+
+    // Positive control: with a working check the request reaches the server (which never answers, so it times out).
+    $working = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + 3);
+    expect(fn () => $working->read('version'))->toThrow(WhmFailure::class);
+    expect($echo->getOutput())->toContain('GET /json-api/version');
+
+    [$port, $pin] = startTlsServer($this, www: false);
+    $echo = end($this->servers);
+    $throwing = new WhmClient(Whm::server(['spki_pin' => $pin], port: $port), app(OutboundAddressGuard::class), microtime(true) + 3, fn () => throw new RuntimeException('certificate info unavailable'));
+
+    expect(fn () => $throwing->read('version'))->toThrow(fn (WhmFailure $failure) => expect($failure->kind)->toBe(WhmFailure::PIN));
+    usleep(300_000);
+    expect($echo->getOutput())->toBe('');
 });

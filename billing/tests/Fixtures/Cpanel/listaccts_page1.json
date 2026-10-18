@@ -3,13 +3,7 @@
         "result": 1,
         "reason": "OK",
         "command": "listaccts",
-        "version": 1,
-        "chunk": {
-            "start": 1,
-            "size": 2,
-            "records": 3,
-            "current": 1
-        }
+        "version": 1
     },
     "data": {
         "acct": [

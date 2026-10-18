@@ -7,6 +7,7 @@ use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Contracts\Services\Provisioning\ProvisioningDriver;
 use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\ProvisioningContext;
+use App\Data\Services\Provisioning\UsernamePolicy;
 use App\Enums\DriverOutcome;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Services\ServerCapacityExhausted;
@@ -31,6 +32,7 @@ use App\Modules\Services\Support\UsernameGenerator;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Services\RetryableProvisioningException;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +53,12 @@ use Throwable;
  */
 class ExecuteModuleCommand
 {
+    /** Seconds between the driver's deadline and the job timeout, for logging and the result write. */
+    private const DEADLINE_MARGIN_SECONDS = 5;
+
+    /** Usernames a create may move to when the server already holds the assigned one (spec §4.1). */
+    private const MAX_RENAMES = 5;
+
     public function __construct(
         private ProvisioningDriverRegistry $drivers,
         private ServiceDrivers $serviceDrivers,
@@ -77,8 +85,10 @@ class ExecuteModuleCommand
      */
     public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1, ?int $jobTimeout = null): CommandOutcome
     {
-        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout ?? $this->serviceDrivers->jobTimeoutFor($serviceId)))
-            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt));
+        $jobTimeout ??= $this->serviceDrivers->jobTimeoutFor($serviceId);
+
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout))
+            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt, $jobTimeout));
     }
 
     /**
@@ -109,7 +119,7 @@ class ExecuteModuleCommand
     /**
      * @param  array<string, mixed>  $args
      */
-    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt): CommandOutcome
+    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt, int $jobTimeout, int $renames = 0): CommandOutcome
     {
         $service = Service::withTrashed()->with('client')->find($serviceId);
 
@@ -146,12 +156,17 @@ class ExecuteModuleCommand
         $started = hrtime(true);
         $log = null;
         $context = null;
+        $driver = null;
+        $target = null;
 
         try {
             $driver = $this->drivers->get($driverKey);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
-            $context = $this->snapshots->context($service, $server, $product, $driver);
-            $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt);
+            // What a create sends, recorded before the call: only an account matching it may later be adopted.
+            $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain] : null;
+            $deadline = CarbonImmutable::now()->addSeconds(max(5, $jobTimeout - self::DEADLINE_MARGIN_SECONDS));
+            $context = $this->snapshots->context($service, $server, $product, $driver, $deadline, $target === null ? null : $this->unknownAttemptAt($service));
+            $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt, $target);
             $result = $this->callDriver($driver, $context, $command, $args);
         } catch (RetryableProvisioningException $exception) {
             $result = DriverResult::fail($exception->getMessage(), retryable: true);
@@ -176,7 +191,7 @@ class ExecuteModuleCommand
                 default => ModuleCommand::FAILED,
             },
             'error' => $error,
-            'request' => $this->redactor->redact($result->request, $secrets) ?: null,
+            'request' => [...($target === null ? [] : ['target' => $target]), ...$this->redactor->redact($result->request, $secrets)] ?: null,
             'response' => $this->redactor->redact($result->response, $secrets) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
@@ -191,6 +206,10 @@ class ExecuteModuleCommand
             return $this->succeeded($service->id, $command, $args, $result);
         }
 
+        if ($command === ModuleCommandName::Create && $outcome === DriverOutcome::Retryable && $renames < self::MAX_RENAMES && $this->takeRename($service, $result, $driver)) {
+            return $this->run($serviceId, $command, $args, $initiator, $attempt, $jobTimeout, $renames + 1);
+        }
+
         if ($outcome === DriverOutcome::Retryable && $attempt < $this->settings->maxAttempts()) {
             return CommandOutcome::retry((string) $error, $this->settings->backoffBefore($attempt + 1));
         }
@@ -201,9 +220,13 @@ class ExecuteModuleCommand
         return $this->failed($service, $command, $args, $error, $attempt, $kind);
     }
 
-    private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt): ModuleCommand
+    /**
+     * @param  array{username: ?string, domain: ?string}|null  $target  what a create is about to send
+     */
+    private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt, ?array $target = null): ModuleCommand
     {
         return ModuleCommand::query()->create([
+            'request' => $target === null ? null : ['target' => $target],
             'service_id' => $service->id,
             'server_id' => $service->server_id,
             'driver' => $driverKey,
@@ -213,6 +236,58 @@ class ExecuteModuleCommand
             'success' => false,
             'status' => ModuleCommand::RUNNING,
         ]);
+    }
+
+    /**
+     * When the latest create with an unknown outcome was sent, if it was sent with the service's current username and
+     * domain. A driver may adopt only what that attempt left behind (ProvisioningContext::$unknownAttemptAt).
+     */
+    private function unknownAttemptAt(Service $service): ?CarbonImmutable
+    {
+        if ($service->domain === null || $service->domain === '') {
+            return null;
+        }
+
+        $attempt = ModuleCommand::query()
+            ->where('service_id', $service->id)
+            ->where('command', ModuleCommandName::Create->value)
+            ->where('status', ModuleCommand::UNKNOWN)
+            ->orderByDesc('id')
+            ->first();
+
+        if ($attempt === null) {
+            return null;
+        }
+
+        $target = $attempt->request['target'] ?? null;
+
+        return is_array($target) && ($target['username'] ?? null) === $service->username && ($target['domain'] ?? null) === $service->domain
+            ? $attempt->created_at
+            : null;
+    }
+
+    /**
+     * A create that found its username taken on the server proposes a free one (DriverResult::renameUsername()). Take
+     * it when it fits the driver's policy and no other service on the server has it; the create then runs again.
+     */
+    private function takeRename(Service $service, DriverResult $result, ?ProvisioningDriver $driver): bool
+    {
+        $username = $result->data['username'] ?? null;
+
+        if ($driver === null || ! is_string($username) || $username === $service->username || ($driver->metadata()->usernamePolicy ?? new UsernamePolicy)->violation($username) !== null) {
+            return false;
+        }
+
+        $taken = Service::withTrashed()->where('server_id', $service->server_id)->where('username', $username)->whereKeyNot($service->id)->exists();
+
+        if ($taken) {
+            return false;
+        }
+
+        $this->activity->log("Username for {$service->label()} changed: the server already holds the assigned one", $service, $service->client_id, ['from' => $service->username, 'to' => $username]);
+        $service->forceFill(['username' => $username])->save();
+
+        return true;
     }
 
     /**

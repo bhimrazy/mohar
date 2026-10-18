@@ -98,7 +98,10 @@ class ServerRequest extends FormRequest
      */
     public function messages(): array
     {
-        return ['port.not_in' => __('This port sends credentials without encryption; use the panel\'s TLS port.')];
+        return [
+            'port.not_in' => __('This driver does not allow this port; use the panel\'s TLS port (for cPanel & WHM, 2087 or 443).'),
+            'settings.'.ServerSettings::CERTIFICATE_PIN.'.regex' => __('A trusted certificate is a SHA-256 fingerprint in base64 (44 characters ending in "="); use "Trust this certificate" after Test connection.'),
+        ];
     }
 
     /**

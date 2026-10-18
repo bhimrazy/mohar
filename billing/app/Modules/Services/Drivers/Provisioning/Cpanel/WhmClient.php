@@ -7,6 +7,7 @@ use App\Data\Services\Provisioning\ServerConnection;
 use App\Enums\DriverOutcome;
 use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\OutboundAddressRefused;
+use Closure;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
@@ -28,7 +29,7 @@ final class WhmClient
     public const DEFAULT_PORT = 2087;
 
     /** Plain-HTTP cPanel and WHM ports: credentials would cross the network unencrypted. */
-    public const PLAIN_PORTS = [80, 2082, 2086, 2095];
+    public const PLAIN_PORTS = [2082, 2086, 2095];
 
     public const LOGIN_TOKEN = 'token';
 
@@ -47,7 +48,7 @@ final class WhmClient
 
     private const LOG_OUTPUT_BYTES = 4096;
 
-    private const SECRET_PARAMS = ['password', 'pass'];
+    private const SECRET_PARAMS = ['password', 'pass', 'token'];
 
     /** cURL errors raised by the TLS layer: nothing was sent, and retrying cannot fix a certificate. */
     private const TLS_ERRORS = [35, 51, 53, 54, 58, 59, 60, 64, 66, 77, 80, 82, 83, 91];
@@ -66,12 +67,35 @@ final class WhmClient
     /**
      * @param  float|null  $deadline  microtime(true) by which every call of the operation must have finished; each call's
      *                                timeout is cut to the time left, and a call with no time left is not sent
+     * @param  (Closure(\CurlHandle): ?string)|null  $presentedPin  reads the SPKI pin of the certificate the handshake
+     *                                                              presented (tests replace it); defaults to curl's
+     *                                                              certificate info
      */
     public function __construct(
         private readonly ServerConnection $server,
         private readonly OutboundAddressGuard $guard,
         private readonly ?float $deadline = null,
+        private readonly ?Closure $presentedPin = null,
     ) {}
+
+    /**
+     * Ports a WHM server may not use, the one rule for the server form (DriverMetadata::$refusedPorts) and for every
+     * call: the plain-HTTP panel ports, and every port below 1024 except 443.
+     *
+     * @return list<int>
+     */
+    public static function refusedPorts(): array
+    {
+        return [...array_values(array_diff(range(1, 1023), [443])), ...self::PLAIN_PORTS];
+    }
+
+    /**
+     * Seconds left before the operation's deadline (a large number when it has none).
+     */
+    public function secondsLeft(): int
+    {
+        return $this->deadline === null ? PHP_INT_MAX : (int) floor($this->deadline - microtime(true));
+    }
 
     public static function connectionUser(ServerConnection $server): string
     {
@@ -127,7 +151,7 @@ final class WhmClient
 
         $port = $this->port();
 
-        if (in_array($port, self::PLAIN_PORTS, true) || ($port < 1024 && $port !== 443)) {
+        if (in_array($port, self::refusedPorts(), true)) {
             throw WhmFailure::rejected("Port {$port} is not allowed for WHM: use 2087 (or 443 behind a proxy), so credentials always travel over TLS.", WhmFailure::CONFIG);
         }
 
@@ -147,13 +171,16 @@ final class WhmClient
     }
 
     /**
+     * A call that changes nothing. `post` sends it as a form POST all the same, for parameters that must stay out of
+     * the panel's access log (a token); its failures are still those of a read.
+     *
      * @param  array<string, scalar>  $params
      *
      * @throws WhmFailure
      */
-    public function read(string $function, array $params = []): WhmResponse
+    public function read(string $function, array $params = [], bool $post = false): WhmResponse
     {
-        return $this->call($function, $params, mutating: false);
+        return $this->call($function, $params, mutating: false, post: $post);
     }
 
     /**
@@ -191,19 +218,20 @@ final class WhmClient
      *
      * @throws WhmFailure
      */
-    private function call(string $function, array $params, bool $mutating): WhmResponse
+    private function call(string $function, array $params, bool $mutating, bool $post = false): WhmResponse
     {
+        $post = $post || $mutating;
         $address = $this->address();
         $this->requests[] = [
             'function' => $function,
-            'method' => $mutating ? 'POST' : 'GET',
+            'method' => $post ? 'POST' : 'GET',
             'params' => array_diff_key($params, array_flip(self::SECRET_PARAMS)),
         ];
         $url = sprintf('https://%s:%d/json-api/%s', str_contains($this->host(), ':') ? "[{$this->host()}]" : $this->host(), $this->port(), $function);
 
         try {
             $request = $this->guard->pin($this->pending($function), $address);
-            $response = $mutating
+            $response = $post
                 ? $request->asForm()->post($url.'?api.version=1', $params)
                 : $request->get($url, ['api.version' => 1, ...$params]);
         } catch (ConnectionException $exception) {
@@ -286,12 +314,15 @@ final class WhmClient
         return [
             CURLOPT_CERTINFO => true,
             CURLOPT_PREREQFUNCTION => function (\CurlHandle $handle) use ($pin): int {
-                $chain = curl_getinfo($handle, CURLINFO_CERTINFO);
-                $leaf = isset($chain[0]['Cert']) ? openssl_pkey_get_public($chain[0]['Cert']) : false;
-                $presented = $leaf === false ? null : CertificateInspector::spkiPin((string) (openssl_pkey_get_details($leaf)['key'] ?? ''));
+                // Fail closed: a callback that throws would let libcurl send the request anyway, so any error aborts.
+                try {
+                    $presented = ($this->presentedPin ?? self::presentedPinOf(...))($handle);
 
-                if ($presented !== null && hash_equals($pin, $presented)) {
-                    return CURL_PREREQFUNC_OK;
+                    if ($presented !== null && hash_equals($pin, $presented)) {
+                        return CURL_PREREQFUNC_OK;
+                    }
+                } catch (\Throwable) {
+                    // Treated as a mismatch below.
                 }
 
                 $this->pinMismatch = true;
@@ -299,6 +330,17 @@ final class WhmClient
                 return CURL_PREREQFUNC_ABORT;
             },
         ];
+    }
+
+    /**
+     * The SPKI pin of the leaf certificate the handshake presented, from curl's certificate info.
+     */
+    private static function presentedPinOf(\CurlHandle $handle): ?string
+    {
+        $chain = curl_getinfo($handle, CURLINFO_CERTINFO);
+        $leaf = isset($chain[0]['Cert']) ? openssl_pkey_get_public($chain[0]['Cert']) : false;
+
+        return $leaf === false ? null : CertificateInspector::spkiPin((string) (openssl_pkey_get_details($leaf)['key'] ?? ''));
     }
 
     /**
@@ -331,8 +373,12 @@ final class WhmClient
             throw WhmFailure::rejected($this->authMessage($body), WhmFailure::AUTH);
         }
 
-        if ($status >= 500) {
+        if ($status >= 500 || $status === 408) {
             throw $this->uncertain("{$where} answered HTTP {$status}", $mutating, WhmFailure::HTTP);
+        }
+
+        if ($status === 429) {
+            throw new WhmFailure("{$where} is limiting requests (HTTP 429); the action will be retried.", DriverOutcome::Retryable, WhmFailure::HTTP);
         }
 
         if ($status >= 400) {

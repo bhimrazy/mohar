@@ -52,6 +52,19 @@ test('a healthy root token passes every step and reports what it found', functio
         ->and(checklist($check)['Packages']['detail'])->toBe('4 packages can be assigned.');
 });
 
+test('the token reads its own permissions and expiry by POST, and the token never enters the log', function () {
+    Whm::fake(['api_token_get_details' => tokenWithout([], now()->addDays(30)->getTimestamp())]);
+
+    $check = app(CpanelDriver::class)->testConnection(Whm::server());
+
+    $request = Whm::sent('api_token_get_details')[0];
+    expect($request->method())->toBe('POST')
+        ->and($request->data())->toBe(['token' => Whm::TOKEN])
+        ->and($request->url())->not->toContain(Whm::TOKEN)
+        ->and($check->details['token_expires_at'])->toBe(now()->addDays(30)->startOfSecond()->toIso8601String())
+        ->and(checklist($check)['Permissions']['status'])->toBe('pass');
+});
+
 test('a token missing a required permission fails that line by name', function () {
     Whm::fake(['api_token_get_details' => tokenWithout(['kill-acct'])]);
 
@@ -92,6 +105,8 @@ test('a reseller token that cannot read itself falls back to its privileges and 
     $check = app(CpanelDriver::class)->testConnection(Whm::server(username: 'reseller1'));
 
     expect($check->ok)->toBeTrue()
+        ->and(checklist($check)['Permissions']['status'])->toBe('warn')
+        ->and(checklist($check)['Permissions']['detail'])->toContain("The token's own permissions and expiry could not be read")
         ->and($check->details['account_kind'])->toBe('reseller')
         ->and(checklist($check)['Account kind']['detail'])->toBe('Reseller connection: 12 active, 2 suspended, limit 50. Only accounts it owns are visible.');
 });
@@ -145,5 +160,28 @@ test('an untrusted certificate fails with its subject, issuer, expiry and finger
 test('there is no setting that turns certificate verification off', function () {
     $keys = array_map(fn ($field) => $field->key, app(CpanelDriver::class)->metadata()->serverFields);
 
-    expect($keys)->toBe(['login_method', 'spki_pin', 'sso_enabled', 'keep_dns_on_terminate', 'reserved_usernames']);
+    expect($keys)->toBe(['login_method', 'spki_pin', 'sso_enabled', 'keepdns_on_auto_terminate', 'reserved_usernames']);
+});
+
+test('an empty version fails the sign-in line plainly', function () {
+    Whm::fake(['version' => Whm::fixture('version', ['data' => ['version' => '']])]);
+
+    expect(checklist(app(CpanelDriver::class)->testConnection(Whm::server()))['Sign in'])->toBe(['status' => 'fail', 'detail' => 'Signed in, but WHM did not report its version.']);
+});
+
+test('test connection runs under its own deadline and sends nothing once it has passed', function () {
+    Whm::fake();
+    $driver = new class(app(CertificateInspector::class)) extends CpanelDriver
+    {
+        protected function interactiveSeconds(): int
+        {
+            return 1;
+        }
+    };
+
+    $check = $driver->testConnection(Whm::server());
+
+    expect($check->ok)->toBeFalse()
+        ->and($check->message)->toContain('ran out of time');
+    Http::assertNothingSent();
 });
