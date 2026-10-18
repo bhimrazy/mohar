@@ -1,0 +1,39 @@
+Mohar · Waiting for your reply
+
+Email not working on custom domain
+
+Sam from Technical Support replied to your ticket.
+
+Sam Rivera (Technical Support) · 18 Oct 2026, 11:02 am
+
+Hi Meera,
+
+Thanks for the screenshots, they helped. Your domain’s MX records still point to your previous host, so new mail never reaches the mailbox we set up.
+
+Please update these records at your DNS provider:
+
+    MX  10  mx1.example.net
+    MX  20  mx2.example.net
+
+Changes usually take effect within an hour. Reply here once they’re updated and I’ll check delivery from our side.
+
+Sam
+
+View reply: https://billing.example.com/support/tickets/482913
+
+Ticket      #482913
+Department  Technical Support
+Priority    Medium
+Opened      17 Oct 2026
+
+You can also reply to this email. Keep [#482913] in the subject so your reply reaches this ticket.
+
+Need help with something else? Visit the help centre to open a new ticket.
+
+--
+Mohar · Web hosting billing, sealed and settled.
+Mohar Cloud Pvt. Ltd., Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India
+Questions? Reply to this email or write to support@example.com
+Help centre: https://billing.example.com/support
+Email preferences: https://billing.example.com/account/email-preferences
+You’re receiving this because you opened ticket #482913.

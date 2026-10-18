@@ -20,7 +20,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-Planned merge order: #26 → #43 → #41 → #28 → #38. Each later PR adopts the kernel money formatter from #43.
+Planned merge order: #26 → #43 → #41 → #38 → #28. Later PRs adopt the kernel money formatter from #43; #28 adopts the date-format allowlist from #38.
 
 | PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
 | --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

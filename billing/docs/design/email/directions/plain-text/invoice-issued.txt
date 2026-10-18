@@ -1,0 +1,39 @@
+Mohar · Due in 14 days
+
+Amount due: ₹1,28,486.66
+Due 1 Nov 2026
+
+Hi Ananya,
+
+Here’s your invoice for the renewals starting 1 November.
+
+Pay ₹1,28,486.66: https://billing.example.com/invoices/INV-2026-0142/pay
+Download invoice: https://billing.example.com/invoices/INV-2026-0142.pdf
+Attached: Invoice-INV-2026-0142.pdf
+
+Invoice          INV-2026-0142
+Issued           18 Oct 2026
+Due              1 Nov 2026
+Billed to        Sharma Digital LLP, GSTIN 27AAKFS1234M1Z5
+Place of supply  Maharashtra (27)
+
+What you’re paying for
+- Dedicated Server DS-4 (1 Nov 2026 – 31 Oct 2027): ₹96,000.00
+- Business Hosting Plus (sharmadigital.in · 12 months): ₹11,988.00
+- Domain renewal (sharmadigital.in · 1 year): ₹899.00
+  Subtotal: ₹1,08,887.00
+  CGST 9%: ₹9,799.83
+  SGST 9%: ₹9,799.83
+  Total due: ₹1,28,486.66
+
+Our GSTIN is 27AABCM4321K1Z2. GST is split into CGST and SGST because we and your business are both in Maharashtra.
+
+Need a purchase order number or a different billing address on this invoice? Reply and we’ll reissue it.
+
+--
+Mohar · Web hosting billing, sealed and settled.
+Mohar Cloud Pvt. Ltd., Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India
+Questions? Reply to this email or write to support@example.com
+Help centre: https://billing.example.com/support
+Email preferences: https://billing.example.com/account/email-preferences
+You’re receiving this because you are the billing contact for Sharma Digital LLP.

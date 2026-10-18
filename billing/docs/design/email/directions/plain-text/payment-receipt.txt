@@ -1,0 +1,36 @@
+Mohar · Paid
+
+Amount paid: Rs 18,645.00
+18 Oct 2026, 2:14 pm
+
+Hi Suman,
+
+Thank you. We’ve received your payment, and invoice INV-2026-0139 is paid in full.
+
+Download receipt: https://billing.example.com/receipts/RCPT-2026-0311.pdf
+Download invoice: https://billing.example.com/invoices/INV-2026-0139.pdf
+Attached: Receipt-RCPT-2026-0311.pdf
+
+Receipt                RCPT-2026-0311
+Invoice                INV-2026-0139
+Payment method         Khalti wallet 98•••••421
+Khalti transaction ID  7xQ2mKpL9vR4
+Date                   18 Oct 2026, 2:14 pm NPT
+
+What you paid for
+- Cloud VPS 4 GB (vps.thapa.com.np · 12 months): Rs 16,500.00
+- Daily backups (vps.thapa.com.np · 12 months): Rs 2,145.00
+  Total paid: Rs 18,645.00
+  Still to pay: Rs 0.00
+
+Nothing more is due. Your Cloud VPS renews on 18 Oct 2027, and we’ll send that invoice two weeks before.
+
+Something not right? Reply to this email and our billing team will look into it.
+
+--
+Mohar · Web hosting billing, sealed and settled.
+Mohar Cloud Pvt. Ltd., Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India
+Questions? Reply to this email or write to support@example.com
+Help centre: https://billing.example.com/support
+Email preferences: https://billing.example.com/account/email-preferences
+You’re receiving this because a payment was made on your account.
