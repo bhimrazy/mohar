@@ -50,7 +50,7 @@ TPL;
         'day' => '2026-10-18',
     ], false);
 
-    expect($result->output)->toBe('open · A;B; · 12.50 USD · n/a · 18/10/2026');
+    expect($result->output)->toBe('open · A;B; · $12.50 · n/a · 18/10/2026');
 });
 
 it('treats PHP and Blade syntax in templates as plain text', function () {
@@ -117,3 +117,11 @@ it('keeps support subjects in the fixed ticket format', function () {
 
     expect($composed->subject)->toBe('[#123456] Mail down');
 });
+
+it('formats money with the currency symbol and lakh grouping for INR and NPR', function (string $currency, string $expected) {
+    expect((new TemplateEngine)->render("{{ amount | money('{$currency}') }}", ['amount' => 12345600], false)->output)->toBe($expected);
+})->with([
+    ['USD', '$123,456.00'],
+    ['INR', '₹1,23,456.00'],
+    ['NPR', 'Rs 1,23,456.00'],
+]);

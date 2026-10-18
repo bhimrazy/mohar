@@ -56,7 +56,7 @@ use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Support\EventKey;
-use App\Support\Money;
+use App\Modules\Notifications\Support\MoneyText;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
@@ -286,7 +286,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $this->clientMail('invoice.payment_confirmation', $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
             'payment' => [
-                'amount' => Money::of($event->amount, $event->currency)->format(),
+                'amount' => MoneyText::format($event->amount, $event->currency),
                 'date' => $transaction['date'] ?? now()->toDateString(),
                 'reference' => $transaction['reference'] ?? null,
                 'gateway' => $event->gateway,
@@ -308,7 +308,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     {
         $this->clientMail('invoice.refunded', $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
-            'refund' => ['amount' => Money::of($event->amount, $event->currency)->format()],
+            'refund' => ['amount' => MoneyText::format($event->amount, $event->currency)],
         ], $event, 'invoice', $event->invoiceId);
     }
 
@@ -533,7 +533,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function affiliateWithdrawalRequested(AffiliateWithdrawalRequested $event): void
     {
         $this->staffMail('staff.affiliate_withdrawal_request', StaffCategory::Account, [
-            'affiliate' => [...$this->context->resolve('affiliate', $event->affiliateId), 'withdrawal_amount' => Money::of($event->amount, $event->currency)->format()],
+            'affiliate' => [...$this->context->resolve('affiliate', $event->affiliateId), 'withdrawal_amount' => MoneyText::format($event->amount, $event->currency)],
         ], $event, null, 'affiliate', $event->affiliateId);
     }
 

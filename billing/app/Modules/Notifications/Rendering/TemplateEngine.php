@@ -2,7 +2,7 @@
 
 namespace App\Modules\Notifications\Rendering;
 
-use App\Support\Money;
+use App\Modules\Notifications\Support\MoneyText;
 use Carbon\CarbonImmutable;
 use Throwable;
 
@@ -397,7 +397,7 @@ final class TemplateEngine
         $currency = is_string($currency) && preg_match('/^[A-Za-z]{3}$/', $currency) ? strtoupper($currency) : ($this->options['currency'] ?? null);
 
         if ((is_int($value) || (is_string($value) && preg_match('/^-?\d+$/', $value))) && $currency !== null) {
-            return Money::of((int) $value, $currency)->format();
+            return MoneyText::format((int) $value, $currency);
         }
 
         return $value;
