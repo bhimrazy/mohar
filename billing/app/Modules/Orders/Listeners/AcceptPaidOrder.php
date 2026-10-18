@@ -8,6 +8,7 @@ use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 use DomainException;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 
 /**
@@ -17,8 +18,12 @@ use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
  */
 class AcceptPaidOrder implements ShouldHandleEventsAfterCommit
 {
+    /**
+     * AcceptOrder (and the Services/Domains registries behind it) is resolved only when an order invoice
+     * is to be accepted: other modules pay invoices without Orders' dependencies being bound.
+     */
     public function __construct(
-        private AcceptOrder $accept,
+        private Container $container,
         private Settings $settings,
     ) {}
 
@@ -35,7 +40,7 @@ class AcceptPaidOrder implements ShouldHandleEventsAfterCommit
         }
 
         try {
-            $this->accept->handle($order, invoiceStatus: 'paid');
+            $this->container->make(AcceptOrder::class)->handle($order, invoiceStatus: 'paid');
         } catch (DomainException) {
             // Accepted concurrently (staff or another payment event) - nothing left to do.
         }
