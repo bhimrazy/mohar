@@ -20,11 +20,17 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-| PR  | Workstream             | Status (2026-10-18 05:50 UTC)                                                                                                                                                                                          |
-| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #26 | Nepal payments         | Review board, security and re-review passed (Ready to merge). Combined QA, design and product review running; merge after it.                                                                                          |
-| #28 | Notifications          | Draft. Engineer applying CTO decisions (auth mail via events, no passwords in mail, dedup by event id, Reply-To and support address). Reviews follow. Visual email design replaced later from the email design review. |
-| #38 | Product polish sweep 1 | Draft. Breadcrumbs, date format setting, help pages in the client area, home page, plus 6 smaller fixes. Review waiting for CPU.                                                                                       |
+Planned merge order: #26 → #43 → #41 → #28 → #38. Each later PR adopts the kernel money formatter from #43.
+
+| PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
+| --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #26 | Nepal payments         | Board, security and re-review passed. Combined QA, design and product review running; merges after it.                                             |
+| #43 | Currencies             | Gates green on SQLite and PostgreSQL. Engineer applying CTO decisions (NRB rate type, market-rate seeds, manual-rate stale warning). Reviews next. |
+| #41 | Dashboard v2           | Gates green. Designer fixing NPR to "Rs", historical-rate "All" total, Slate chart colours, duplicate counters. Reviews next.                      |
+| #28 | Notifications          | Engineer applying CTO decisions (auth mail via events, no passwords, dedup by event id, Reply-To, From name, subject style). Reviews next.         |
+| #38 | Product polish sweep 1 | Review board running.                                                                                                                              |
+
+Merged since the last update: #40 (doc images optimised with sharp, 50 MB → 18 MB, CI image size check).
 
 ## In progress
 
