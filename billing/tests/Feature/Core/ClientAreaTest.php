@@ -99,3 +99,11 @@ test('new users and their client accounts store the email lowercase', function (
     expect($user->email)->toBe('jane.doe@example.com')
         ->and($user->clients()->sole()->email)->toBe('jane.doe@example.com');
 });
+
+test('user emails are stored lowercase on every write path', function () {
+    $user = User::factory()->create(['email' => 'Mixed.Case@Example.COM']);
+    expect($user->fresh()->email)->toBe('mixed.case@example.com');
+
+    $user->update(['email' => '  Another@Example.com ']);
+    expect($user->fresh()->email)->toBe('another@example.com');
+});

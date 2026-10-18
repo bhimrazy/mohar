@@ -9,6 +9,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -86,6 +87,17 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'must_change_password' => 'boolean',
             'password_changed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Emails are stored lowercase on every write path (registration, profile, staff edits) so unique
+     * indexes behave the same on PostgreSQL as on SQLite.
+     *
+     * @return Attribute<string, string>
+     */
+    protected function email(): Attribute
+    {
+        return Attribute::make(set: fn (string $value): string => mb_strtolower(trim($value)));
     }
 
     /**
