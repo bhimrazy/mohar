@@ -121,7 +121,7 @@ class PlatformSeeder extends DemoSeeder
             $source = $sources[$currency->code] ?? 'manual';
             $current = (float) $currency->exchange_rate;
 
-            foreach (range(89, 1) as $daysAgo) {
+            foreach (range(89, 2) as $daysAgo) {
                 $drift = 0.012 * sin($daysAgo / 9) + 0.004 * cos($daysAgo / 3);
                 ExchangeRateHistory::query()->create([
                     'currency' => $currency->code,
