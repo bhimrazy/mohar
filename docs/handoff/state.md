@@ -6,8 +6,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
-  image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59) and
-  Currencies (#43).
+  image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
+  Currencies (#43), the production install path (#57) and Dashboard v2 (#41).
 - Progress toward "a product a host would switch to": about 50/100 (independent Fable review, 2026-10-18). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,14 +21,12 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #57 → #41 → #28; #58 independent)
+## Open pull requests (merge order: #28; #58 independent)
 
-| PR  | Workstream                   | Status                                                                                                                                                                                               |
-| --- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #57 | Install path (`app:install`) | Board round-1 fixes done (raw one-time password, admin lock, role keys, create-once currencies, backups). Rebasing on #43, then merge.                                                               |
-| #41 | Dashboard v2                 | Rebasing on #43/#53/#59, then re-review.                                                                                                                                                             |
-| #28 | Notifications                | Fixing the B1 sign-off items (links from APP_URL, fail-closed fallback, no filter arguments, sensitive fields by type). Rebases last.                                                                |
-| #58 | Stripe gateway               | Hosted checkout, webhooks via attempt settlement, refunds, disputes. Review and security running; saved-cards design under architecture review. Real sandbox run needs the owner's Stripe test keys. |
+| PR  | Workstream     | Status                                                                                                                                                                                                                                                                                                          |
+| --- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #28 | Notifications  | B1 round-3 security sign-off running on `e060200`. Then the engineer merges develop (#57, #41), applies the install-templates installer, and it merges.                                                                                                                                                         |
+| #58 | Stripe gateway | Review round-1 fixes pushed (cards and wallets only, refund reconciliation, smoke key from env or prompt). Needs a short re-check and the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) designed and architect-checked on `feature/payments-stripe-saved-methods`, built after #58 merges. |
 
 ## In progress
 
