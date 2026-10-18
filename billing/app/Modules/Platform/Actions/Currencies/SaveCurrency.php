@@ -205,11 +205,13 @@ class SaveCurrency
      */
     public function defaultBlocker(Currency $currency, bool $documentsExist): ?string
     {
-        return match (true) {
+        $reason = match (true) {
             $currency->is_default => __('Already the default'),
             $documentsExist => __('Not possible once invoices or payments exist'),
             default => null,
         };
+
+        return is_string($reason) ? $reason : null;
     }
 
     /**
@@ -218,7 +220,7 @@ class SaveCurrency
     public function deleteBlocker(Currency $currency, int $clients): ?string
     {
         if ($currency->is_default) {
-            return __('The default currency can\'t be deleted');
+            return trans_choice('The default currency can\'t be deleted', 1);
         }
 
         if ($clients > 0) {
@@ -226,12 +228,12 @@ class SaveCurrency
         }
 
         if ($this->invoices->hasDocumentsInCurrency($currency->code)) {
-            return __('Used by invoices or payments');
+            return trans_choice('Used by invoices or payments', 1);
         }
 
         foreach ($this->converters->all() as $converter) {
             if ($converter->usesCurrency($currency->code)) {
-                return __('Has prices: :prices', ['prices' => $converter->label()]);
+                return trans_choice('Has prices: :prices', 1, ['prices' => $converter->label()]);
             }
         }
 
