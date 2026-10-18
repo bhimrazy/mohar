@@ -25,6 +25,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     sent: 'success',
     online: 'success',
     resolved: 'success',
+    pass: 'success',
     success: 'success',
     succeeded: 'success',
     healthy: 'success',
@@ -40,6 +41,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     'partially-paid': 'warning',
     'payment-pending': 'warning',
     scheduled: 'warning',
+    review: 'warning',
     identified: 'warning',
 
     // Needs attention / money at risk
@@ -52,6 +54,8 @@ const STATUS_TONES: Record<string, StatusTone> = {
     failed: 'danger',
     outage: 'danger',
     reversed: 'danger',
+    fail: 'danger',
+    error: 'danger',
 
     // In motion / informational
     refunded: 'info',
@@ -69,6 +73,7 @@ const STATUS_TONES: Record<string, StatusTone> = {
     'on-hold': 'neutral',
     'transferred-away': 'neutral',
     hidden: 'neutral',
+    skipped: 'neutral',
 
     // Not yet issued
     draft: 'outline',
