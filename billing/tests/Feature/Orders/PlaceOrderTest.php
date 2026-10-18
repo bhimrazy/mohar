@@ -26,6 +26,7 @@ use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CheckoutGateways;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Validation\ValidationException;
@@ -334,6 +335,51 @@ it('does not give a free domain for TLDs outside the offer', function () {
     app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1, 'annually', 'acme.net', 'register')]));
 
     expect($this->fakes->domains->created[array_key_first($this->fakes->domains->created)]->firstPaymentAmount)->toBe(1300);
+});
+
+it('re-checks custom fields at checkout when the catalog rules changed', function () {
+    $this->fakes->catalog->addProduct(1);
+    $this->fakes->catalog->customFields[1] = [['id' => 7, 'name' => 'Hostname', 'type' => 'text', 'required' => true, 'options' => [], 'regex' => '/^[a-z0-9.-]+\.[a-z]{2,}$/i']];
+    $item = new CartItem(CartItem::newKey(), CartItemKind::Product, productId: 1, cycle: BillingCycle::Monthly, customFields: [7 => 'web01']);
+
+    app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [$item]));
+})->throws(ValidationException::class, 'Hostname is not in the expected format.');
+
+it('asks the fraud provider before opening the order transaction', function () {
+    $this->fakes->catalog->addProduct(1);
+    $seen = new ArrayObject;
+    $baseline = DB::transactionLevel();
+    app()->instance(RulesFraudChecker::class, new class($seen) extends RulesFraudChecker
+    {
+        public function __construct(private ArrayObject $seen) {}
+
+        public function check(FraudContext $context): FraudResult
+        {
+            $this->seen['level'] = DB::transactionLevel();
+            $this->seen['context'] = $context;
+
+            return new FraudResult(FraudDecision::Pass);
+        }
+    });
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]))->order;
+
+    expect($seen['level'])->toBe($baseline)
+        ->and($seen['context']->orderId)->toBeNull()
+        ->and($seen['context']->total)->toBe(1000)
+        ->and($seen['context']->timeoutMs)->toBe(5000)
+        ->and($order->fraud_decision)->toBe(FraudDecision::Pass)
+        ->and($order->fraudChecks()->count())->toBe(1);
+});
+
+it('counts the order being placed against the pending-orders limit', function () {
+    config(['orders.fraud.max_pending_orders' => 1]);
+    $this->fakes->catalog->addProduct(1);
+    Order::factory()->for($this->client)->create();
+
+    $order = app(PlaceOrder::class)->handle(OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]))->order;
+
+    expect($order->fraud_decision)->toBe(FraudDecision::Fail);
 });
 
 it('passes custom field values to the service keyed by field id', function () {

@@ -29,14 +29,16 @@ class RulesFraudChecker implements FraudChecker
         $maxPending = (int) $this->settings->get('orders.fraud.max_pending_orders', 3);
         $maxPerIp = (int) $this->settings->get('orders.fraud.max_orders_per_ip', 5);
 
-        $pending = Order::query()->where('client_id', $context->clientId)->where('status', OrderStatus::Pending)->count();
+        // Before checkout stores the order, count it too.
+        $unstored = $context->isStored() ? 0 : 1;
+        $pending = ($context->clientId === null ? 0 : Order::query()->where('client_id', $context->clientId)->where('status', OrderStatus::Pending)->count()) + $unstored;
 
         if ($maxPending > 0 && $pending > $maxPending) {
             $reasons[] = "Client has {$pending} pending orders (limit {$maxPending}).";
         }
 
         if ($context->ipAddress !== null && $maxPerIp > 0) {
-            $fromIp = Order::query()->where('ip_address', $context->ipAddress)->where('created_at', '>=', now()->subDay())->count();
+            $fromIp = Order::query()->where('ip_address', $context->ipAddress)->where('created_at', '>=', now()->subDay())->count() + $unstored;
 
             if ($fromIp > $maxPerIp) {
                 $reasons[] = "{$fromIp} orders from this IP address in 24 hours (limit {$maxPerIp}).";

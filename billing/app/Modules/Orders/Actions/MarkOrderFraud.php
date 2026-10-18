@@ -39,7 +39,7 @@ class MarkOrderFraud
     }
 
     /**
-     * Flag the order and its live items without side effects (the checkout uses this inside its
+     * Flag the order and its pending items without side effects (the checkout uses this inside its
      * transaction and dispatches OrderMarkedFraud after commit).
      */
     public function flag(Order $order): void
@@ -48,8 +48,8 @@ class MarkOrderFraud
             throw new DomainException(__('Only pending or active orders can be marked as fraud.'));
         }
 
-        $order->items()
-            ->whereIn('status', [OrderItemStatus::Pending, OrderItemStatus::Active])
-            ->update(['status' => OrderItemStatus::Fraud]);
+        // Only items that never went live are flagged; activated services stay active (Services decides
+        // whether to suspend them on OrderMarkedFraud) so set-pending + accept can never provision them again.
+        $order->items()->where('status', OrderItemStatus::Pending)->update(['status' => OrderItemStatus::Fraud]);
     }
 }

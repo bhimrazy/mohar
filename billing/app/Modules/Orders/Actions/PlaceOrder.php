@@ -24,6 +24,8 @@ use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderItemType;
 use App\Modules\Orders\Enums\OrderKind;
 use App\Modules\Orders\Enums\OrderStatus;
+use App\Modules\Orders\Fraud\FraudAssessment;
+use App\Modules\Orders\Fraud\FraudContext;
 use App\Modules\Orders\Fraud\FraudScreening;
 use App\Modules\Orders\Jobs\ProvisionOrderItem;
 use App\Modules\Orders\Models\Order;
@@ -103,8 +105,11 @@ class PlaceOrder
 
         $this->validateGateway($data);
 
+        // Ask the fraud provider before opening the transaction: a slow provider must never hold locks.
+        $assessment = $this->fraud->assess($this->fraudContext($data), $data->skipFraud, $data->client);
+
         /** @var array{0: Order, 1: ?User, 2: bool, 3: FraudDecision} $result */
-        $result = DB::transaction(fn (): array => $this->persist($data, $fingerprint));
+        $result = DB::transaction(fn (): array => $this->persist($data, $fingerprint, $assessment));
 
         [$order, $user, $hadActiveService, $decision] = $result;
 
@@ -184,6 +189,25 @@ class PlaceOrder
         }
     }
 
+    /**
+     * What the fraud provider sees before the order is stored (no order id; no client id for a sign-up).
+     */
+    private function fraudContext(CheckoutData $data): FraudContext
+    {
+        $client = $data->client;
+        $currency = $client->currency ?? $data->currency;
+
+        return new FraudContext(
+            orderId: null,
+            clientId: $client?->id,
+            email: $client->email ?? mb_strtolower($data->registration['email'] ?? ''),
+            ipAddress: $data->ipAddress,
+            country: $client->country ?? ($data->registration['country'] ?? null),
+            total: $this->pricer->price($data->items, $currency, $data->promotionCode, $client, $data->priceOverrides)->total(),
+            currency: $currency,
+        );
+    }
+
     private function validateGateway(CheckoutData $data): void
     {
         if ($data->items === []) {
@@ -207,7 +231,7 @@ class PlaceOrder
     /**
      * @return array{0: Order, 1: ?User, 2: bool, 3: FraudDecision}
      */
-    private function persist(CheckoutData $data, string $fingerprint): array
+    private function persist(CheckoutData $data, string $fingerprint, FraudAssessment $assessment): array
     {
         $user = null;
         $client = $data->client;
@@ -261,9 +285,9 @@ class PlaceOrder
             $this->redeem($promotion, $order, $client, $cart, $billableIds);
         }
 
-        // Screen before the invoice exists: a failed check must not mail a "pay now" invoice or spend credit,
-        // and a zero-total invoice (paid on issue) must find the decision when InvoicePaid is handled.
-        $decision = $this->fraud->screen($order, $data->skipFraud);
+        // Record the decision before the invoice exists: a failed check must not mail a "pay now" invoice or
+        // spend credit, and a zero-total invoice (paid on issue) must find the decision when InvoicePaid is handled.
+        $decision = $this->fraud->record($order, $assessment);
 
         if ($decision === FraudDecision::Fail) {
             $this->markFraud->flag($order);

@@ -46,7 +46,7 @@ it('registers a new client, places the order and signs them in', function () {
     ]));
 
     $order = Order::query()->sole();
-    $response->assertRedirect(route('store.checkout.complete', $order));
+    $response->assertRedirect(route('client.invoices.show', $order->invoice_id));
 
     $client = Client::query()->sole();
     $user = User::query()->where('email', 'ada@example.com')->sole();
@@ -115,6 +115,15 @@ it('places an order for a signed-in client with notes and the referral cookie', 
     Event::assertDispatched(OrderPlaced::class, fn (OrderPlaced $event) => $event->referralCode === 'PARTNER7');
 });
 
+it('sends the customer to the confirmation page when configured', function () {
+    config(['orders.checkout_redirect' => 'complete_page']);
+    [, $client] = actingAsClient();
+    OrdersFakes::cartFor($client, [OrdersFakes::productItem(1)]);
+
+    $this->post(route('store.checkout.store'), checkoutPayload())
+        ->assertRedirect(route('store.checkout.complete', Order::query()->sole()));
+});
+
 it('captures ?ref= into the referral cookie', function () {
     Currency::factory()->create();
 
@@ -139,7 +148,7 @@ it('returns the first order on a double submit', function () {
     $this->post(route('store.checkout.store'), $payload);
     $order = Order::query()->sole();
 
-    $this->post(route('store.checkout.store'), $payload)->assertRedirect(route('store.checkout.complete', $order));
+    $this->post(route('store.checkout.store'), $payload)->assertRedirect(route('client.invoices.show', $order->invoice_id));
     expect(Order::query()->count())->toBe(1);
 });
 

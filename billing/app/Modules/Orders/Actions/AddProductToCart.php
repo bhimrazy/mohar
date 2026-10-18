@@ -10,6 +10,7 @@ use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Cart;
 use App\Modules\Orders\Pricing\CartPricer;
+use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
 use Illuminate\Validation\ValidationException;
 
@@ -22,6 +23,7 @@ class AddProductToCart
     public function __construct(
         private PriceBook $priceBook,
         private CartPricer $pricer,
+        private CustomFieldRules $customFieldRules,
         private Settings $settings,
     ) {}
 
@@ -140,23 +142,13 @@ class AddProductToCart
      */
     private function customFields(int $productId, array $input, array &$errors): array
     {
-        $values = [];
+        $checked = $this->customFieldRules->check($productId, $input);
 
-        foreach ($this->priceBook->customFieldsFor($productId) as $field) {
-            $value = trim((string) ($input[$field['id']] ?? ''));
-
-            if ($value === '' && $field['required']) {
-                $errors["custom_fields.{$field['id']}"] = __('Enter :field.', ['field' => $field['name']]);
-            } elseif ($value !== '' && $field['options'] !== [] && ! in_array($value, $field['options'], true)) {
-                $errors["custom_fields.{$field['id']}"] = __('Choose one of the listed options for :field.', ['field' => $field['name']]);
-            } elseif (mb_strlen($value) > 1000) {
-                $errors["custom_fields.{$field['id']}"] = __(':field must be 1000 characters or fewer.', ['field' => $field['name']]);
-            } elseif ($value !== '') {
-                $values[$field['id']] = $value;
-            }
+        foreach ($checked['errors'] as $fieldId => $message) {
+            $errors["custom_fields.{$fieldId}"] = $message;
         }
 
-        return $values;
+        return $checked['values'];
     }
 
     /**

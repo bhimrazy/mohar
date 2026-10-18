@@ -2,10 +2,9 @@
 
 namespace App\Modules\Orders\Jobs;
 
-use App\Contracts\Services\ServiceRegistry;
-use App\Modules\Orders\Enums\OrderItemStatus;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\OrderItem;
+use App\Modules\Orders\Services\ItemProvisioner;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -24,17 +23,14 @@ class ProvisionOrderItem implements ShouldQueue
 
     public function __construct(public int $orderItemId) {}
 
-    public function handle(ServiceRegistry $services): void
+    public function handle(ItemProvisioner $provisioner): void
     {
         $item = OrderItem::query()->with('order')->find($this->orderItemId);
 
-        if ($item === null || $item->item_id === null || $item->status !== OrderItemStatus::Pending
-            || in_array($item->order->status, [OrderStatus::Fraud, OrderStatus::Cancelled], true)) {
+        if ($item === null || in_array($item->order->status, [OrderStatus::Fraud, OrderStatus::Cancelled], true)) {
             return;
         }
 
-        if ($services->provision($item->item_id)->success) {
-            $item->update(['status' => OrderItemStatus::Active]);
-        }
+        $provisioner->provision($item->id);
     }
 }

@@ -15,6 +15,7 @@ use App\Modules\Orders\Enums\CartItemKind;
 use App\Modules\Orders\Models\Promotion;
 use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\CurrencyConverter;
+use App\Modules\Orders\Services\CustomFieldRules;
 use App\Modules\Orders\Services\DomainGuard;
 
 /**
@@ -34,6 +35,7 @@ class CartPricer
         private CompanyClock $clock,
         private Settings $settings,
         private DomainGuard $domainGuard,
+        private CustomFieldRules $customFieldRules,
     ) {}
 
     /**
@@ -69,6 +71,10 @@ class CartPricer
 
         if ($product->stock !== null && $product->stock <= 0) {
             $priced->errors[] = __(':product is out of stock.', ['product' => $product->name]);
+        }
+
+        foreach ($this->customFieldRules->check($product->id, $item->customFields)['errors'] as $message) {
+            $priced->errors[] = $message;
         }
 
         if ($product->requiresDomain && $item->domain() === null) {

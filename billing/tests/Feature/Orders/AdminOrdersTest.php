@@ -207,6 +207,22 @@ describe('fraud', function () {
         Event::assertDispatched(OrderMarkedFraud::class);
     });
 
+    it('never provisions a live service again after fraud, set pending and accept', function () {
+        actingAsStaff(['orders.orders.accept', 'orders.orders.mark_fraud']);
+        $order = placeAdminTestOrder($this->client);
+        $item = $order->items()->sole();
+
+        $this->post(route('admin.orders.accept', $order), ['run_create' => [$item->id]]);
+        $this->post(route('admin.orders.fraud', $order));
+        expect($item->fresh()->status)->toBe(OrderItemStatus::Active);
+
+        $this->post(route('admin.orders.pending', $order));
+        $this->post(route('admin.orders.accept', $order), ['run_create' => [$item->id]]);
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Active)
+            ->and($this->fakes->services->provisioned)->toBe([$item->item_id]);
+    });
+
     it('re-issues the cancelled invoice when a fraud order is set back to pending', function () {
         actingAsStaff(['orders.orders.mark_fraud']);
         $promotion = Promotion::factory()->percent('10')->create();

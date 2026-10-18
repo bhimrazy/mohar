@@ -2,6 +2,7 @@
 
 namespace App\Modules\Orders\Fraud;
 
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Enums\FraudDecision;
 use App\Modules\Orders\Models\FraudCheck;
@@ -11,8 +12,8 @@ use Illuminate\Contracts\Container\Container;
 use Throwable;
 
 /**
- * Runs the configured fraud provider for an order and records the result. Existing clients may be
- * skipped; provider errors and timeouts become "error", treated as review when failing open.
+ * Runs the configured fraud provider and records the result. Existing clients may be skipped; provider
+ * errors and timeouts become "error", treated as review when failing open.
  */
 class FraudScreening
 {
@@ -36,27 +37,20 @@ class FraudScreening
     }
 
     /**
-     * Screen the order, store a fraud_checks row and the decision on the order.
+     * Ask the provider about a checkout. Runs outside any DB transaction (a slow provider never holds
+     * locks); the provider gets the configured timeout and an overrun counts as an error.
      */
-    public function screen(Order $order, bool $skip = false): FraudDecision
+    public function assess(FraudContext $context, bool $skip = false, ?Client $client = null): FraudAssessment
     {
         $checker = $this->checker();
-        $client = $order->client;
         $started = hrtime(true);
+        $timeoutMs = (int) $this->settings->get('orders.fraud.timeout_ms', 5000);
 
-        if ($skip || ($this->settings->get('orders.fraud.skip_for_existing_clients', true) && $this->eligibility->hasActiveService($client))) {
+        if ($skip || ($client !== null && $this->settings->get('orders.fraud.skip_for_existing_clients', true) && $this->eligibility->hasActiveService($client))) {
             $result = new FraudResult(FraudDecision::Skipped, reasons: [$skip ? 'Skipped by staff.' : 'Existing client with an active service.']);
         } else {
             try {
-                $result = $checker->check(new FraudContext(
-                    orderId: $order->id,
-                    clientId: $client->id,
-                    email: $client->email,
-                    ipAddress: $order->ip_address,
-                    country: $client->country,
-                    total: $order->total,
-                    currency: $order->currency,
-                ));
+                $result = $checker->check(new FraudContext(...[...get_object_vars($context), 'timeoutMs' => $timeoutMs]));
             } catch (Throwable $exception) {
                 report($exception);
                 $result = new FraudResult(FraudDecision::Error, reasons: ['Fraud provider error: '.class_basename($exception)]);
@@ -65,28 +59,56 @@ class FraudScreening
 
         $durationMs = (int) ((hrtime(true) - $started) / 1_000_000);
 
-        if ($result->decision !== FraudDecision::Error && $durationMs > (int) $this->settings->get('orders.fraud.timeout_ms', 5000)) {
-            $result = new FraudResult(FraudDecision::Error, $result->score, ["Fraud check exceeded the {$durationMs} ms timeout."], $result->raw);
+        if ($result->decision !== FraudDecision::Error && $durationMs > $timeoutMs) {
+            $result = new FraudResult(FraudDecision::Error, $result->score, ["Fraud check exceeded the {$timeoutMs} ms timeout ({$durationMs} ms)."], $result->raw);
         }
+
+        return new FraudAssessment($checker->name(), $result, $durationMs);
+    }
+
+    /**
+     * Store the assessment on the order (fraud_checks row + order columns) and return how it is acted upon.
+     */
+    public function record(Order $order, FraudAssessment $assessment): FraudDecision
+    {
+        $result = $assessment->result;
 
         FraudCheck::query()->create([
             'order_id' => $order->id,
-            'provider' => $checker->name(),
+            'provider' => $assessment->provider,
             'score' => $result->score,
             'decision' => $result->decision,
             'reasons' => $result->reasons,
             'raw' => $result->raw,
-            'duration_ms' => $durationMs,
+            'duration_ms' => $assessment->durationMs,
         ]);
 
         $order->forceFill([
-            'fraud_provider' => $checker->name(),
+            'fraud_provider' => $assessment->provider,
             'fraud_score' => $result->score,
             'fraud_decision' => $result->decision,
             'fraud_payload' => ['reasons' => $result->reasons],
         ])->save();
 
         return $this->effectiveDecision($result->decision);
+    }
+
+    /**
+     * Assess and record a stored order (staff re-run).
+     */
+    public function screen(Order $order, bool $skip = false): FraudDecision
+    {
+        $client = $order->client;
+
+        return $this->record($order, $this->assess(new FraudContext(
+            orderId: $order->id,
+            clientId: $client->id,
+            email: $client->email,
+            ipAddress: $order->ip_address,
+            country: $client->country,
+            total: $order->total,
+            currency: $order->currency,
+        ), $skip, $client));
     }
 
     /**

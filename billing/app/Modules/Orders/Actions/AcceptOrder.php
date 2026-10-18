@@ -2,8 +2,6 @@
 
 namespace App\Modules\Orders\Actions;
 
-use App\Contracts\Domains\DomainRegistry;
-use App\Contracts\Services\ServiceRegistry;
 use App\Events\Orders\OrderAccepted;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Orders\Enums\OrderItemStatus;
@@ -11,6 +9,7 @@ use App\Modules\Orders\Enums\OrderItemType;
 use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
+use App\Modules\Orders\Services\ItemProvisioner;
 use DomainException;
 use Throwable;
 
@@ -23,8 +22,7 @@ use Throwable;
 class AcceptOrder
 {
     public function __construct(
-        private ServiceRegistry $services,
-        private DomainRegistry $domains,
+        private ItemProvisioner $provisioner,
         private ActivityLogger $activity,
     ) {}
 
@@ -60,14 +58,8 @@ class AcceptOrder
         $failures = [];
 
         foreach ($order->items()->whereIn('id', $runCreate)->where('status', OrderItemStatus::Pending)->orderBy('id')->get() as $item) {
-            if ($item->item_id === null || $item->item_type === OrderItemType::Addon) {
-                continue;
-            }
-
             try {
-                $result = $item->item_type === OrderItemType::Domain
-                    ? $this->domains->process($item->item_id)
-                    : $this->services->provision($item->item_id);
+                $result = $this->provisioner->provision($item->id);
             } catch (Throwable $exception) {
                 report($exception);
                 $failures[] = "{$item->description}: ".__('provisioning error.');
@@ -75,9 +67,7 @@ class AcceptOrder
                 continue;
             }
 
-            if ($result->success) {
-                $item->update(['status' => OrderItemStatus::Active]);
-            } else {
+            if ($result !== null && ! $result->success) {
                 $failures[] = "{$item->description}: ".($result->message ?? __('provisioning failed.'));
             }
         }

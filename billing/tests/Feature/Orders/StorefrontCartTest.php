@@ -141,6 +141,46 @@ describe('cart', function () {
             ->assertSessionHasErrors(['years' => 'Choose one of the registration periods offered for .com.']);
     });
 
+    it('checks custom fields against the catalog regex, like a server hostname', function () {
+        $this->fakes->catalog->customFields[1] = [[
+            'id' => 5, 'name' => 'Hostname', 'type' => 'text', 'required' => true, 'options' => [],
+            'regex' => '/^[a-z0-9.-]+\.[a-z]{2,}$/i', 'description' => 'Fully qualified, e.g. server1.example.com',
+        ]];
+
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'custom_fields' => [5 => 'not a hostname']])
+            ->assertSessionHasErrors(['custom_fields.5' => 'Hostname is not in the expected format. Fully qualified, e.g. server1.example.com']);
+
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'custom_fields' => [5 => 'server1.example.com']])
+            ->assertSessionHasNoErrors();
+        expect(Cart::query()->sole()->cartItems()[0]->customFields)->toBe([5 => 'server1.example.com']);
+    });
+
+    it('rejects a field whose catalog regex is invalid instead of skipping the check', function () {
+        $this->fakes->catalog->customFields[1] = [['id' => 5, 'name' => 'Hostname', 'type' => 'text', 'required' => false, 'options' => [], 'regex' => '/[unclosed']];
+
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'custom_fields' => [5 => 'web01']])
+            ->assertSessionHasErrors(['custom_fields.5' => 'Hostname cannot be checked right now. Contact us to complete this order.']);
+    });
+
+    it('never accepts admin-only fields from customers', function () {
+        $this->fakes->catalog->customFields[1] = [['id' => 6, 'name' => 'Internal notes', 'type' => 'textarea', 'required' => true, 'options' => [], 'admin_only' => true]];
+
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'custom_fields' => [6 => 'let me in']])
+            ->assertSessionHasNoErrors();
+
+        expect(Cart::query()->sole()->cartItems()[0]->customFields)->toBe([]);
+    });
+
+    it('validates link and checkbox fields by type', function () {
+        $this->fakes->catalog->customFields[1] = [
+            ['id' => 7, 'name' => 'Website', 'type' => 'link', 'required' => false, 'options' => []],
+            ['id' => 8, 'name' => 'Accept the AUP', 'type' => 'checkbox', 'required' => true, 'options' => []],
+        ];
+
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly', 'custom_fields' => [7 => 'example dot com']])
+            ->assertSessionHasErrors(['custom_fields.7', 'custom_fields.8' => 'Tick Accept the AUP to continue.']);
+    });
+
     it('stores the EPP code encrypted', function () {
         $this->post(route('store.cart.domains.store'), ['domain' => 'acme.com', 'action' => 'transfer', 'years' => 1, 'epp_code' => 'SECRET-EPP'])
             ->assertRedirect(route('store.cart'));
