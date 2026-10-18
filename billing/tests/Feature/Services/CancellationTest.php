@@ -58,6 +58,22 @@ test('submitting a request stops renewals and cancels unpaid renewal invoices of
         ->and($service->refresh()->do_not_renew)->toBeTrue();
 });
 
+test('AC24: cancelling renewals cancels this service and its addons only, never another service of the client', function () {
+    $service = Service::factory()->dueOn('2026-11-15')->create();
+    $addon = ServiceAddon::factory()->dueOn('2026-11-15')->create(['service_id' => $service->id]);
+    $other = Service::factory()->dueOn('2026-11-15')->create(['client_id' => $service->client_id]);
+    $otherAddon = ServiceAddon::factory()->dueOn('2026-11-15')->create(['service_id' => $other->id]);
+    $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
+
+    requestCancellation($service, CancellationType::EndOfPeriod, '2026-11-02');
+
+    $status = fn (BillableType $type, int $id) => array_column($this->kit->invoicer->invoicesFor($type, $id), 'status');
+    expect($status(BillableType::Service, $service->id))->toBe(['cancelled'])
+        ->and($status(BillableType::ServiceAddon, $addon->id))->toBe(['cancelled'])
+        ->and($status(BillableType::Service, $other->id))->toBe(['unpaid'])
+        ->and($status(BillableType::ServiceAddon, $otherAddon->id))->toBe(['unpaid']);
+});
+
 test('only one open request per service is allowed', function () {
     $service = Service::factory()->create();
     requestCancellation($service, CancellationType::Immediate, '2026-11-02');
