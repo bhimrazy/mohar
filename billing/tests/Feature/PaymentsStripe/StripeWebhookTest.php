@@ -1,0 +1,204 @@
+<?php
+
+use App\Events\Billing\InvoicePaid;
+use App\Events\Billing\PaymentReversed;
+use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\GatewayLog;
+use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Models\Transaction;
+use App\Modules\PaymentsStripe\Drivers\StripeDriver;
+use App\Modules\PaymentsStripe\Support\WebhookSignature;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
+
+require_once __DIR__.'/helpers.php';
+
+beforeEach(function () {
+    Http::preventStrayRequests();
+    stripeGateway();
+});
+
+/**
+ * A started Stripe payment whose PaymentIntent Stripe reports as succeeded.
+ *
+ * @param  array<string, mixed>  $intent  PaymentIntent fields to override
+ * @param  array<string, mixed>  $session  Checkout Session fields to override
+ * @return array{0: Invoice, 1: PaymentAttempt}
+ */
+function paidStripeAttempt(array $intent = [], array $session = [], int $intentStatus = 200): array
+{
+    [, $invoice, $attempt] = startStripe();
+    $metadata = ['mohar_reference' => $attempt->reference, 'mohar_invoice_id' => (string) $invoice->id];
+    Http::fake([
+        STRIPE_API.'payment_intents/'.STRIPE_INTENT => $intentStatus === 200
+            ? Http::response(stripeFixture('payment_intent_succeeded', array_replace_recursive(['metadata' => $metadata], $intent)))
+            : Http::response(['error' => ['type' => 'api_error', 'message' => 'Something went wrong']], $intentStatus),
+        STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'*' => Http::response(stripePaidSession($attempt, ['payment_intent' => $intent, ...$session])),
+    ]);
+
+    return [$invoice, $attempt];
+}
+
+function stripeRetrieves(): int
+{
+    return Http::recorded(fn (Request $request) => $request->method() === 'GET')->count();
+}
+
+test('a webhook is processed only with a valid, fresh signature, before anything is retrieved or stored', function (Closure $deliver, int $status, string $result) {
+    [$invoice] = paidStripeAttempt();
+    $before = stripeRetrieves();
+
+    $deliver(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertStatus($status);
+
+    expect(GatewayLog::query()->where('direction', 'callback')->latest('id')->first()->result)->toBe($result);
+
+    if ($status !== 200) {
+        expect(stripeRetrieves())->toBe($before)
+            ->and(Transaction::query()->where('gateway', StripeDriver::KEY)->count())->toBe(0)
+            ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+            ->and(json_encode(GatewayLog::query()->latest('id')->first()->payload))->not->toContain(STRIPE_INTENT);
+    }
+})->with([
+    'valid' => [fn (array $event) => postStripeWebhook($event), 200, 'payment recorded'],
+    'tampered body' => [function (array $event) {
+        $header = WebhookSignature::header((string) json_encode($event), STRIPE_WEBHOOK_SECRET, time());
+        $event['data']['object']['id'] = 'pi_3MoharOtherIntent9';
+
+        return postStripeWebhook($event, header: $header);
+    }, 403, 'invalid signature'],
+    'wrong secret' => [fn (array $event) => postStripeWebhook($event, secret: 'whsec_SomebodyElsesSecret000000'), 403, 'invalid signature'],
+    'test-scheme signature only' => [fn (array $event) => postStripeWebhook($event, header: 't='.time().',v0='.WebhookSignature::sign((string) json_encode($event), STRIPE_WEBHOOK_SECRET, time())), 403, 'invalid signature'],
+    'missing header' => [fn (array $event) => postStripeWebhook($event, header: ''), 403, 'invalid signature'],
+    'stale (6 minutes old)' => [fn (array $event) => postStripeWebhook($event, timestamp: time() - 360), 422, 'stale signature timestamp'],
+    'from the future' => [fn (array $event) => postStripeWebhook($event, timestamp: time() + 360), 422, 'stale signature timestamp'],
+    'live event for a test gateway' => [fn (array $event) => postStripeWebhook([...$event, 'livemode' => true]), 422, 'event from the other Stripe mode'],
+]);
+
+test('one of several v1 signatures may match while a secret is being rolled', function () {
+    paidStripeAttempt();
+    $body = (string) json_encode(stripeEvent('payment_intent.succeeded', STRIPE_INTENT));
+    $header = 't='.time().',v1='.WebhookSignature::sign($body, 'whsec_TheOldSecretBeingRolled0000', time()).',v1='.WebhookSignature::sign($body, STRIPE_WEBHOOK_SECRET, time());
+
+    postStripeWebhook($body, header: $header)->assertOk();
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->count())->toBe(1);
+});
+
+test('the payment is recorded from the retrieved PaymentIntent, never from the posted body', function () {
+    [$invoice] = paidStripeAttempt();
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT, ['amount_received' => 999_999, 'currency' => 'eur', 'metadata' => ['mohar_invoice_id' => '999']]))->assertOk();
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->sole())->invoice_id->toBe($invoice->id)->amount_in->toBe(2_500)->gateway_txn_id->toBe(STRIPE_INTENT)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET' && $request->url() === STRIPE_API.'payment_intents/'.STRIPE_INTENT);
+});
+
+test('a PaymentIntent whose amount or currency differs from what we requested is rejected', function (array $intent) {
+    [$invoice] = paidStripeAttempt($intent);
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertStatus(422);
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->count())->toBe(0)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(GatewayLog::query()->latest('id')->first()->result)->toBe('amount or currency differs from the payment we requested');
+})->with([
+    'amount' => [['amount_received' => 2_000]],
+    'currency' => [['currency' => 'eur']],
+]);
+
+test('replays, duplicate events, the return route and the poller record the payment once', function () {
+    Event::fake([InvoicePaid::class]);
+    [$invoice, $attempt] = paidStripeAttempt();
+
+    $intentEvent = stripeEvent('payment_intent.succeeded', STRIPE_INTENT);
+    postStripeWebhook($intentEvent)->assertOk()->assertJson(['result' => 'payment recorded']);
+    postStripeWebhook($intentEvent)->assertOk()->assertJson(['result' => 'duplicate']);
+    postStripeWebhook(stripeEvent('checkout.session.completed', STRIPE_SESSION, eventId: 'evt_1MoharEvent0002'))->assertOk()->assertJson(['result' => 'duplicate']);
+    $this->get(route('billing.gateways.return', [StripeDriver::KEY, 'ref' => $attempt->reference]));
+    $this->travel(10)->minutes();
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->transaction_id->toBe(Transaction::query()->sole()->id);
+    Event::assertDispatchedTimes(InvoicePaid::class, 1);
+});
+
+test('the session webhook settles a payment whose customer never came back', function () {
+    [$invoice] = paidStripeAttempt();
+
+    postStripeWebhook(stripeEvent('checkout.session.completed', STRIPE_SESSION))->assertOk()->assertJson(['result' => 'payment recorded']);
+
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET' && str_starts_with($request->url(), STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'?expand'));
+});
+
+test('events that move no money are acknowledged and logged', function (string $type, string $objectId) {
+    [$invoice] = paidStripeAttempt(session: ['payment_status' => 'unpaid']);
+
+    postStripeWebhook(stripeEvent($type, $objectId))->assertOk()->assertJson(['result' => 'ignored event type']);
+
+    expect(Transaction::query()->count())->toBe(0)->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(GatewayLog::query()->latest('id')->first()->payload['type'])->toStartWith('stripe '.$type);
+})->with([
+    'failed attempt inside Checkout' => ['payment_intent.payment_failed', STRIPE_INTENT],
+    'expired session' => ['checkout.session.expired', STRIPE_SESSION],
+    'unpaid session completion' => ['checkout.session.completed', STRIPE_SESSION],
+    'charge.refunded (refund.created is used)' => ['charge.refunded', 'ch_3MoharCharge0001'],
+]);
+
+test('Stripe being unreachable during the retrieve makes Stripe deliver the event again', function () {
+    Sleep::fake();
+    paidStripeAttempt(intentStatus: 500);
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertStatus(422);
+
+    expect(Transaction::query()->count())->toBe(0)
+        ->and(Http::recorded(fn (Request $request) => str_contains($request->url(), 'payment_intents/'))->count())->toBe(3);
+});
+
+test('a refund made in the Stripe Dashboard is recorded once from refund.created', function () {
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001' => Http::response(stripeFixture('refund'))]);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0003'))->assertOk()->assertJson(['result' => 'refund recorded']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0004'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->amount_out->toBe(1_000)->gateway_txn_id->toBe('re_3MoharRefund0001')
+        ->and(Transaction::query()->where('type', TransactionType::Payment)->sole()->refundable_remaining)->toBe(1_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('refund webhooks for refunds made from our admin, or not yet succeeded, book nothing', function (array $refund) {
+    paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001' => Http::response(stripeFixture('refund', $refund))]);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0005'))->assertOk()->assertJson(['result' => 'ignored event type']);
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(0);
+})->with([
+    'made from the admin' => [['metadata' => ['mohar_origin' => 'admin']]],
+    'pending' => [['status' => 'pending']],
+]);
+
+test('a dispute is recorded as a chargeback and flags the invoice for staff', function () {
+    Event::fake([PaymentReversed::class]);
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001' => Http::response(stripeFixture('dispute'))]);
+
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0006'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0006'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->sole())->gateway_txn_id->toBe('du_1MoharDispute0001')
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
+    Event::assertDispatchedTimes(PaymentReversed::class, 1);
+});
