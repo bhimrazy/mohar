@@ -8,6 +8,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\Server;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use InvalidArgumentException;
 
@@ -46,20 +47,30 @@ class ServerSettings
         foreach ($this->fields($driverKey) as $field) {
             // A secret counts as stored only when it was stored for this driver: switching drivers drops the old values.
             $stored = $field->isSecret() && $server?->driver === $driverKey && (string) ($server->settings[$field->key] ?? '') !== '';
-            $rules["settings.{$field->key}"] = [
-                $field->required && ! $stored && $field->type !== FieldType::Boolean ? 'required' : 'nullable',
-                ...match ($field->type) {
-                    FieldType::Number => ['numeric'],
-                    FieldType::Boolean => [Rule::in(['0', '1', 'true', 'false', 0, 1, true, false])],
-                    FieldType::Url => ['url', 'max:2000'],
-                    FieldType::Select => $field->optionsSource === null ? [Rule::in(array_map('strval', array_keys($field->options)))] : ['string', 'max:255'],
-                    FieldType::Text, FieldType::SecretText => ['string', 'max:20000'],
-                    default => ['string', 'max:2000'],
-                },
-            ];
+            $rules["settings.{$field->key}"] = $this->fieldRules($field, $stored);
         }
 
         return $rules;
+    }
+
+    /**
+     * Validation rules of one setting by its type.
+     *
+     * @return list<mixed>
+     */
+    private function fieldRules(SettingField $field, bool $stored): array
+    {
+        return [
+            $field->required && ! $stored && $field->type !== FieldType::Boolean ? 'required' : 'nullable',
+            ...match ($field->type) {
+                FieldType::Number => ['numeric'],
+                FieldType::Boolean => [Rule::in(['0', '1', 'true', 'false', 0, 1, true, false])],
+                FieldType::Url => ['url', 'max:2000'],
+                FieldType::Select => $field->optionsSource === null ? [Rule::in(array_map('strval', array_keys($field->options)))] : ['string', 'max:255'],
+                FieldType::Text, FieldType::SecretText => ['string', 'max:20000'],
+                default => ['string', 'max:2000'],
+            },
+        ];
     }
 
     /**
@@ -121,6 +132,11 @@ class ServerSettings
     {
         $field = collect($this->fields($server->driver))->first(fn (SettingField $field): bool => $field->key === $key)
             ?? throw new InvalidArgumentException("The {$server->driver} driver declares no server setting [{$key}].");
+        $validator = Validator::make(['value' => $value], ['value' => $this->fieldRules($field, stored: false)]);
+
+        if ($validator->fails()) {
+            throw new InvalidArgumentException("Invalid value for the {$server->driver} server setting [{$key}]: ".$validator->errors()->first('value'));
+        }
 
         DB::transaction(function () use ($server, $field, $key, $value, $reason): void {
             $locked = Server::query()->lockForUpdate()->findOrFail($server->id);

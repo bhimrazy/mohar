@@ -9,6 +9,7 @@ use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesDriverBinding;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesPriceMatrix;
 use App\Modules\Catalog\Models\Addon;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -16,7 +17,7 @@ use Illuminate\Validation\Validator;
 
 class AddonRequest extends FormRequest
 {
-    use ValidatesDriverBinding, ValidatesPriceMatrix;
+    use KeepsSecretsOutOfOldInput, ValidatesDriverBinding, ValidatesPriceMatrix;
 
     public function authorize(): bool
     {
