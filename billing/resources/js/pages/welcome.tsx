@@ -1,6 +1,8 @@
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Form, Head, Link, usePage } from '@inertiajs/react';
+import { Globe, Search } from 'lucide-react';
 import { BrandLogo } from '@/components/brand-logo';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { dashboard, login, register } from '@/routes';
 import store from '@/routes/store';
 import { index as kb } from '@/routes/support/kb';
@@ -24,7 +26,12 @@ export default function Welcome() {
                             { label: 'Domains', href: store.domains.url() },
                             { label: 'Support', href: kb.url() },
                         ].map((link) => (
-                            <Button key={link.label} asChild variant="ghost" size="sm">
+                            <Button
+                                key={link.label}
+                                asChild
+                                variant="ghost"
+                                size="sm"
+                            >
                                 <Link href={link.href}>{link.label}</Link>
                             </Button>
                         ))}
@@ -60,14 +67,30 @@ export default function Welcome() {
                         Pick a plan, find a domain, or log in to manage your
                         services and pay an invoice.
                     </p>
-                    <div className="flex flex-wrap gap-3">
-                        <Button asChild size="lg">
-                            <Link href={store.index.url()}>Browse plans</Link>
+                    <Form
+                        {...store.domains.form()}
+                        className="flex w-full max-w-xl flex-col gap-2 sm:flex-row"
+                    >
+                        <div className="relative flex-1">
+                            <Globe
+                                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                                aria-hidden="true"
+                            />
+                            <Input
+                                name="domain"
+                                placeholder="Find your domain, e.g. mybusiness.com"
+                                aria-label="Domain name"
+                                className="h-11 bg-background pl-9"
+                            />
+                        </div>
+                        <Button type="submit" size="lg" className="h-11">
+                            <Search aria-hidden="true" />
+                            Search domains
                         </Button>
+                    </Form>
+                    <div className="flex flex-wrap gap-3">
                         <Button asChild size="lg" variant="outline">
-                            <Link href={store.domains.url()}>
-                                Search domains
-                            </Link>
+                            <Link href={store.index.url()}>Browse plans</Link>
                         </Button>
                         <Button asChild size="lg" variant="ghost">
                             <Link href={auth.user ? dashboard() : login()}>
