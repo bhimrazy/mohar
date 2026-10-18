@@ -1,6 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { ShoppingCart } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { PageWidthContext } from '@/components/app/page';
 import AppLogoIcon from '@/components/app-logo-icon';
 import { Button } from '@/components/ui/button';
 import {
@@ -210,9 +211,10 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 </div>
             </header>
 
-            {/* Align page content with the header and footer (max-w-6xl). */}
-            <main className="flex-1 [&_[data-slot=page]:not(.max-w-3xl)]:max-w-6xl">
-                {children}
+            <main className="flex-1">
+                <PageWidthContext.Provider value="max-w-6xl">
+                    {children}
+                </PageWidthContext.Provider>
             </main>
 
             <footer className="border-t bg-muted/30">

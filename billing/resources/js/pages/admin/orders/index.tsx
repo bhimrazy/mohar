@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Plus, ShoppingCart } from 'lucide-react';
 import { useState } from 'react';
 import OrderController from '@/actions/App/Modules/Orders/Http/Controllers/Admin/OrderController';

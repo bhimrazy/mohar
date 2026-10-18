@@ -1,4 +1,5 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Field } from '@/components/app/field';
 import { StatusBadge } from '@/components/app/status-badge';
 import { FormActions } from '@/components/app/form-actions';

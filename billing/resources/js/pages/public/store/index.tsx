@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Check, Globe, Search } from 'lucide-react';
 import { Money } from '@/components/app/money';
 import { StorefrontHero } from '@/components/orders/storefront-hero';

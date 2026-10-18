@@ -1,4 +1,5 @@
-import { Head, usePage } from '@inertiajs/react';
+import { usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { DashboardWidgets } from '@/components/app/dashboard-widgets';
 import type { DashboardWidget } from '@/components/app/dashboard-widgets';
 import type { TodoItem } from '@/components/app/needs-attention';

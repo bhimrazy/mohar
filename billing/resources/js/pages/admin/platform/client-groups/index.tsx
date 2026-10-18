@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Pencil, Plus, Tag, Trash2 } from 'lucide-react';
 import ClientGroupController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/ClientGroupController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';

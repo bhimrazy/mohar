@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Percent, Plus } from 'lucide-react';
 import PromotionController from '@/actions/App/Modules/Orders/Http/Controllers/Admin/PromotionController';
 import { DataTable } from '@/components/app/data-table';

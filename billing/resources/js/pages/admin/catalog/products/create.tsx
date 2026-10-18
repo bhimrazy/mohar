@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import ProductController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ProductController';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';

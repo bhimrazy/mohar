@@ -1,4 +1,5 @@
 import { Link } from '@inertiajs/react';
+import { ChevronLeft } from 'lucide-react';
 import { Fragment } from 'react';
 import {
     Breadcrumb,
@@ -15,11 +16,33 @@ export function Breadcrumbs({
 }: {
     breadcrumbs: BreadcrumbItemType[];
 }) {
+    // Phones show one compact link back to the nearest linked level instead of the trail.
+    const back = breadcrumbs
+        .slice(0, -1)
+        .reverse()
+        .find((item) => item.href !== undefined);
+
     return (
         <>
             {breadcrumbs.length > 0 && (
                 <Breadcrumb>
                     <BreadcrumbList>
+                        {back?.href !== undefined && (
+                            <BreadcrumbItem className="sm:hidden">
+                                <BreadcrumbLink asChild>
+                                    <Link
+                                        href={back.href}
+                                        className="inline-flex items-center gap-1"
+                                    >
+                                        <ChevronLeft
+                                            className="size-4"
+                                            aria-hidden="true"
+                                        />
+                                        {back.title}
+                                    </Link>
+                                </BreadcrumbLink>
+                            </BreadcrumbItem>
+                        )}
                         {breadcrumbs.map((item, index) => {
                             const isLast = index === breadcrumbs.length - 1;
 
@@ -27,9 +50,9 @@ export function Breadcrumbs({
                                 <Fragment key={index}>
                                     <BreadcrumbItem
                                         className={
-                                            isLast
+                                            isLast && !back
                                                 ? 'min-w-0'
-                                                : 'hidden sm:inline-flex'
+                                                : 'hidden min-w-0 sm:inline-flex'
                                         }
                                     >
                                         {isLast ? (

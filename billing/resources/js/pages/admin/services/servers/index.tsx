@@ -1,4 +1,5 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     Boxes,
     MoreHorizontal,

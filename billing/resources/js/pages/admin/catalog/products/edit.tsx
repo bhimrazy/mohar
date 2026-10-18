@@ -1,4 +1,5 @@
-import { Head, router } from '@inertiajs/react';
+import { router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { MoreHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import ProductController from '@/actions/App/Modules/Catalog/Http/Controllers/Admin/ProductController';

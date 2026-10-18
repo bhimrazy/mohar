@@ -59,17 +59,3 @@ export function resolveBreadcrumbs({
 
     return trail;
 }
-
-/** "Products · Mohar" -> "Products" (see the title callback in app.tsx). */
-export function pageTitleFromDocument(
-    documentTitle: string,
-    brandName: string | undefined,
-): string | null {
-    const suffix = brandName ? ` · ${brandName}` : null;
-
-    if (suffix && documentTitle.endsWith(suffix)) {
-        return documentTitle.slice(0, -suffix.length) || null;
-    }
-
-    return documentTitle === brandName ? null : documentTitle || null;
-}

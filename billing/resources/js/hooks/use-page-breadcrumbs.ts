@@ -1,41 +1,25 @@
 import { usePage } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
-import { pageTitleFromDocument, resolveBreadcrumbs } from '@/lib/breadcrumbs';
+import { useSyncExternalStore } from 'react';
+import { resolveBreadcrumbs } from '@/lib/breadcrumbs';
+import { getPageTitle, subscribePageTitle } from '@/lib/page-title';
 import type { BreadcrumbItem } from '@/types';
 
-/** The document title, kept in sync as Inertia's <Head> updates it. */
-function useDocumentTitle(): string {
-    const [title, setTitle] = useState(() =>
-        typeof document === 'undefined' ? '' : document.title,
-    );
-
-    useEffect(() => {
-        const update = () => setTitle(document.title);
-        const observer = new MutationObserver(update);
-        observer.observe(document.head, {
-            childList: true,
-            subtree: true,
-            characterData: true,
-        });
-        update();
-
-        return () => observer.disconnect();
-    }, []);
-
-    return title;
-}
-
-/** Declared breadcrumbs, completed from the sidebar and the page title. */
+/** Declared breadcrumbs, completed from the sidebar and the page's own title. */
 export function usePageBreadcrumbs(
     declared: BreadcrumbItem[],
 ): BreadcrumbItem[] {
     const { url, props } = usePage();
-    const documentTitle = useDocumentTitle();
+    const pageTitle = useSyncExternalStore(
+        subscribePageTitle,
+        getPageTitle,
+        getPageTitle,
+    );
 
     return resolveBreadcrumbs({
         declared,
         navigation: props.navigation ?? [],
         currentUrl: url,
-        pageTitle: pageTitleFromDocument(documentTitle, props.brand?.name),
+        // A title recorded for another URL belongs to the previous page.
+        pageTitle: pageTitle.url === url ? pageTitle.title : null,
     });
 }

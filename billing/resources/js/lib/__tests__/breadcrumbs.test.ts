@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pageTitleFromDocument, resolveBreadcrumbs } from '../breadcrumbs';
+import { resolveBreadcrumbs } from '../breadcrumbs';
 
 const navigation = [
     {
@@ -115,15 +115,5 @@ describe('resolveBreadcrumbs', () => {
                 pageTitle: null,
             }),
         ).toEqual([]);
-    });
-});
-
-describe('pageTitleFromDocument', () => {
-    it.each([
-        ['Products · Mohar', 'Mohar', 'Products'],
-        ['Mohar', 'Mohar', null],
-        ['', 'Mohar', null],
-    ])('reads %s', (documentTitle, brand, expected) => {
-        expect(pageTitleFromDocument(documentTitle, brand)).toBe(expected);
     });
 });
