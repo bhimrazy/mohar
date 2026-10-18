@@ -51,6 +51,29 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 Waves: modules with no dependency on each other run in parallel. With the current machine, at most two
 engineers build at once; reviewers are lighter and can overlap.
 
+## Gates by PR type (from the 2026-10-18 Fable review)
+
+Use the smallest set that fits; more reviewers on a small PR waste time without catching more.
+
+| PR type                            | Reviews before merge                                                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Docs or process only               | CI; `slop-reviewer` only for new handoff docs                                                                                          |
+| UI polish, no migrations or money  | `review-board` (with the product-standards checklist) + CI                                                                             |
+| Feature with migrations            | `review-board` + `database-reviewer` (+ `security-reviewer` for auth, money or external input) → one batched fix round → `re-reviewer` |
+| Shared kernel or ADR               | `principal-architect` + `review-board`                                                                                                 |
+| Driver (gateway, panel, registrar) | `review-board` + `security-reviewer` + contract-test dataset + a recorded real sandbox run in the PR body                              |
+
+- `qa-design-reviewer` and `product-reviewer` overlap. Use `product-reviewer` (it includes QA) for user-facing
+  PRs, and sweep `develop` once per wave rather than every PR.
+- The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
+- Specs are written before the build starts, and briefs cite `product-standards.md`.
+- PR size cap is about 3,000 changed lines; split larger work before review.
+- Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
+  `ci` label so PostgreSQL CI runs before review.
+- Batch handoff and standards doc edits per session instead of one commit per line.
+
+## Gates
+
 ## Gates
 
 Run from the worktree's `billing/` directory with `export XDEBUG_MODE=off`:
