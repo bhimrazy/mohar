@@ -7,14 +7,18 @@ use Closure;
 use Illuminate\Http\Client\PendingRequest;
 
 /**
- * Guards outbound connections to hosts staff type in (control panel servers, registrar and gateway endpoints)
- * against server-side request forgery. resolve() looks the host up once, refuses it when any of its addresses is
- * loopback, unspecified, link-local, a cloud metadata address, multicast or reserved (private ranges are a policy
- * option), and returns the one IP to use; pin() makes an HTTP request connect to exactly that IP and follow no
- * redirects, so DNS rebinding cannot swap the target after the check.
+ * Guards outbound connections to hosts that staff or clients type in (control panel servers, registrar and gateway
+ * endpoints, webhooks) against server-side request forgery (ADR 0015).
  *
- * Callers own their policy: whether private ranges are allowed (a panel on the billing server's LAN is normal),
- * whether loopback is allowed (local development only), and which ports make sense for the protocol.
+ * resolve() looks the host up once and refuses it when any of its addresses is not a public unicast address under
+ * the install-wide policy (config `integrations.outbound`): loopback, unspecified, link-local, cloud metadata and
+ * host endpoints, multicast, broadcast, reserved and benchmark ranges are always refused; private ranges and
+ * loopback only when the policy says so. IPv6 is allow-listed (global unicast 2000::/3, plus ULA or ::1 when the
+ * policy allows them), and every IPv6 form that carries an IPv4 address (mapped, compatible, 6to4, NAT64) is judged
+ * by that IPv4 address. Teredo and local-use NAT64 are refused outright.
+ *
+ * pin() makes an HTTP request connect to exactly the checked IP, bypass any proxy configured for the process (a proxy
+ * would resolve the name again and defeat the pin), and follow no redirects.
  *
  * @api
  */
@@ -24,14 +28,17 @@ final class OutboundAddressGuard
     private const REFUSED = [
         'unspecified' => ['0.0.0.0/8', '::/128'],
         'link-local' => ['169.254.0.0/16', 'fe80::/10'],
-        'metadata' => ['100.100.100.200/32', 'fd00:ec2::254/128'],
+        'cloud metadata' => ['100.100.100.200/32', '168.63.129.16/32', 'fd00:ec2::254/128'],
         'multicast' => ['224.0.0.0/4', 'ff00::/8'],
-        'reserved' => ['240.0.0.0/4', '192.0.0.0/24', '2001:db8::/32'],
+        'reserved' => ['240.0.0.0/4', '192.0.0.0/24', '198.18.0.0/15', '2001:db8::/32'],
+        'tunnelled' => ['2001::/32', '64:ff9b:1::/48'],
     ];
 
     private const LOOPBACK = ['127.0.0.0/8', '::1/128'];
 
     private const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', 'fc00::/7'];
+
+    private const GLOBAL_UNICAST_V6 = ['2000::/3'];
 
     /**
      * @param  (Closure(string): list<string>)|null  $resolver  host => IPs; defaults to DNS A and AAAA records
@@ -41,7 +48,7 @@ final class OutboundAddressGuard
     /**
      * @throws OutboundAddressRefused
      */
-    public function resolve(string $host, int $port, bool $allowPrivate = true, bool $allowLoopback = false): ResolvedAddress
+    public function resolve(string $host, int $port): ResolvedAddress
     {
         $host = strtolower(trim($host, " \t\n\r\0\x0B[]"));
 
@@ -49,21 +56,23 @@ final class OutboundAddressGuard
             throw new OutboundAddressRefused("Port {$port} is not a valid port.");
         }
 
-        if ($host === '' || (filter_var($host, FILTER_VALIDATE_IP) === false && preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $host) !== 1)) {
+        $literal = filter_var($host, FILTER_VALIDATE_IP) !== false;
+
+        if ($host === '' || (! $literal && preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $host) !== 1)) {
             throw new OutboundAddressRefused("\"{$host}\" is not a valid host name.");
         }
 
-        $ips = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : ($this->resolver ?? $this->lookup(...))($host);
+        $ips = $literal ? [$host] : ($this->resolver ?? $this->lookup(...))($host);
 
         if ($ips === []) {
             throw new OutboundAddressRefused("{$host} could not be resolved.");
         }
 
         foreach ($ips as $ip) {
-            $reason = $this->refusal($ip, $allowPrivate, $allowLoopback);
+            $reason = $this->refusal($ip);
 
             if ($reason !== null) {
-                throw new OutboundAddressRefused($ip === $host ? "{$host} is a {$reason} address, which is not allowed." : "{$host} resolves to {$ip}, a {$reason} address, which is not allowed.");
+                throw new OutboundAddressRefused($literal ? "{$host} is a {$reason} address, which is not allowed." : "{$host} resolves to {$ip}, a {$reason} address, which is not allowed.");
             }
         }
 
@@ -71,17 +80,20 @@ final class OutboundAddressGuard
     }
 
     /**
-     * Connect to the checked IP only, and never follow a redirect.
+     * Connect to the checked IP only, never through a proxy, and never follow a redirect.
      */
     public function pin(PendingRequest $request, ResolvedAddress $address): PendingRequest
     {
-        return $request->withoutRedirecting()->withOptions(['curl' => [CURLOPT_RESOLVE => [$address->curlResolve()]]]);
+        return $request->withoutRedirecting()->withOptions([
+            'proxy' => '',
+            'curl' => [CURLOPT_RESOLVE => [$address->curlResolve()], CURLOPT_NOPROXY => '*'],
+        ]);
     }
 
     /**
-     * Why an address is refused under the policy, or null when it is allowed.
+     * Why an address is refused under the install policy, or null when it is allowed.
      */
-    public function refusal(string $ip, bool $allowPrivate = true, bool $allowLoopback = false): ?string
+    public function refusal(string $ip): ?string
     {
         $binary = @inet_pton($ip);
 
@@ -89,30 +101,59 @@ final class OutboundAddressGuard
             return 'malformed';
         }
 
-        // IPv4-mapped (::ffff:a.b.c.d) and NAT64 (64:ff9b::a.b.c.d) addresses are judged by the IPv4 address inside.
-        if (strlen($binary) === 16 && (str_starts_with($binary, str_repeat("\0", 10)."\xff\xff") || str_starts_with($binary, "\x00\x64\xff\x9b".str_repeat("\0", 8)))) {
-            $binary = substr($binary, 12);
+        $embedded = $this->embeddedIpv4($binary);
+
+        if ($embedded !== null) {
+            $reason = $this->refusalOf($embedded);
+
+            return $reason === null ? null : "{$reason} (inside an IPv6 address)";
         }
 
+        return $this->refusalOf($binary);
+    }
+
+    private function refusalOf(string $binary): ?string
+    {
         foreach (self::REFUSED as $reason => $ranges) {
             if ($this->inAny($binary, $ranges)) {
                 return $reason;
             }
         }
 
-        if (! $allowLoopback && $this->inAny($binary, self::LOOPBACK)) {
-            return 'loopback';
+        if ($this->inAny($binary, self::LOOPBACK)) {
+            return config('integrations.outbound.allow_loopback', false) ? null : 'loopback';
         }
 
-        if (! $allowPrivate && $this->inAny($binary, self::PRIVATE)) {
-            return 'private';
+        if ($this->inAny($binary, self::PRIVATE)) {
+            return config('integrations.outbound.allow_private_addresses', true) ? null : 'private';
         }
 
-        if ($binary === "\xff\xff\xff\xff") {
-            return 'broadcast';
+        if (strlen($binary) === 16 && ! $this->inAny($binary, self::GLOBAL_UNICAST_V6)) {
+            return 'non-global';
         }
 
         return null;
+    }
+
+    /**
+     * The IPv4 address an IPv6 address carries: IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible (::a.b.c.d), NAT64
+     * (64:ff9b::a.b.c.d) and 6to4 (2002:aabb:ccdd::).
+     */
+    private function embeddedIpv4(string $binary): ?string
+    {
+        if (strlen($binary) !== 16) {
+            return null;
+        }
+
+        $zeros = str_repeat("\0", 10);
+
+        return match (true) {
+            str_starts_with($binary, $zeros."\xff\xff") => substr($binary, 12),
+            str_starts_with($binary, $zeros."\0\0") && ! in_array(substr($binary, 12), ["\0\0\0\0", "\0\0\0\1"], true) => substr($binary, 12),
+            str_starts_with($binary, "\x00\x64\xff\x9b".str_repeat("\0", 8)) => substr($binary, 12),
+            str_starts_with($binary, "\x20\x02") => substr($binary, 2, 4),
+            default => null,
+        };
     }
 
     /**

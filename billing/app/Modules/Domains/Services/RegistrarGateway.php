@@ -119,13 +119,23 @@ class RegistrarGateway
             'domain_id' => $domain?->id,
             'registrar_key' => $registrarKey,
             'command' => $command,
-            'request' => $this->redactor->redact($request),
-            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response)),
+            'request' => $this->redactor->redact($request, sensitiveKeys: self::codeKeys($command)),
+            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, sensitiveKeys: self::codeKeys($command))),
             'success' => $success,
             'error' => $error,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
             'staff_id' => $staffId,
         ]);
+    }
+
+    /**
+     * In EPP code and transfer calls a bare `code` key is the domain's transfer secret; elsewhere it is an error code.
+     *
+     * @return list<string>
+     */
+    private static function codeKeys(string $command): array
+    {
+        return in_array($command, ['epp', 'transfer'], true) ? ['code'] : [];
     }
 
     /**

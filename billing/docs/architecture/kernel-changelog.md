@@ -13,14 +13,17 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   (for example `remote:packages`) lets a select take its options from the remote system (cPanel spec K2).
 - Added `App\Contracts\Integrations\IntegrationDriver` (`key()`, `name()`), the identity every driver family shares.
 - Added `App\Support\Integrations\DriverRegistry`, the base of the kernel-owned driver registries (ADR 0012 shape).
-- Added `App\Support\Integrations\Redactor`. It merges Services' redactor with the Domains registrar key lists and
-  adds `api-key`, `passwd`, `signature`, `session` and `cp_security_token`, a value pattern for cPanel `cpsess…`
-  tokens, per-payload extra keys (`sensitiveKeys: ['url']` for SSO answers) and `excerpt()` for raw driver output
-  (redacted, capped at 4 KB). The mask is now `[redacted]` everywhere (Services logs used `***`).
+- Added `App\Support\Integrations\Redactor`, the one redaction rule for the gateway log, the module log and the
+  registrar command log (Services' redactor, the Domains registrar key lists and Billing's `GatewayLogger` rules,
+  merged). Keys are matched by word (`api_key`, `ApiKey`, `X-Api-Key` alike; `author` and `country_code` stay
+  visible); objects are read as arrays before matching; Luhn-valid card numbers and cPanel `cpsess…` tokens are
+  masked in any string; a payload can name extra secret keys (`sensitiveKeys: ['url']` for SSO answers, `['code']`
+  for EPP code answers); `excerpt()` makes raw driver output safe (redacted, 4 KB). The mask is `[redacted]`
+  everywhere (Services logs used `***`), and `[redacted-pan]` for card numbers.
 - Added `App\Support\Integrations\OutboundAddressGuard` with `App\Data\Integrations\ResolvedAddress` and
-  `OutboundAddressRefused`: resolves a staff-entered host once, refuses loopback, unspecified, link-local, metadata,
-  multicast and reserved addresses (private ranges are a caller policy), and pins the HTTP request to the checked IP
-  with redirects off.
+  `OutboundAddressRefused` (ADR 0015, proposed). `resolve(host, port)` applies the install-wide policy in
+  `config/integrations.php`, refuses non-public addresses (IPv6 allow-listed, embedded IPv4 judged), and `pin()` binds
+  the request to the checked IP, bypasses proxies and follows no redirects.
 - **Breaking:** moved `App\Data\Billing\ConnectionCheck` to `App\Data\Integrations\ConnectionCheck`.
 - **Breaking:** moved `App\Contracts\Billing\ProvidesLogo` to `App\Contracts\Integrations\ProvidesLogo`, and renamed
   `App\Data\Billing\GatewayLogo` to `App\Data\Integrations\IntegrationLogo`. Khalti and eSewa are updated.

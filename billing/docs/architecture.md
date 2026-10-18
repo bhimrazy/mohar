@@ -68,11 +68,13 @@ Settings, connection checks, logos and log redaction are shared by every driver 
   `SettingField::fromArray()` until the gateway family is aligned.
 - `Data\Integrations\ConnectionCheck` is the result of any credential test.
 - `Contracts\Integrations\ProvidesLogo` (returning `Data\Integrations\IntegrationLogo`) lets any driver ship a logo.
-- `Support\Integrations\Redactor` masks secrets in module and registrar logs. The host calls it on what drivers
-  return; drivers never call it. `excerpt()` makes raw provider output safe to show staff (redacted, 4 KB).
-- `Support\Integrations\OutboundAddressGuard` checks every connection to a host staff typed in (SSRF): resolve once,
-  refuse loopback, link-local, metadata, multicast and reserved addresses, pin the request to the checked IP, and
-  follow no redirects. Drivers call it before they connect.
+- `Support\Integrations\Redactor` masks secrets in the gateway, module and registrar logs (one rule, matched by
+  word). The host calls it on what drivers return; drivers never call it. `excerpt()` makes raw provider output safe
+  to show staff (redacted, 4 KB).
+- `Support\Integrations\OutboundAddressGuard` checks every connection to a host a person typed in (SSRF, ADR 0015):
+  resolve once, refuse non-public addresses under the install policy in `config/integrations.php`, pin the request to
+  the checked IP, bypass proxies, follow no redirects. Drivers call it before they connect and never choose the
+  policy.
 
 Driver registries are kernel classes that extend `Support\Integrations\DriverRegistry`. They are bound as singletons in
 `AppServiceProvider`, so a package registers a driver in its own `boot()` whether or not the consuming module is
