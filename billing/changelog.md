@@ -76,6 +76,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - An open "verify" item (unknown outcome) can no longer be turned into an ordinary failure by a later job failure,
   so create is never sent twice. Accepting an order whose provisioning is queued says "Provisioning queued for …"
   instead of reporting a failure.
+- Servers store driver-declared settings (encrypted `servers.settings`), shown on the server form through the shared
+  settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
+  value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers (B2).
 
 ### Core
 
@@ -297,6 +300,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
+  `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
+  gains `fields` in the shared `SettingField` shape (`config_fields` deprecated) (#62 B2).
 - `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
   details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
   `IntegrationDriver`.

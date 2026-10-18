@@ -133,6 +133,11 @@ export type ServerRow = {
     currency: string;
     datacenter: string | null;
     status_url: string | null;
+    /** Driver settings: non-secret values, and whether each secret one is stored. */
+    settings: {
+        values: Record<string, string>;
+        secrets_set: Record<string, boolean>;
+    };
     groups?: { id: number; name: string }[];
 };
 

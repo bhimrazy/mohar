@@ -32,6 +32,7 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
         return array_map(fn (string $key): array => [
             'key' => $key,
             'label' => $this->drivers->get($key)->name(),
+            'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $this->drivers->metadata($key)->productConfigFields),
             'config_fields' => array_map($this->legacyField(...), $this->drivers->metadata($key)->productConfigFields),
         ], $this->drivers->keys());
     }
@@ -91,8 +92,7 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
     }
 
     /**
-     * The documented ProvisioningDrivers field shape. A remote-filled select is a text input here until the product
-     * form loads its options (remoteOptions()), which is also the documented fallback when no server answers.
+     * The deprecated `config_fields` shape (ProvisioningDrivers::all()).
      *
      * @return array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}
      */

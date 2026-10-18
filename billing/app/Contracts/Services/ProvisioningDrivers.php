@@ -12,9 +12,13 @@ use App\Data\Services\RemoteOptions;
 interface ProvisioningDrivers
 {
     /**
-     * `options_source` is present on fields whose options come from the remote system (remoteOptions()).
+     * Each driver's product settings. `fields` is the one integration field shape (SettingField::toArray()); fields
+     * with `options_source: remote` take their options from remoteOptions().
      *
-     * @return list<array{key: string, label: string, config_fields: list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}>}>
+     * `config_fields` is the older shape (`type: password|text|select|...`, `options` as a list of values), kept for
+     * existing consumers. @deprecated since 0.x (ADR 0009 PR B2), removed before 1.0; read `fields` instead.
+     *
+     * @return list<array{key: string, label: string, fields: list<array{key: string, label: string, type: string, secret: bool, required: bool, help: string|null, options: array<array-key, string>, default: string|int|bool|null, options_source: string|null}>, config_fields: list<array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}>}>
      */
     public function all(): array;
 

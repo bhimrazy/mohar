@@ -228,7 +228,7 @@ test('remote field options are merged across servers, keyed by server id, cached
         ->and($options->missingOn)->toBe(['pro' => [$b->id => 'Web']])
         ->and($options->unreachable)->toBe([$down->id => 'Down'])
         ->and($drivers->remoteOptions('strict_panel', 'unknown_field', [$a->id])->options)->toBe([])
-        ->and(collect($drivers->all())->firstWhere('key', 'strict_panel')['config_fields'][0])->toMatchArray(['type' => 'text', 'options_source' => 'remote']);
+        ->and(collect($drivers->all())->firstWhere('key', 'strict_panel')['fields'][0])->toMatchArray(['type' => 'select', 'options_source' => 'remote']);
 
     $calls = $driver->optionCalls;
     $drivers->remoteOptions('strict_panel', 'package', [$a->id, $b->id]);

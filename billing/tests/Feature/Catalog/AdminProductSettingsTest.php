@@ -261,7 +261,7 @@ it('offers the installed drivers on the edit page', function () {
     FakeProvisioningDrivers::withLogDriver();
 
     $this->get(route('admin.catalog.products.edit', Product::factory()->create()))
-        ->assertInertia(fn (Assert $page) => $page->where('drivers.0.key', 'log')->where('drivers.0.config_fields.0.key', 'plan'));
+        ->assertInertia(fn (Assert $page) => $page->where('drivers.0.key', 'log')->where('drivers.0.fields.0.key', 'plan'));
 });
 
 it('validates the provisioning binding', function () {

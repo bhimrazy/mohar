@@ -2,13 +2,15 @@
 
 namespace App\Modules\Services\Http\Requests;
 
+use App\Modules\Services\Models\Server;
+use App\Modules\Services\Support\ServerSettings;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
- * Create/update a server. Blank credential fields on update keep the stored secret.
+ * Create/update a server. Blank credential fields and blank secret settings on update keep the stored secret.
  */
 class ServerRequest extends FormRequest
 {
@@ -53,6 +55,7 @@ class ServerRequest extends FormRequest
             'currency' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
             'datacenter' => ['nullable', 'string', 'max:255'],
             'status_url' => ['nullable', 'url', 'max:255'],
+            ...app(ServerSettings::class)->rules((string) $this->input('driver'), $this->routeServer()),
         ];
     }
 
@@ -61,7 +64,8 @@ class ServerRequest extends FormRequest
      */
     public function serverData(): array
     {
-        $data = $this->safe()->except(['password', 'api_token', 'access_hash']);
+        $data = $this->safe()->except(['password', 'api_token', 'access_hash', 'settings']);
+        $data['settings'] = (array) $this->validated('settings', []);
 
         foreach (['password', 'api_token', 'access_hash'] as $secret) {
             if ($this->filled($secret)) {
@@ -70,5 +74,12 @@ class ServerRequest extends FormRequest
         }
 
         return $data;
+    }
+
+    private function routeServer(): ?Server
+    {
+        $server = $this->route('server');
+
+        return $server instanceof Server ? $server : null;
     }
 }

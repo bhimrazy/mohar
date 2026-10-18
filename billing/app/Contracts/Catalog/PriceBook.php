@@ -2,6 +2,7 @@
 
 namespace App\Contracts\Catalog;
 
+use App\Data\Catalog\ModuleInputs;
 use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
@@ -13,6 +14,24 @@ use App\Enums\BillingCycle;
 interface PriceBook
 {
     public function product(int $productId): ?ProductSummary;
+
+    /**
+     * A service's option selections and custom field values keyed by module key, for its provisioning driver. Unlike
+     * the order-form reads it includes hidden options, admin-only fields and retired products; entries without a
+     * module key are left out (their secret values still count).
+     *
+     * @param  array<int|string, int|string|null>  $optionSelections  option id => value id, or the quantity
+     * @param  array<int|string, mixed>  $customFieldValues  field id => value
+     */
+    public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs;
+
+    /**
+     * Every product provisioned by the driver, hidden ones included and retired ones left out, in id order (account
+     * import matching and package warnings).
+     *
+     * @return list<ProductSummary>
+     */
+    public function productsForDriver(string $driverKey): array;
 
     /**
      * Price of a product with config options; null if not offered in that cycle/currency, the product is

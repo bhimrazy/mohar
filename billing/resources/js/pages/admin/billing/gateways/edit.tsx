@@ -7,6 +7,8 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { SettingFieldInput } from '@/components/app/setting-field';
+import type { SettingFieldData } from '@/components/app/setting-field';
 import { GatewayLogo } from '@/components/billing/gateway-logo';
 import type { GatewayLogoData } from '@/components/billing/gateway-logo';
 import { SelectField } from '@/components/billing/select-field';
@@ -15,80 +17,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import {
     index,
     test as testConnection,
     update,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/GatewayController';
 import type { SelectOption } from '@/types/app';
-
-type SettingField = {
-    key: string;
-    label: string;
-    type: 'string' | 'text' | 'secret' | 'secret_text' | 'boolean' | 'select';
-    help?: string;
-    options?: Record<string, string>;
-};
-
-const isSecret = (field: SettingField) =>
-    field.type === 'secret' || field.type === 'secret_text';
-
-function SettingControl({
-    id,
-    field,
-    value,
-    onChange,
-}: {
-    id: string;
-    field: SettingField;
-    value: string;
-    onChange: (value: string) => void;
-}) {
-    switch (field.type) {
-        case 'boolean':
-            return (
-                <Switch
-                    id={id}
-                    checked={value === '1' || value === 'true'}
-                    onCheckedChange={(checked) => onChange(checked ? '1' : '0')}
-                />
-            );
-        case 'select':
-            return (
-                <SelectField
-                    id={id}
-                    value={value}
-                    onChange={onChange}
-                    options={Object.entries(field.options ?? {}).map(
-                        ([option, label]) => ({ value: option, label }),
-                    )}
-                />
-            );
-        case 'text':
-        case 'secret_text':
-            return (
-                <Textarea
-                    id={id}
-                    rows={4}
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={value}
-                    onChange={(event) => onChange(event.target.value)}
-                />
-            );
-        default:
-            return (
-                <Input
-                    id={id}
-                    type={field.type === 'secret' ? 'password' : 'text'}
-                    autoComplete="off"
-                    value={value}
-                    onChange={(event) => onChange(event.target.value)}
-                />
-            );
-    }
-}
 
 type Props = {
     gateway: {
@@ -105,7 +39,7 @@ type Props = {
         settings: Record<string, string>;
         secrets_set: Record<string, boolean>;
     };
-    fields: SettingField[];
+    fields: SettingFieldData[];
     currencies: string[];
     replacements: SelectOption[];
     webhook_url: string | null;
@@ -326,28 +260,20 @@ export default function GatewayEdit({
                                         });
 
                                     return (
-                                        <Field
-                                            className="content-start"
+                                        <SettingFieldInput
                                             key={field.key}
-                                            htmlFor={id}
-                                            label={field.label}
-                                            hint={
-                                                isSecret(field) &&
+                                            className="content-start"
+                                            id={id}
+                                            field={field}
+                                            value={value}
+                                            onChange={set}
+                                            secretStored={
                                                 gateway.secrets_set[field.key]
-                                                    ? 'A value is stored. Leave empty to keep it.'
-                                                    : field.help
                                             }
                                             error={
                                                 errors[`settings.${field.key}`]
                                             }
-                                        >
-                                            <SettingControl
-                                                id={id}
-                                                field={field}
-                                                value={value}
-                                                onChange={set}
-                                            />
-                                        </Field>
+                                        />
                                     );
                                 })}
                             </div>

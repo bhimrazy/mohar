@@ -14,6 +14,7 @@ use App\Enums\BillingCycle;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\Catalog;
+use App\Modules\Services\Support\ServerSettings;
 
 /**
  * Builds the read-only snapshots drivers receive (ADR 0009 §2). Everything a driver may know about a service is
@@ -21,25 +22,21 @@ use App\Modules\Services\Support\Catalog;
  */
 class ProvisioningSnapshots
 {
-    public function __construct(private Catalog $catalog) {}
+    public function __construct(private Catalog $catalog, private ServerSettings $serverSettings) {}
 
     public function context(Service $service, ?Server $server, ?ProductSummary $product, ProvisioningDriver $driver): ProvisioningContext
     {
         $productConfig = $product->driverConfig ?? [];
-        $customFieldValues = $service->custom_fields ?? [];
+        $inputs = $this->catalog->moduleInputs($service->product_id, $service->config_options['selections'] ?? [], $service->custom_fields ?? []);
 
         return new ProvisioningContext(
             service: $this->service($service),
             server: $server === null ? null : $this->connection($server),
             client: new ClientSummary($service->client->id, $service->client->display_name, $service->client->email, $service->client->country),
             productConfig: $productConfig,
-            // Filled by module key once PriceBook::moduleInputs() lands (PR B2); install-specific ids are never sent.
-            configOptions: [],
-            customFields: $this->catalog->customFieldsByModuleKey($service->product_id, $customFieldValues),
-            secretValues: [
-                ...$this->secretSettingValues($driver->metadata()->productConfigFields, $productConfig),
-                ...$this->catalog->secretCustomFieldValues($service->product_id, $customFieldValues),
-            ],
+            configOptions: $inputs->configOptions,
+            customFields: $inputs->customFields,
+            secretValues: [...$this->secretSettingValues($driver->metadata()->productConfigFields, $productConfig), ...$inputs->secretValues],
         );
     }
 
@@ -56,7 +53,9 @@ class ProvisioningSnapshots
             password: $server->password,
             apiToken: $server->api_token,
             accessHash: $server->access_hash,
+            settings: $server->settings ?? [],
             nameservers: $server->nameservers ?? [],
+            secretSettingKeys: $this->serverSettings->secretKeys($server->driver),
         );
     }
 
