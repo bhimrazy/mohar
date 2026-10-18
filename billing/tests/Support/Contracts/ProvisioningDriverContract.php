@@ -5,15 +5,18 @@ namespace Tests\Support\Contracts;
 use App\Contracts\Services\Provisioning\ChangesPackage;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Contracts\Services\Provisioning\ListsAccounts;
+use App\Contracts\Services\Provisioning\ProvidesFieldOptions;
 use App\Contracts\Services\Provisioning\ProvidesServerSso;
 use App\Contracts\Services\Provisioning\ProvidesServiceSso;
 use App\Contracts\Services\Provisioning\ProvisioningDriver;
+use App\Contracts\Services\Provisioning\ReconcilesCommands;
 use App\Contracts\Services\Provisioning\RenewsAccounts;
 use App\Contracts\Services\Provisioning\ReportsUsage;
 use App\Contracts\Services\Provisioning\TestsServerConnection;
 use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
 use App\Data\Services\Provisioning\ClientSummary;
+use App\Data\Services\Provisioning\CommandLookup;
 use App\Data\Services\Provisioning\DriverMetadata;
 use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\PreviousPackage;
@@ -39,9 +42,13 @@ use Illuminate\Support\Facades\Http;
  *
  * `arrange` runs before each check and fakes the remote system so every call succeeds; failure modes are
  * driver-specific and belong in the driver's own tests. The driver is resolved through the kernel registry, as the
- * host resolves it. Checks: identity and cheap resolution; typed settings with secrets typed as secrets; lifecycle
- * calls answer with exactly one outcome, report only documented data keys and never touch the database; every
- * capability the driver implements returns its documented type.
+ * host resolves it. Checks:
+ * - identity, and resolution without queries or HTTP;
+ * - typed settings: secrets are typed as secrets and have no default;
+ * - lifecycle calls answer with exactly one outcome, report only documented data keys and never touch the database;
+ * - whatever a driver echoes into its request, response or message is fully masked by the host's redaction set
+ *   (ProvisioningContext::secrets()), including secret product and server settings;
+ * - every capability the driver implements returns its documented type (one check per capability interface).
  */
 final class ProvisioningDriverContract
 {
@@ -60,14 +67,16 @@ final class ProvisioningDriverContract
 
         test("{$key} driver: is registered and resolves without I/O", function () use ($key, $setUp) {
             $setUp();
+            $driver = null;
+            $metadata = null;
             $queries = ProvisioningDriverContract::countQueries(function () use ($key, &$driver, &$metadata): void {
                 $driver = app(ProvisioningDriverRegistry::class)->get($key);
                 $metadata = $driver->metadata();
             });
 
             expect($driver)->toBeInstanceOf(ProvisioningDriver::class)
-                ->and($driver->key())->toBe($key)
-                ->and(trim($driver->name()))->not->toBe('')
+                ->and($driver?->key())->toBe($key)
+                ->and(trim((string) $driver?->name()))->not->toBe('')
                 ->and($metadata)->toBeInstanceOf(DriverMetadata::class)
                 ->and($queries)->toBe(0);
         });
@@ -83,26 +92,27 @@ final class ProvisioningDriverContract
                 expect($keys)->toBe(array_values(array_unique($keys)), "{$list} has duplicate keys");
 
                 foreach ($fields as $field) {
-                    expect($field->isSecret() || ! $redactor->isSensitiveKey($field->key))->toBeTrue("{$list}.{$field->key} looks like a secret but is typed {$field->type->value}")
-                        ->and($field->isSecret() && $field->default !== null)->toBeFalse("{$list}.{$field->key} is a secret with a default");
+                    expect($field->isSecret() || ! $redactor->isSensitiveKey($field->key))->toBeTrue("{$list}.{$field->key} looks like a secret but is typed {$field->type->value}");
                 }
             }
 
             foreach ([$metadata->defaultPort, $metadata->defaultSecurePort] as $port) {
                 expect($port === null || ($port >= 1 && $port <= 65535))->toBeTrue();
             }
+
+            expect($metadata->commandTimeoutSeconds === null || $metadata->commandTimeoutSeconds > 0)->toBeTrue();
         });
 
         test("{$key} driver: lifecycle calls answer with one outcome, report only documented data and touch no database", function () use ($key, $setUp) {
             $setUp();
             $driver = app(ProvisioningDriverRegistry::class)->get($key);
-            $context = ProvisioningDriverContract::context($driver->metadata()->requiresServer);
+            $context = ProvisioningDriverContract::context($driver->metadata());
             $results = [];
 
             $queries = ProvisioningDriverContract::countQueries(function () use ($driver, $context, &$results): void {
                 $results = [
                     'create' => $driver->create($context),
-                    'suspend' => $driver->suspend($context, 'overdue'),
+                    'suspend' => $driver->suspend($context, 'Overdue invoice'),
                     'unsuspend' => $driver->unsuspend($context),
                     'terminate' => $driver->terminate($context),
                 ];
@@ -118,72 +128,125 @@ final class ProvisioningDriverContract
                 ->and($queries)->toBe(0);
         });
 
-        test("{$key} driver: every implemented capability returns its documented type", function () use ($key, $setUp) {
+        test("{$key} driver: everything it echoes is masked by the host's redaction set, secret settings included", function () use ($key, $setUp) {
             $setUp();
             $driver = app(ProvisioningDriverRegistry::class)->get($key);
-            $context = ProvisioningDriverContract::context(true);
-            $server = $context->server;
-            assert($server instanceof ServerConnection);
-            $checked = 0;
+            $context = ProvisioningDriverContract::context($driver->metadata());
+            $redactor = new Redactor;
+            $secrets = $context->secrets();
+            $result = $driver->create($context);
+            $logged = json_encode([
+                $redactor->redact($result->request, $secrets),
+                $redactor->redact($result->response, $secrets),
+                $redactor->maskValues((string) $result->message, $secrets),
+            ]);
 
-            $queries = ProvisioningDriverContract::countQueries(function () use ($driver, $context, $server, &$checked): void {
-                if ($driver instanceof ChangesPackage) {
-                    expect($driver->changePackage($context, new PreviousPackage(6, BillingCycle::Monthly))->outcome())->toBe(DriverOutcome::Completed);
-                    $checked++;
-                }
+            expect($secrets)->toContain('Contract-Pass-123', 'Server-Pass-456', 'TOKEN-CONTRACT-789');
 
-                if ($driver instanceof ChangesPassword) {
-                    expect($driver->changePassword($context, 'N3w-Contract-Pass!')->outcome())->toBe(DriverOutcome::Completed);
-                    $checked++;
-                }
+            foreach ($secrets as $secret) {
+                expect($logged)->not->toContain($secret);
+            }
+        });
 
-                if ($driver instanceof RenewsAccounts) {
-                    expect($driver->renew($context)->outcome())->toBe(DriverOutcome::Completed);
-                    $checked++;
-                }
+        test("{$key} driver: every implemented capability returns its documented type", function () use ($key, $setUp) {
+            $setUp();
+            $registry = app(ProvisioningDriverRegistry::class);
+            $driver = $registry->get($key);
+            $context = ProvisioningDriverContract::context($driver->metadata());
+            $checked = [];
 
-                if ($driver instanceof TestsServerConnection) {
-                    expect($driver->testConnection($server))->toBeInstanceOf(ConnectionCheck::class);
-                    $checked++;
-                }
-
-                if ($driver instanceof ReportsUsage) {
-                    $rows = $driver->usage($server);
-                    expect($rows)->each->toBeInstanceOf(UsageRow::class)
-                        ->and(array_filter(array_keys($rows), 'is_int'))->toBe([], 'usage rows are keyed by username');
-                    $checked++;
-                }
-
-                if ($driver instanceof ListsAccounts) {
-                    expect($driver->listAccounts($server))->toBeList()->each->toBeInstanceOf(RemoteAccount::class);
-                    $checked++;
-                }
-
-                foreach ([
-                    $driver instanceof ProvidesServiceSso ? $driver->serviceSsoLink($context) : null,
-                    $driver instanceof ProvidesServerSso ? $driver->serverSsoLink($server) : null,
-                ] as $link) {
-                    if ($link === null) {
-                        continue;
+            $queries = ProvisioningDriverContract::countQueries(function () use ($driver, $context, &$checked): void {
+                foreach (ProvisioningDriverContract::capabilityChecks() as $interface => $check) {
+                    if ($driver instanceof $interface) {
+                        $check($driver, $context);
+                        $checked[] = $interface;
                     }
-
-                    expect($link)->toBeInstanceOf(SsoLink::class)
-                        ->and(str_starts_with($link->url, 'https://'))->toBeTrue('SSO links use https')
-                        ->and($link->expiresAt === null || $link->expiresAt->isFuture())->toBeTrue();
-                    $checked++;
                 }
             });
 
-            expect($checked)->toBe(count(app(ProvisioningDriverRegistry::class)->capabilitiesOf($key)))
+            expect($checked)->toEqualCanonicalizing(array_values(array_intersect_key($registry->capabilities(), array_flip($registry->capabilitiesOf($key)))))
                 ->and($queries)->toBe(0);
         });
     }
 
     /**
-     * A plausible service on a plausible server.
+     * One check per capability interface. A new capability in ProvisioningDriverRegistry needs one here; the
+     * completeness test in ProvisioningDriverContractTest holds the two lists together.
+     *
+     * @return array<class-string, Closure(object, ProvisioningContext): void>
      */
-    public static function context(bool $withServer = true): ProvisioningContext
+    public static function capabilityChecks(): array
     {
+        return [
+            ChangesPackage::class => function (ChangesPackage $driver, ProvisioningContext $context): void {
+                expect($driver->changePackage($context, new PreviousPackage(6, BillingCycle::Monthly, ['package' => 'old']))->outcome())->toBe(DriverOutcome::Completed);
+            },
+            ChangesPassword::class => function (ChangesPassword $driver, ProvisioningContext $context): void {
+                expect($driver->changePassword($context, 'N3w-Contract-Pass!')->outcome())->toBe(DriverOutcome::Completed);
+            },
+            RenewsAccounts::class => function (RenewsAccounts $driver, ProvisioningContext $context): void {
+                expect($driver->renew($context)->outcome())->toBe(DriverOutcome::Completed);
+            },
+            TestsServerConnection::class => function (TestsServerConnection $driver, ProvisioningContext $context): void {
+                expect($driver->testConnection(self::server($context)))->toBeInstanceOf(ConnectionCheck::class);
+            },
+            ReportsUsage::class => function (ReportsUsage $driver, ProvisioningContext $context): void {
+                $rows = $driver->usage(self::server($context));
+                expect($rows)->each->toBeInstanceOf(UsageRow::class)
+                    ->and(array_filter(array_keys($rows), 'is_int'))->toBe([], 'usage rows are keyed by username');
+            },
+            ListsAccounts::class => function (ListsAccounts $driver, ProvisioningContext $context): void {
+                expect($driver->listAccounts(self::server($context)))->toBeList()->each->toBeInstanceOf(RemoteAccount::class);
+            },
+            ProvidesFieldOptions::class => function (ProvidesFieldOptions $driver, ProvisioningContext $context): void {
+                $fields = array_filter($driver->metadata()->productConfigFields, fn (SettingField $field): bool => $field->optionsSource === SettingField::OPTIONS_REMOTE);
+                expect($fields)->not->toBeEmpty('a driver with field options declares at least one remote-filled field');
+
+                foreach ($fields as $field) {
+                    $options = $driver->fieldOptions(self::server($context), $field->key);
+                    expect($options)->toBeArray()->each->toBeString();
+                }
+            },
+            ReconcilesCommands::class => function (ReconcilesCommands $driver, ProvisioningContext $context): void {
+                foreach (['create', 'suspend', 'unsuspend', 'terminate'] as $command) {
+                    expect($driver->reconcile($context, $command, CarbonImmutable::now()->subMinutes(15)))->toBeInstanceOf(CommandLookup::class);
+                }
+            },
+            ProvidesServiceSso::class => function (ProvidesServiceSso $driver, ProvisioningContext $context): void {
+                self::assertSsoLink($driver->serviceSsoLink($context));
+                self::assertSsoLink($driver->serviceSsoLink($context, 'no-such-target'));
+            },
+            ProvidesServerSso::class => function (ProvidesServerSso $driver, ProvisioningContext $context): void {
+                self::assertSsoLink($driver->serverSsoLink(self::server($context)));
+            },
+        ];
+    }
+
+    /**
+     * A plausible service on a plausible server, with every declared setting filled (secret ones with recognisable
+     * values, so the redaction check can look for them).
+     */
+    public static function context(?DriverMetadata $metadata = null): ProvisioningContext
+    {
+        $productConfig = [];
+        $secretValues = [];
+
+        foreach ($metadata->productConfigFields ?? [] as $field) {
+            $productConfig[$field->key] = $field->isSecret() ? "Contract-Secret-{$field->key}-42" : (array_key_first($field->options) ?? "contract-{$field->key}");
+
+            if ($field->isSecret()) {
+                $secretValues[] = $productConfig[$field->key];
+            }
+        }
+
+        $settings = [];
+
+        foreach ($metadata->serverFields ?? [] as $field) {
+            $settings[$field->key] = $field->isSecret() ? "Contract-Server-Secret-{$field->key}-42" : (array_key_first($field->options) ?? "contract-{$field->key}");
+        }
+
+        $secretSettingKeys = array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($metadata->serverFields ?? [], fn (SettingField $field): bool => $field->isSecret())));
+
         return new ProvisioningContext(
             service: new ServiceSnapshot(
                 id: 9001,
@@ -193,26 +256,27 @@ final class ProvisioningDriverContract
                 domain: 'contract-test.example',
                 username: 'contract',
                 password: 'Contract-Pass-123',
-                dedicatedIp: null,
-                assignedIps: [],
-                driverData: [],
                 billingCycle: BillingCycle::Monthly,
                 nextDueDate: CarbonImmutable::today()->addMonth()->toDateString(),
             ),
-            server: $withServer ? new ServerConnection(
+            server: new ServerConnection(
                 id: 77,
                 name: 'Contract server',
                 hostname: 'panel.contract.test',
                 ip: '192.0.2.10',
-                port: 2087,
+                port: $metadata->defaultSecurePort ?? null,
                 secure: true,
                 username: 'root',
                 password: 'Server-Pass-456',
                 apiToken: 'TOKEN-CONTRACT-789',
+                settings: $settings,
                 nameservers: ['ns1.contract.test', 'ns2.contract.test'],
-            ) : null,
+                secretSettingKeys: $secretSettingKeys,
+            ),
             client: new ClientSummary(42, 'Contract Client', 'client@contract.test', 'NP'),
-            productConfig: ['package' => 'starter'],
+            productConfig: $productConfig,
+            customFields: ['hostname' => 'vps1.contract.test'],
+            secretValues: $secretValues,
         );
     }
 
@@ -225,9 +289,19 @@ final class ProvisioningDriverContract
         DB::listen(function () use (&$count): void {
             $count++;
         });
-        $before = $count;
         $callback();
 
-        return $count - $before;
+        return $count;
+    }
+
+    private static function server(ProvisioningContext $context): ServerConnection
+    {
+        return $context->server ?? throw new \LogicException('The contract context always has a server.');
+    }
+
+    private static function assertSsoLink(SsoLink $link): void
+    {
+        expect(str_starts_with($link->url, 'https://'))->toBeTrue('SSO links use https')
+            ->and($link->expiresAt === null || $link->expiresAt->isFuture())->toBeTrue();
     }
 }

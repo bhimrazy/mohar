@@ -52,7 +52,7 @@ final class AcmePanelDriver implements ChangesPassword, ProvisioningDriver, Test
 
     public function create(ProvisioningContext $context): DriverResult
     {
-        $request = ['username' => $context->service->username, 'domain' => $context->service->domain, 'plan' => $context->productConfig['plan'] ?? null, 'email' => $context->client->email, 'password' => $context->service->password];
+        $request = ['username' => $context->service->username, 'domain' => $context->service->domain, 'plan' => $context->productConfig['plan'] ?? null, 'email' => $context->client->email, 'password' => $context->service->password, 'reseller' => $context->productConfig['reseller_key'] ?? null];
 
         return $this->send($context->server, 'post', '/api/accounts', $request, fn (Response $response): DriverResult => DriverResult::ok(
             'Acme account created.',
