@@ -22,3 +22,6 @@ Post one review with `gh pr review <n> --comment --body-file <file>`:
 ```
 
 Reply to the CTO in under 150 words.
+
+Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
+PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.
