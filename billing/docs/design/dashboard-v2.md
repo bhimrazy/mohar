@@ -1,0 +1,293 @@
+# Admin dashboard v2
+
+Status: spec for `feature/dashboard-v2` · 2026-10-18 · Owner: principal designer
+
+The owner compared the direction mockups (`directions/{calm,operator,slate,warm}/dashboard-*.png`, sample
+data) with the shipped dashboard (`screenshots/billing/admin-dashboard-90d.png`, real widgets) and asked for
+the real one to be at least as good, especially the charts. Two binding rules came with that:
+
+1. **Nothing the current dashboard shows may be lost.** It is reorganised and presented better. Anything
+   that might move off the dashboard stays one click away and is listed as an open question.
+2. **The directions are the primary reference** (all four), with Calm Fintech as the shipped default. Every
+   block must look right under every preset because all presets share the same components.
+
+Hierarchy, top to bottom: **summary** (KPIs, counters, needs attention), then **trends** (charts), then
+**detail** (lists).
+
+## 1. What the directions contribute
+
+The four directions share one layout and one component set; they differ in tokens (colour, font,
+radius, density). v2 takes the shared layout and these specific treatments:
+
+| Element                                                                            | Taken from                      | Notes                                                                                                                                                                |
+| ---------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KPI card: label, icon chip, figure, trend pill, context line, 12-point sparkline   | all four                        | Overdue card carries the danger tone on its icon chip and sparkline.                                                                                                 |
+| Income hero: headline total, YoY pill, "Reporting in" caption, area + compare line | Calm (soft wash under the line) | Area fill is a ~10% wash of `--chart-1`.                                                                                                                             |
+| Comparison series drawn in neutral ink, not a second hue                           | Slate                           | Slate draws "previous year" grey. v2 does this in every preset (`--muted-foreground`, dashed) so the comparison never competes with this year and frees `--chart-2`. |
+| Stacked new-orders bars with legend under the plot                                 | all four                        | 2px surface gap between segments (dataviz spec) instead of touching blocks.                                                                                          |
+| Income by currency: code chip, name, amount in original currency, share meter      | all four                        | Tax collected becomes a per-tax list rather than one converted sum (see 4.6).                                                                                        |
+| Needs attention rows with tone icon chip, context line, count, chevron             | all four                        | Moves to the top on mobile (Calm mobile).                                                                                                                            |
+| Health card: icon, check name, detail line, status dot + value                     | all four ("Automation health")  | Renamed **System health**; fed by an aggregated registry (5.3).                                                                                                      |
+| Quick actions card with ⌘K hint                                                    | all four                        | Per-action key hints are dropped: no such shortcuts exist, and the UI must not advertise them.                                                                       |
+| Tabular, monospaced figures in KPIs                                                | Operator                        | Already a theme token (`--font-numeric`); v2 uses `font-numeric` everywhere a figure appears so Operator keeps its look.                                             |
+| Header: currency switch + New                                                      | all four                        | Export is deferred (open question 3).                                                                                                                                |
+
+Secondary references (market): Stripe's home overview (period comparison drawn as a muted line under the
+current one, "compared to previous period" caption), shadcn/ui dashboard blocks (section cards with a trend
+badge and a footer line; an interactive area chart with a 3-way range toggle), Linear and Vercel analytics
+(restrained hairline grid, tabular numbers, one accent). They confirm the directions rather than add to them.
+
+## 2. Critique of the current build (vs. the directions)
+
+- **First impression.** A wall of 15 counters competes with the chart; nothing reads as the headline. The
+  directions lead with four money KPIs with trends, then a large income chart.
+- **Income chart.** 30 daily points, mostly zero with one spike: noisy, no comparison, no total. The
+  directions show 12 monthly points with the previous year, which answers "are we growing?".
+- **Counters duplicate Needs attention.** Overdue, pending orders, failed module actions, awaiting reply and
+  domains expiring each appear twice with no added context. Needs attention has dots but no icons or context.
+- **Automation is a raw per-task list** of 17 rows with technical keys (`billing.late_fees`), summarised by
+  a status-count bar. The directions summarise system health in six readable rows.
+- **Lists are good and must stay** (renewals, payments, activity, sign-ins are not in the direction). They
+  are stacked in one long masonry column with uneven heights; the page is 3,000px tall at 1440.
+- **Money rows** show `2.99 USD`, not formatted money; status badges are fine.
+- **Accessibility.** Charts have an `aria-label` but no data-table equivalent; tooltips are the only way to
+  read values.
+
+## 3. Inventory → placement (binding)
+
+Everything the current dashboard shows, and where it lives in v2. "Strip" is the secondary counter strip
+under the KPIs; "NA" is Needs attention.
+
+| #   | Current element (owner module)                               | v2 placement                                                                                                                                |
+| --- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | KPI: Active clients, "N new this month" (Core)               | Strip tile, hint kept as the tile's context line                                                                                            |
+| 2   | KPI: Income this month (Billing)                             | **Primary KPI**, plus trend vs. same days last month and 12-week sparkline                                                                  |
+| 3   | KPI: Pending orders (Orders)                                 | Strip tile; also NA "Orders awaiting review"                                                                                                |
+| 4   | KPI: New clients this month, trend vs. last month (Core)     | Strip tile with its trend pill                                                                                                              |
+| 5   | Counter: Orders today (Orders)                               | Strip tile                                                                                                                                  |
+| 6   | Counter: Unpaid invoices, amount + "N invoices" (Billing)    | **Primary KPI "Outstanding"** (amount, count as context, trend, sparkline)                                                                  |
+| 7   | Counter: Overdue invoices, count (Billing)                   | **Primary KPI "Overdue"** (amount, "N invoices, oldest D days", trend, sparkline); count also in NA                                         |
+| 8   | Counter: Active services (Services)                          | Strip tile                                                                                                                                  |
+| 9   | Counter: Pending provisioning (Services)                     | Strip tile; also NA                                                                                                                         |
+| 10  | Counter: Failed module actions (Services)                    | Strip tile; also NA                                                                                                                         |
+| 11  | Counter: Domains expiring in 30 days (Domains)               | Strip tile; also NA                                                                                                                         |
+| 12  | Counter: Open tickets (Support)                              | Strip tile                                                                                                                                  |
+| 13  | Counter: Pending registrations (Domains)                     | Strip tile                                                                                                                                  |
+| 14  | Counter: Awaiting staff reply (Support)                      | Strip tile; also NA                                                                                                                         |
+| 15  | Counter: My assigned tickets (Support)                       | Strip tile                                                                                                                                  |
+| 16  | NA items, all 18 registered types (all modules)              | NA, unchanged keys and order; each gains an icon and, where cheap, a context line                                                           |
+| 17  | Chart: Income, last 30 days, per-currency switch (Billing)   | Hero chart, **"30 days" range** (daily, vs. previous 30 days); the currency switch moves to the page header                                 |
+| 18  | Chart: New clients, last 12 weeks (Core)                     | Trends row, unchanged data, restyled                                                                                                        |
+| 19  | List: Recent orders (Orders)                                 | Detail grid; money formatted, client name leads                                                                                             |
+| 20  | List: Newest clients (Core)                                  | Detail grid                                                                                                                                 |
+| 21  | List: Renewals due in 7 days (Services)                      | Detail grid                                                                                                                                 |
+| 22  | List: Recent payments (Billing)                              | Detail grid; money formatted                                                                                                                |
+| 23  | List: Recent activity (Platform)                             | Detail grid, **Activity** card, tab 1                                                                                                       |
+| 24  | List: Recent staff sign-ins (Platform)                       | Detail grid, **Activity** card, tab 2                                                                                                       |
+| 25  | List: Tickets awaiting reply (Support)                       | Detail grid                                                                                                                                 |
+| 26  | List: Automation, every task with its last status (Platform) | **System health → "Daily automation"** row: ran / failed / not run counts; "View all" opens the per-task page (one click). Open question 1. |
+| 27  | Greeting, date, description (page)                           | Header, unchanged                                                                                                                           |
+
+New in v2 (from the directions): MRR KPI (Services), outstanding and overdue amounts with sparklines
+(Billing), income 12 months vs. previous year with YoY (Billing), new orders per day by product type
+(Orders), income by currency with tax collected (Billing), system health (Platform, Services, Billing,
+Domains), quick actions (Navigation registry), header currency switch and New menu.
+
+## 4. Layout
+
+Content width at 1440 is about 1,150px (sidebar 256px). Gap is the theme's `--page-gap`.
+
+**Desktop (≥1280, `xl`)**
+
+```
+Header ............................................. [All | USD | INR | NPR] [+ New]
+[ MRR ][ Income this month ][ Outstanding ][ Overdue ]                 4 cols
+[tile][tile][tile][tile][tile][tile]                                    6 cols, 1–2 rows
+[ Income hero (12 months | 30 days)         ][ Needs attention ]       2fr / 1fr
+[ New orders (stacked) ][ New clients ][ Income by currency ]          3 cols
+[ System health ][ Recent orders ][ Recent payments ]                  3 cols
+[ Tickets awaiting ][ Renewals due 7 days ][ Newest clients ]          3 cols
+[ Activity (tabs: activity | sign-ins)      ][ Quick actions ]         2 / 1
+```
+
+**Tablet (768–1279):** KPIs 2×2, strip 3–4 per row, hero full width with Needs attention below it, trend and
+detail grids 2 columns.
+
+**Mobile (<768):** Needs attention first (the direction's mobile order), then KPIs 2×2, hero, strip 2 per
+row, then every card full width. The currency switch stays in the header; New collapses to an icon button.
+
+The layout is a policy over widget **types**, not hard-coded keys, so a missing module only removes its own
+cards: first four stats → KPI row; other stats → strip; first money chart → hero; other charts and
+breakdowns → trends grid; health → first card of the detail grid; lists (tab groups merged) → detail grid;
+quick actions → last. Empty rows collapse.
+
+## 5. Blocks
+
+Colours are theme tokens only: series `--chart-1..6`, comparison `--muted-foreground`, grid
+`--chart-grid`, status `--success|warning|danger|info` with their `-subtle` and `-text` pairs. Text never
+wears a series colour. Figures use `font-numeric`; axis ticks and list amounts use `tabular-nums`.
+
+### 5.1 Primary KPIs (4)
+
+| KPI               | Module   | Value                                                 | Trend pill                              | Sparkline (12 pts)          | Context line                |
+| ----------------- | -------- | ----------------------------------------------------- | --------------------------------------- | --------------------------- | --------------------------- |
+| MRR               | Services | Σ active + suspended recurring amount ÷ cycle months  | vs. one month ago, up is good           | month-end MRR, 12 months    | "N active services"         |
+| Income this month | Billing  | payments + manual income − refunds − chargebacks, MTD | vs. same days last month, up is good    | weekly net income, 12 weeks | "Oct 1–18 vs. Sep 1–18"     |
+| Outstanding       | Billing  | Σ balance of payable invoices                         | vs. 30 days ago, up is bad              | weekly snapshot, 12 weeks   | "N unpaid invoices"         |
+| Overdue           | Billing  | Σ balance of overdue invoices                         | vs. 30 days ago, up is bad; tone danger | weekly snapshot, 12 weeks   | "N invoices, oldest D days" |
+
+Form: stat tile (dataviz: the number is the chart). Sparkline uses `--chart-1`, or `--danger` when the trend
+is bad. Empty: value `0`/`$0.00`, no pill, flat sparkline hidden (fewer than two non-zero points). The whole
+card is the link (to services, transactions, unpaid and overdue invoices).
+
+### 5.2 Counter strip
+
+Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Six per row at
+`xl`. Tiles keep their existing links. Zero values stay (a zero is information).
+
+### 5.3 Needs attention
+
+Unchanged registry and keys; rows gain `icon` and an optional `hint` (e.g. overdue: "$3,120.40 at risk";
+pending orders: "oldest waiting 5 hours"; domains expiring: "3 without auto-renew"). Badge: "N open" in the
+most severe tone. Empty: "All caught up · Nothing is waiting on staff right now."
+
+### 5.4 Income hero (Billing)
+
+- **Form:** area line, this period in `--chart-1` with a 10% wash, previous period as a dashed 1.5px line in
+  `--muted-foreground`, no fill. One y-axis, compact money ticks ($45K, ₹12L). Why: change over time with a
+  baseline; a bar chart of 12 months would hide the year-over-year shape.
+- **Ranges:** `12 months` (default; monthly, vs. the same months a year earlier) and `30 days` (daily, vs.
+  the previous 30 days). A segmented control in the card header; it only scopes this chart.
+- **Headline:** period total in the reporting currency, then a pill "+18.4% vs. previous year" (or "vs.
+  previous 30 days"), success or danger subtle tone; neutral when the previous period is zero ("No prior
+  data").
+- **Hover:** vertical crosshair, one tooltip listing both series with the value first, plus the change.
+- **Table view:** a "Show as table" toggle (button with `aria-pressed`) swaps the plot for a table of the
+  same points, so values are reachable without hover.
+- **Empty:** fewer than one non-zero point → "No income recorded yet. Payments you record appear here."
+
+### 5.5 New orders by product type (Orders)
+
+- **Form:** stacked columns, one per day for 14 days, ≤ 4 categories: Hosting (shared + reseller), Servers
+  (server-type products, i.e. VPS and dedicated), Domains, Other (add-ons, upgrades, unknown). Each order counts once, under its
+  first top-level item, so the stack height is the order count. Colours `--chart-1..4` in that fixed order.
+  2px surface gap between segments, 4px rounded top, bar ≤ 24px.
+- **Header:** "Last 14 days · N orders". Legend under the plot. Per-bar tooltip lists every category.
+- **Why stacked:** the total per day is the primary read and the mix is secondary; four categories is
+  within the stacking limit.
+- **Empty:** "No orders in the last 14 days."
+
+### 5.6 Income by currency (Billing)
+
+- **Form:** a `breakdown` list, not a donut (close shares are easier to compare as aligned bars). Rows:
+  currency code chip, currency name, amount in its own currency (INR lakh grouping, NPR "रू"), a share meter
+  in `--chart-n` by fixed currency order, "46% of income". Shares are computed after converting every
+  currency to the default currency at today's rates; the amounts shown are not converted.
+- **Footer:** "Tax collected this month" with one line per tax and currency (e.g. "GST ₹1,24,000.00 · VAT
+  रू 8,400.00"), from invoices paid this month. Tax amounts are never added across currencies.
+- **Empty:** "No income this month yet."
+
+### 5.7 New clients (Core)
+
+Existing weekly bar chart, restyled with the shared chart: single series, no legend, bars ≤ 24px.
+
+### 5.8 System health (aggregated)
+
+A card titled "System health" with a badge "N issues" (warning) or "All systems normal" (success). Each
+module contributes checks; each row: icon, name, detail, status dot + short value, and an optional link.
+
+| Check              | Module   | Source                                                                     | OK when                                 |
+| ------------------ | -------- | -------------------------------------------------------------------------- | --------------------------------------- |
+| Scheduler          | Platform | scheduler heartbeat (`AutomationStatus`)                                   | heartbeat < 5 minutes old               |
+| Daily automation   | Platform | `automation_runs` latest run per registered task                           | no failed task and the run is not stale |
+| Queue              | Platform | `jobs` waiting, `failed_jobs` in the last 24 hours                         | no failed jobs                          |
+| Provisioning       | Services | `module_commands` success rate, last 7 days; open `module_queue` items     | rate ≥ 98% and no open failures         |
+| Payment gateways   | Billing  | `payment_attempts` last 7 days: succeeded vs. failed + ambiguous to review | nothing to review                       |
+| Registrar commands | Domains  | `registrar_command_log` success rate, last 7 days                          | rate ≥ 98%                              |
+
+Status always pairs a dot with text ("OK", "98.6%", "2 failed"); colour is never alone. Email delivery joins
+when Notifications ships its check.
+
+### 5.9 Lists
+
+Shared `ListWidget`. Items may carry `money` (formatted on the client with the currency's grouping) and
+`leading` initials. "View all" links stay. Lists sharing a `group` render as one card with tabs (Radix
+Tabs, arrow-key navigation): **Activity** = Recent activity + Recent staff sign-ins. Empty copy unchanged.
+
+### 5.10 Quick actions
+
+`Navigation::quickActions()` (the same source as the header New menu) as a card of links with icons; the
+header shows "⌘K" because the command palette exists. Hidden when the user has no create permissions.
+
+## 6. Interactions
+
+- **Reporting currency** (page header, segmented control): `All` plus each currency with activity. `All`
+  converts every currency to the default currency at today's rates (caption: "All currencies in USD at
+  today's rates"); a currency code shows only money in that currency, unconverted (the current build's
+  behaviour). It scopes the money KPIs and the income hero. The choice is remembered per browser
+  (localStorage, wrapped in try/catch). Hidden when only one currency is in use.
+- **Range** on the hero only (12 months | 30 days).
+- **Hover/focus:** crosshair + tooltip on line charts, per-column tooltip on bars; cards and rows show a
+  hover wash and a visible focus ring.
+- **Deferred loading:** heavy widgets stay deferred; their slots hold a skeleton of the final size so the
+  layout does not jump.
+
+## 7. Registry contract (backward compatible)
+
+`App\Support\Dashboard\Dashboard`. Modules that send none of the new fields keep working unchanged.
+
+- **stat** gains optional `sparkline: int[]`, `trend: {value, direction: up|down|flat, upIsGood?}`,
+  `tone: default|warning|danger`, `money: {amount, currency}` (already sent by Billing).
+- **chart** gains optional `stacked: bool`, `description`, `summary: {money|value, label, trend?}`, series
+  `compare: bool` (drawn as the neutral dashed baseline), `ranges: {key: {label, series, summary?}}`, and
+  `xFormat: month|day|dayOfMonth|week`.
+- **Currency variants (any widget):** optional `variants: {all|<code>: partial payload}`. The client merges
+  `variants[selected]` over the base payload. The legacy chart `currencies` map keeps working.
+- **New type `breakdown`:** `{title, description?, rows: [{key, label, code?, money|value, share}], notes?:
+[{label, money}] , empty?}`.
+- **list** items gain optional `money`; lists gain optional `group` and `groupTitle`.
+- **todo** items gain optional `icon` and `hint` (the client already renders them).
+- **New aggregated registry `health()`** (like `todo()`):
+  `$dashboard->health('admin', 'services.provisioning', fn ($user) => ['label', 'detail', 'value', 'tone',
+'icon', 'href'?], 'services.module_log.view', order: 20)`; `resolveHealth()` returns visible checks in order.
+- `Dashboard::TYPES` gains `breakdown`.
+
+## 8. Data rules
+
+- Money in integer minor units; `sum()` results cast to `int` (PostgreSQL returns strings).
+- One query per widget where possible, on indexed columns (`transactions(type, occurred_at)`,
+  `invoices(status, due_date)`, `services.status`, `orders.created_at`, `module_commands.created_at`,
+  `registrar_command_log.created_at`).
+- Daily buckets use `date(<column>)`, which SQLite, MySQL and PostgreSQL all accept; months, weeks and
+  comparisons are built in PHP. No `strftime`, `date_trunc` or `DATE_FORMAT`.
+- Billing computes one per-currency dataset for all its widgets and caches it for 60 seconds
+  (`Cache::remember`, key includes the date), so the four Billing widgets share one set of queries.
+- Historical outstanding/overdue points are reconstructed from issue, paid and cancelled dates; partial
+  payments on still-open invoices count at today's balance. The last point always equals the KPI value.
+- Each widget is registered with its permission and hidden when the user lacks it. Widgets touch only their
+  own module's tables; cross-module data goes through contracts (`PriceBook::product()` for product type).
+- Demo seeding: billing history extends to 24 months with gradual growth so the YoY comparison is
+  meaningful; Orders seeds 30 days of demo orders across product types. Neither runs in production.
+
+## 9. Accessibility
+
+- Every chart has `role="img"`, an `aria-label` that names what and when, and a table view toggle.
+- Trend pills include screen-reader text ("Up 12.1%, good").
+- Tabs, range and currency controls are Radix toggle groups/tabs: arrow keys move, focus ring visible.
+- Status uses icon/dot plus text. Chart colours were checked with the dataviz validator against each
+  preset's card surface: all pass 3:1 contrast. Slate's `--chart-2` is a neutral grey that is not
+  distinguishable from its `--chart-3` teal under deuteranopia; v2 avoids that by drawing comparisons in
+  neutral ink and relying on legends, 2px surface gaps and the table view in stacks (open question 4).
+- Touch targets ≥ 24px; list rows are full-width links.
+
+## 10. Open questions for the owner
+
+1. **Automation per-task list.** v2 summarises it as one System health row ("17 tasks: 15 ran, 2 not run")
+   linking to the full automation page. Keep that, or also show the per-task list on the dashboard?
+2. **Reporting currency "All".** Converting at today's rates is an estimate for past months. Acceptable as
+   the default, or should the default be the default currency only (the current build's behaviour)?
+3. **Export.** The directions show an Export button. There is no reports module yet; v2 omits it rather than
+   ship a button that does nothing. Add a CSV export of the dashboard figures now, or wait for Reports?
+4. **Slate preset chart colours.** Slate's `--chart-2` (grey) and `--chart-3` (teal) collide for
+   colour-blind readers in multi-series charts. Propose giving Slate a desaturated blue-violet as
+   `--chart-2`; it is a theme change, so it is your call.
