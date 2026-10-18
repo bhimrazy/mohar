@@ -102,8 +102,13 @@ export function StatCard({
 
     const body = (
         <>
-            <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-muted-foreground">{label}</span>
+            <div className="flex min-h-10 items-start justify-between gap-2">
+                <span
+                    className="line-clamp-2 text-sm text-muted-foreground"
+                    title={label}
+                >
+                    {label}
+                </span>
                 {Icon && (
                     <span
                         className={cn(
@@ -143,7 +148,7 @@ export function StatCard({
     const classes = cn(
         'flex flex-col gap-2 rounded-xl border bg-card p-(--stat-p) text-card-foreground elevation-card',
         href &&
-            'transition-[background-color,box-shadow] hover:elevation-hover focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
+            'group/stat cursor-pointer transition-[border-color,box-shadow] hover:border-primary/35 hover:elevation-hover focus-visible:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',
         className,
     );
 

@@ -25,6 +25,10 @@ const STATUS_TONES: Record<string, StatusTone> = {
     sent: 'success',
     online: 'success',
     resolved: 'success',
+    success: 'success',
+    succeeded: 'success',
+    healthy: 'success',
+    ok: 'success',
 
     // Waiting on someone
     pending: 'warning',

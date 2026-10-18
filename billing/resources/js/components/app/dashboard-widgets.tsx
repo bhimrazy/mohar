@@ -10,7 +10,6 @@ import type { ChartSeries } from '@/components/app/time-series-chart';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMoney } from '@/lib/money';
 import { navIcon } from '@/lib/nav-icons';
-import { cn } from '@/lib/utils';
 
 /** Shapes produced by App\Support\Dashboard\Dashboard::resolveWidgets(). */
 type WidgetBase = { key: string; size: 'sm' | 'md' | 'lg' };
@@ -47,12 +46,6 @@ export type ChartWidget = WidgetBase & {
 
 export type DashboardWidget = StatWidget | ListWidgetData | ChartWidget;
 
-const SPAN: Record<WidgetBase['size'], string> = {
-    sm: 'lg:col-span-1',
-    md: 'lg:col-span-2',
-    lg: 'lg:col-span-4',
-};
-
 function statValue(value: StatWidget['value']): string | number {
     return typeof value === 'object' && value !== null
         ? formatMoney(value.amount, value.currency)
@@ -83,11 +76,29 @@ export function StatWidgets({ widgets }: { widgets: StatWidget[] }) {
     );
 }
 
+/** "Last 12 weeks · 16 total" from the series spacing and the first series' sum. */
+function chartCaption(widget: ChartWidget): string {
+    const points = widget.series[0]?.points ?? [];
+
+    if (points.length < 2) {
+        return '';
+    }
+
+    const day = (x: string) => new Date(`${x.slice(0, 10)}T00:00:00`).getTime();
+    const gap = (day(points[1].x) - day(points[0].x)) / 86_400_000;
+    const unit = gap >= 27 ? 'months' : gap >= 6 ? 'weeks' : 'days';
+    const total = points.reduce((sum, point) => sum + point.y, 0);
+    const totalLabel = widget.currency
+        ? formatMoney(total, widget.currency)
+        : total.toLocaleString();
+
+    return `Last ${points.length} ${unit} · ${totalLabel} total`;
+}
+
 function Widget({ widget }: { widget: ListWidgetData | ChartWidget }) {
     if (widget.type === 'list') {
         return (
             <ListWidget
-                className={SPAN[widget.size]}
                 title={widget.title}
                 items={widget.items}
                 href={widget.href}
@@ -97,13 +108,13 @@ function Widget({ widget }: { widget: ListWidgetData | ChartWidget }) {
     }
 
     return (
-        <section
-            className={cn(
-                'flex min-w-0 flex-col rounded-xl border bg-card p-(--stat-p) text-card-foreground elevation-card',
-                SPAN[widget.size],
-            )}
-        >
-            <h2 className="mb-3 font-display text-base">{widget.title}</h2>
+        <section className="flex min-w-0 flex-col rounded-xl border bg-card p-(--stat-p) text-card-foreground elevation-card">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3">
+                <h2 className="font-display text-base">{widget.title}</h2>
+                <span className="text-xs text-muted-foreground">
+                    {chartCaption(widget)}
+                </span>
+            </div>
             <TimeSeriesChart
                 label={widget.title}
                 kind={widget.kind}
@@ -137,22 +148,26 @@ export function DashboardWidgets({
         (widget): widget is ListWidgetData | ChartWidget =>
             widget.type !== 'stat',
     );
+    const halves = blocks.filter((widget) => widget.size !== 'lg');
+    const fulls = blocks.filter((widget) => widget.size === 'lg');
 
     return (
         <>
             <StatWidgets widgets={stats} />
-            <div className="grid gap-(--page-gap) lg:grid-cols-4">
-                <NeedsAttention items={todos} className="lg:col-span-2" />
-                {blocks.map((widget) => (
+            {/* Half-width cards pack into two balanced columns (no stretched or empty cards);
+                full-width widgets follow on their own rows. */}
+            <div className="gap-(--page-gap) lg:columns-2 [&>*]:mb-(--page-gap) [&>*]:break-inside-avoid">
+                <NeedsAttention items={todos} />
+                {halves.map((widget) => (
                     <Widget key={widget.key} widget={widget} />
                 ))}
                 {deferred === undefined && (
-                    <Skeleton className="h-72 rounded-xl lg:col-span-2" />
+                    <Skeleton className="h-72 rounded-xl" />
                 )}
                 {blocks.length === 0 &&
                     deferred !== undefined &&
                     todos.length === 0 && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground lg:col-span-2">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <CheckCircle2
                                 className="size-4"
                                 aria-hidden="true"
@@ -161,6 +176,9 @@ export function DashboardWidgets({
                         </div>
                     )}
             </div>
+            {fulls.map((widget) => (
+                <Widget key={widget.key} widget={widget} />
+            ))}
         </>
     );
 }

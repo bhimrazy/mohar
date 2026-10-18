@@ -40,7 +40,12 @@ export function NeedsAttention({
     title = 'Needs attention',
     className,
 }: NeedsAttentionProps) {
-    const total = items.reduce((sum, item) => sum + item.count, 0);
+    // Badge = number of queues needing action, coloured by the most severe one.
+    const severity: StatusTone[] = ['danger', 'warning', 'info', 'neutral'];
+    const worst =
+        severity.find((tone) =>
+            items.some((item) => (item.tone ?? 'warning') === tone),
+        ) ?? 'neutral';
 
     return (
         <section
@@ -52,9 +57,14 @@ export function NeedsAttention({
         >
             <header className="flex items-center justify-between gap-3 px-(--stat-p) pt-(--stat-p) pb-3">
                 <h2 className="font-display text-base">{title}</h2>
-                {total > 0 && (
-                    <span className="rounded-badge bg-danger-subtle px-2 py-0.5 text-xs font-medium text-danger-text tabular-nums">
-                        {total} open
+                {items.length > 0 && (
+                    <span
+                        className={cn(
+                            'rounded-badge px-2 py-0.5 text-xs font-medium tabular-nums',
+                            ICON_SURFACE[worst],
+                        )}
+                    >
+                        {items.length} {items.length === 1 ? 'item' : 'items'}
                     </span>
                 )}
             </header>
