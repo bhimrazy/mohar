@@ -1,6 +1,6 @@
 # ADR 0011 — Domain event conventions
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-18 (CTO) · Owner: Principal architect
 
 ## Context
 
