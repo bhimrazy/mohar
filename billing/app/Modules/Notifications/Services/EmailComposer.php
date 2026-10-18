@@ -9,6 +9,7 @@ use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Support\EmailBody;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Mail\Markdown;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -34,7 +35,7 @@ class EmailComposer
      *
      * @throws TemplateSyntaxError
      */
-    public function compose(EmailTemplate $template, string $locale, array $context): ComposedEmail
+    public function compose(EmailTemplate $template, string $locale, array $context, bool $carriesSecret = false): ComposedEmail
     {
         $translation = $template->translationFor($locale, $this->defaultLocale());
 
@@ -49,6 +50,7 @@ class EmailComposer
             $translation->locale,
             $template->plain_text_only,
             $this->preferencesUrl($template),
+            $carriesSecret || $template->carriesSecret(),
         );
     }
 
@@ -57,7 +59,7 @@ class EmailComposer
      *
      * @throws TemplateSyntaxError
      */
-    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null): ComposedEmail
+    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null, bool $carriesSecret = false): ComposedEmail
     {
         $options = [
             'locale' => $locale,
@@ -65,19 +67,20 @@ class EmailComposer
             'currency' => is_string($context['client']['currency'] ?? null) ? $context['client']['currency'] : null,
         ];
         [$redactedContext, $hasRedactions] = $this->mergeContext->redact($context);
+        $secrets = $carriesSecret || $hasRedactions ? SecretTemplatePolicy::secretValues($context) : null;
 
         $renderedSubject = $this->engine->render($subject, $context, false, $options);
         $html = $this->engine->render($body, $context, true, $options);
         $text = $this->engine->render($body, $context, false, $options);
 
-        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($html->output, $preferencesUrl);
+        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($html->output, $preferencesUrl, $secrets);
         $wrappedText = $this->wrapText($text->output, $preferencesUrl);
 
         return new ComposedEmail(
             subject: $this->subjectLine($renderedSubject->output),
             html: $wrappedHtml,
             text: $wrappedText,
-            storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output, $preferencesUrl) : $wrappedHtml,
+            storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output, $preferencesUrl, []) : $wrappedHtml,
             storedText: $hasRedactions ? $this->wrapText($this->engine->render($body, $redactedContext, false, $options)->output, $preferencesUrl) : $wrappedText,
             hasRedactions: $hasRedactions,
             warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
@@ -107,9 +110,12 @@ class EmailComposer
         return route('client.notifications.preferences.edit');
     }
 
-    private function wrapHtml(string $markdownBody, ?string $preferencesUrl): string
+    /**
+     * @param  list<string>|null  $secrets
+     */
+    private function wrapHtml(string $markdownBody, ?string $preferencesUrl, ?array $secrets = null): string
     {
-        $body = EmailBody::html($markdownBody);
+        $body = EmailBody::html($markdownBody, $secrets);
 
         return $this->markdown->render('notifications::mail.message', [
             'body' => $body,

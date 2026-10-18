@@ -1,5 +1,5 @@
 import { Head, router, useForm, useHttp } from '@inertiajs/react';
-import { AlertTriangle, RotateCcw, Send } from 'lucide-react';
+import { AlertTriangle, RotateCcw, Send, ShieldCheck } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import EmailTemplateController from '@/actions/App/Modules/Notifications/Http/Controllers/Admin/EmailTemplateController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -65,6 +65,7 @@ export default function TemplateEditor({
     types,
     canManage,
     canManageDelivery,
+    secretAction,
 }: {
     template: Template | null;
     translation: Translation;
@@ -73,6 +74,8 @@ export default function TemplateEditor({
     types: SelectOption[];
     canManage: boolean;
     canManageDelivery: boolean;
+    /** Secret-bearing email: the merge field its single action link must use. */
+    secretAction: string | null;
 }) {
     const form = useForm({
         key: 'custom.',
@@ -254,6 +257,22 @@ export default function TemplateEditor({
                             }
                         >
                             <div className="grid gap-4">
+                                {secretAction && (
+                                    <Alert>
+                                        <ShieldCheck />
+                                        <AlertTitle>
+                                            Only the wording can change
+                                        </AlertTitle>
+                                        <AlertDescription>
+                                            This email carries a one-time link.
+                                            Keep one action link to{' '}
+                                            <code className="font-mono text-xs">{`{{ ${secretAction} }}`}</code>
+                                            ; images, HTML and links to other
+                                            sites are not allowed, and it is
+                                            never copied to anyone.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
                                 {!translation.exists && template && (
                                     <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                                         No {translation.locale.toUpperCase()}{' '}

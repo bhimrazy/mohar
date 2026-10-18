@@ -16,6 +16,7 @@ use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -169,6 +170,7 @@ class EmailTemplateController extends Controller
                 (string) ($validated['locale'] ?? $this->composer->defaultLocale()),
                 $template->plain_text_only,
                 $this->composer->preferencesUrl($template),
+                $template->carriesSecret(),
             );
         } catch (TemplateSyntaxError $error) {
             return response()->json(['error' => $error->getMessage(), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
@@ -242,6 +244,7 @@ class EmailTemplateController extends Controller
             'types' => $this->typeOptions(TemplateType::customisable()),
             'canManage' => request()->user()?->hasPermission('notifications.templates.manage') ?? false,
             'canManageDelivery' => request()->user()?->hasPermission('notifications.delivery.manage') ?? false,
+            'secretAction' => $template !== null && $template->carriesSecret() ? (SecretTemplatePolicy::ACTION_LINKS[$template->key] ?? null) : null,
         ];
     }
 

@@ -6,6 +6,7 @@ use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -67,6 +68,14 @@ class EmailTemplateRequest extends FormRequest
         return [function (Validator $validator): void {
             if ($this->changesDelivery() && ! ($this->user()?->hasPermission('notifications.delivery.manage') ?? false)) {
                 $validator->errors()->add('bcc', __('Changing the sender, CC or BCC needs the "Change email senders, Reply-To, global BCC and template CC/BCC" permission.'));
+            }
+
+            $template = $this->route('template');
+
+            if ($template instanceof EmailTemplate && $template->carriesSecret() && is_string($this->input('body')) && is_string($this->input('subject'))) {
+                foreach (SecretTemplatePolicy::violations($template->key, $this->input('subject'), $this->input('body')) as $problem) {
+                    $validator->errors()->add('body', $problem);
+                }
             }
 
             $engine = app(TemplateEngine::class);
