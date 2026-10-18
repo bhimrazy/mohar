@@ -82,7 +82,7 @@ class EmailTemplateController extends Controller
             'is_system' => false,
         ]);
         $this->saveTranslation($template, $request);
-        $this->activity->log('Email template created', $template, properties: ['key' => $template->key]);
+        $this->activity->log('Email template created', $template, properties: ['key' => $template->key, 'delivery' => $template->only(['from_name', 'from_email', 'cc', 'bcc'])]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Template ":name" created.', ['name' => $template->name])]);
 
         return to_route('admin.notifications.templates.edit', $template);
@@ -98,9 +98,14 @@ class EmailTemplateController extends Controller
 
     public function update(EmailTemplateRequest $request, EmailTemplate $template): RedirectResponse
     {
+        $before = $template->only(['from_name', 'from_email', 'cc', 'bcc']);
         $template->update($this->templateAttributes($request));
         $this->saveTranslation($template, $request);
         $this->activity->log('Email template updated', $template, properties: ['key' => $template->key, 'locale' => $request->string('locale')->toString()]);
+
+        if ($before !== $template->only(['from_name', 'from_email', 'cc', 'bcc'])) {
+            $this->activity->log('Email template sender or copies changed', $template, properties: ['key' => $template->key, 'old' => $before, 'new' => $template->only(['from_name', 'from_email', 'cc', 'bcc'])]);
+        }
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Template ":name" saved.', ['name' => $template->name])]);
 
         return to_route('admin.notifications.templates.edit', [$template, 'locale' => $request->string('locale')->toString()]);
@@ -236,6 +241,7 @@ class EmailTemplateController extends Controller
             'fields' => $this->samples->fieldsFor($type),
             'types' => $this->typeOptions(TemplateType::customisable()),
             'canManage' => request()->user()?->hasPermission('notifications.templates.manage') ?? false,
+            'canManageDelivery' => request()->user()?->hasPermission('notifications.delivery.manage') ?? false,
         ];
     }
 

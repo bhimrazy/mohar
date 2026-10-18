@@ -26,7 +26,7 @@ class ClientEmailController extends Controller
 
         return Inertia::render('admin/notifications/emails/compose', [
             'client' => ['id' => $client->id, 'name' => $client->display_name, 'email' => $client->email],
-            'templates' => EmailTemplate::query()->where('audience', TemplateAudience::Client)->where('is_enabled', true)
+            'templates' => EmailTemplate::query()->where('audience', TemplateAudience::Client)->where('is_enabled', true)->whereNotIn('key', EmailTemplate::SECRET_TEMPLATES)
                 ->orderBy('type')->orderBy('name')->orderBy('id')->get(['key', 'name', 'type'])
                 ->map(fn (EmailTemplate $template): array => ['value' => $template->key, 'label' => $template->name.' ('.$template->type->label().')'])->values(),
             'fields' => $samples->fieldsFor(TemplateType::General),

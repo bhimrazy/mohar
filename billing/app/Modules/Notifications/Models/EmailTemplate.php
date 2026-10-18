@@ -75,6 +75,17 @@ class EmailTemplate extends Model
         return $translations->firstWhere('locale', $locale) ?? $translations->firstWhere('locale', $defaultLocale);
     }
 
+    /**
+     * Mail carrying a one-time secret (reset, verification and invitation links). It is never copied to
+     * anyone: no global BCC, no template CC/BCC (security review PR #28, B1).
+     */
+    public const SECRET_TEMPLATES = ['auth.password_reset', 'auth.email_verification', 'auth.user_invitation', 'staff.password_reset', 'staff.invitation'];
+
+    public function carriesSecret(): bool
+    {
+        return in_array($this->key, self::SECRET_TEMPLATES, true);
+    }
+
     /** Account-access mail that must always go out: disabling the template has no effect. */
     public const ALWAYS_SENT = ['auth.password_reset', 'auth.email_verification', 'staff.password_reset'];
 

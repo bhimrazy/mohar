@@ -117,6 +117,12 @@ class NotificationMailer
             return $message;
         }
 
+        // Secret-bearing mail goes to its recipient only: no template CC/BCC, no global BCC (B1).
+        if ($template->carriesSecret() || $request->carriesSecret || $composed->hasRedactions) {
+            $attributes['cc'] = null;
+            $attributes['bcc'] = null;
+        }
+
         $suppressedReason = match (true) {
             ! $template->is_enabled && ! $template->isAlwaysSent() => 'template_disabled',
             (bool) $this->settings->get('notifications.mail_disabled', false) => 'mail_disabled',
@@ -125,7 +131,7 @@ class NotificationMailer
 
         $message = EmailMessage::query()->create([
             ...$attributes,
-            'subject' => $composed->subject,
+            'subject' => $composed->storedSubject ?? $composed->subject,
             'body_html' => $composed->storedHtml,
             'body_text' => $composed->storedText,
             'has_redactions' => $composed->hasRedactions,

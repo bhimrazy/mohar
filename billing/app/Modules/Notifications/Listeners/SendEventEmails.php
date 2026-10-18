@@ -58,6 +58,7 @@ use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Support\EventKey;
 use App\Modules\Notifications\Support\MoneyText;
+use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -148,7 +149,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 ...$this->context->client($client?->id),
                 'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
                 'auth' => ['reset_url' => $event->resetUrl, 'expires_at' => $event->expiresAt],
-            ], $event, $client?->id, 'user', $user->id);
+            ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
         });
 
         if ($sent === [] && $event->token !== '') {
@@ -172,7 +173,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 ...$this->context->client($client?->id),
                 'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
                 'auth' => ['verify_url' => $event->verifyUrl],
-            ], $event, $client?->id, 'user', $user->id);
+            ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
         });
 
         if ($sent === []) {
@@ -572,7 +573,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     {
         $this->staffMail('staff.webhook_endpoint_disabled', StaffCategory::System, [
             'webhook' => [
-                'url' => $event->url,
+                'url' => WebhookUrlGuard::forLog($event->url),
                 'consecutive_failures' => $event->consecutiveFailures,
                 'admin_url' => $this->context->link('admin.notifications.webhooks.show', $event->endpointId),
             ],
@@ -617,13 +618,13 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
      * @param  array<string, mixed>  $context
      * @return list<EmailMessage>
      */
-    private function send(string $templateKey, array $recipients, array $context, object $event, ?int $clientId = null, ?string $relatedType = null, ?int $relatedId = null): array
+    private function send(string $templateKey, array $recipients, array $context, object $event, ?int $clientId = null, ?string $relatedType = null, ?int $relatedId = null, bool $carriesSecret = false): array
     {
         if ($recipients === []) {
             return [];
         }
 
-        return $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId));
+        return $this->mailer->send(new EmailRequest($templateKey, $recipients, $context, EventKey::of($event), $clientId, $relatedType, $relatedId, carriesSecret: $carriesSecret));
     }
 
     /**

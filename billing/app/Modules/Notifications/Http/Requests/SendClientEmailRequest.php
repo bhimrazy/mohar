@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Http\Requests;
 
+use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -25,7 +26,8 @@ class SendClientEmailRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'template_key' => ['nullable', 'string', Rule::exists('email_templates', 'key')->where('audience', 'client')],
+            // Templates carrying one-time links are only sent by their own flows, never by hand.
+            'template_key' => ['nullable', 'string', Rule::exists('email_templates', 'key')->where('audience', 'client'), Rule::notIn(EmailTemplate::SECRET_TEMPLATES)],
             'subject' => ['required_without:template_key', 'nullable', 'string', 'max:255'],
             'body' => ['required_without:template_key', 'nullable', 'string', 'max:50000'],
         ];

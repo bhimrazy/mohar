@@ -64,6 +64,7 @@ export default function TemplateEditor({
     fields,
     types,
     canManage,
+    canManageDelivery,
 }: {
     template: Template | null;
     translation: Translation;
@@ -71,6 +72,7 @@ export default function TemplateEditor({
     fields: FieldGroups;
     types: SelectOption[];
     canManage: boolean;
+    canManageDelivery: boolean;
 }) {
     const form = useForm({
         key: 'custom.',
@@ -89,6 +91,8 @@ export default function TemplateEditor({
     const errors = form.errors as Record<string, string | undefined>;
     const body = useRef<HTMLTextAreaElement>(null);
     const readOnly = !canManage;
+    // Sender and copies can redirect mail (incl. account links): a separate, sensitive permission.
+    const deliveryLocked = readOnly || !canManageDelivery;
 
     const previewRequest = useHttp<PreviewInput, Preview>({
         subject: '',
@@ -387,7 +391,11 @@ export default function TemplateEditor({
                         </SectionCard>
                         <SectionCard
                             title="Sending"
-                            description="Leave sender fields empty to use the system defaults."
+                            description={
+                                canManageDelivery
+                                    ? 'Leave sender fields empty to use the system defaults. Senders must be on your authorised sending domain (SPF/DKIM) so DMARC passes. Copies are never added to mail carrying reset, verification or invitation links.'
+                                    : 'Sender, CC and BCC need the email delivery permission.'
+                            }
                         >
                             <div className="grid gap-4">
                                 <div className="grid gap-4 sm:grid-cols-2">
@@ -406,7 +414,7 @@ export default function TemplateEditor({
                                                     event.target.value,
                                                 )
                                             }
-                                            disabled={readOnly}
+                                            disabled={deliveryLocked}
                                         />
                                     </Field>
                                     <Field
@@ -425,7 +433,7 @@ export default function TemplateEditor({
                                                     event.target.value,
                                                 )
                                             }
-                                            disabled={readOnly}
+                                            disabled={deliveryLocked}
                                         />
                                     </Field>
                                     <Field
@@ -444,7 +452,7 @@ export default function TemplateEditor({
                                                     event.target.value,
                                                 )
                                             }
-                                            disabled={readOnly}
+                                            disabled={deliveryLocked}
                                         />
                                     </Field>
                                     <Field
@@ -463,7 +471,7 @@ export default function TemplateEditor({
                                                     event.target.value,
                                                 )
                                             }
-                                            disabled={readOnly}
+                                            disabled={deliveryLocked}
                                         />
                                     </Field>
                                 </div>

@@ -33,7 +33,7 @@ use Illuminate\Support\Facades\Event;
 class NotificationsServiceProvider extends ModuleServiceProvider
 {
     /** Permissions that can exfiltrate data or hijack mail (BCC on password resets, arbitrary webhook URLs). */
-    public const SENSITIVE_PERMISSIONS = ['notifications.templates.manage', 'notifications.webhooks.manage'];
+    public const SENSITIVE_PERMISSIONS = ['notifications.templates.manage', 'notifications.webhooks.manage', 'notifications.delivery.manage'];
 
     public function moduleKey(): string
     {
@@ -114,12 +114,13 @@ class NotificationsServiceProvider extends ModuleServiceProvider
     {
         $this->app->make(PermissionRegistry::class)->register('Notifications', [
             'notifications.templates.view' => 'View and preview email templates',
-            'notifications.templates.manage' => 'Edit, create and delete email templates (incl. CC/BCC and sender)',
+            'notifications.templates.manage' => 'Edit, create and delete email templates',
             'notifications.log.view' => 'View the email log',
             'notifications.log.resend' => 'Resend emails from the log',
             'notifications.send' => 'Send emails to clients',
             'notifications.subscriptions.manage' => 'Choose which staff roles receive which alerts',
             'notifications.webhooks.manage' => 'Manage webhook endpoints, secrets and deliveries',
+            'notifications.delivery.manage' => 'Change email senders, Reply-To, global BCC and template CC/BCC',
             'notifications.settings.manage' => 'Manage email & notification settings',
         ], sensitive: self::SENSITIVE_PERMISSIONS);
     }
@@ -128,11 +129,7 @@ class NotificationsServiceProvider extends ModuleServiceProvider
     {
         $this->app->make(SettingsRegistry::class)->section('notifications', 'Email & notifications', [
             new SettingDefinition('notifications.mail_disabled', 'Stop sending email', 'boolean', 'Messages are still logged, with status "suppressed".'),
-            new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses.', rules: ['max:500']),
             new SettingDefinition('notifications.signature', 'Email signature', 'text', 'Inserted where templates use {{ signature }}.', rules: ['max:2000']),
-            new SettingDefinition('notifications.from.default', 'Send email from', 'email', 'Sender address for client and staff email. Defaults to MAIL_FROM_ADDRESS. The sender name is always the company name.', rules: ['nullable', 'email', 'max:255']),
-            new SettingDefinition('notifications.from.billing', 'Send billing email from', 'email', 'Sender for invoices, receipts and reminders, e.g. a billing alias. Defaults to the address above.', rules: ['nullable', 'email', 'max:255']),
-            new SettingDefinition('notifications.support_email', 'Support email address', 'email', 'Replies to general email go here and it is shown in every footer. Defaults to the billing email address. Never use a no-reply mailbox.', rules: ['nullable', 'email', 'max:255']),
             new SettingDefinition('notifications.footer_help_text', 'Footer help line', help: 'Shown in every email footer. {{ support.email }} is replaced by the support address.', rules: ['max:300']),
             new SettingDefinition('notifications.footer_address', 'Address in the email footer', 'text', 'Defaults to the seller address on invoices.', rules: ['max:500']),
             new SettingDefinition('notifications.support_url', 'Help link in the email footer', help: 'Defaults to the client area ticket list.', rules: ['nullable', 'url', 'max:500']),
@@ -145,5 +142,14 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('notifications.webhooks_disable_after_consecutive_failures', 'Disable a webhook endpoint after (consecutive failures)', 'integer', rules: ['min:1', 'max:1000']),
             new SettingDefinition('notifications.webhooks_delivery_retention_days', 'Keep webhook deliveries for (days)', 'integer', rules: ['min:1', 'max:365']),
         ], 'notifications.settings.manage');
+
+        // Who mail comes from, where replies go and who gets copies: account-takeover relevant (B1), so a
+        // sensitive permission (password confirmation, never granted by wildcards) and audit-logged changes.
+        $this->app->make(SettingsRegistry::class)->section('email_delivery', 'Email delivery', [
+            new SettingDefinition('notifications.from.default', 'Send email from', 'email', 'Sender for client and staff email; empty = MAIL_FROM_ADDRESS. The sender name is always the company name. Use an address on a domain your mail provider is authorised to send for (SPF/DKIM), so DMARC passes.', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.from.billing', 'Send billing email from', 'email', 'Sender for invoices, receipts and reminders, e.g. billing@ your domain. Must be on the same authorised sending domain (DMARC alignment).', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.support_email', 'Support email address', 'email', 'Reply-To for general email and the address named in every footer. Defaults to the billing email address. Never a no-reply mailbox.', rules: ['nullable', 'email', 'max:255']),
+            new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses. Never applied to mail carrying a reset, verification or invitation link.', rules: ['max:500']),
+        ], 'notifications.delivery.manage');
     }
 }

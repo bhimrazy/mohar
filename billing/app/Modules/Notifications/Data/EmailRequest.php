@@ -10,6 +10,7 @@ final readonly class EmailRequest
     /**
      * @param  list<Recipient>  $recipients
      * @param  array<string, mixed>  $context  entity data shared by all recipients
+     * @param  bool  $carriesSecret  the event hands over a one-time secret: never copy the message to anyone
      */
     public function __construct(
         public string $templateKey,
@@ -20,5 +21,6 @@ final readonly class EmailRequest
         public ?string $relatedType = null,
         public ?int $relatedId = null,
         public ?string $fromEmail = null,
+        public bool $carriesSecret = false,
     ) {}
 }

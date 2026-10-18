@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
@@ -75,9 +76,24 @@ it('requires a recent password to change templates and blocks saving broken synt
     confirmPassword();
     $this->put(route('admin.notifications.templates.update', $template), $payload)->assertSessionHasErrors('body');
 
-    $this->put(route('admin.notifications.templates.update', $template), [...$payload, 'body' => 'Pay {{ invoice.number }}', 'bcc' => 'audit@example.test'])->assertSessionHasNoErrors();
-    expect($template->fresh())->bcc->toBe(['audit@example.test'])
-        ->and($template->translations()->where('locale', 'en')->value('body'))->toBe('Pay {{ invoice.number }}');
+    $this->put(route('admin.notifications.templates.update', $template), [...$payload, 'body' => 'Pay {{ invoice.number }}'])->assertSessionHasNoErrors();
+    expect($template->translations()->where('locale', 'en')->value('body'))->toBe('Pay {{ invoice.number }}');
+
+    // Sender and copies need the separate, sensitive delivery permission.
+    $this->put(route('admin.notifications.templates.update', $template), [...$payload, 'body' => 'Pay', 'bcc' => 'audit@example.test'])->assertSessionHasErrors('bcc');
+    expect($template->fresh()->bcc)->toBeNull();
+});
+
+it('lets delivery managers set template copies and logs the change', function () {
+    actingAsStaff(['notifications.templates.view', 'notifications.templates.manage', 'notifications.delivery.manage']);
+    confirmPassword();
+    $template = EmailTemplate::query()->where('key', 'invoice.created')->sole();
+
+    $this->put(route('admin.notifications.templates.update', $template), ['name' => $template->name, 'locale' => 'en', 'subject' => 'Invoice', 'body' => 'Pay', 'bcc' => 'audit@example.test'])
+        ->assertSessionHasNoErrors();
+
+    expect($template->fresh()->bcc)->toBe(['audit@example.test'])
+        ->and(ActivityLog::query()->where('description', 'Email template sender or copies changed')->exists())->toBeTrue();
 });
 
 it('cannot delete system templates', function () {

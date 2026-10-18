@@ -65,6 +65,10 @@ class EmailTemplateRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            if ($this->changesDelivery() && ! ($this->user()?->hasPermission('notifications.delivery.manage') ?? false)) {
+                $validator->errors()->add('bcc', __('Changing the sender, CC or BCC needs the "Change email senders, Reply-To, global BCC and template CC/BCC" permission.'));
+            }
+
             $engine = app(TemplateEngine::class);
 
             foreach (['subject', 'body'] as $field) {
@@ -81,6 +85,25 @@ class EmailTemplateRequest extends FormRequest
                 }
             }
         }];
+    }
+
+    /**
+     * Whether the request sets the sender or copies (CC/BCC) differently from the stored template.
+     */
+    public function changesDelivery(): bool
+    {
+        $template = $this->route('template');
+        $current = $template instanceof EmailTemplate
+            ? ['from_name' => $template->from_name, 'from_email' => $template->from_email, 'cc' => $template->cc ?? [], 'bcc' => $template->bcc ?? []]
+            : ['from_name' => null, 'from_email' => null, 'cc' => [], 'bcc' => []];
+        $requested = [
+            'from_name' => $this->filled('from_name') ? (string) $this->input('from_name') : null,
+            'from_email' => $this->filled('from_email') ? (string) $this->input('from_email') : null,
+            'cc' => array_values((array) $this->input('cc', [])),
+            'bcc' => array_values((array) $this->input('bcc', [])),
+        ];
+
+        return $requested !== $current;
     }
 
     /**
