@@ -15,6 +15,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ExchangeRateHistory;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Support\Automation\Automation;
 use App\Support\Currencies\Decimal;
 use Illuminate\Support\Str;
 
@@ -79,11 +80,12 @@ class PlatformSeeder extends DemoSeeder
     }
 
     /**
-     * Demo history for the dashboard: sign-ups spread over the last 12 weeks and a few days of automation runs.
+     * Demo history for the dashboard: sign-ups spread over the last 12 weeks and 30 days of automation runs.
      */
     private function seedHistory(): void
     {
-        if (AutomationRun::query()->exists()) {
+        // Demo data only: never fabricate history in a live install.
+        if (app()->isProduction() || AutomationRun::query()->exists()) {
             return;
         }
 
@@ -91,17 +93,37 @@ class PlatformSeeder extends DemoSeeder
             $client->forceFill(['created_at' => now()->subDays(($index * 7) % 80 + 1)->subHours($index)])->saveQuietly();
         });
 
-        foreach (range(3, 1) as $daysAgo) {
-            foreach (['platform.prune_invitations' => 'no invitations pruned', 'platform.prune_activity_log' => 'no entries pruned'] as $task => $summary) {
-                AutomationRun::query()->create([
+        // Demo only (nothing real was executed): 30 days of daily runs for every registered task, with counts in
+        // the summaries, one failed run that recovered the next day, and one day the scheduler missed.
+        mt_srand(2028);
+        $tasks = app(Automation::class)->ordered();
+
+        foreach (range(30, 0) as $daysAgo) {
+            $ranAt = today()->subDays($daysAgo)->setTime(3, 0);
+
+            if ($daysAgo === 17 || $ranAt->isFuture()) {
+                continue;
+            }
+
+            foreach ($tasks as $task => ['stage' => $stage]) {
+                $failed = $daysAgo === 9 && $task === array_key_first(array_filter($tasks, fn (array $item): bool => $item['stage'] === Automation::AUTO_CHARGE));
+                $run = AutomationRun::query()->create([
                     'run_date' => today()->subDays($daysAgo),
                     'task' => $task,
-                    'status' => 'success',
-                    'summary' => $summary,
-                    'duration_ms' => 40 + $daysAgo * 7,
+                    'status' => $failed ? 'failed' : 'success',
+                    'summary' => $failed ? 'Gateway timed out after 30 seconds' : (string) ($stage < Automation::SYNC ? mt_rand(0, 14) : mt_rand(0, 3)),
+                    'duration_ms' => match (true) {
+                        $stage === Automation::RENEWALS => mt_rand(380, 900),
+                        $stage === Automation::AUTO_CHARGE => mt_rand(250, 700),
+                        $stage >= Automation::SYNC => mt_rand(60, 400),
+                        default => mt_rand(20, 160),
+                    },
                 ]);
+                $run->forceFill(['created_at' => $ranAt, 'updated_at' => $ranAt->addMinute()])->save();
             }
         }
+
+        mt_srand();
     }
 
     /**

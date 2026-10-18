@@ -13,6 +13,13 @@ import { PageHeader } from '@/components/app/page-header';
 import { Pagination } from '@/components/app/pagination';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import {
+    AutomationEmptyState,
+    AutomationSummary,
+    SchedulerBanner,
+    STAGES,
+} from '@/components/platform/automation-summary';
+import type { AutomationInsights } from '@/components/platform/automation-summary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -22,12 +29,15 @@ type Run = {
     id: number;
     run_date: string;
     task: string;
+    task_label: string;
     status: string;
     summary: string | null;
     duration_ms: number;
 };
 type Task = {
     key: string;
+    label: string;
+    description: string | null;
     stage: number;
     last_status: string | null;
     last_run_date: string | null;
@@ -38,19 +48,8 @@ type Props = {
     tasks: Task[];
     filters: Record<string, string | undefined>;
     scheduledAt: string;
+    insights: AutomationInsights;
     can: { run: boolean };
-};
-
-const STAGES: Record<number, string> = {
-    10: 'Renewals',
-    20: 'Late fees',
-    30: 'Auto-charge',
-    40: 'Reminders',
-    50: 'Cancellations',
-    60: 'Suspensions',
-    70: 'Terminations',
-    80: 'Sync',
-    90: 'Housekeeping',
 };
 
 const ONLY = ['runs', 'filters'];
@@ -66,7 +65,14 @@ const runColumns: DataTableColumn<Run>[] = [
         key: 'task',
         header: 'Task',
         primary: true,
-        cell: (run) => <span className="font-mono text-xs">{run.task}</span>,
+        cell: (run) => (
+            <span className="flex flex-col">
+                <span>{run.task_label}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                    {run.task}
+                </span>
+            </span>
+        ),
     },
     {
         key: 'status',
@@ -98,6 +104,7 @@ export default function AutomationIndex({
     tasks,
     filters,
     scheduledAt,
+    insights,
     can,
 }: Props) {
     // null = closed; '' = whole pipeline; otherwise one task key.
@@ -114,7 +121,17 @@ export default function AutomationIndex({
             header: 'Task',
             primary: true,
             cell: (task) => (
-                <span className="font-mono text-xs">{task.key}</span>
+                <span className="flex max-w-xl min-w-56 flex-col gap-0.5 whitespace-normal">
+                    <span className="font-medium">{task.label}</span>
+                    {task.description && (
+                        <span className="text-xs text-muted-foreground">
+                            {task.description}
+                        </span>
+                    )}
+                    <span className="font-mono text-xs text-muted-foreground">
+                        {task.key}
+                    </span>
+                </span>
             ),
         },
         {
@@ -177,6 +194,32 @@ export default function AutomationIndex({
                     }
                 />
 
+                <SchedulerBanner insights={insights} />
+
+                {insights.hasRuns ? (
+                    <AutomationSummary
+                        insights={insights}
+                        failedHref={
+                            AutomationController.index({
+                                query: { status: 'failed' },
+                            }).url
+                        }
+                    />
+                ) : (
+                    <AutomationEmptyState
+                        insights={insights}
+                        scheduledAt={scheduledAt}
+                        action={
+                            can.run && (
+                                <Button size="sm" onClick={() => runTask('')}>
+                                    <Play />
+                                    Run today's pipeline
+                                </Button>
+                            )
+                        }
+                    />
+                )}
+
                 <SectionCard
                     title="Tasks"
                     description="Registered by the enabled modules."
@@ -213,7 +256,7 @@ export default function AutomationIndex({
                                     only={ONLY}
                                     options={tasks.map((task) => ({
                                         value: task.key,
-                                        label: task.key,
+                                        label: task.label,
                                     }))}
                                 />
                                 <FilterSelect
@@ -261,7 +304,7 @@ export default function AutomationIndex({
                 onOpenChange={(open) => !open && setRunning(null)}
                 title={
                     running
-                        ? `Run ${running} now?`
+                        ? `Run “${tasks.find((task) => task.key === running)?.label ?? running}” now?`
                         : "Run today's automation pipeline?"
                 }
                 description={

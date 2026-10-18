@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { DateTime } from '@/components/app/date';
 import { StatusBadge } from '@/components/app/status-badge';
+import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
 /** Matches the backend `list` dashboard widget payload. */
@@ -15,6 +16,10 @@ export type ListWidgetItem = {
     status?: string;
     /** Optional leading visual (avatar, icon). */
     leading?: ReactNode;
+    /** Money in minor units; formatted with the currency's grouping and shown instead of `meta`. */
+    money?: { amount: number; currency: string };
+    /** A name shown as initials in front of the row (when no `leading` is given). */
+    avatar?: string;
 };
 
 type ListWidgetProps = {
@@ -30,16 +35,51 @@ type ListWidgetProps = {
 };
 
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function Initials({ name }: { name: string }) {
+    const initials = name
+        .replace(/\(.*?\)/g, '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((part) => part[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
+    return (
+        <span
+            aria-hidden="true"
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-xs font-semibold text-accent-foreground"
+        >
+            {initials}
+        </span>
+    );
+}
 
 /** Backend list items send ISO timestamps as `meta`; show them as relative times. */
 function Meta({ value }: { value: ReactNode }) {
-    return typeof value === 'string' && ISO_DATETIME.test(value) ? (
-        <span className="text-xs text-muted-foreground">
-            <DateTime value={value} relative />
-        </span>
-    ) : (
-        value
-    );
+    if (typeof value === 'string' && ISO_DATETIME.test(value)) {
+        return (
+            <span className="text-xs text-muted-foreground">
+                <DateTime value={value} relative />
+            </span>
+        );
+    }
+
+    if (typeof value === 'string' && ISO_DATE.test(value)) {
+        return (
+            <span className="text-xs text-muted-foreground">
+                {new Date(`${value}T00:00:00`).toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                })}
+            </span>
+        );
+    }
+
+    return value;
 }
 
 export function ListWidget({
@@ -82,6 +122,21 @@ export function ListWidget({
                     {summary}
                 </div>
             )}
+            <ListRows items={items} empty={empty} />
+        </section>
+    );
+}
+
+/** The rows of a list widget (also used inside tabbed dashboard cards). */
+export function ListRows({
+    items,
+    empty = 'Nothing here yet.',
+}: {
+    items: ListWidgetItem[];
+    empty?: ReactNode;
+}) {
+    return (
+        <>
             {items.length === 0 ? (
                 <p className="border-t px-(--stat-p) py-8 text-center text-sm text-muted-foreground">
                     {empty}
@@ -91,7 +146,10 @@ export function ListWidget({
                     {items.map((item, index) => {
                         const content = (
                             <>
-                                {item.leading}
+                                {item.leading ??
+                                    (item.avatar ? (
+                                        <Initials name={item.avatar} />
+                                    ) : null)}
                                 <div className="min-w-0 flex-1">
                                     <div className="truncate text-sm font-medium">
                                         {item.title}
@@ -103,10 +161,19 @@ export function ListWidget({
                                     )}
                                 </div>
                                 <div className="flex shrink-0 flex-col items-end gap-1">
-                                    {item.meta && (
-                                        <div className="text-sm tabular-nums">
-                                            <Meta value={item.meta} />
+                                    {item.money ? (
+                                        <div className="text-sm font-medium whitespace-nowrap tabular-nums">
+                                            {formatMoney(
+                                                item.money.amount,
+                                                item.money.currency,
+                                            )}
                                         </div>
+                                    ) : (
+                                        item.meta && (
+                                            <div className="text-sm tabular-nums">
+                                                <Meta value={item.meta} />
+                                            </div>
+                                        )
                                     )}
                                     {item.status && (
                                         <StatusBadge status={item.status} />
@@ -137,6 +204,6 @@ export function ListWidget({
                     })}
                 </ul>
             )}
-        </section>
+        </>
     );
 }

@@ -6,6 +6,7 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Support\Actions\AutoCloseTickets;
 use App\Modules\Support\Actions\PruneAttachments;
 use App\Modules\Support\Actions\PurgeInboundRaw;
@@ -75,7 +76,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Tickets', 'admin.support.tickets.index', 'LifeBuoy', 'Support', 10, 'support.tickets.view', 'admin.support.tickets.*',
-            badge: fn (?User $user): ?int => $user !== null ? ($this->awaitingQuery($user)->count() ?: null) : null));
+            badge: fn (?User $user): ?int => $user !== null ? ($this->awaitingCount($user) ?: null) : null));
         $navigation->add('admin', new NavItem('Departments', 'admin.support.departments.index', 'Inbox', 'Support', 20, 'support.departments.manage', 'admin.support.departments.*'));
         $navigation->add('admin', new NavItem('Canned replies', 'admin.support.canned-replies.index', 'Mail', 'Support', 30, 'support.canned.manage', 'admin.support.canned-replies.*'));
         $navigation->add('admin', new NavItem('Knowledge base', 'admin.support.kb.articles.index', 'BookOpen', 'Support', 40, 'support.kb.manage', 'admin.support.kb.*'));
@@ -92,6 +93,14 @@ class SupportServiceProvider extends ModuleServiceProvider
         $navigation->add('admin-create', new NavItem('New ticket', 'admin.support.tickets.create', 'LifeBuoy', order: 40, permission: 'support.tickets.open'));
     }
 
+    /**
+     * Tickets awaiting a staff reply that this user can see; the nav badge and the to-do share one count per request.
+     */
+    private function awaitingCount(User $user): int
+    {
+        return RequestMemo::remember('support.awaiting.'.$user->id, fn (): int => $this->awaitingQuery($user)->count());
+    }
+
     private function registerDashboard(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
@@ -104,21 +113,21 @@ class SupportServiceProvider extends ModuleServiceProvider
             'value' => $scoped($user)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index'),
             'icon' => 'LifeBuoy',
-        ], 'support.tickets.view', 60);
+        ], 'support.tickets.view', 50);
 
         $dashboard->card('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Awaiting staff reply',
-            'value' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
+            'value' => $user !== null ? $this->awaitingCount($user) : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'icon' => 'Inbox',
-        ], 'support.tickets.view', 61);
+        ], 'support.tickets.view', 51, mirrorsTodo: true);
 
         $dashboard->card('admin', 'support.mine', fn (?User $user): array => [
             'label' => 'My assigned tickets',
             'value' => $scoped($user)->where('assigned_to', $user?->id)->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index', ['view' => 'mine']),
             'icon' => 'UserRound',
-        ], 'support.tickets.view', 62);
+        ], 'support.tickets.view', 52);
 
         $dashboard->widget('admin', 'support.awaiting_list', 'list', fn (?User $user): array => [
             'title' => 'Tickets awaiting reply',
@@ -129,17 +138,19 @@ class SupportServiceProvider extends ModuleServiceProvider
                 ->map(fn (Ticket $ticket): array => [
                     'title' => '#'.$ticket->number.' '.$ticket->subject,
                     'subtitle' => $ticket->requester_name.' · '.$ticket->department->name,
+                    'avatar' => $ticket->requester_name,
                     'href' => route('admin.support.tickets.show', $ticket),
                     'meta' => $ticket->last_reply_at?->diffForHumans(),
                     'status' => $ticket->status->value,
                 ])->all()),
-        ], 'support.tickets.view', 63, 'md');
+        ], 'support.tickets.view', 53, 'md');
 
         $dashboard->todo('admin', 'support.awaiting', fn (?User $user): array => [
             'label' => 'Tickets awaiting staff reply',
-            'count' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
+            'count' => $user !== null ? $this->awaitingCount($user) : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'tone' => 'warning',
+            'icon' => 'LifeBuoy',
         ], 'support.tickets.view', 20);
 
         $dashboard->todo('admin', 'support.unassigned', fn (?User $user): array => [
@@ -147,6 +158,7 @@ class SupportServiceProvider extends ModuleServiceProvider
             'count' => $scoped($user)->whereNull('assigned_to')->where('status', '!=', TicketStatus::Closed->value)->count(),
             'href' => route('admin.support.tickets.index', ['view' => 'unassigned']),
             'tone' => 'info',
+            'icon' => 'UserRound',
         ], 'support.tickets.view', 21);
 
         $dashboard->todo('admin', 'support.incidents', fn (?User $user): array => [
@@ -154,6 +166,7 @@ class SupportServiceProvider extends ModuleServiceProvider
             'count' => NetworkIncident::query()->whereNotIn('status', [IncidentStatus::Resolved->value, IncidentStatus::Scheduled->value])->count(),
             'href' => route('admin.support.network.index'),
             'tone' => 'danger',
+            'icon' => 'Activity',
         ], 'support.network.manage', 22);
 
         $dashboard->card('client', 'support.open', fn (?User $user, Client $client): array => [
@@ -306,8 +319,8 @@ class SupportServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->isToday() ? null : $today->endOfDay()));
-        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle($today));
-        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle($today));
+        $automation->task('support.auto_close', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(AutoCloseTickets::class)->handle($today->isToday() ? null : $today->endOfDay()), label: 'Close idle tickets', description: 'Closes tickets that have waited on the customer longer than the auto-close period.');
+        $automation->task('support.purge_inbound_raw', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PurgeInboundRaw::class)->handle($today), label: 'Purge raw inbound emails', description: 'Deletes stored raw inbound email payloads older than the retention period.');
+        $automation->task('support.prune_attachments', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneAttachments::class)->handle($today), label: 'Delete old ticket attachments', description: 'Deletes attachment files from tickets closed longer than the configured months (details stay).');
     }
 }

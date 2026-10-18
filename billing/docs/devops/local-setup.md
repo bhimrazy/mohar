@@ -1,6 +1,7 @@
 # Local setup & developer workflow
 
 How to run the billing app, its infrastructure and every CI gate on a workstation or Codespace.
+For a production server, see [install.md](install.md) (`php artisan app:install`).
 CI itself is defined once, at the repository root: `.github/workflows/ci.yml` (all jobs run in `billing/`).
 
 ## Prerequisites
@@ -25,7 +26,7 @@ cp -n .env.example .env && php artisan key:generate
 touch database/database.sqlite
 docker compose up -d --wait          # rustfs (S3 :9000, console :9001) + postgres (:5432), all on 127.0.0.1
 php artisan objects:ensure-bucket    # creates the "billing" bucket used by the objects disk
-php artisan migrate:fresh --seed     # admin@example.com / demo@example.com, password "password"
+php artisan migrate:fresh --seed     # reference data + demo: admin@example.com / demo@example.com, password "password"
 php artisan wayfinder:generate --with-form
 composer dev                         # app server, queue, logs and Vite
 ```

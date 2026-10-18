@@ -45,6 +45,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -107,19 +108,19 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $automation->task('domains.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => $invoicesAvailable()
             ? $this->app->make(IssueRenewalInvoices::class)->handle($today)
-            : 'skipped: no invoicer');
+            : 'skipped: no invoicer', label: 'Generate domain renewal invoices', description: 'Invoices domains that are coming up for renewal.');
 
-        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today));
+        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
 
-        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
+        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
 
         $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
         $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
             ? $this->app->make(ConvertTldPrices::class)->apply()
-            : 'disabled');
+            : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
-            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))));
+            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -133,6 +134,29 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $navigation->add('admin-client', new NavItem('Domains', 'admin.domains.index', 'Globe', order: 30, permission: 'domains.domains.view'));
     }
 
+    /**
+     * Registrar command success rate over the last 7 days, for the dashboard's system health card.
+     *
+     * @return array<string, mixed>
+     */
+    private function registrarHealth(): array
+    {
+        $results = DB::table('registrar_command_log')->where('created_at', '>=', now()->subDays(7))
+            ->selectRaw('success, count(*) as total')->groupBy('success')->pluck('total', 'success');
+        $succeeded = (int) ($results[1] ?? 0);
+        $total = $succeeded + (int) ($results[0] ?? 0);
+        $rate = $total === 0 ? null : round($succeeded / $total * 100, 1);
+
+        return [
+            'label' => 'Registrar commands',
+            'detail' => $total === 0 ? 'No registrar commands in the last 7 days' : sprintf('%d of %d succeeded (7 days)', $succeeded, $total),
+            'value' => $rate === null ? 'Idle' : $rate.'%',
+            'tone' => $rate === null ? 'neutral' : ($rate < 98 ? 'warning' : 'success'),
+            'icon' => 'RefreshCw',
+            'href' => route('admin.domains.index', ['attention' => 1]),
+        ];
+    }
+
     private function registerDashboardCards(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
@@ -142,20 +166,21 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'value' => Domain::query()->expiringWithin(30)->count(),
             'href' => route('admin.domains.index', ['expiring' => 30]),
             'icon' => 'Globe',
-        ], 'domains.domains.view', 60);
+        ], 'domains.domains.view', 40, mirrorsTodo: true);
 
         $dashboard->card('admin', 'domains.pending', fn (?User $user): array => [
             'label' => 'Pending registrations',
             'value' => Domain::query()->withStatus([DomainStatus::Pending, DomainStatus::PendingRegistration, DomainStatus::PendingTransfer])->count(),
             'href' => route('admin.domains.index', ['status' => DomainStatus::Pending->value]),
             'icon' => 'Globe',
-        ], 'domains.domains.view', 61);
+        ], 'domains.domains.view', 41);
 
         $dashboard->todo('admin', 'domains.expiring', fn (?User $user): array => [
             'label' => 'Domains expiring in 30 days',
             'count' => Domain::query()->expiringWithin(30)->count(),
             'href' => route('admin.domains.index', ['expiring' => 30]),
             'tone' => 'warning',
+            'icon' => 'Globe',
         ], 'domains.domains.view', 60);
 
         $dashboard->todo('admin', 'domains.attention', fn (?User $user): array => [
@@ -163,7 +188,10 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'count' => Domain::query()->needingAttention()->count(),
             'href' => route('admin.domains.index', ['attention' => 1]),
             'tone' => 'danger',
+            'icon' => 'Globe',
         ], 'domains.domains.view', 61);
+
+        $dashboard->health('admin', 'domains.registrars', fn (?User $user): array => $this->registrarHealth(), 'domains.domains.view', 50);
 
         $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
             'label' => 'Domains to renew',

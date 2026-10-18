@@ -20,7 +20,8 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 
 /**
- * ~90 days of realistic, deterministic billing history (dashboard income chart, recent payments, overdue lists).
+ * Two years of realistic, deterministic billing history (dashboard income chart with its year-over-year comparison,
+ * recent payments, overdue lists). Volume grows gently over the period, and the last 90 days are the busiest.
  *
  * Everything goes through the Billing actions under a simulated clock, so numbering, ledgers, tax and dates are
  * consistent: invoices are issued on their day (weekday-weighted), most are paid a few days later, some partly,
@@ -28,7 +29,10 @@ use Illuminate\Support\Facades\DB;
  */
 class BillingHistorySeeder extends DemoSeeder
 {
-    private const DAYS = 90;
+    private const DAYS = 730;
+
+    /** Days at full volume; older days thin out linearly to about a third. */
+    private const RECENT_DAYS = 90;
 
     /** Monthly plan prices in minor units per currency. */
     private const PLANS = [
@@ -128,6 +132,12 @@ class BillingHistorySeeder extends DemoSeeder
             $day = $today->subDays($daysAgo);
             $count = $day->isWeekend() ? mt_rand(0, 1) : mt_rand(1, 4);
 
+            // Older history: the business was smaller, so keep each invoice with a probability that grows towards today.
+            if ($daysAgo > self::RECENT_DAYS) {
+                $keep = 35 + (int) (55 * (self::DAYS - $daysAgo) / (self::DAYS - self::RECENT_DAYS));
+                $count = count(array_filter(array_fill(0, $count, 0), fn (): bool => mt_rand(1, 100) <= $keep));
+            }
+
             for ($n = 0; $n < $count; $n++) {
                 $client = $clients[mt_rand(0, count($clients) - 1)];
                 $plans = self::PLANS[$client->currency] ?? self::PLANS['USD'];
@@ -146,6 +156,9 @@ class BillingHistorySeeder extends DemoSeeder
                     if (mt_rand(1, 100) <= 4 && $paidAt->addDays(3)->lt($today)) {
                         $events[] = ['at' => $paidAt->addDays(mt_rand(2, 6)), 'type' => 'refund', ...$base];
                     }
+                } elseif ($daysAgo > 120 && ($roll <= 80 || $roll > 84)) {
+                    // Old invoices are settled by now (late payers caught up), so overdue stays realistic.
+                    $events[] = ['at' => $this->businessDay($issuedAt->addDays(mt_rand(16, 45))), 'type' => 'pay', ...$base];
                 } elseif ($roll <= 80 && $paidAt->lt($today)) {
                     $events[] = ['at' => $paidAt, 'type' => 'pay', ...$base, 'share' => 50];
                 } elseif ($roll <= 84 && $issuedAt->addDays(5)->lt($today)) {

@@ -21,14 +21,14 @@ test('the admin dashboard renders permitted widgets, deferred widgets and to-dos
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page
             ->component('admin/dashboard')
-            ->where('cards', fn ($cards) => collect($cards)->firstWhere('key', 'core.clients')['value'] === 2)
-            ->where('activity', null)
             ->where('widgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.list')
                 && collect($widgets)->firstWhere('key', 'core.clients')['value'] === 2
                 && ! collect($widgets)->pluck('key')->contains('test.hidden')
                 && ! collect($widgets)->pluck('key')->contains('test.chart'))
             ->where('todos', [['key' => 'test.todo', 'label' => 'Things to check', 'count' => 3, 'tone' => 'warning']])
-            ->where('automation', null)
+            ->missing('cards')
+            ->missing('activity')
+            ->missing('automation')
             ->missing('deferredWidgets')
             ->loadDeferredProps(fn (Assert $reload) => $reload
                 ->where('deferredWidgets', fn ($widgets) => collect($widgets)->pluck('key')->contains('test.chart')
@@ -40,16 +40,15 @@ test('dashboard widgets and to-dos are hidden without permission', function () {
     actingAsStaff(['tests.unrelated']);
 
     $this->get(route('admin.dashboard'))
-        ->assertInertia(fn (Assert $page) => $page->where('cards', [])->where('activity', null)->where('widgets', [])->where('todos', []));
+        ->assertInertia(fn (Assert $page) => $page->where('widgets', [])->where('todos', []));
 });
 
-test('staff with the activity-log permission get recent activity and the activity widget', function () {
+test('staff with the activity-log permission get the recent activity widget', function () {
     ActivityLog::query()->create(['description' => 'Something happened']);
     actingAsStaff(['core.activity_log.view']);
 
     $this->get(route('admin.dashboard'))
         ->assertInertia(fn (Assert $page) => $page
-            ->where('activity.0.description', 'Something happened')
             ->where('widgets', fn ($widgets) => collect($widgets)->firstWhere('key', 'platform.activity')['items'][0]['title'] === 'Something happened'));
 });
 
