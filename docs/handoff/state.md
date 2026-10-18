@@ -26,7 +26,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | PR  | Workstream                    | Status                                                                                                                                                                                            |
 | --- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #28 | Notifications                 | B1 fixed structurally at `7be018f` (system-rendered ticket button, allow-list sanitizer, two-parser check). Engineer adding masking of pasted guest links; then a final security check and merge. |
-| #61 | Kernel contracts PR A         | Review board running on `4307707`. Merge when green.                                                                                                                                              |
+| #61 | Kernel contracts PR A         | Review board: changes requested on `4307707` (address pinning broken under Guzzle 8.2 and for IPv6; Redactor and gateway-log regressions). Engineer fixing; then re-review.                       |
 | #62 | Provisioning on kernel (PR B) | Engineer applying review items B1–B5; then database, re-review and architect checks. The cPanel/WHM driver is built on it (spec: `billing/docs/product/provisioning-cpanel.md`).                  |
 | #58 | Stripe gateway                | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                               |
 
