@@ -101,13 +101,13 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-2 px-4 sm:gap-4 md:px-6">
                     <Link
                         href={home()}
-                        aria-label={`${brand} home`}
+                        aria-label={`${brand.name} home`}
                         className="flex shrink-0 items-center gap-2 rounded-md font-semibold focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                     >
                         <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
                             <AppLogoIcon className="size-5 fill-current" />
                         </span>
-                        <span className="hidden md:inline">{brand}</span>
+                        <span className="hidden md:inline">{brand.name}</span>
                     </Link>
 
                     <nav
@@ -191,8 +191,8 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
                     <div className="space-y-1">
                         <p>
-                            © {new Date().getFullYear()} {brand}. All prices
-                            exclude tax unless stated.
+                            © {new Date().getFullYear()} {brand.name}. All
+                            prices exclude tax unless stated.
                         </p>
                         {props.support_email && (
                             <p>
