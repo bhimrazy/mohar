@@ -35,6 +35,7 @@ export type PriceRow = {
     transfer: number | null;
     renew: number | null;
     is_manual?: boolean;
+    enabled?: boolean;
 };
 
 type GridRow = {
@@ -162,6 +163,12 @@ export function TldPricingGrid({
         manual: manualFor(currency, groupId),
     });
     const convertible = currency !== defaultCurrency;
+    const turnedOff = prices.some(
+        (price) =>
+            price.currency === currency &&
+            price.client_group_id === groupId &&
+            price.enabled === false,
+    );
     const serverErrors = form.errors as Record<string, string | undefined>;
     const invalid = form.data.rows.some((row) =>
         ACTIONS.some((action) => cellError(row, action) !== null),
@@ -365,6 +372,13 @@ export function TldPricingGrid({
                         </SelectContent>
                     </Select>
                 </div>
+                {turnedOff && (
+                    <p className="border-b bg-warning-subtle px-4 py-2 text-sm text-warning-text sm:px-6">
+                        Some of these prices are turned off because their{' '}
+                        {defaultCurrency} price was removed. Save the grid to
+                        offer them again.
+                    </p>
+                )}
                 {convertible && (
                     <div className="flex items-center justify-between gap-4 border-b px-4 py-3 sm:px-6">
                         <div className="min-w-0">
