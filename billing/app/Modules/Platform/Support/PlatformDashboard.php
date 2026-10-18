@@ -104,9 +104,10 @@ class PlatformDashboard
         $notRun = count($tasks) - $failed - $succeeded;
         $lastRun = $this->automation->lastRunAt();
         $stale = $tasks !== [] && ($lastRun === null || $lastRun->lt(now()->subHours(AutomationStatus::STALE_AFTER_HOURS)));
+        $failedNames = array_map(fn (string $task): string => app(Automation::class)->label($task), array_values(array_filter($tasks, fn (string $task): bool => $last->get($task) === 'failed')));
         $parts = array_filter([
             $succeeded > 0 ? $succeeded.' succeeded' : null,
-            $failed > 0 ? $failed.' failed' : null,
+            $failed > 0 ? $failed.' failed ('.implode(', ', array_slice($failedNames, 0, 2)).(count($failedNames) > 2 ? ', …' : '').')' : null,
             $notRun > 0 ? $notRun.' not run yet' : null,
         ]);
 

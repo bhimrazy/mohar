@@ -94,14 +94,14 @@ class ServicesServiceProvider extends ModuleServiceProvider
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => app(GenerateRenewals::class)->handle($today));
-        $automation->task('services.cancellations', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ProcessCancellations::class)->handle($today));
-        $automation->task('services.upgrade-expiry', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ExpireUnpaidChanges::class)->handle($today));
-        $automation->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today): int => app(SuspendOverdueServices::class)->handle($today));
-        $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today));
-        $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today));
-        $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today));
-        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today));
+        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => app(GenerateRenewals::class)->handle($today), label: 'Generate renewal invoices', description: 'Invoices services whose next invoice date has come.');
+        $automation->task('services.cancellations', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ProcessCancellations::class)->handle($today), label: 'Process cancellations', description: 'Ends services whose cancellation is due, including those set to end at the period end.');
+        $automation->task('services.upgrade-expiry', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ExpireUnpaidChanges::class)->handle($today), label: 'Expire unpaid upgrades', description: 'Cancels upgrades and downgrades that were not paid in time, with their invoices.');
+        $automation->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today): int => app(SuspendOverdueServices::class)->handle($today), label: 'Suspend overdue services', description: 'Suspends services whose invoices are overdue past the suspension threshold.');
+        $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today), label: 'Terminate overdue services', description: 'Terminates services that stayed overdue past the termination threshold.');
+        $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
+        $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
+        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
     }
 
     private function registerNavigation(): void

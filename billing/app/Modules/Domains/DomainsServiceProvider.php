@@ -105,15 +105,15 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
         $automation->task('domains.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => $invoicesAvailable()
             ? $this->app->make(IssueRenewalInvoices::class)->handle($today)
-            : 'skipped: no invoicer');
+            : 'skipped: no invoicer', label: 'Generate domain renewal invoices', description: 'Invoices domains that are coming up for renewal.');
 
-        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today));
+        $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today), label: 'Send domain expiry reminders', description: 'Emails clients about domains that are about to expire.');
 
-        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
+        $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today), label: 'Move expired domains through grace and redemption', description: 'Moves expired domains into grace, redemption and expired, swapping their renewal invoices.');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => RegistrarCommandLog::query()
             ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))
-            ->delete());
+            ->delete(), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
     }
 
     private function registerNavigation(): void

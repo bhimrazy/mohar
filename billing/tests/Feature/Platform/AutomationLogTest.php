@@ -188,3 +188,20 @@ test('before today\'s scheduled run, today does not count as missed', function (
     expect($perDay[29])->toMatchArray(['x' => '2026-10-18', 'missing' => 0])
         ->and($perDay[28]['missing'])->toBe(count(app(Automation::class)->ordered()));
 });
+
+test('tasks and runs are shown by name and description, with a readable fallback instead of a key', function () {
+    AutomationRun::query()->create(['run_date' => '2026-10-16', 'task' => 'test.housekeeping', 'status' => 'success', 'summary' => '2']);
+    AutomationRun::query()->create(['run_date' => '2026-10-15', 'task' => 'retired.old_task', 'status' => 'success']);
+    actingAsStaff(['core.automation.view']);
+
+    $page = $this->get(route('admin.platform.automation.index'))->viewData('page')['props'];
+    $tasks = collect($page['tasks'])->keyBy('key');
+    $runs = collect($page['runs']['data'])->keyBy('task');
+
+    expect($tasks['billing.auto_capture'])->toMatchArray(['label' => 'Charge saved cards'])
+        ->and($tasks['billing.auto_capture']['description'])->toStartWith('Charges saved payment methods')
+        ->and($tasks['test.housekeeping']['label'])->toBe('Housekeeping (test)')
+        ->and($runs['test.housekeeping']['task_label'])->toBe('Housekeeping (test)')
+        ->and($runs['retired.old_task']['task_label'])->toBe('Old task (retired)')
+        ->and($tasks->every(fn (array $task): bool => $task['label'] !== $task['key']))->toBeTrue();
+});

@@ -275,7 +275,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         // Resolve the action (and its Billing dependency) only when auto-cancel is switched on.
         $automation->task('orders.cancel_stale_pending', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => (int) $this->app->make(Settings::class)->get('orders.auto_cancel_unpaid_days', 0) > 0
             ? $this->app->make(CancelStalePendingOrders::class)->handle($today)
-            : 0);
-        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle());
+            : 0, label: 'Cancel stale unpaid orders', description: 'Cancels pending orders whose invoice is still unpaid after the configured number of days.');
+        $automation->task('orders.prune_carts', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(PruneExpiredCarts::class)->handle(), label: 'Delete expired carts', description: 'Removes shopping carts past their expiry.');
     }
 }

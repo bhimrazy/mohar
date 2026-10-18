@@ -78,6 +78,8 @@ test('a failed task makes the automation health check fail, and the queue check 
     $health = collect(app(Dashboard::class)->resolveHealth('admin', actingAsStaff(['core.automation.view'])))->keyBy('key');
 
     expect($health['platform.automation'])->toMatchArray(['value' => '1 failed', 'tone' => 'danger'])
+        ->and($health['platform.automation']['detail'])->toContain('1 failed (Delete old staff invitations)')
+        ->and($health['platform.automation']['detail'])->not->toContain('platform.prune_invitations')
         ->and($health['platform.queue'])->toMatchArray(['value' => '1 failed', 'tone' => 'danger'])
         ->and(collect(app(Dashboard::class)->resolveHealth('admin', actingAsStaff(['core.clients.view'])))->pluck('key')->filter(fn (string $key): bool => str_starts_with($key, 'platform.')))->toBeEmpty();
 });

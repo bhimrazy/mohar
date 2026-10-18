@@ -29,12 +29,15 @@ type Run = {
     id: number;
     run_date: string;
     task: string;
+    task_label: string;
     status: string;
     summary: string | null;
     duration_ms: number;
 };
 type Task = {
     key: string;
+    label: string;
+    description: string | null;
     stage: number;
     last_status: string | null;
     last_run_date: string | null;
@@ -62,7 +65,14 @@ const runColumns: DataTableColumn<Run>[] = [
         key: 'task',
         header: 'Task',
         primary: true,
-        cell: (run) => <span className="font-mono text-xs">{run.task}</span>,
+        cell: (run) => (
+            <span className="flex flex-col">
+                <span>{run.task_label}</span>
+                <span className="font-mono text-xs text-muted-foreground">
+                    {run.task}
+                </span>
+            </span>
+        ),
     },
     {
         key: 'status',
@@ -111,7 +121,17 @@ export default function AutomationIndex({
             header: 'Task',
             primary: true,
             cell: (task) => (
-                <span className="font-mono text-xs">{task.key}</span>
+                <span className="flex flex-col gap-0.5">
+                    <span className="font-medium">{task.label}</span>
+                    {task.description && (
+                        <span className="text-xs text-muted-foreground">
+                            {task.description}
+                        </span>
+                    )}
+                    <span className="font-mono text-xs text-muted-foreground">
+                        {task.key}
+                    </span>
+                </span>
             ),
         },
         {
@@ -236,7 +256,7 @@ export default function AutomationIndex({
                                     only={ONLY}
                                     options={tasks.map((task) => ({
                                         value: task.key,
-                                        label: task.key,
+                                        label: task.label,
                                     }))}
                                 />
                                 <FilterSelect
@@ -284,7 +304,7 @@ export default function AutomationIndex({
                 onOpenChange={(open) => !open && setRunning(null)}
                 title={
                     running
-                        ? `Run ${running} now?`
+                        ? `Run “${tasks.find((task) => task.key === running)?.label ?? running}” now?`
                         : "Run today's automation pipeline?"
                 }
                 description={

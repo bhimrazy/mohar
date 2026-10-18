@@ -116,12 +116,12 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation = $this->app->make(Automation::class);
         $tasks = fn (): BillingAutomation => $this->app->make(BillingAutomation::class);
 
-        $automation->task('billing.late_fees', Automation::LATE_FEES, fn (CarbonImmutable $today): int => $tasks()->lateFees($today));
-        $automation->task('billing.auto_capture', Automation::AUTO_CHARGE, fn (CarbonImmutable $today): int => $tasks()->autoCapture($today));
-        $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today));
-        $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run());
-        $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today));
-        $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today));
+        $automation->task('billing.late_fees', Automation::LATE_FEES, fn (CarbonImmutable $today): int => $tasks()->lateFees($today), label: 'Apply late fees', description: 'Adds the late fee once to invoices that are overdue by the configured number of days.');
+        $automation->task('billing.auto_capture', Automation::AUTO_CHARGE, fn (CarbonImmutable $today): int => $tasks()->autoCapture($today), label: 'Charge saved cards', description: 'Charges saved payment methods before the due date, then retries failed charges on schedule.');
+        $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today), label: 'Send invoice reminders', description: 'Marks invoices overdue and sends the before-due and overdue reminders, once a day at most.');
+        $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
+        $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
+        $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
     }
 
     private function registerNavigation(): void
