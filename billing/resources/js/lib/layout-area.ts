@@ -1,8 +1,16 @@
 /**
- * Public help pages (knowledge base, announcements, network status, support
- * tickets) stay inside the client area for a signed-in customer, so the
- * sidebar links to them do not drop the customer out of their account.
+ * Public pages the client sidebar links to. For a signed-in customer they render
+ * inside the client area so those links do not drop the customer out of their
+ * account. Access-key ticket pages (public/support/tickets/*) are not on the
+ * list: the ticket may belong to someone else, so they always use the public
+ * layout.
  */
+const CLIENT_AREA_PUBLIC_PAGES = [
+    'public/support/kb/',
+    'public/support/announcements/',
+    'public/support/network',
+];
+
 export function showsPublicPageInClientArea(
     pageName: string,
     props: Record<string, unknown>,
@@ -11,7 +19,9 @@ export function showsPublicPageInClientArea(
     const accounts = props.clientAccounts as unknown[] | null | undefined;
 
     return (
-        pageName.startsWith('public/support/') &&
+        CLIENT_AREA_PUBLIC_PAGES.some((prefix) =>
+            pageName.startsWith(prefix),
+        ) &&
         Boolean(auth?.user) &&
         (accounts?.length ?? 0) > 0
     );
