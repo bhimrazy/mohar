@@ -4,7 +4,7 @@ namespace App\Modules\Notifications\Rendering;
 
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\DateFormats;
-use App\Modules\Notifications\Support\MoneyText;
+use App\Support\Currencies\MoneyFormatter;
 use Carbon\CarbonImmutable;
 use Throwable;
 
@@ -453,7 +453,7 @@ final class TemplateEngine
         $currency = is_string($currency) && preg_match('/^[A-Za-z]{3}$/', $currency) ? strtoupper($currency) : ($this->options['currency'] ?? null);
 
         if ((is_int($value) || (is_string($value) && preg_match('/^-?\d+$/', $value))) && $currency !== null) {
-            return MoneyText::format((int) $value, $currency);
+            return app(MoneyFormatter::class)->amount((int) $value, $currency);
         }
 
         return $value;

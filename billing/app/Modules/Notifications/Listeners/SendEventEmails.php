@@ -56,8 +56,8 @@ use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Support\EventKey;
-use App\Modules\Notifications\Support\MoneyText;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
+use App\Support\Currencies\MoneyFormatter;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
@@ -296,7 +296,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         $this->clientMail('invoice.payment_confirmation', $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
             'payment' => [
-                'amount' => MoneyText::format($event->amount, $event->currency),
+                'amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency),
                 'date' => $transaction['date'] ?? now()->toDateString(),
                 'reference' => $transaction['reference'] ?? null,
                 'gateway' => $event->gateway,
@@ -318,7 +318,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     {
         $this->clientMail('invoice.refunded', $event->clientId, EmailCategory::Invoice, [
             ...$this->invoiceContext($event->invoiceId),
-            'refund' => ['amount' => MoneyText::format($event->amount, $event->currency)],
+            'refund' => ['amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency)],
         ], $event, 'invoice', $event->invoiceId);
     }
 
@@ -543,7 +543,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function affiliateWithdrawalRequested(AffiliateWithdrawalRequested $event): void
     {
         $this->staffMail('staff.affiliate_withdrawal_request', StaffCategory::Account, [
-            'affiliate' => [...$this->context->resolve('affiliate', $event->affiliateId), 'withdrawal_amount' => MoneyText::format($event->amount, $event->currency)],
+            'affiliate' => [...$this->context->resolve('affiliate', $event->affiliateId), 'withdrawal_amount' => app(MoneyFormatter::class)->amount($event->amount, $event->currency)],
         ], $event, null, 'affiliate', $event->affiliateId);
     }
 
