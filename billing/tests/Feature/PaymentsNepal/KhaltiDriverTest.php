@@ -15,6 +15,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
+use App\Support\Dashboard\Dashboard;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
@@ -113,7 +114,7 @@ test('the lookup uses the pidx stored on the attempt, never the one in the retur
     Http::assertNotSent(fn (Request $request) => $request->url() === KHALTI_LOOKUP && $request['pidx'] === 'ATTACKERPIDX');
 });
 
-test('duplicate returns and a racing poller record the payment once', function () {
+test('repeated returns and the poller record the payment once', function () {
     Event::fake([InvoicePaid::class]);
     [, $invoice, $attempt] = startKhalti();
     Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Completed'))]);
@@ -155,9 +156,9 @@ test('Khalti end states close the attempt without paying, including the HTTP 400
     'unknown status' => ['Something new', 200, AttemptStatus::Ambiguous],
 ]);
 
-test('an unreachable Khalti keeps the attempt open for the poller', function () {
+test('an unreachable Khalti costs the waiting customer one quick try and leaves retries to the poller', function () {
     Sleep::fake();
-    [, , $attempt] = startKhalti();
+    [, $invoice, $attempt] = startKhalti();
     $tries = 0;
     Http::fake([KHALTI_LOOKUP => function () use (&$tries) {
         $tries++;
@@ -165,10 +166,32 @@ test('an unreachable Khalti keeps the attempt open for the poller', function () 
         throw new ConnectionException('timed out');
     }]);
 
+    $this->get(khaltiReturn($attempt))
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHas('inertia.flash_data.toast.message', 'Your payment is being confirmed. We\'ll update the invoice shortly.');
+    expect($tries)->toBe(1);
+
+    $this->travel(6)->minutes();
+    $this->artisan('billing:reconcile-payments');
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(2)
+        ->and($tries)->toBe(1 + 3);
+});
+
+test('a rejected key during lookup sends the attempt to staff review, and it settles once the key is fixed', function () {
+    [, $invoice, $attempt] = startKhalti();
+    Http::fake([KHALTI_LOOKUP => Http::sequence()->push(['detail' => 'Invalid token.'], 401)->push(khaltiLookup('Completed'))]);
+
     $this->get(khaltiReturn($attempt));
 
-    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)
-        ->and($tries)->toBe(3);
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('Khalti rejected the secret key (HTTP 401)');
+    $this->travel(31)->minutes();
+    $todo = collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review');
+    expect($todo['count'])->toBe(1);
+
+    $this->artisan('billing:reconcile-payments');
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Succeeded)->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
 test('a refused initiate fails the attempt and shows a safe message', function () {
@@ -183,13 +206,28 @@ test('a refused initiate fails the attempt and shows a safe message', function (
         ->and(GatewayLog::query()->where('result', 'hosted payment start failed')->sole()->payload['error'])->toContain('fields: amount')->not->toContain(KHALTI_SECRET);
 });
 
-test('a payment_url outside khalti.com is never followed', function () {
+test('a payment_url outside khalti.com is never followed', function (string $paymentUrl) {
     [, $invoice] = nprInvoice();
-    Http::fake([KHALTI_INITIATE => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://khalti.com.evil.example/?pidx=PIDX1'])]);
+    Http::fake([KHALTI_INITIATE => Http::response(['pidx' => 'PIDX1', 'payment_url' => $paymentUrl])]);
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertSessionHasErrors('billing');
 
     expect(PaymentAttempt::query()->sole()->status)->toBe(AttemptStatus::Failed);
+})->with([
+    'look-alike domain' => 'https://khalti.com.evil.example/?pidx=PIDX1',
+    'backslash host' => 'https://evil.com\\.khalti.com/?pidx=PIDX1',
+    'backslash userinfo' => 'https://evil.com\\@pay.khalti.com/?pidx=PIDX1',
+    'userinfo' => 'https://evil.com@pay.khalti.com/?pidx=PIDX1',
+    'explicit port' => 'https://pay.khalti.com:8443/?pidx=PIDX1',
+    'plain http' => 'http://pay.khalti.com/?pidx=PIDX1',
+    'whitespace' => 'https://pay.khalti.com /?pidx=PIDX1',
+]);
+
+test('a payment_url on khalti.com or a subdomain is followed whatever its case', function () {
+    [, $invoice] = nprInvoice();
+    Http::fake([KHALTI_INITIATE => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://Pay.Khalti.com/?pidx=PIDX1'])]);
+
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect('https://Pay.Khalti.com/?pidx=PIDX1');
 });
 
 test('Khalti is offered for NPR invoices only and other currencies are refused', function () {
@@ -213,7 +251,29 @@ test('Khalti is offered for NPR invoices but refuses amounts below its minimum',
     expect(PaymentAttempt::query()->count())->toBe(0);
 });
 
-test('refunds go through the Khalti API, partial ones with the amount in paisa', function () {
+test('partial refunds stay off by default while full refunds go through the API', function () {
+    [, $invoice, $attempt] = startKhalti();
+    Http::fake([
+        KHALTI_LOOKUP => Http::response(khaltiLookup('Completed')),
+        'https://dev.khalti.com/api/merchant-transaction/TXN-1/refund/' => Http::response(['detail' => 'Transaction refund successful.']),
+    ]);
+    $this->get(khaltiReturn($attempt));
+    $payment = Transaction::query()->where('gateway', KhaltiDriver::KEY)->sole();
+
+    expect(app(KhaltiDriver::class)->supports(KhaltiDriver::PARTIAL_REFUND))->toBeFalse()
+        ->and(fn () => app(RefundTransaction::class)->handle($payment, 50_000, RefundMode::Gateway))
+        ->toThrow(BillingException::class, 'Khalti only refunds the full amount automatically. Record partial refunds instead.');
+
+    app(RefundTransaction::class)->handle($payment->fresh(), 150_000, RefundMode::Gateway);
+
+    $refunds = Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/refund/'))->values();
+    expect($refunds)->toHaveCount(1)
+        ->and($refunds[0][0]->data())->toBe([])
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Refunded);
+});
+
+test('with partial refunds turned on, the refund amount is sent in paisa', function () {
+    config(['payments_nepal.khalti.partial_refunds' => true]);
     [, $invoice, $attempt] = startKhalti();
     Http::fake([
         KHALTI_LOOKUP => Http::response(khaltiLookup('Completed')),
@@ -286,7 +346,8 @@ test('staff can test the saved key without it ever reaching the page', function 
     $this->post(route('admin.billing.gateways.test', KhaltiDriver::KEY))->assertRedirect()->assertSessionHas('inertia.flash_data.toast.type', $toast);
     Http::assertSent(fn (Request $request) => $request['pidx'] === 'MoharConnectionTest' && $request->header('Authorization') === ['Key '.KHALTI_SECRET]);
 })->with([
-    'accepted' => [404, 'success'],
+    'accepted (not found)' => [404, 'success'],
+    'accepted (validation error)' => [400, 'success'],
     'rejected' => [401, 'error'],
 ]);
 

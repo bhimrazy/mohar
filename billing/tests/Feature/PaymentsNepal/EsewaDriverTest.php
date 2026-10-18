@@ -46,11 +46,12 @@ function startEsewa(int $amount = 113_050): array
  * eSewa's success redirect: base64 JSON signed over its signed_field_names (values signed exactly as sent).
  *
  * @param  array<string, string>  $overrides  applied after signing (to tamper)
+ * @param  array<string, string>  $signed  values changed before signing
  */
-function esewaSuccess(PaymentAttempt $attempt, string $totalAmount = '1,130.5', array $overrides = [], string $secret = ESEWA_SECRET): string
+function esewaSuccess(PaymentAttempt $attempt, string $totalAmount = '1,130.5', array $overrides = [], string $secret = ESEWA_SECRET, array $signed = []): string
 {
-    $payload = ['transaction_code' => '000ABCD', 'status' => 'COMPLETE', 'total_amount' => $totalAmount, 'transaction_uuid' => $attempt->reference,
-        'product_code' => 'EPAYTEST', 'signed_field_names' => 'transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names'];
+    $payload = [...['transaction_code' => '000ABCD', 'status' => 'COMPLETE', 'total_amount' => $totalAmount, 'transaction_uuid' => $attempt->reference,
+        'product_code' => 'EPAYTEST', 'signed_field_names' => 'transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names'], ...$signed];
     $message = collect(explode(',', $payload['signed_field_names']))->map(fn (string $field) => $field.'='.$payload[$field])->implode(',');
     $payload['signature'] = base64_encode(hash_hmac('sha256', $message, $secret, true));
 
@@ -135,20 +136,21 @@ test('a genuine success return verifies and names the attempt', function () {
         ->and($hint->raw)->not->toHaveKey('signature');
 });
 
-test('tampered or foreign-signed returns are flagged and never settle on their own', function (array $overrides, string $secret) {
+test('tampered or foreign-signed returns are flagged and never settle on their own', function (array $overrides, string $secret, array $signed = []) {
     [, $attempt] = startEsewa();
-    $request = Illuminate\Http\Request::create(esewaSuccess($attempt, overrides: $overrides, secret: $secret));
+    $request = Illuminate\Http\Request::create(esewaSuccess($attempt, overrides: $overrides, secret: $secret, signed: $signed));
     $config = new GatewayConfig(EsewaDriver::KEY, 'eSewa', ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => ESEWA_SECRET], sandbox: true);
 
     expect(app(EsewaDriver::class)->parseReturn($config, $request)->signatureValid)->toBeFalse();
 
     Http::fake([ESEWA_STATUS => Http::response(esewaStatus($attempt, 'NOT_FOUND', refId: null))]);
-    $this->get(esewaSuccess($attempt, overrides: $overrides, secret: $secret));
+    $this->get(esewaSuccess($attempt, overrides: $overrides, secret: $secret, signed: $signed));
 
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending)->and(Transaction::query()->count())->toBe(0);
 })->with([
     'amount changed after signing' => [['total_amount' => '1.0'], ESEWA_SECRET],
-    'status changed after signing' => [['status' => 'COMPLETE', 'transaction_code' => 'OTHER'], ESEWA_SECRET],
+    'status changed after signing' => [['status' => 'COMPLETE'], ESEWA_SECRET, ['status' => 'PENDING']],
+    'transaction code changed after signing' => [['transaction_code' => 'OTHER'], ESEWA_SECRET],
     'signed with another key' => [[], 'attacker-key'],
     'unknown field slipped into the signature' => [['signed_field_names' => 'transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names,extra'], ESEWA_SECRET],
 ]);
@@ -240,3 +242,33 @@ test('the connection test books a signed UAT session to check the code and key',
     'accepted' => [302, ['Location' => 'https://rc-epay.esewa.com.np/epay?bookingId=abc'], 'success'],
     'rejected' => [400, [], 'error'],
 ]);
+
+test('the provider form is served once, so a refresh never re-posts the signed form', function () {
+    [$invoice, $attempt, $checkout] = startEsewa();
+    $checkout->assertOk();
+
+    $this->get(route('client.invoices.checkout', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHas('inertia.flash_data.toast.message', 'This payment session has ended. Start the payment again.');
+});
+
+test('a sandbox attempt opened before switching to production fails closed instead of serving the UAT form', function () {
+    [, $invoice] = nprInvoice();
+    $checkoutUrl = (string) $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])->headers->get('Location');
+
+    app()->detectEnvironment(fn () => 'production');
+    $response = $this->get($checkoutUrl)
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHas('inertia.flash_data.toast.message', 'This payment method is no longer available. Choose another way to pay.');
+
+    expect($response->headers->get('Content-Security-Policy'))->not->toContain('esewa');
+});
+
+test('a refused status check sends the attempt to staff review', function () {
+    [, $attempt] = startEsewa();
+    Http::fake([ESEWA_STATUS => Http::response(['message' => 'Forbidden'], 403)]);
+
+    $this->get(esewaSuccess($attempt));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('eSewa refused the status check (HTTP 403)');
+});

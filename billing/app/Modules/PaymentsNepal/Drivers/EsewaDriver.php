@@ -76,7 +76,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     {
         return [
             ['key' => 'sandbox', 'label' => 'Sandbox mode', 'type' => 'boolean', 'default' => true,
-                'help' => 'Uses eSewa UAT (rc-epay.esewa.com.np); no real money moves. Not available in production.'],
+                'help' => 'Uses eSewa UAT (rc-epay.esewa.com.np); no real money moves. Not available in production. "Test connection" books an unpaid Rs 10 eSewa session (in live mode too), which expires on its own.'],
             ['key' => 'product_code', 'label' => 'Merchant (product) code', 'type' => 'string', 'required' => true, 'default' => 'EPAYTEST',
                 'help' => 'Provided by eSewa. UAT: EPAYTEST.'],
             ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
@@ -162,7 +162,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     {
         try {
             [$productCode] = $this->credentials($gateway);
-            $response = $this->http->lookup()->get(ProviderHttp::endpoint($gateway, 'esewa.status'), [
+            $response = $this->http->lookup($attempt->interactive)->get(ProviderHttp::endpoint($gateway, 'esewa.status'), [
                 'product_code' => $productCode,
                 'total_amount' => NprAmount::toRupees($attempt->amount->amount),
                 'transaction_uuid' => $attempt->reference,
@@ -186,6 +186,11 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             'ref_id' => is_string($body['ref_id'] ?? null) ? $body['ref_id'] : null,
             'error' => $status === null ? ProviderHttp::summary($body) : null,
         ], fn (mixed $value): bool => $value !== null && $value !== '');
+
+        // eSewa's status API is unauthenticated, so a refusal means it no longer accepts our requests: staff review.
+        if ($status === null && in_array($response->status(), [401, 403], true)) {
+            return new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'eSewa refused the status check (HTTP '.$response->status().')']);
+        }
 
         // {"code": 0, "error_message": "Service is currently unavailable"}, 5xx or an unreadable body: transient.
         if ($status === null) {

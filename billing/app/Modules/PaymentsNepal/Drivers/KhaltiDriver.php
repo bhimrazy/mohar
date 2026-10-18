@@ -54,9 +54,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         return new GatewayLogo(asset('images/gateways/khalti.svg'), __('Pay with Khalti'));
     }
 
+    /**
+     * Partial refunds are advertised only when payments_nepal.khalti.partial_refunds is on (see the config).
+     */
     public function capabilities(): array
     {
-        return [self::REDIRECT, self::LOOKUP, self::REFUND, self::PARTIAL_REFUND];
+        return [self::REDIRECT, self::LOOKUP, self::REFUND, ...(self::partialRefunds() ? [self::PARTIAL_REFUND] : [])];
     }
 
     public function currencies(): array
@@ -147,7 +150,7 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         try {
-            $response = $this->http->lookup()
+            $response = $this->http->lookup($attempt->interactive)
                 ->withHeaders(['Authorization' => 'Key '.self::secret($gateway)])
                 ->asJson()
                 ->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/lookup/', ['pidx' => $attempt->providerRef]);
@@ -169,6 +172,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
     {
         if ($request->amount->currency !== 'NPR' || $request->amount->amount <= 0) {
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'Khalti refunds must be a positive NPR amount');
+        }
+
+        // Defence in depth: Billing never asks for a partial refund without the capability, but an amount in an
+        // unproven unit must never reach Khalti.
+        if ($request->isPartial() && ! self::partialRefunds()) {
+            return new ChargeResult(ChargeResult::ERROR, declineReason: 'partial refunds through Khalti are turned off');
         }
 
         $url = ProviderHttp::endpoint($gateway, 'khalti.refund').rawurlencode($request->providerTxnId).'/refund/';
@@ -236,8 +245,11 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         if ($status === null) {
             return match (true) {
                 $response->status() === 404 => new LookupResult(LookupResult::NOT_FOUND, raw: $raw),
-                // Server trouble, or a key problem staff must fix: keep the attempt open and try again later.
-                $response->serverError(), in_array($response->status(), [401, 403, 429], true) => new LookupResult(LookupResult::PENDING, raw: $raw, retryable: true),
+                // The key was rejected (e.g. rotated after the payment started): staff must act, so the attempt goes to
+                // review. It stays open and is polled again, so it settles once the key is fixed.
+                in_array($response->status(), [401, 403], true) => new LookupResult(LookupResult::AMBIGUOUS, raw: [...$raw, 'error' => 'Khalti rejected the secret key (HTTP '.$response->status().'); check the gateway settings']),
+                // Server trouble or rate limiting: transient, try again later.
+                $response->serverError(), $response->status() === 429 => new LookupResult(LookupResult::PENDING, raw: $raw, retryable: true),
                 default => new LookupResult(LookupResult::AMBIGUOUS, raw: $raw),
             };
         }
@@ -272,13 +284,36 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         return $this->http->request()->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
     }
 
+    /**
+     * The redirect target must be https on khalti.com or a subdomain. Anything PHP and browsers might parse
+     * differently is refused outright: backslashes (browsers read them as "/"), whitespace and control characters,
+     * userinfo, explicit ports, and hosts that aren't plain DNS names (compared in lowercase).
+     */
     private function isKhaltiUrl(string $url): bool
     {
-        $parts = parse_url($url);
-        $host = strtolower((string) ($parts['host'] ?? ''));
-        $domain = (string) config('payments_nepal.khalti.payment_domain', 'khalti.com');
+        if ($url === '' || strlen($url) > 2048 || str_contains($url, '\\') || preg_match('/[\x00-\x20\x7f]/', $url) === 1) {
+            return false;
+        }
 
-        return ($parts['scheme'] ?? null) === 'https' && ($host === $domain || str_ends_with($host, '.'.$domain));
+        $parts = parse_url($url);
+
+        if ($parts === false || ($parts['scheme'] ?? null) !== 'https' || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+            return false;
+        }
+
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        $domain = strtolower((string) config('payments_nepal.khalti.payment_domain', 'khalti.com'));
+
+        if (preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) !== 1) {
+            return false;
+        }
+
+        return $host === $domain || str_ends_with($host, '.'.$domain);
+    }
+
+    private static function partialRefunds(): bool
+    {
+        return filter_var(config('payments_nepal.khalti.partial_refunds', false), FILTER_VALIDATE_BOOLEAN);
     }
 
     private static function isProviderRef(string $value): bool

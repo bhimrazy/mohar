@@ -20,6 +20,9 @@ return [
         'payment_domain' => 'khalti.com',
         'min_amount' => 1000, // paisa (Rs 10), Khalti's documented minimum
         'attempt_ttl_minutes' => 60, // Khalti's production default link lifetime
+        // Partial refunds through the API stay off until the unit of "amount" (paisa vs rupees) is proven in the
+        // Khalti sandbox: the docs say paisa but show 50.00. Full refunds send no amount and are always available.
+        'partial_refunds' => env('KHALTI_PARTIAL_REFUNDS', false),
     ],
 
     'esewa' => [
@@ -37,7 +40,11 @@ return [
 
     'http' => [
         'connect_timeout_seconds' => 5,
-        // Lookups only (never initiate or refund): retried on connection errors and 5xx after these delays.
+        // Background lookups only (never initiate, refund or the customer's return): retried on connection errors
+        // and 5xx after these delays.
         'lookup_retry_delays_ms' => [300, 900],
+        // The return route's single lookup while the customer waits.
+        'interactive_connect_timeout_seconds' => 3,
+        'interactive_timeout_seconds' => 6,
     ],
 ];

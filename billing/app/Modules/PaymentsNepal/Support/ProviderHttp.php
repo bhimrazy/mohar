@@ -68,11 +68,29 @@ final class ProviderHttp
     }
 
     /**
-     * Status lookup: safe to repeat, so retried on connection errors and 5xx. Never throws for HTTP error statuses
+     * A lookup while the customer's browser waits (the return route): one try with a short timeout, so a slow
+     * provider costs seconds, not a minute. An inconclusive answer is left to the poller.
+     */
+    public function interactiveLookup(): PendingRequest
+    {
+        $connect = config('payments_nepal.http.interactive_connect_timeout_seconds', 3);
+        $timeout = config('payments_nepal.http.interactive_timeout_seconds', 6);
+
+        return Http::acceptJson()
+            ->connectTimeout(is_numeric($connect) ? max(1, (int) $connect) : 3)
+            ->timeout(is_numeric($timeout) ? max(2, (int) $timeout) : 6);
+    }
+
+    /**
+     * Background status lookup (poller, staff "check now"): safe to repeat, so retried on connection errors and 5xx. Never throws for HTTP error statuses
      * (Khalti answers Expired/User canceled with HTTP 400 and a normal body); connection failures still throw.
      */
-    public function lookup(): PendingRequest
+    public function lookup(bool $interactive = false): PendingRequest
     {
+        if ($interactive) {
+            return $this->interactiveLookup();
+        }
+
         $delays = config('payments_nepal.http.lookup_retry_delays_ms', [300, 900]);
         $delays = is_array($delays) ? array_values(array_map(fn (mixed $delay): int => is_numeric($delay) ? (int) $delay : 0, $delays)) : [];
 
