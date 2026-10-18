@@ -56,6 +56,7 @@ class EmailTemplateRequest extends FormRequest
             'bcc.*' => ['email', 'max:255'],
             'locale' => ['required', 'string', 'max:10', 'regex:/^[a-z]{2}([_-][A-Za-z]{2})?$/'],
             'subject' => ['required', 'string', 'max:255'],
+            'preheader' => ['nullable', 'string', 'max:255'],
             'heading' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:50000'],
             'action_label' => ['nullable', 'string', 'max:100'],
@@ -77,7 +78,7 @@ class EmailTemplateRequest extends FormRequest
             $template = $this->route('template');
             $key = $template instanceof EmailTemplate ? $template->key : (string) $this->input('key');
 
-            foreach (SecretTemplatePolicy::violations($key, $this->only(['subject', 'heading', 'body', 'action_label'])) as $field => $problems) {
+            foreach (SecretTemplatePolicy::violations($key, $this->only(['subject', 'preheader', 'heading', 'body', 'action_label'])) as $field => $problems) {
                 foreach ($problems as $problem) {
                     $validator->errors()->add($field, $problem);
                 }
@@ -85,7 +86,7 @@ class EmailTemplateRequest extends FormRequest
 
             $engine = app(TemplateEngine::class);
 
-            foreach (['subject', 'heading', 'body', 'action_label'] as $field) {
+            foreach (['subject', 'preheader', 'heading', 'body', 'action_label'] as $field) {
                 $source = $this->input($field);
 
                 if (! is_string($source)) {

@@ -12,16 +12,19 @@
  * Every path used here exists in SampleContext, so previews render without warnings. Support-type client
  * subjects are fixed by EmailComposer and only listed for completeness.
  *
- * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, heading?: string, action_label?: string}>
+ * @return list<array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>
  */
 
+// Client mail greets the reader by first name after the title (design §3 block 4).
+$greet = static fn (string $body): string => (string) preg_replace('/^(# [^\n]*\n\n)/', "\$1Hi {{ recipient.first_name }},\n\n", $body, 1);
 $client = static fn (string $key, string $type, string $name, string $subject, string $body): array => [
-    'key' => $key, 'type' => $type, 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $body,
+    'key' => $key, 'type' => $type, 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $greet($body),
 ];
 // Client ticket mail: the system adds the "View your ticket" button (SecretTemplatePolicy::SYSTEM_ACTIONS); the
 // ticket link is never in the text, because a guest's link carries the ticket's access key.
 $ticket = static fn (string $key, string $name, string $subject, string $body, string $actionLabel): array => [
-    'key' => $key, 'type' => 'support', 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $body,
+    // A reply carries the agent's own greeting, so it gets none of ours.
+    'key' => $key, 'type' => 'support', 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $key === 'ticket.reply' ? $body : $greet($body),
     'action_label' => $actionLabel,
 ];
 $staff = static fn (string $key, string $name, string $subject, string $body): array => [
@@ -40,7 +43,7 @@ $secret = static fn (string $key, string $audience, string $type, string $name, 
 $signOff = "\n\n{% if signature %}{{ signature }}{% endif %}";
 $supportSubject = '[#{{ ticket.number }}] {{ ticket.subject }}';
 
-return [
+$templates = [
     // ── General (client) ─────────────────────────────────────────────────────────────────────────
     $secret('auth.password_reset', 'client', 'general', 'Password reset link', 'Reset your {{ company.name }} password', 'Reset your password', 'Choose a new password', <<<'MD'
 Hello {{ user.first_name }}, someone asked to reset the password for your {{ company.name }} account. If that was you, choose a new one with the button below.
@@ -63,10 +66,12 @@ Hello {{ user.first_name }}, confirm that this email address is yours so we can 
 
 If you didn't create an account with {{ company.name }}, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
-    $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You have been invited to a {{ company.name }} account', 'You\'re invited', 'Accept invitation', <<<'MD'
-Hello {{ user.first_name }}, you now have access to a {{ company.name }} client account. Sign in to see which one.
+    $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You\'re invited to a {{ company.name }} client account', 'You\'re invited', 'Accept invitation', <<<'MD'
+Hello {{ user.first_name }}, you've been given access to a {{ company.name }} client account. Accept the invitation to choose your password and sign in.
 
-The invitation expires at {{ auth.expires_at }}.
+The link works until {{ auth.expires_at }}. After that, use "Forgot password" on the sign-in page to get a new one.
+
+If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
     $client('auth.new_login_alert', 'general', 'New sign-in alert', 'New sign-in to your {{ company.name }} account', <<<'MD'
 # New sign-in to your account
@@ -80,6 +85,50 @@ We noticed a new sign-in to {{ user.email }}.
 If this wasn't you, change your password now{% if support.email %} and contact {{ support.email }}{% endif %}.
 
 [Change password]({{ system.client_area_url }})
+MD),
+    $client('auth.login_added', 'general', 'Login added to your account', 'A login was added to your {{ company.name }} account', <<<'MD'
+# A login was added to your account
+
+{{ notice.email }} can now sign in to the {{ notice.account }} account.
+
+| Account | {{ notice.account }} |
+|---|---|
+| New login | {{ notice.email }} |
+| Date | {{ system.today | date }} |
+
+If you didn't expect this, remove the login from your account and contact us{% if support.email %} at {{ support.email }}{% endif %}.
+
+[Review account logins]({{ system.client_area_url }})
+MD),
+    $client('auth.access_granted', 'general', 'Access to a client account', 'You now have access to {{ notice.account }}', <<<'MD'
+# You have access to {{ notice.account }}
+
+Our team gave your login access to the {{ notice.account }} account. Sign in as usual to see it.
+
+[Open the client area]({{ system.client_area_url }})
+
+If you weren't expecting this, contact us{% if support.email %} at {{ support.email }}{% endif %}.
+MD),
+    $client('auth.owner_changed', 'general', 'Account owner changed', '{{ notice.account }} has a new owner', <<<'MD'
+# {{ notice.account }} has a new owner
+
+Ownership of the {{ notice.account }} account was transferred to {{ notice.email }}.
+
+| Account | {{ notice.account }} |
+|---|---|
+| New owner | {{ notice.email }} |
+| Date | {{ system.today | date }} |
+
+If you didn't expect this, contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
+MD),
+    $client('auth.two_factor_reset', 'general', 'Two-step sign-in reset', 'Two-step sign-in was turned off on your {{ company.name }} account', <<<'MD'
+# Two-step sign-in was reset
+
+Our team turned off two-step sign-in on your account, for example after a lost phone. Set it up again from your security settings.
+
+[Open security settings]({{ system.client_area_url }})
+
+If you didn't ask for this, contact us{% if support.email %} at {{ support.email }}{% endif %} straight away.
 MD),
     $client('client.welcome', 'general', 'Welcome to the client area', 'Welcome to {{ company.name }}', <<<'MD'
 # Welcome, {{ client.first_name }}
@@ -202,17 +251,21 @@ You can manage it from the client area at any time.
 
 [Manage service]({{ service.url }})
 MD.$signOff),
-    $client('service.suspended', 'product', 'Service suspended', '{{ service.product_name }} has been suspended', <<<'MD'
-# {{ service.product_name }} is suspended
+    $client('service.suspended', 'product', 'Service suspended', '{{ service.product_name }} is paused', <<<'MD'
+# {{ service.product_name }} is paused
 
-We've suspended this service. Settle any open invoices, or reply to this email and we'll help you get it running again.
+{% if invoice.number %}Your invoice {{ invoice.number }} for {{ invoice.balance }} is overdue, so we've paused {{ service.product_name }}{% if service.domain %} for {{ service.domain }}{% endif %}. Pay it and the service starts again automatically.{% else %}We've paused {{ service.product_name }}{% if service.domain %} for {{ service.domain }}{% endif %}. Reply to this email and we'll help you get it running again.{% endif %}
+
+{% if invoice.url %}[Pay {{ invoice.balance }}]({{ invoice.url }}){% else %}[Open the client area]({{ system.client_area_url }}){% endif %}
 
 | Service | {{ service.product_name }} |
 |---|---|
 {% if service.domain %}| Domain | {{ service.domain }} |
-{% endif %}| Reason | {{ service.suspension_reason | default('Not specified') }} |
+{% endif %}{% if invoice.number %}| Overdue invoice | {{ invoice.number }} |
+| Was due | {{ invoice.due_date | date }} |
+{% endif %}
 
-[Review your invoices]({{ system.client_area_url }})
+Your files and data are kept safe while the service is paused.
 MD.$signOff),
     $client('service.unsuspended', 'product', 'Service reactivated', '{{ service.product_name }} is active again', <<<'MD'
 # {{ service.product_name }} is active again
@@ -256,102 +309,110 @@ MD.$signOff),
     $client('invoice.created', 'invoice', 'Invoice created', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
 # Invoice {{ invoice.number }}
 
-Your new invoice is ready. Payment is due by {{ invoice.due_date | date }}.
+Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep your services running.
+
+[Pay {{ invoice.balance }}]({{ invoice.url }})
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
-| Due date | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }} |
+| Due | {{ invoice.due_date | date }} |
 
-[View and pay invoice]({{ invoice.url }})
+Need a different billing address or a purchase order number on this invoice? Reply and we'll reissue it.
 MD.$signOff),
     $client('invoice.created_autocharge', 'invoice', 'Invoice created (automatic payment)', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.total }} charged {{ invoice.due_date | date }}', <<<'MD'
 # Invoice {{ invoice.number }}
 
-We'll charge your saved payment method on {{ invoice.due_date | date }}. No action needed.
-
-| Invoice | {{ invoice.number }} |
-|---|---|
-| Amount | {{ invoice.total }} |
-| Charge date | {{ invoice.due_date | date }} |
+We'll charge your saved payment method on {{ invoice.due_date | date }}. There's nothing you need to do.
 
 [View invoice]({{ invoice.url }})
-MD.$signOff),
-    $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Invoice {{ invoice.number }} from {{ company.name }}: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
-# Payment due soon
-
-A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_date | date }}.
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
-| Due date | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }} |
+| Charge date | {{ invoice.due_date | date }} |
+MD.$signOff),
+    $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Reminder: invoice {{ invoice.number }} ({{ invoice.balance }}) is due {{ invoice.due_date | date }}', <<<'MD'
+# Payment due soon
 
-[Pay invoice]({{ invoice.url }})
+A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_date | date }}. Paying online takes a minute.
+
+[Pay {{ invoice.balance }}]({{ invoice.url }})
+
+| Invoice | {{ invoice.number }} |
+|---|---|
+| Issued | {{ invoice.issue_date | date }} |
+| Due | {{ invoice.due_date | date }} |
+
+Already paid? Reply to this email and we'll check.
 MD.$signOff),
     $client('invoice.overdue_first', 'invoice', 'First overdue notice', 'Payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Invoice {{ invoice.number }} is overdue
 
-The due date has passed and a balance is still open. Please pay it when you can.
+We haven't received payment for invoice {{ invoice.number }}, which was due on {{ invoice.due_date | date }}. Please pay it soon so your services keep running.
+
+[Pay {{ invoice.balance }}]({{ invoice.url }})
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
+| Issued | {{ invoice.issue_date | date }} |
 | Was due | {{ invoice.due_date | date }} |
 
-[Pay invoice]({{ invoice.url }})
+Already paid? Bank transfers can take up to two working days to reach us. Reply with your payment reference and we'll check.
+
+Need more time, or having trouble paying? Reply to this email and we'll work it out with you.
 MD.$signOff),
-    $client('invoice.overdue_second', 'invoice', 'Second overdue notice', 'Second notice — payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
+    $client('invoice.overdue_second', 'invoice', 'Second overdue notice', 'Second reminder, payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Second notice: invoice {{ invoice.number }}
 
-This invoice is {{ invoice.days_overdue }} days overdue. Pay it now to avoid interruption to your services.
+Invoice {{ invoice.number }} is now {{ invoice.days_overdue }} days overdue. Please pay it to avoid an interruption to your services.
+
+[Pay {{ invoice.balance }}]({{ invoice.url }})
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
+| Was due | {{ invoice.due_date | date }} |
 | Days overdue | {{ invoice.days_overdue }} |
 
-[Pay invoice]({{ invoice.url }})
+Need more time? Reply to this email and we'll work it out with you.
 MD.$signOff),
-    $client('invoice.overdue_third', 'invoice', 'Final overdue notice', 'Final notice — payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
+    $client('invoice.overdue_third', 'invoice', 'Final overdue notice', 'Final reminder, payment overdue: invoice {{ invoice.number }} ({{ invoice.balance }})', <<<'MD'
 # Final notice: invoice {{ invoice.number }}
 
-Related services may be suspended if this invoice stays unpaid.
+Invoice {{ invoice.number }} is {{ invoice.days_overdue }} days overdue. If it stays unpaid, we'll pause the services on it. Your files and data stay safe.
+
+[Pay {{ invoice.balance }}]({{ invoice.url }})
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
+| Was due | {{ invoice.due_date | date }} |
 | Days overdue | {{ invoice.days_overdue }} |
-
-[Pay invoice]({{ invoice.url }})
 
 Already paid? Reply to this email and we'll check.
 MD.$signOff),
     $client('invoice.payment_confirmation', 'invoice', 'Payment confirmation', 'Your receipt from {{ company.name }} #{{ payment.reference | default(invoice.number) }}', <<<'MD'
 # Payment received
 
-Thanks — we received {{ payment.amount }} for invoice {{ invoice.number }}.
+Thank you. We've received your payment of {{ payment.amount }}{% if invoice.balance_due %}, and {{ invoice.balance }} is still due on invoice {{ invoice.number }}{% else %}, and invoice {{ invoice.number }} is paid in full{% endif %}.
 
-| Amount paid | {{ payment.amount }} |
-|---|---|
 | Invoice | {{ invoice.number }} |
+|---|---|
 | Date | {{ payment.date | date }} |
 | Reference | {{ payment.reference | default('—') }} |
-{% if invoice.balance_due %}| Still due | {{ invoice.balance }} |
-{% endif %}
-[View receipt]({{ invoice.url }})
+
+Something not right? Reply to this email and our billing team will look into it.
 MD.$signOff),
     $client('invoice.payment_failed', 'invoice', 'Payment failed', 'Payment failed: invoice {{ invoice.number }} ({{ invoice.balance }}) from {{ company.name }}', <<<'MD'
 # Payment didn't go through
 
 We couldn't charge your saved payment method for invoice {{ invoice.number }}. Pay with another method to keep your services running.
 
+[Pay {{ invoice.balance }}]({{ invoice.url }})
+
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
+| Due | {{ invoice.due_date | date }} |
 | Reason | {{ payment.failure_reason | default('Declined by the payment provider') }} |
-
-[Pay with another method]({{ invoice.url }})
 MD.$signOff),
     $client('invoice.refunded', 'invoice', 'Refund issued', 'Your refund from {{ company.name }}: {{ refund.amount }} for invoice {{ invoice.number }}', <<<'MD'
 # Refund issued
@@ -364,16 +425,17 @@ We've refunded part or all of invoice {{ invoice.number }}. Depending on your ba
 
 [View invoice]({{ invoice.url }})
 MD.$signOff),
-    $client('invoice.modified', 'invoice', 'Invoice updated', 'Invoice {{ invoice.number }} from {{ company.name }} updated: {{ invoice.balance }} due', <<<'MD'
+    $client('invoice.modified', 'invoice', 'Invoice updated', 'Invoice {{ invoice.number }} from {{ company.name }} was updated: {{ invoice.balance }} due {{ invoice.due_date | date }}', <<<'MD'
 # Invoice {{ invoice.number }} was updated
 
-We changed this invoice. Here are the new amounts.
+We've changed this invoice. {{ invoice.balance }} is now due by {{ invoice.due_date | date }}.
 
-| New total | {{ invoice.total }} |
+[Pay {{ invoice.balance }}]({{ invoice.url }})
+
+| Invoice | {{ invoice.number }} |
 |---|---|
-| Amount due | {{ invoice.balance }} |
-
-[View invoice]({{ invoice.url }})
+| New total | {{ invoice.total }} |
+| Due | {{ invoice.due_date | date }} |
 MD.$signOff),
     $client('payment_method.expiring', 'invoice', 'Payment method expiring', 'Your {{ company.name }} payment method expires soon', <<<'MD'
 # Your payment method expires soon
@@ -489,13 +551,18 @@ MD.$signOff, 'View your ticket'),
 {{ reply.body_html | raw }}
 MD.$signOff, 'View and reply'),
     $ticket('ticket.reply', 'Ticket reply', $supportSubject, <<<'MD'
-# New reply on ticket #{{ ticket.number }}
+# {{ ticket.subject }}
 
-{{ reply.author_name }} from {{ ticket.department }} replied to "{{ ticket.subject }}".
+{{ reply.author_name }} from {{ ticket.department }} replied to your ticket.
 
 {{ reply.body_html | raw }}
 
-You can also reply to this email.
+| Ticket | #{{ ticket.number }} |
+|---|---|
+| Department | {{ ticket.department }} |
+| Priority | {{ ticket.priority }} |
+
+You can also reply to this email. Keep [#{{ ticket.number }}] in the subject so your reply reaches this ticket.
 MD, 'View your ticket'),
     $ticket('ticket.auto_closed', 'Ticket closed automatically', $supportSubject, <<<'MD'
 # Ticket #{{ ticket.number }} closed
@@ -663,9 +730,39 @@ Hello {{ staff.first_name }}, use the button below to choose a new password for 
 The link expires at {{ auth.expires_at }}. If this wasn't you, contact {{ support.email }}.
 MD),
     $secret('staff.invitation', 'staff', 'admin', 'Staff invitation', 'You are invited to the {{ company.name }} admin area', 'Join the {{ company.name }} team', 'Accept invitation', <<<'MD'
-You've been invited to the admin area.
+Hello, you've been invited to join the {{ company.name }} team in the admin area. Accept the invitation to choose your password.
 
-The invitation expires at {{ auth.expires_at }}.
+The invitation works until {{ auth.expires_at }}. If you weren't expecting it, you can ignore this email.
+MD),
+    $staff('staff.two_factor_reset', 'Staff two-step sign-in reset', 'Two-step sign-in was reset on your staff account', <<<'MD'
+# Two-step sign-in was reset
+
+{{ notice.actor }} turned off two-step sign-in on your staff account. Set it up again the next time you sign in.
+
+If you didn't expect this, tell another administrator straight away.
+
+[Open admin area]({{ system.admin_url }})
+MD),
+    $staff('staff.email_changed', 'Staff sign-in email changed', 'Your staff sign-in email was changed', <<<'MD'
+# Your sign-in email was changed
+
+{{ notice.actor }} changed the sign-in email of your staff account.
+
+| From | {{ notice.old_email }} |
+|---|---|
+| To | {{ notice.new_email }} |
+| Date | {{ system.today | date }} |
+
+If you didn't expect this, tell another administrator straight away.
+MD),
+    $staff('staff.settings_changed', 'Security settings changed', '{{ notice.section }} settings were changed', <<<'MD'
+# {{ notice.section }} settings were changed
+
+{{ notice.actor }} changed these settings: {{ notice.changes }}.
+
+If you didn't expect this, review the change in the activity log.
+
+[Open admin area]({{ system.admin_url }})
 MD),
     $staff('staff.login_failures', 'Repeated failed staff sign-ins', 'Repeated failed sign-ins for {{ security.email }}', <<<'MD'
 # Repeated failed sign-ins
@@ -704,3 +801,62 @@ Emails using {{ template.key }} are failing until the template is fixed.
 [Fix template]({{ template.admin_url }})
 MD),
 ];
+
+/*
+ * Inbox preview lines (design §6): the next most useful fact or the reassurance, never a repeat of the subject.
+ */
+$preheaders = [
+    'auth.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email and your password stays the same.',
+    'auth.password_changed' => 'Changed on {{ system.today | date }}. If this wasn\'t you, reset your password now.',
+    'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
+    'auth.user_invitation' => 'Accept to choose your password and see this account\'s invoices, services and tickets.',
+    'auth.new_login_alert' => 'From {{ auth.ip }} on {{ system.today | date }}. Not you? Change your password now.',
+    'auth.login_added' => '{{ notice.email }} can now sign in to {{ notice.account }}. Not expected? Remove the login.',
+    'auth.access_granted' => 'Sign in as usual to see {{ notice.account }}.',
+    'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
+    'auth.two_factor_reset' => 'Set it up again from your security settings.',
+    'client.welcome' => 'Your account is ready. Sign in to order services, pay invoices and get help.',
+    'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',
+    'quote.delivered' => '{{ quote.subject }}. Valid until {{ quote.valid_until | date }}. Accept it online to place the order.',
+    'affiliate.activated' => 'Share your link and earn commission on every referred order.',
+    'affiliate.withdrawal_processed' => 'It can take a few working days to reach you.',
+    'service.welcome.shared_hosting' => 'Sign in to see your details and nameservers. Point your domain to us to go live.',
+    'service.welcome.reseller_hosting' => 'Sign in to your control panel to create your first customer account.',
+    'service.welcome.server' => 'Sign in to see your details. Change the password after your first sign-in.',
+    'service.welcome.other' => 'Everything you need to get started is in the client area.',
+    'service.suspended' => '{% if invoice.number %}Pay invoice {{ invoice.number }} to restore it.{% else %}Reply to this email and we\'ll help restore it.{% endif %} Your data is kept safe.',
+    'service.unsuspended' => 'Everything is back as it was. Thanks for sorting this out.',
+    'service.cancellation_requested' => 'Changed your mind? Reply before the cancellation date.',
+    'service.upgrade_completed' => 'The new resources are live now. Your next invoice shows the new price.',
+    'service.terminated' => 'Reply if you\'d like help setting up again.',
+    'invoice.created' => 'Pay by {{ invoice.due_date | date }} to keep your services running.',
+    'invoice.created_autocharge' => 'No action needed. We\'ll charge your saved payment method.',
+    'invoice.payment_reminder' => 'A friendly reminder. Paying online takes a minute; reply if anything needs changing.',
+    'invoice.overdue_first' => 'It was due on {{ invoice.due_date | date }}. Need more time? Reply and we\'ll work it out with you.',
+    'invoice.overdue_second' => 'Now {{ invoice.days_overdue }} days overdue. Please pay it to avoid an interruption.',
+    'invoice.overdue_third' => 'Services pause if it stays unpaid. Need more time? Reply and we\'ll work it out with you.',
+    'invoice.payment_confirmation' => 'Thank you. {{ payment.amount }} paid on {{ payment.date | date }}.{% if invoice.balance_due %} {{ invoice.balance }} is still due.{% else %} Invoice {{ invoice.number }} is settled.{% endif %}',
+    'invoice.payment_failed' => '{{ payment.failure_reason | default(\'Your bank declined it\') }}. Pay with another method to avoid interruption.',
+    'invoice.refunded' => 'It can take 5–10 working days to appear, depending on your bank.',
+    'invoice.modified' => '{{ invoice.balance }} is due by {{ invoice.due_date | date }}.',
+    'payment_method.expiring' => 'Add a new one before then so renewals keep going through.',
+    'credit_note.issued' => 'Issued against invoice {{ invoice.number }}.',
+    'domain.registration_confirmation' => 'It\'s active until {{ domain.expiry_date | date }}. DNS changes can take a few hours to reach everyone.',
+    'domain.transfer_initiated' => 'Most transfers finish within 5–7 days. Approving the request at your current registrar speeds it up.',
+    'domain.transfer_completed' => 'Transfer complete. It renews on {{ domain.expiry_date | date }}.',
+    'domain.transfer_failed' => 'Here\'s how to fix it and try again.',
+    'domain.renewal_confirmation' => 'Nothing else to do. Your website and email keep working.',
+    'domain.renewal_upcoming' => 'Renew now to keep your websites and email working.',
+    'domain.expired_notice' => 'Renew soon to restore your websites and email at this domain.',
+    'ticket.autoresponse' => 'We\'ve received your request and will reply soon. Reply to this email to add details.',
+    'ticket.opened_by_staff' => '{{ ticket.department }} opened this ticket for you.',
+    'ticket.reply' => '{{ reply.author_name }} from {{ ticket.department }} replied: {{ reply.excerpt }}',
+    'ticket.auto_closed' => 'We closed this ticket because we haven\'t heard back. Reply to reopen it.',
+    'ticket.closed_bounce' => 'That ticket is closed. Open a new ticket and we\'ll pick it up from there.',
+    'ticket.unregistered_bounce' => 'This address only takes email from customers with an account.',
+    'ticket.replies_only_bounce' => 'This address only accepts replies to existing tickets.',
+    'staff.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email.',
+    'staff.invitation' => 'Accept to set your password. The invitation works until {{ auth.expires_at }}.',
+];
+
+return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null], $templates);

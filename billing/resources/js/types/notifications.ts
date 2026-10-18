@@ -4,6 +4,7 @@ export type EmailSummary = {
     id: number;
     uuid: string;
     template_key: string | null;
+    template_name: string;
     to: string[];
     recipient: string;
     subject: string;

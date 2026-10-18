@@ -7,6 +7,7 @@ use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\Recipient;
+use App\Modules\Notifications\Support\MailClock;
 use App\Modules\Notifications\Support\SupportAddresses;
 use Illuminate\Support\Facades\Route;
 use Throwable;
@@ -43,7 +44,7 @@ class MergeContext
             'system' => array_filter([
                 'client_area_url' => $this->link('client.dashboard'),
                 'admin_url' => $forStaff ? $this->link('admin.dashboard') : null,
-                'today' => now()->toDateString(),
+                'today' => MailClock::today(),
             ], fn (mixed $value): bool => $value !== null),
             'signature' => (string) $this->settings->get('notifications.signature', ''),
             'support' => [

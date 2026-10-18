@@ -145,7 +145,7 @@ class EmailTemplateController extends Controller
 
         $template->translations()->updateOrCreate(
             ['locale' => $this->composer->defaultLocale()],
-            ['subject' => $definition['subject'], 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
+            ['subject' => $definition['subject'], 'preheader' => $definition['preheader'] ?? null, 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
         );
         $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Default text restored.')]);
@@ -162,6 +162,7 @@ class EmailTemplateController extends Controller
         $this->authorize('notifications.templates.view');
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
+            'preheader' => ['nullable', 'string', 'max:255'],
             'heading' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:50000'],
             'action_label' => ['nullable', 'string', 'max:100'],
@@ -169,7 +170,7 @@ class EmailTemplateController extends Controller
         ]);
         $locale = (string) ($validated['locale'] ?? $this->composer->defaultLocale());
 
-        $problems = SecretTemplatePolicy::violations($template->key, Arr::only($validated, ['subject', 'heading', 'body', 'action_label']));
+        $problems = SecretTemplatePolicy::violations($template->key, Arr::only($validated, ['subject', 'preheader', 'heading', 'body', 'action_label']));
 
         if ($problems !== []) {
             return response()->json(['error' => implode(' ', array_merge(...array_values($problems))), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
@@ -180,6 +181,7 @@ class EmailTemplateController extends Controller
         $draft->setRelation('translations', new Collection([new EmailTemplateTranslation([
             'locale' => $locale,
             'subject' => $validated['subject'],
+            'preheader' => $validated['preheader'] ?? null,
             'heading' => $validated['heading'] ?? null,
             'body' => $validated['body'],
             'action_label' => $validated['action_label'] ?? null,
@@ -251,6 +253,7 @@ class EmailTemplateController extends Controller
                 'locale' => $locale,
                 'exists' => $translation !== null && $translation->locale === $locale,
                 'subject' => $template?->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : ($translation->subject ?? ''),
+                'preheader' => $translation->preheader ?? '',
                 'heading' => $translation->heading ?? '',
                 'body' => $translation->body ?? '',
                 'action_label' => $translation->action_label ?? '',
@@ -288,6 +291,7 @@ class EmailTemplateController extends Controller
         $template->translations()->updateOrCreate(['locale' => $request->string('locale')->toString()], [
             // Support subjects are fixed for threading; the stored subject is kept as-is.
             'subject' => $template->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : $request->string('subject')->toString(),
+            'preheader' => $request->filled('preheader') ? $request->string('preheader')->toString() : null,
             'heading' => $template->carriesSecret() ? $request->string('heading')->toString() : null,
             'body' => $request->string('body')->toString(),
             'action_label' => $template->carriesSecret() || SecretTemplatePolicy::systemActionPath($template->key) !== null ? $request->string('action_label')->toString() : null,

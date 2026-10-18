@@ -102,7 +102,7 @@ final class EmailBody
 
         $document = self::document($html);
         $text = $document->body === null ? '' : self::walk($document->body);
-        $text = (string) preg_replace(["/[ \t]+\n/", "/\n{3,}/"], ["\n", "\n\n"], $text);
+        $text = (string) preg_replace(["/[ \t]+\n/", "/\n (?=\S)/", "/\n{3,}/"], ["\n", "\n", "\n\n"], $text);
 
         return trim($text, "\n ");
     }

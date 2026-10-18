@@ -114,7 +114,7 @@
 {{-- Card 2: the record --}}
 <div style="height:16px;line-height:16px;font-size:0;">&nbsp;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-card bd" style="{{ $card }}">
-<tr><td style="padding:16px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
+<tr><td style="padding:12px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
 @if (filled($recordTitle) || $frame->lines !== null)
 <tr><td class="px pxa" style="padding:20px 24px 16px;"><h2 class="tx-strong" style="margin:0;font-size:18px;line-height:26px;font-weight:700;color:{{ $l['strong'] }};overflow-wrap:anywhere;word-break:break-word;">{{ $recordTitle ?? $frame->lines['heading'] }}</h2></td></tr>
 @endif

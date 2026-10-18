@@ -286,13 +286,15 @@ final class MailFramer
             $lines[] = ['name' => $item['description'], 'meta' => $start !== null && $end !== null ? $start.' – '.$end : null, 'amount' => $item['amount']];
         }
 
+        $partlyPaid = $this->string($context, 'invoice.balance') !== $this->string($context, 'invoice.total');
         $totals = array_values(array_filter([
             ['label' => __('Subtotal'), 'amount' => $this->string($context, 'invoice.subtotal'), 'total' => false],
             ['label' => __('Discount'), 'amount' => $this->string($context, 'invoice.discount'), 'total' => false],
             ...array_map(fn (mixed $tax): array => ['label' => (string) data_get($tax, 'label'), 'amount' => is_string(data_get($tax, 'amount')) ? data_get($tax, 'amount') : null, 'total' => false], (array) data_get($context, 'invoice.taxes', [])),
-            ['label' => $totalLabel, 'amount' => $this->string($context, 'invoice.total'), 'total' => true],
+            // "Total due" only when nothing is paid yet; otherwise the balance line says what is due.
+            ['label' => $partlyPaid ? __('Total') : $totalLabel, 'amount' => $this->string($context, 'invoice.total'), 'total' => true],
             ['label' => __('Credit applied'), 'amount' => $this->string($context, 'invoice.credit_applied'), 'total' => false],
-            $receipt || $this->string($context, 'invoice.balance') !== $this->string($context, 'invoice.total') ? ['label' => $receipt ? __('Still to pay') : __('Balance due'), 'amount' => $this->string($context, 'invoice.balance'), 'total' => false] : null,
+            $receipt || $partlyPaid ? ['label' => $receipt ? __('Still to pay') : __('Balance due'), 'amount' => $this->string($context, 'invoice.balance'), 'total' => false] : null,
         ], fn (?array $row): bool => $row !== null && is_string($row['amount']) && $row['amount'] !== ''));
 
         /** @var list<array{label: string, amount: string, total: bool}> $totals */

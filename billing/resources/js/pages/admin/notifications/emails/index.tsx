@@ -36,7 +36,7 @@ const columns: DataTableColumn<EmailSummary>[] = [
         hideOnMobile: true,
         cell: (message) => (
             <span className="font-mono text-xs text-muted-foreground">
-                {message.template_key ?? 'ad-hoc'}
+                {message.template_name}
             </span>
         ),
     },
