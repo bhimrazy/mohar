@@ -1,5 +1,5 @@
 import { Head, useForm } from '@inertiajs/react';
-import { AlertTriangle, CalendarClock, Wallet } from 'lucide-react';
+import { AlertTriangle, CalendarClock, CalendarPlus, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';
@@ -142,8 +142,9 @@ export default function ClientServiceShow({
                         icon={Wallet}
                     />
                     <StatCard
-                        label="Member since"
+                        label="Registered"
                         value={<DateTime value={service.registration_date} />}
+                        icon={CalendarPlus}
                     />
                 </div>
 
