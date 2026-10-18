@@ -32,5 +32,8 @@ return [
         'nrb_url' => 'https://www.nrb.org.np/api/forex/v1/rates',
         'timeout' => 10,
         'connect_timeout' => 5,
+        'max_bytes' => 1_048_576,
+        // How long a rate change waits for another one to finish before giving up.
+        'lock_wait_seconds' => 15,
     ],
 ];

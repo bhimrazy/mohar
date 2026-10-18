@@ -31,6 +31,8 @@ return new class extends Migration
             $table->string('source', 30);
             $table->timestamp('effective_at');
             $table->string('status', 20)->default('pending');
+            // Set to the currency while pending, null once decided: at most one pending review per currency.
+            $table->char('pending_currency', 3)->nullable()->unique();
             $table->foreignId('decided_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('decided_at')->nullable();
             $table->timestamps();

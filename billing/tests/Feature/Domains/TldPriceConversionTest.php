@@ -5,13 +5,15 @@ use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use App\Modules\Domains\Services\DomainPricingService;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Currency::factory()->create();
     Currency::factory()->inr()->create(['price_rounding' => PriceRounding::NinetyNine]);
 });
 
-test('TLD prices convert per term and slab, keep manual grids and drop orphaned conversions', function () {
+test('TLD prices convert per term and slab, keep manual grids and turn off orphaned conversions', function () {
     $com = Tld::factory()->extension('.com')->priced(register: 1200, transfer: 1100, renew: 1400, years: 2)->create();
     $net = Tld::factory()->extension('.net')->priced(register: 1500, transfer: null, renew: 1500, years: 1)->create();
     TldPrice::query()->create(['tld_id' => $net->id, 'currency' => 'INR', 'years' => 1, 'register' => 99_900, 'renew' => 99_900, 'is_manual' => true]);
@@ -27,7 +29,8 @@ test('TLD prices convert per term and slab, keep manual grids and drop orphaned 
     expect(TldPrice::query()->where('tld_id', $com->id)->where('currency', 'INR')->where('years', 1)->sole())
         ->register->toBe(100_799)->transfer->toBe(92_399)->renew->toBe(117_599)->is_manual->toBeFalse()
         ->and(TldPrice::query()->where('tld_id', $net->id)->where('currency', 'INR')->where('years', 1)->sole()->register)->toBe(99_900)
-        ->and(TldPrice::query()->where('tld_id', $net->id)->where('currency', 'INR')->where('years', 5)->exists())->toBeFalse()
+        ->and(TldPrice::query()->where('tld_id', $net->id)->where('currency', 'INR')->where('years', 5)->sole()->enabled)->toBeFalse()
+        ->and(app(DomainPricingService::class)->price('.net', 'register', 5, 'INR'))->toBeNull()
         ->and(app(ConvertTldPrices::class)->preview()->changes)->toBe(0);
 });
 
@@ -39,4 +42,31 @@ test('saving a non-default grid with the manual switch marks its rows', function
         ->assertRedirect();
 
     expect(TldPrice::query()->where('currency', 'INR')->sole()->is_manual)->toBeTrue();
+});
+
+test('the migration marks existing non-default TLD prices as set manually', function () {
+    $tld = Tld::factory()->extension('.io')->priced(register: 3000, years: 1)->create();
+    TldPrice::query()->create(['tld_id' => $tld->id, 'currency' => 'INR', 'years' => 1, 'register' => 250_000, 'renew' => 250_000]);
+    $migration = require base_path('app/Modules/Domains/Database/Migrations/2026_10_18_500200_add_manual_flag_to_tld_prices.php');
+
+    $migration->down();
+    $migration->up();
+
+    expect(DB::table('tld_prices')->where('currency', 'INR')->value('is_manual'))->toBeTruthy()
+        ->and(DB::table('tld_prices')->where('currency', 'USD')->value('is_manual'))->toBeFalsy();
+
+    app(ConvertTldPrices::class)->apply();
+    expect(TldPrice::query()->where('currency', 'INR')->sole()->register)->toBe(250_000);
+});
+
+test('the TLD preview does not query per price row', function () {
+    Tld::factory()->count(10)->priced(years: 10)->create();
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    $preview = app(ConvertTldPrices::class)->preview();
+    $queries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    expect($preview->changes)->toBe(100)->and($queries)->toBeLessThan(25); // 100 rows: reads plus 10 sample labels
 });

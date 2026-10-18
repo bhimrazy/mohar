@@ -6,7 +6,6 @@ use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Platform\Actions\Currencies\UpdateExchangeRates;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
 use App\Modules\Platform\Drivers\ExchangeRates\NrbRateSource;
 use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
@@ -21,11 +20,11 @@ use App\Modules\Platform\Services\ExchangeRateStatus;
 use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
+use App\Modules\Platform\Support\ExchangeRateTask;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
-use App\Support\Currencies\ExchangeRateUnavailable;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -95,20 +94,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $sources->register(EcbRateSource::class);
         $sources->register(NrbRateSource::class);
 
-        $this->app->make(Automation::class)->task('platform.exchange-rates', Automation::EXCHANGE_RATES, function (): string {
-            $result = $this->app->make(UpdateExchangeRates::class)->handle();
-            $summary = sprintf('%d updated, %d unchanged, %d held for review', count($result['updated']), count($result['unchanged']), count($result['held']));
-
-            if ($result['failed'] !== []) {
-                throw new ExchangeRateUnavailable($summary.'; failed: '.implode('; ', array_map(
-                    fn (string $code, string $error): string => "{$code}: {$error}",
-                    array_keys($result['failed']),
-                    $result['failed'],
-                )));
-            }
-
-            return $summary;
-        });
+        $this->app->make(Automation::class)->task(ExchangeRateTask::KEY, Automation::EXCHANGE_RATES, fn (): string => $this->app->make(ExchangeRateTask::class)->pipeline());
 
         $dashboard = $this->app->make(Dashboard::class);
         $dashboard->todo('admin', 'platform.exchange_rates.review', fn (): array => [
@@ -126,17 +112,17 @@ class PlatformServiceProvider extends ModuleServiceProvider
     }
 
     /**
-     * A separate daily rate fetch when platform.rates_update_time is set. It runs the same pipeline task
-     * (recorded per date), so the main automation run skips it once it succeeded.
+     * A separate daily rate fetch when platform.rates_update_time is set (the pipeline task then skips; see
+     * ExchangeRateTask). It has its own exchange-rate lock, not the automation:run one.
      */
     protected function schedule(Schedule $schedule): void
     {
-        $time = (string) rescue(fn (): mixed => $this->app->make(Settings::class)->get('platform.rates_update_time'), '', report: false);
+        $time = $this->app->make(ExchangeRateTask::class)->separateTime();
 
-        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1) {
-            $schedule->command('automation:run', ['--only' => 'platform.exchange-rates'])
+        if ($time !== null) {
+            $schedule->command('platform:update-exchange-rates')
                 ->dailyAt($time)
-                ->name('platform.exchange-rates')
+                ->name(ExchangeRateTask::KEY)
                 ->withoutOverlapping()
                 ->onOneServer();
         }

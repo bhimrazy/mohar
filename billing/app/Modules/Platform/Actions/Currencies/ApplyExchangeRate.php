@@ -22,6 +22,9 @@ class ApplyExchangeRate
     public function __construct(private ActivityLogger $activity) {}
 
     /**
+     * The row is locked and re-read inside the transaction, so "old" is the rate actually in force and a
+     * concurrent change of the same rate is not recorded twice. The given model is refreshed afterwards.
+     *
      * @param  string  $source  "manual", a rate source key, "review" or "rebase"
      * @return bool whether the rate changed
      */
@@ -33,36 +36,40 @@ class ApplyExchangeRate
             throw new InvalidArgumentException('Exchange rates must be positive.');
         }
 
-        $old = Decimal::round((string) $currency->exchange_rate, 6);
+        $changed = DB::transaction(function () use ($currency, $rate, $source, $effectiveAt, $actor): bool {
+            $locked = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
+            $old = Decimal::round((string) $locked->exchange_rate, 6);
 
-        if (Decimal::compare($old, $rate) === 0) {
-            return false;
-        }
+            if (Decimal::compare($old, $rate) === 0) {
+                return false;
+            }
 
-        DB::transaction(function () use ($currency, $rate, $old, $source, $effectiveAt, $actor): void {
             $now = CarbonImmutable::now();
-            $currency->forceFill(['exchange_rate' => $rate, 'rate_updated_at' => $now])->save();
+            $locked->forceFill(['exchange_rate' => $rate, 'rate_updated_at' => $now])->save();
 
             ExchangeRateHistory::query()->create([
-                'currency' => $currency->code,
+                'currency' => $locked->code,
                 'rate' => $rate,
                 'source' => $source,
                 'effective_at' => $effectiveAt ?? $now,
                 'user_id' => $actor !== null ? $actor->id : auth()->id(),
             ]);
 
-            ExchangeRateReview::query()->pending()->where('currency', $currency->code)
-                ->update(['status' => ExchangeRateReview::SUPERSEDED, 'updated_at' => $now]);
+            ExchangeRateReview::closePending($locked->code);
 
-            $this->activity->log('Exchange rate changed', $currency, properties: [
-                'currency' => $currency->code,
+            $this->activity->log('Exchange rate changed', $locked, properties: [
+                'currency' => $locked->code,
                 'old' => $old,
                 'new' => $rate,
                 'source' => $source,
             ], event: 'currency.rate_changed', actor: $actor);
+
+            return true;
         });
 
-        return true;
+        $currency->refresh();
+
+        return $changed;
     }
 
     /**

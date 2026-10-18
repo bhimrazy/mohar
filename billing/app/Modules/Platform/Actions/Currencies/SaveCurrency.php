@@ -8,8 +8,12 @@ use App\Events\Core\ExchangeRatesUpdated;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Platform\Models\ExchangeRateHistory;
+use App\Modules\Platform\Models\ExchangeRateReview;
+use App\Modules\Platform\Support\ExchangeRateLock;
 use App\Support\Currencies\Decimal;
 use App\Support\Currencies\ExchangeRateSources;
+use App\Support\Currencies\PriceConverters;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +23,7 @@ class SaveCurrency
         private ActivityLogger $activity,
         private InvoiceQueries $invoices,
         private ApplyExchangeRate $apply,
+        private PriceConverters $converters,
     ) {}
 
     /**
@@ -79,7 +84,7 @@ class SaveCurrency
         $before = $currency->only(['rate_source', 'price_rounding', 'price_buffer_percent']);
         $manual = $data['rate_source'] === ExchangeRateSources::MANUAL;
 
-        $changed = DB::transaction(function () use ($currency, $data, $manual, $before): bool {
+        $changed = ExchangeRateLock::run(fn (): bool => DB::transaction(function () use ($currency, $data, $manual, $before): bool {
             $currency->fill([
                 'rate_source' => $currency->is_default ? ExchangeRateSources::MANUAL : $data['rate_source'],
                 'is_auto_rate' => ! $currency->is_default && ! $manual,
@@ -99,7 +104,7 @@ class SaveCurrency
 
             return ! $currency->is_default && $manual && $data['exchange_rate'] !== null
                 && $this->apply->handle($currency, $data['exchange_rate'], ExchangeRateSources::MANUAL);
-        });
+        }));
 
         if ($changed) {
             ExchangeRatesUpdated::dispatch([$currency->code], ExchangeRateSources::MANUAL);
@@ -128,25 +133,37 @@ class SaveCurrency
             throw ValidationException::withMessages(['currency' => __('The default currency cannot change once invoices or transactions exist.')]);
         }
 
-        DB::transaction(function () use ($currency): void {
-            $base = (string) $currency->exchange_rate;
+        $previous = Currency::default()->code;
 
-            Currency::query()->whereKeyNot($currency->id)->orderBy('id')->get()->each(function (Currency $other) use ($base): void {
+        $rebased = ExchangeRateLock::run(fn (): array => DB::transaction(function () use ($currency): array {
+            $currency = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
+            $base = (string) $currency->exchange_rate;
+            $codes = [];
+
+            Currency::query()->whereKeyNot($currency->id)->orderBy('id')->lockForUpdate()->get()->each(function (Currency $other) use ($base, &$codes): void {
                 $this->apply->seedHistory($other);
                 $other->forceFill(['is_default' => false])->save();
                 $this->apply->handle($other, Decimal::divide((string) $other->exchange_rate, $base, 6), 'rebase');
+                $codes[] = $other->code;
             });
 
             $this->apply->seedHistory($currency);
             $currency->forceFill(['is_default' => true, 'rate_source' => ExchangeRateSources::MANUAL, 'is_auto_rate' => false])->save();
             $this->apply->handle($currency, '1', 'rebase');
-        });
 
-        $this->activity->log("Default currency changed to {$currency->code}", $currency, event: 'currency.default_changed');
+            // Proposals were computed against the old default.
+            ExchangeRateReview::query()->whereNotNull('pending_currency')->update(['status' => ExchangeRateReview::SUPERSEDED, 'pending_currency' => null]);
+
+            return [...$codes, $currency->code];
+        }));
+
+        $currency->refresh();
+        $this->activity->log("Default currency changed to {$currency->code}", $currency, properties: ['old' => $previous, 'new' => $currency->code], event: 'currency.default_changed');
+        ExchangeRatesUpdated::dispatch($rebased, 'rebase');
     }
 
     /**
-     * @throws ValidationException when the currency is the default or used by clients
+     * @throws ValidationException when the currency is the default, or clients, documents or prices use it
      */
     public function delete(Currency $currency): void
     {
@@ -158,7 +175,22 @@ class SaveCurrency
             throw ValidationException::withMessages(['currency' => __('Clients use this currency. Move them to another currency first.')]);
         }
 
-        $currency->delete();
-        $this->activity->log("Currency {$currency->code} deleted", event: 'currency.deleted');
+        if ($this->invoices->hasDocumentsInCurrency($currency->code)) {
+            throw ValidationException::withMessages(['currency' => __('Invoices, quotes or transactions use this currency, so it cannot be deleted.')]);
+        }
+
+        foreach ($this->converters->all() as $converter) {
+            if ($converter->usesCurrency($currency->code)) {
+                throw ValidationException::withMessages(['currency' => __(':prices have prices in this currency. Remove those prices before deleting it.', ['prices' => $converter->label()])]);
+            }
+        }
+
+        DB::transaction(function () use ($currency): void {
+            // A currency created later with the same code starts a fresh rate history.
+            ExchangeRateHistory::query()->where('currency', $currency->code)->delete();
+            ExchangeRateReview::closePending($currency->code);
+            $currency->delete();
+        });
+        $this->activity->log("Currency {$currency->code} deleted", properties: ['currency' => $currency->code, 'rate' => $currency->exchange_rate], event: 'currency.deleted');
     }
 }

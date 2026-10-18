@@ -34,7 +34,7 @@ class SaveTldPrices
 
             foreach ($rows as $row) {
                 $price = $existing->get($row['years']);
-                $amounts = ['register' => $row['register'], 'transfer' => $row['transfer'], 'renew' => $row['renew'], 'is_manual' => $manual ?? ($price !== null && $price->is_manual)];
+                $amounts = ['register' => $row['register'], 'transfer' => $row['transfer'], 'renew' => $row['renew'], 'is_manual' => $manual ?? ($price !== null && $price->is_manual), 'enabled' => true];
 
                 if ($amounts['register'] === null && $amounts['transfer'] === null && $amounts['renew'] === null) {
                     $price?->delete();

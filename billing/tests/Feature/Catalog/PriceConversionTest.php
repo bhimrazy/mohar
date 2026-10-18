@@ -8,6 +8,7 @@ use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     Currency::factory()->create();
@@ -87,4 +88,46 @@ test('a rate change converts prices only when auto-convert is on', function () {
     app(Settings::class)->set('catalog.auto_convert_prices', true);
     ExchangeRatesUpdated::dispatch(['NPR'], 'automatic');
     expect(nprPrice($product)->amount)->toBe(134_400);
+});
+
+test('the migration marks existing other-currency prices as manual unless auto-convert was on', function (bool $autoConvert, bool $expected) {
+    $product = Product::factory()->withPrice('USD', BillingCycle::Monthly, 1000)->create();
+    $product->prices()->create(['currency' => 'NPR', 'cycle' => BillingCycle::Monthly, 'amount' => 140_000, 'setup_fee' => 0]);
+    app(Settings::class)->set('catalog.auto_convert_prices', $autoConvert);
+    $migration = require base_path('app/Modules/Catalog/Database/Migrations/2026_10_18_100400_add_manual_flag_to_prices.php');
+
+    $migration->down();
+    $migration->up();
+
+    expect((bool) DB::table('prices')->where('currency', 'NPR')->value('is_manual'))->toBe($expected)
+        ->and((bool) DB::table('prices')->where('currency', 'USD')->value('is_manual'))->toBeFalse();
+})->with([
+    'auto-convert off: staff-entered' => [false, true],
+    'auto-convert on: converted' => [true, false],
+]);
+
+test('preview and apply use a bounded number of queries', function () {
+    Currency::factory()->inr()->create();
+    $products = Product::factory()->count(50)->create();
+
+    foreach ($products as $product) {
+        $product->prices()->createMany([
+            ['currency' => 'USD', 'cycle' => BillingCycle::Monthly, 'amount' => 999, 'setup_fee' => 0],
+            ['currency' => 'USD', 'cycle' => BillingCycle::Annually, 'amount' => 9999, 'setup_fee' => 500],
+        ]);
+    }
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    app(ConvertPrices::class)->preview();
+    $previewQueries = count(DB::getQueryLog());
+
+    DB::flushQueryLog();
+    app(ConvertPrices::class)->apply();
+    $applyQueries = count(DB::getQueryLog());
+    DB::disableQueryLog();
+
+    // 100 source rows × 2 currencies: a constant number of reads plus the 10 sample labels; writes are per row.
+    expect($previewQueries)->toBeLessThan(30)
+        ->and($applyQueries)->toBeLessThan(220);
 });

@@ -58,9 +58,10 @@ class ConvertPrices implements PriceConverter
     {
         $written = 0;
         $disabled = 0;
+        $default = Currency::default();
 
-        DB::transaction(function () use (&$written, &$disabled): void {
-            $written = $this->plan(function (?Price $existing, Price $source, Currency $currency, int $amount, int $setupFee): void {
+        DB::transaction(function () use (&$written, &$disabled, $default): void {
+            $written = $this->plan($default, function (?Price $existing, Price $source, Currency $currency, int $amount, int $setupFee): void {
                 $attributes = ['enabled' => $source->enabled, 'amount' => $amount, 'setup_fee' => $setupFee];
 
                 if ($existing === null) {
@@ -70,12 +71,17 @@ class ConvertPrices implements PriceConverter
                 }
             });
 
-            $disabled = $this->orphans()->update(['enabled' => false]);
+            $disabled = $this->orphans($default)->update(['enabled' => false]);
         });
 
-        $this->activity->log('Prices converted from the default currency', null, null, ['written' => $written, 'disabled' => $disabled, 'currency' => Currency::default()->code]);
+        $this->activity->log('Prices converted from the default currency', null, null, ['written' => $written, 'disabled' => $disabled, 'currency' => $default->code]);
 
         return $written + $disabled;
+    }
+
+    public function usesCurrency(string $code): bool
+    {
+        return Price::query()->where('currency', strtoupper($code))->exists();
     }
 
     public function preview(int $samples = 10): PriceConversionPreview
@@ -84,13 +90,15 @@ class ConvertPrices implements PriceConverter
         $unchanged = 0;
         $manual = 0;
 
-        $changes = $this->plan(function (?Price $existing, Price $source, Currency $currency, int $amount) use (&$sampled, $samples): void {
+        $default = Currency::default();
+
+        $changes = $this->plan($default, function (?Price $existing, Price $source, Currency $currency, int $amount) use (&$sampled, $samples): void {
             if (count($sampled) < $samples) {
                 $sampled[] = [$source, $currency->code, $existing?->amount, $amount];
             }
         }, $unchanged, $manual);
 
-        $changes += $this->orphans()->count();
+        $changes += $this->orphans($default)->count();
 
         return new PriceConversionPreview(
             $this->key(),
@@ -115,9 +123,8 @@ class ConvertPrices implements PriceConverter
      * @param  Closure(?Price, Price, Currency, int, int): void  $change
      * @return int number of rows that would change
      */
-    private function plan(Closure $change, int &$unchanged = 0, int &$manual = 0): int
+    private function plan(Currency $default, Closure $change, int &$unchanged = 0, int &$manual = 0): int
     {
-        $default = Currency::default();
         $targets = Currency::query()->where('code', '!=', $default->code)->orderBy('code')->orderBy('id')->get();
 
         if ($targets->isEmpty()) {
@@ -126,7 +133,7 @@ class ConvertPrices implements PriceConverter
 
         $changes = 0;
 
-        Price::query()->where('currency', $default->code)->orderBy('id')->chunkById(self::CHUNK, function (Collection $sources) use ($targets, $change, &$changes, &$unchanged, &$manual): void {
+        Price::query()->where('currency', $default->code)->orderBy('id')->chunkById(self::CHUNK, function (Collection $sources) use ($default, $targets, $change, &$changes, &$unchanged, &$manual): void {
             $existing = $this->existingFor($sources, array_values($targets->map(fn (Currency $currency): string => $currency->code)->all()));
 
             /** @var Price $source */
@@ -140,8 +147,8 @@ class ConvertPrices implements PriceConverter
                         continue;
                     }
 
-                    $amount = $currency->priceFromDefault($source->amount);
-                    $setupFee = $currency->priceFromDefault($source->setup_fee);
+                    $amount = $currency->priceFromDefault($source->amount, $default);
+                    $setupFee = $currency->priceFromDefault($source->setup_fee, $default);
 
                     if ($row !== null && $row->amount === $amount && $row->setup_fee === $setupFee && $row->enabled === $source->enabled) {
                         $unchanged++;
@@ -192,9 +199,9 @@ class ConvertPrices implements PriceConverter
      *
      * @return Builder<Price>
      */
-    private function orphans(): Builder
+    private function orphans(Currency $defaultCurrency): Builder
     {
-        $default = Currency::default()->code;
+        $default = $defaultCurrency->code;
 
         return Price::query()
             ->where('currency', '!=', $default)

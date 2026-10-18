@@ -211,7 +211,6 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.renew_on_payment', 'Renew at the registrar when the renewal invoice is paid', 'boolean'),
             new SettingDefinition('domains.enable_renewal_orders', 'Allow clients to order renewals', 'boolean'),
             new SettingDefinition('domains.grace_redemption_enabled', 'Use grace and redemption periods', 'boolean'),
-            new SettingDefinition('domains.auto_convert_prices', 'Convert TLD prices from the default currency automatically', 'boolean', 'After exchange rates change, TLD prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept.'),
             new SettingDefinition('domains.default_nameservers', 'Default nameservers', 'text', 'One hostname per line (2–5).'),
             new SettingDefinition('domains.use_client_contacts', 'Use the client profile for admin, tech and billing contacts', 'boolean'),
             new SettingDefinition('domains.default_contact', 'Default contact (JSON)', 'text', 'Used for admin/tech/billing contacts when client contacts are off.'),
@@ -236,6 +235,11 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
             new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
+
+        // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.
+        $this->app->make(SettingsRegistry::class)->section('domains_conversion', 'Converted TLD prices', [
+            new SettingDefinition('domains.auto_convert_prices', 'Convert TLD prices from the default currency automatically', 'boolean', 'After exchange rates change, TLD prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept.'),
+        ], 'core.currencies.rates');
     }
 
     private function registerSearchAndMergeFields(): void

@@ -18,7 +18,8 @@ test('both central-bank sources are registered and offered only for the currenci
 
     expect(array_keys($sources->for('INR')))->toBe(['ecb', 'nrb'])
         ->and(array_keys($sources->for('NPR')))->toBe(['nrb'])
-        ->and(array_keys($sources->for('XYZ')))->toBe([]);
+        ->and(array_keys($sources->for('XYZ')))->toBe([])
+        ->and(array_keys($sources->for('INR', 'NPR')))->toBe(['nrb']); // ECB cannot derive INR through NPR
 });
 
 test('ECB reference rates are parsed against the euro', function () {
@@ -29,7 +30,7 @@ test('ECB reference rates are parsed against the euro', function () {
     expect($snapshot->baseCurrency)->toBe('EUR')
         ->and($snapshot->rates['USD'])->toBe(['units' => '1.1253', 'base' => '1'])
         ->and($snapshot->rates['INR'])->toBe(['units' => '106.8640', 'base' => '1'])
-        ->and($snapshot->has('NPR'))->toBeFalse()
+        ->and($snapshot->fraction('NPR'))->toBeNull()
         ->and($snapshot->effectiveAt->toDateString())->toBe('2026-10-16')
         ->and($snapshot->crossRate('USD', 'INR'))->toBe('94.964898');
     Http::assertSent(fn (Request $request): bool => $request->url() === 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml');
@@ -77,6 +78,8 @@ test('malformed responses raise a readable error', function (string $source, str
     'ECB not XML' => [EcbRateSource::class, '<html>maintenance'],
     'ECB without a dated cube' => [EcbRateSource::class, '<?xml version="1.0"?><gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01" xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref"><Cube/></gesmes:Envelope>'],
     'NRB empty payload' => [NrbRateSource::class, '{"status":{"code":200},"data":{"payload":[]}}'],
+    'NRB buy above sell and a negative buy' => [NrbRateSource::class, '{"data":{"payload":[{"date":"2026-10-15","rates":[{"currency":{"iso3":"USD","unit":1},"buy":"160","sell":"150"},{"currency":{"iso3":"INR","unit":100},"buy":"-10","sell":"330"}]}]}}'],
+    'NRB HTML error page' => [NrbRateSource::class, '<!doctype html><title>502</title>'],
     'NRB garbage rates' => [NrbRateSource::class, '{"data":{"payload":[{"date":"2026-10-15","rates":[{"currency":{"iso3":"USD","unit":1},"buy":"n/a","sell":""}]}]}}'],
 ])->throws(ExchangeRateUnavailable::class);
 

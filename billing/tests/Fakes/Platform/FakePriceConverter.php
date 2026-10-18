@@ -28,6 +28,14 @@ final class FakePriceConverter implements PriceConverter
         return false;
     }
 
+    /** @var list<string> */
+    public array $currenciesInUse = [];
+
+    public function usesCurrency(string $code): bool
+    {
+        return in_array($code, $this->currenciesInUse, true);
+    }
+
     public function preview(int $samples = 10): PriceConversionPreview
     {
         $changes = $this->applied > 0 ? [] : [new PriceChange('Starter', 'NPR', 'Monthly', 130_000, 134_266)];

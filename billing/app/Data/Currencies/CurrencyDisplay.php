@@ -4,7 +4,7 @@ namespace App\Data\Currencies;
 
 /**
  * How amounts in one currency are shown (Admin → Currencies): prefix, suffix, decimals and number format.
- * Shared with the browser as the `currencies` Inertia prop so server and UI format identically.
+ * Shared with the browser as the `currencyFormats` Inertia prop so server and UI format identically.
  */
 final readonly class CurrencyDisplay
 {

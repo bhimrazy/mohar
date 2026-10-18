@@ -4,12 +4,20 @@ use App\Events\Core\ExchangeRatesUpdated;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Actions\Currencies\ApplyExchangeRate;
 use App\Modules\Platform\Actions\Currencies\UpdateExchangeRates;
 use App\Modules\Platform\Models\ExchangeRateHistory;
 use App\Modules\Platform\Models\ExchangeRateReview;
+use App\Modules\Platform\Support\ExchangeRateLock;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Dashboard\Dashboard;
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Platform\FakeRateSource;
 
@@ -21,6 +29,17 @@ beforeEach(function () {
     Currency::factory()->npr()->create(['rate_source' => 'fake', 'is_auto_rate' => true]);
     Currency::factory()->euro()->create();
 });
+
+/**
+ * An ECB daily file quoting USD and, unless null, INR at the given value.
+ */
+function ecbFeed(?string $inr): string
+{
+    $rates = "<Cube currency='USD' rate='1.1253'/>".($inr === null ? '' : "<Cube currency='INR' rate='{$inr}'/>");
+
+    return '<?xml version="1.0"?><gesmes:Envelope xmlns:gesmes="http://www.gesmes.org/xml/2002-08-01" xmlns="http://www.ecb.int/vocabulary/2002-08-01/eurofxref">'
+        ."<Cube><Cube time='2026-10-16'>{$rates}</Cube></Cube></gesmes:Envelope>";
+}
 
 function rateOf(string $code): string
 {
@@ -153,7 +172,7 @@ test('a source must quote the currency', function () {
     $npr = Currency::query()->where('code', 'NPR')->sole();
 
     $this->put(route('admin.platform.currencies.rates.update', $npr), ['rate_source' => 'ecb', 'price_rounding' => 'none'])
-        ->assertSessionHasErrors(['rate_source' => 'This source does not publish a rate for NPR.']);
+        ->assertSessionHasErrors(['rate_source' => 'This source does not publish a rate for NPR against USD.']);
     $this->put(route('admin.platform.currencies.rates.update', $npr), ['rate_source' => 'nrb', 'price_rounding' => 'tens'])
         ->assertSessionHasNoErrors();
     expect($npr->fresh())->rate_source->toBe('nrb')->exchange_rate->toBe('134.400000');
@@ -223,4 +242,122 @@ test('the edit page shows the source options, settings and a daily history serie
         ->has('history', 90)
         ->where('history.89.y', 86)
         ->where('history.70.y', 85));
+});
+
+test('with a separate update time the daily run skips rates and the scheduled run fetches once', function () {
+    app(Settings::class)->set('platform.rates_update_time', '17:00');
+    FakeRateSource::$fetches = 0;
+
+    $this->travelTo(today()->setTime(3, 0));
+    $this->artisan('automation:run', ['--only' => 'platform.exchange-rates'])->assertSuccessful();
+    expect(FakeRateSource::$fetches)->toBe(0)
+        ->and(rateOf('INR'))->toBe('84.000000')
+        ->and(AutomationRun::query()->where('task', 'platform.exchange-rates')->sole()->summary)->toBe('skipped: rates update at 17:00');
+
+    $this->travelTo(today()->setTime(17, 0));
+    $this->artisan('platform:update-exchange-rates')->assertSuccessful();
+    $this->artisan('platform:update-exchange-rates')->expectsOutputToContain('already done')->assertSuccessful();
+    $this->artisan('automation:run', ['--only' => 'platform.exchange-rates'])->assertSuccessful();
+
+    expect(FakeRateSource::$fetches)->toBe(1)
+        ->and(rateOf('INR'))->toBe('85.000000')
+        ->and(AutomationRun::query()->where('task', 'platform.exchange-rates')->sole())
+        ->status->toBe('success')->summary->toBe('2 updated, 0 unchanged, 0 held for review');
+});
+
+test('the separate update time adds its own schedule entry', function () {
+    $commands = fn (): array => collect(app(Schedule::class)->events())->map(fn ($event): string => (string) $event->command)->filter(fn (string $command): bool => str_contains($command, 'platform:update-exchange-rates'))->values()->all();
+    expect($commands())->toBe([]);
+
+    app(Settings::class)->set('platform.rates_update_time', '17:00');
+    $this->app->forgetInstance(Schedule::class);
+
+    expect($commands())->toHaveCount(1)
+        ->and(collect(app(Schedule::class)->events())->first(fn ($event): bool => str_contains((string) $event->command, 'platform:update-exchange-rates'))->expression)->toBe('0 17 * * *');
+});
+
+test('rate changes wait for each other: a held lock makes the second update give up cleanly', function () {
+    config(['platform.exchange_rates.lock_wait_seconds' => 0]);
+    $lock = Cache::lock(ExchangeRateLock::KEY, 60);
+    $lock->get();
+
+    expect(fn () => app(UpdateExchangeRates::class)->handle())->toThrow(ValidationException::class);
+    expect(ExchangeRateHistory::query()->count())->toBe(0)->and(rateOf('INR'))->toBe('84.000000');
+
+    $lock->release();
+    app(UpdateExchangeRates::class)->handle();
+    expect(rateOf('INR'))->toBe('85.000000');
+});
+
+test('applying a rate re-reads the locked row: stale copies record no duplicate and the right old value', function () {
+    $first = Currency::query()->where('code', 'INR')->sole();
+    $second = Currency::query()->where('code', 'INR')->sole(); // loaded before either change
+    $apply = app(ApplyExchangeRate::class);
+
+    expect($apply->handle($first, '85', 'fake'))->toBeTrue()
+        ->and($apply->handle($second, '85', 'fake'))->toBeFalse()
+        ->and($second->exchange_rate)->toBe('85.000000');
+
+    $stale = Currency::query()->where('code', 'INR')->sole();
+    $apply->handle($first, '86', 'manual');
+    $apply->handle($stale, '87', 'manual');
+
+    $changes = DB::table('activity_log')->where('event', 'currency.rate_changed')->orderBy('id')->pluck('properties')
+        ->map(fn (string $json): array => json_decode($json, true))->all();
+    expect(ExchangeRateHistory::query()->where('currency', 'INR')->count())->toBe(3)
+        ->and(array_column($changes, 'old'))->toBe(['84.000000', '85.000000', '86.000000']);
+});
+
+test('a currency never has more than one pending review', function () {
+    FakeRateSource::quote(['INR' => '84', 'NPR' => '150']);
+    app(UpdateExchangeRates::class)->handle();
+    FakeRateSource::quote(['INR' => '84', 'NPR' => '155']);
+    app(UpdateExchangeRates::class)->handle();
+
+    expect(ExchangeRateReview::query()->pending()->where('currency', 'NPR')->sole())
+        ->proposed_rate->toBe('155.000000')->pending_currency->toBe('NPR');
+
+    expect(fn () => ExchangeRateReview::query()->create([
+        'currency' => 'NPR', 'current_rate' => 1, 'proposed_rate' => 2, 'change_percent' => 100, 'source' => 'fake',
+        'effective_at' => now(), 'status' => 'pending', 'pending_currency' => 'NPR',
+    ]))->toThrow(QueryException::class);
+});
+
+test('a garbled or incomplete feed fails that currency, is audited and keeps the old rate', function (string $body) {
+    Currency::query()->where('code', 'INR')->update(['rate_source' => 'ecb']);
+    Http::fake(['www.ecb.europa.eu/*' => Http::response($body, 200)]);
+
+    $result = app(UpdateExchangeRates::class)->handle();
+
+    expect($result['failed'])->toHaveKey('INR')
+        ->and(rateOf('INR'))->toBe('84.000000')
+        ->and(ExchangeRateReview::query()->where('currency', 'INR')->exists())->toBeFalse()
+        ->and(DB::table('activity_log')->where('event', 'currency.rate_update_failed')->exists())->toBeTrue();
+})->with([
+    'oversized value' => [ecbFeed('1234567890123456789012')],
+    '18 digits' => [ecbFeed('123456789012345678')],
+    'implausible jump' => [ecbFeed('99999999')],
+    'negative value' => [ecbFeed('-94.5')],
+    'currency missing' => [ecbFeed(null)],
+    'HTML error page' => ['<!doctype html><html><body>Service unavailable</body></html>'],
+]);
+
+test('sensitive rate actions need a recent password, and core.currencies.* never grants them', function () {
+    $staff = actingAsStaff(['core.currencies.*']);
+    expect($staff->hasPermission('core.currencies.manage'))->toBeTrue()
+        ->and($staff->hasPermission('core.currencies.rates'))->toBeFalse();
+
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    FakeRateSource::quote(['INR' => '84', 'NPR' => '150']);
+    app(UpdateExchangeRates::class)->handle();
+    $review = ExchangeRateReview::query()->pending()->sole();
+    $inr = Currency::query()->where('code', 'INR')->sole();
+
+    $this->post(route('admin.platform.currencies.reviews.approve', $review))->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.platform.currencies.reviews.reject', $review))->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.platform.currencies.default', $inr))->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.platform.currencies.conversion.apply', 'catalog'))->assertSessionHasErrors('password_confirmation');
+    $this->get(route('admin.platform.settings.edit', 'exchange_rates'))->assertRedirect(route('password.confirm'));
+
+    expect($review->fresh()->status)->toBe('pending')->and($inr->fresh()->is_default)->toBeFalse();
 });

@@ -23,11 +23,6 @@ final readonly class RateSnapshot
         public CarbonImmutable $effectiveAt,
     ) {}
 
-    public function has(string $code): bool
-    {
-        return strtoupper($code) === $this->baseCurrency || isset($this->rates[strtoupper($code)]);
-    }
-
     /**
      * @return array{units: string, base: string}|null
      */

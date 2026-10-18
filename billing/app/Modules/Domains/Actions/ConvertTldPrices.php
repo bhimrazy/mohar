@@ -16,8 +16,8 @@ use Illuminate\Support\Facades\DB;
 /**
  * Regenerate TLD prices in other currencies from the default-currency rows (base and client-group slabs),
  * with each currency's buffer and rounding (Currency::priceFromDefault()). Rows staff set manually are
- * skipped; converted rows whose default-currency source is gone are removed. Registered domains keep their
- * stored recurring amounts.
+ * skipped; converted rows whose default-currency source is gone are turned off (enabled = false), never deleted.
+ * Registered domains keep their stored recurring amounts.
  */
 class ConvertTldPrices implements PriceConverter
 {
@@ -41,23 +41,29 @@ class ConvertTldPrices implements PriceConverter
     public function apply(): int
     {
         $written = 0;
-        $removed = 0;
+        $disabled = 0;
+        $default = Currency::default();
 
-        DB::transaction(function () use (&$written, &$removed): void {
-            $written = $this->plan(function (?TldPrice $existing, TldPrice $source, Currency $currency, array $amounts): void {
+        DB::transaction(function () use (&$written, &$disabled, $default): void {
+            $written = $this->plan($default, function (?TldPrice $existing, TldPrice $source, Currency $currency, array $amounts): void {
                 if ($existing === null) {
-                    TldPrice::query()->create(['tld_id' => $source->tld_id, 'currency' => $currency->code, 'client_group_id' => $source->client_group_id, 'years' => $source->years, ...$amounts]);
+                    TldPrice::query()->create(['tld_id' => $source->tld_id, 'currency' => $currency->code, 'client_group_id' => $source->client_group_id, 'years' => $source->years, ...$amounts, 'enabled' => true]);
                 } else {
-                    $existing->update($amounts);
+                    $existing->update([...$amounts, 'enabled' => true]);
                 }
             });
 
-            $removed = $this->orphans()->delete();
+            $disabled = $this->orphans($default)->update(['enabled' => false]);
         });
 
-        $this->activity->log('TLD prices converted from the default currency', properties: ['written' => $written, 'removed' => $removed, 'currency' => Currency::default()->code]);
+        $this->activity->log('TLD prices converted from the default currency', properties: ['written' => $written, 'disabled' => $disabled, 'currency' => $default->code]);
 
-        return $written + $removed;
+        return $written + $disabled;
+    }
+
+    public function usesCurrency(string $code): bool
+    {
+        return TldPrice::query()->where('currency', strtoupper($code))->exists();
     }
 
     public function preview(int $samples = 10): PriceConversionPreview
@@ -66,7 +72,9 @@ class ConvertTldPrices implements PriceConverter
         $unchanged = 0;
         $manual = 0;
 
-        $changes = $this->plan(function (?TldPrice $existing, TldPrice $source, Currency $currency, array $amounts) use (&$sampled, $samples): void {
+        $default = Currency::default();
+
+        $changes = $this->plan($default, function (?TldPrice $existing, TldPrice $source, Currency $currency, array $amounts) use (&$sampled, $samples): void {
             if (count($sampled) < $samples) {
                 $source->loadMissing('tld');
                 $sampled[] = new PriceChange(
@@ -79,15 +87,14 @@ class ConvertTldPrices implements PriceConverter
             }
         }, $unchanged, $manual);
 
-        return new PriceConversionPreview($this->key(), $this->label(), $changes + $this->orphans()->count(), $unchanged, $manual, $sampled, $this->automatic());
+        return new PriceConversionPreview($this->key(), $this->label(), $changes + $this->orphans($default)->count(), $unchanged, $manual, $sampled, $this->automatic());
     }
 
     /**
      * @param  Closure(?TldPrice, TldPrice, Currency, array{register: int|null, transfer: int|null, renew: int|null}): void  $change
      */
-    private function plan(Closure $change, int &$unchanged = 0, int &$manual = 0): int
+    private function plan(Currency $default, Closure $change, int &$unchanged = 0, int &$manual = 0): int
     {
-        $default = Currency::default();
         $targets = Currency::query()->where('code', '!=', $default->code)->orderBy('code')->orderBy('id')->get();
 
         if ($targets->isEmpty()) {
@@ -98,7 +105,7 @@ class ConvertTldPrices implements PriceConverter
             ->keyBy(fn (TldPrice $price): string => $this->rowKey($price->tld_id, $price->currency, $price->client_group_id, $price->years));
         $changes = 0;
 
-        TldPrice::query()->where('currency', $default->code)->orderBy('id')->each(function (TldPrice $source) use ($targets, $existing, $change, &$changes, &$unchanged, &$manual): void {
+        TldPrice::query()->where('currency', $default->code)->orderBy('id')->each(function (TldPrice $source) use ($default, $targets, $existing, $change, &$changes, &$unchanged, &$manual): void {
             foreach ($targets as $currency) {
                 /** @var TldPrice|null $row */
                 $row = $existing->get($this->rowKey($source->tld_id, $currency->code, $source->client_group_id, $source->years));
@@ -113,10 +120,10 @@ class ConvertTldPrices implements PriceConverter
 
                 foreach (TldPrice::ACTIONS as $action) {
                     $amount = $source->amountFor($action);
-                    $amounts[$action] = $amount === null ? null : $currency->priceFromDefault($amount);
+                    $amounts[$action] = $amount === null ? null : $currency->priceFromDefault($amount, $default);
                 }
 
-                if ($row !== null && $row->register === $amounts['register'] && $row->transfer === $amounts['transfer'] && $row->renew === $amounts['renew']) {
+                if ($row !== null && $row->enabled && $row->register === $amounts['register'] && $row->transfer === $amounts['transfer'] && $row->renew === $amounts['renew']) {
                     $unchanged++;
 
                     continue;
@@ -136,17 +143,18 @@ class ConvertTldPrices implements PriceConverter
     }
 
     /**
-     * Non-manual converted rows without a default-currency row for the same TLD, slab and term.
+     * Enabled, non-manual converted rows without a default-currency row for the same TLD, slab and term.
      *
      * @return Builder<TldPrice>
      */
-    private function orphans(): Builder
+    private function orphans(Currency $defaultCurrency): Builder
     {
-        $default = Currency::default()->code;
+        $default = $defaultCurrency->code;
 
         return TldPrice::query()
             ->where('currency', '!=', $default)
             ->where('is_manual', false)
+            ->where('enabled', true)
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('tld_prices as source')
                 ->whereColumn('source.tld_id', 'tld_prices.tld_id')
                 ->whereColumn('source.years', 'tld_prices.years')

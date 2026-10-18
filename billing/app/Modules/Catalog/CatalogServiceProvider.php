@@ -106,11 +106,15 @@ class CatalogServiceProvider extends ModuleServiceProvider
                 ['in:'.implode(',', array_column(AutoSetup::cases(), 'value'))]),
             new SettingDefinition('catalog.default_taxable', 'New products are taxable', 'boolean',
                 'Prevents silently untaxed invoices for products created without ticking "taxable".'),
-            new SettingDefinition('catalog.auto_convert_prices', 'Convert prices from the default currency automatically', 'boolean',
-                'After exchange rates change, prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept. Preview first in Currencies → Converted prices.'),
             new SettingDefinition('catalog.show_monthly_breakdown', 'Show a monthly equivalent for longer billing cycles', 'boolean',
                 'The store shows e.g. an annual price as "$8.25/mo".'),
         ], 'catalog.settings.manage');
+
+        // Converting prices rewrites them from exchange rates, so it sits with the sensitive rate permission.
+        $this->app->make(SettingsRegistry::class)->section('catalog_conversion', 'Converted product prices', [
+            new SettingDefinition('catalog.auto_convert_prices', 'Convert prices from the default currency automatically', 'boolean',
+                'After exchange rates change, prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept. Preview first in Currencies → Converted prices.'),
+        ], 'core.currencies.rates');
     }
 
     private function registerSearch(): void

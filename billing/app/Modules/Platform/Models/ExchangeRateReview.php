@@ -20,12 +20,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $source
  * @property CarbonImmutable $effective_at
  * @property string $status pending|approved|rejected|superseded
+ * @property string|null $pending_currency the currency while pending (unique), null once decided
  * @property int|null $decided_by
  * @property CarbonImmutable|null $decided_at
  * @property CarbonImmutable|null $created_at
  * @property-read User|null $decider
  */
-#[Fillable(['currency', 'current_rate', 'proposed_rate', 'change_percent', 'source', 'effective_at', 'status', 'decided_by', 'decided_at'])]
+#[Fillable(['currency', 'current_rate', 'proposed_rate', 'change_percent', 'source', 'effective_at', 'status', 'pending_currency', 'decided_by', 'decided_at'])]
 class ExchangeRateReview extends Model
 {
     public const PENDING = 'pending';
@@ -54,6 +55,14 @@ class ExchangeRateReview extends Model
     public function scopePending(Builder $query): void
     {
         $query->where('status', self::PENDING);
+    }
+
+    /**
+     * Close the pending review of a currency (it was decided, or the rate changed another way).
+     */
+    public static function closePending(string $currency, string $status = self::SUPERSEDED): void
+    {
+        self::query()->where('pending_currency', $currency)->update(['status' => $status, 'pending_currency' => null, 'updated_at' => now()]);
     }
 
     /**

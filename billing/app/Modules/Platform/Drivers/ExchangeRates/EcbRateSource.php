@@ -51,6 +51,7 @@ class EcbRateSource implements ExchangeRateSource
         try {
             $response = Http::timeout((int) config('platform.exchange_rates.timeout', 10))
                 ->connectTimeout((int) config('platform.exchange_rates.connect_timeout', 5))
+                ->withoutRedirecting()
                 ->accept('application/xml')
                 ->get((string) config('platform.exchange_rates.ecb_url'));
         } catch (ConnectionException) {
@@ -59,6 +60,10 @@ class EcbRateSource implements ExchangeRateSource
 
         if (! $response->successful()) {
             throw new ExchangeRateUnavailable("The European Central Bank feed answered with HTTP {$response->status()}.");
+        }
+
+        if (strlen($response->body()) > (int) config('platform.exchange_rates.max_bytes', 1_048_576)) {
+            throw new ExchangeRateUnavailable('The European Central Bank feed returned an unexpectedly large response.');
         }
 
         return $this->parse($response->body());
@@ -87,7 +92,8 @@ class EcbRateSource implements ExchangeRateSource
             $code = strtoupper((string) $attributes['currency']);
             $rate = trim((string) $attributes['rate']);
 
-            if (preg_match('/^[A-Z]{3}$/', $code) === 1 && Decimal::isValid($rate) && Decimal::isPositive($rate)) {
+            // Values that are malformed, not positive or implausibly long are dropped; that currency then fails.
+            if (preg_match('/^[A-Z]{3}$/', $code) === 1 && Decimal::isPlausible($rate)) {
                 $rates[$code] = ['units' => $rate, 'base' => '1'];
             }
         }

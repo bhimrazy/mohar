@@ -207,13 +207,19 @@ export default function CurrenciesIndex({
                                         Make default
                                     </DropdownMenuItem>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={() => setDeleting(currency)}
-                                >
-                                    Delete
-                                </DropdownMenuItem>
+                                {canManageRates && (
+                                    <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                            variant="destructive"
+                                            onSelect={() =>
+                                                setDeleting(currency)
+                                            }
+                                        >
+                                            Delete
+                                        </DropdownMenuItem>
+                                    </>
+                                )}
                             </>
                         )}
                     </DropdownMenuContent>
@@ -262,12 +268,14 @@ export default function CurrenciesIndex({
                                     Update rates now
                                 </Button>
                             )}
-                            <Button asChild>
-                                <Link href={CurrencyController.create()}>
-                                    <Plus />
-                                    New currency
-                                </Link>
-                            </Button>
+                            {canManageRates && (
+                                <Button asChild>
+                                    <Link href={CurrencyController.create()}>
+                                        <Plus />
+                                        New currency
+                                    </Link>
+                                </Button>
+                            )}
                         </>
                     }
                 />
@@ -394,7 +402,7 @@ export default function CurrenciesIndex({
                 open={deleting !== null}
                 onOpenChange={(open) => !open && setDeleting(null)}
                 title={`Delete ${deleting?.code ?? ''}?`}
-                description="Currencies used by clients or prices cannot be deleted."
+                description="Currencies used by clients, prices, invoices or payments cannot be deleted."
                 confirmLabel="Delete currency"
                 action={
                     deleting

@@ -56,6 +56,7 @@ class NrbRateSource implements ExchangeRateSource
         try {
             $response = Http::timeout((int) config('platform.exchange_rates.timeout', 10))
                 ->connectTimeout((int) config('platform.exchange_rates.connect_timeout', 5))
+                ->withoutRedirecting()
                 ->acceptJson()
                 ->get((string) config('platform.exchange_rates.nrb_url'), [
                     'page' => 1,
@@ -71,7 +72,11 @@ class NrbRateSource implements ExchangeRateSource
             throw new ExchangeRateUnavailable("The Nepal Rastra Bank API answered with HTTP {$response->status()}.");
         }
 
-        $json = $response->json();
+        if (strlen($response->body()) > (int) config('platform.exchange_rates.max_bytes', 1_048_576)) {
+            throw new ExchangeRateUnavailable('The Nepal Rastra Bank API returned an unexpectedly large response.');
+        }
+
+        $json = rescue(fn (): mixed => $response->json(), null, report: false);
 
         return $this->parse(is_array($json) ? $json : []);
     }
@@ -109,7 +114,8 @@ class NrbRateSource implements ExchangeRateSource
                 continue;
             }
 
-            if (! Decimal::isValid($unit) || ! Decimal::isPositive($unit) || ! Decimal::isValid($buy) || ! Decimal::isValid($sell)) {
+            // Both rates must be plausible positive numbers with buy ≤ sell; anything else drops the currency.
+            if (! Decimal::isPlausible($unit) || ! Decimal::isPlausible($buy) || ! Decimal::isPlausible($sell) || Decimal::compare($buy, $sell) > 0) {
                 continue;
             }
 

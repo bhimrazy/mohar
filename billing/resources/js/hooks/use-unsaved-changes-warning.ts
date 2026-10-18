@@ -19,10 +19,15 @@ export function useUnsavedChangesWarning(dirty: boolean): void {
         window.addEventListener('beforeunload', beforeUnload);
 
         const off = router.on('before', (event) => {
-            if (
-                event.detail.visit.method === 'get' &&
-                !window.confirm(MESSAGE)
-            ) {
+            const visit = event.detail.visit;
+            // Partial reloads, polling and prefetches stay on the page.
+            const leaving =
+                visit.method === 'get' &&
+                !visit.prefetch &&
+                visit.only.length === 0 &&
+                visit.except.length === 0;
+
+            if (leaving && !window.confirm(MESSAGE)) {
                 event.preventDefault();
             }
         });

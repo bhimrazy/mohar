@@ -52,8 +52,11 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
         Route::post('currencies/reviews/{review}/reject', [ExchangeRateController::class, 'reject'])->name('currencies.reviews.reject');
         Route::put('currencies/{currency}/rates', [ExchangeRateController::class, 'update'])->name('currencies.rates.update');
         Route::post('currencies/{currency}/default', [CurrencyController::class, 'makeDefault'])->name('currencies.default');
+        // Creating sets a starting rate; deleting and re-creating would otherwise reset one.
+        Route::post('currencies', [CurrencyController::class, 'store'])->name('currencies.store');
+        Route::delete('currencies/{currency}', [CurrencyController::class, 'destroy'])->name('currencies.destroy');
     });
-    Route::resource('currencies', CurrencyController::class)->except('show');
+    Route::resource('currencies', CurrencyController::class)->except(['show', 'store', 'destroy']);
     Route::resource('client-groups', ClientGroupController::class)->except('show');
 
     Route::get('settings/{section?}', [SettingsController::class, 'edit'])->name('settings.edit');

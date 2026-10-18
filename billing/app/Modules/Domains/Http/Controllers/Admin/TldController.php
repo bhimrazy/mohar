@@ -70,7 +70,7 @@ class TldController extends Controller
             ...$this->formOptions($registrars),
             'tld' => new TldResource($tld),
             'prices' => $tld->prices()->orderBy('currency')->orderBy('years')->orderBy('id')
-                ->get(['id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew', 'is_manual']),
+                ->get(['id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew', 'is_manual', 'enabled']),
         ]);
     }
 

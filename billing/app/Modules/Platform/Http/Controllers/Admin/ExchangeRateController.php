@@ -12,6 +12,7 @@ use App\Modules\Platform\Http\Requests\CurrencyRatesRequest;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 /**
@@ -34,7 +35,14 @@ class ExchangeRateController extends Controller
     {
         $this->authorize('core.currencies.rates');
 
-        $result = $update->handle($this->staff($request));
+        try {
+            $result = $update->handle($this->staff($request));
+        } catch (ValidationException $exception) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => collect($exception->errors())->flatten()->first()]);
+
+            return back();
+        }
+
         $parts = [];
 
         foreach (['Updated: :codes.' => $result['updated'], 'Unchanged: :codes.' => $result['unchanged'], 'Held for review: :codes.' => $result['held'], 'Failed: :codes.' => array_keys($result['failed'])] as $sentence => $codes) {

@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Platform\Models\ExchangeRateReview;
+use App\Modules\Platform\Support\ExchangeRateLock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,7 +22,7 @@ class ReviewExchangeRate
 
     public function approve(ExchangeRateReview $review, User $user): void
     {
-        $changed = DB::transaction(function () use ($review, $user): bool {
+        $changed = ExchangeRateLock::run(fn (): bool => DB::transaction(function () use ($review, $user): bool {
             $review = $this->lockPending($review);
             $currency = Currency::query()->where('code', $review->currency)->lockForUpdate()->first();
 
@@ -29,7 +30,7 @@ class ReviewExchangeRate
                 throw ValidationException::withMessages(['review' => __('This currency no longer takes an exchange rate.')]);
             }
 
-            $review->update(['status' => ExchangeRateReview::APPROVED, 'decided_by' => $user->id, 'decided_at' => CarbonImmutable::now()]);
+            $review->update(['status' => ExchangeRateReview::APPROVED, 'pending_currency' => null, 'decided_by' => $user->id, 'decided_at' => CarbonImmutable::now()]);
             $this->activity->log('Exchange-rate change approved', $currency, properties: [
                 'currency' => $review->currency,
                 'old' => $review->current_rate,
@@ -38,7 +39,7 @@ class ReviewExchangeRate
             ], event: 'currency.rate_review_approved', actor: $user);
 
             return $this->apply->handle($currency, (string) $review->proposed_rate, $review->source, $review->effective_at, $user);
-        });
+        }));
 
         if ($changed) {
             ExchangeRatesUpdated::dispatch([$review->currency], 'review');
@@ -47,9 +48,9 @@ class ReviewExchangeRate
 
     public function reject(ExchangeRateReview $review, User $user): void
     {
-        DB::transaction(function () use ($review, $user): void {
+        ExchangeRateLock::run(fn () => DB::transaction(function () use ($review, $user): void {
             $review = $this->lockPending($review);
-            $review->update(['status' => ExchangeRateReview::REJECTED, 'decided_by' => $user->id, 'decided_at' => CarbonImmutable::now()]);
+            $review->update(['status' => ExchangeRateReview::REJECTED, 'pending_currency' => null, 'decided_by' => $user->id, 'decided_at' => CarbonImmutable::now()]);
 
             $this->activity->log('Exchange-rate change rejected', properties: [
                 'currency' => $review->currency,
@@ -57,7 +58,7 @@ class ReviewExchangeRate
                 'rejected' => $review->proposed_rate,
                 'source' => $review->source,
             ], event: 'currency.rate_review_rejected', actor: $user);
-        });
+        }));
     }
 
     private function lockPending(ExchangeRateReview $review): ExchangeRateReview

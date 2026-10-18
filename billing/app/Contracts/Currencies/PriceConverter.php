@@ -22,6 +22,11 @@ interface PriceConverter
     public function automatic(): bool;
 
     /**
+     * Whether any price is stored in this currency (a currency in use by prices cannot be deleted).
+     */
+    public function usesCurrency(string $code): bool;
+
+    /**
      * What apply() would change right now, without writing anything.
      */
     public function preview(int $samples = 10): PriceConversionPreview;

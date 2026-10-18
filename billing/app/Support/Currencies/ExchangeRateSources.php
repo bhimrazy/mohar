@@ -37,11 +37,6 @@ class ExchangeRateSources
         $this->resolved[$source->key()] = $source;
     }
 
-    public function has(string $key): bool
-    {
-        return isset($this->classes[$key]);
-    }
-
     public function get(string $key): ?ExchangeRateSource
     {
         return $this->resolved[$key] ?? null;
@@ -56,12 +51,13 @@ class ExchangeRateSources
     }
 
     /**
-     * Sources that can quote a currency.
+     * Sources that can quote a currency (and, when given, the default currency it is derived through).
      *
      * @return array<string, ExchangeRateSource>
      */
-    public function for(string $code): array
+    public function for(string $code, ?string $default = null): array
     {
-        return array_filter($this->resolved, fn (ExchangeRateSource $source): bool => in_array(strtoupper($code), $source->currencies(), true));
+        return array_filter($this->resolved, fn (ExchangeRateSource $source): bool => in_array(strtoupper($code), $source->currencies(), true)
+            && ($default === null || in_array(strtoupper($default), $source->currencies(), true)));
     }
 }

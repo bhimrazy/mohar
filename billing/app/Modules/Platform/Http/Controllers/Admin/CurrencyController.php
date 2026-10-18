@@ -44,6 +44,7 @@ class CurrencyController extends Controller
     public function create(): Response
     {
         $this->authorize('core.currencies.manage');
+        $this->authorize('core.currencies.rates');
 
         return Inertia::render('admin/platform/currencies/form', $this->options());
     }
@@ -69,7 +70,7 @@ class CurrencyController extends Controller
                 'key' => $source->key(),
                 'label' => $source->label(),
                 'description' => $source->description(),
-            ], $this->sources->for($currency->code))),
+            ], $this->sources->for($currency->code, Currency::default()->code))),
             'roundings' => array_map(fn (PriceRounding $rounding): array => ['value' => $rounding->value, 'label' => $rounding->label()], PriceRounding::cases()),
             'history' => $currency->is_default ? [] : $this->status->dailySeries($currency),
             'review' => $review ? $this->presentReview($review) : null,
@@ -99,6 +100,7 @@ class CurrencyController extends Controller
     public function destroy(Currency $currency, SaveCurrency $save): RedirectResponse
     {
         $this->authorize('core.currencies.manage');
+        $this->authorize('core.currencies.rates');
 
         $save->delete($currency);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Currency :code deleted.', ['code' => $currency->code])]);

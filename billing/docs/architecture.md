@@ -80,7 +80,7 @@ Daily scheduler: Services/Domains create renewal invoices via Invoicer (idempote
 Display: every amount people read goes through the currency's configured display (Admin → Currencies:
 prefix, suffix, number format incl. Indian lakh grouping) — `App\Support\Currencies\MoneyFormatter` on the server
 (dashboards, list meta, merge fields, mail, PDFs) and `formatMoney` / `<Money>` in the browser, which read the same
-config from the shared `currencies` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
+config from the shared `currencyFormats` prop. `Money::format()` ("24.99 USD") is for logs, audit and CLI only. Show an
 ISO code only where it identifies a currency (switchers, selects, settings, CSV columns, API, logs), not next to amounts.
 
 **Dates** — `CarbonImmutable` everywhere (`Date::use` is set). Store dates (`date`) for billing anchors

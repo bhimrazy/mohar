@@ -20,6 +20,27 @@ final class Decimal
     }
 
     /**
+     * A well-formed, strictly positive number with at most $maxDigits significant digits: safe to feed into
+     * multiply/divide without overflow. Use it to vet values from outside (rate feeds) before any arithmetic.
+     */
+    public static function isPlausible(string $value, int $maxDigits = 9): bool
+    {
+        $value = trim($value);
+
+        if (! self::isValid($value) || str_starts_with($value, '-')) {
+            return false;
+        }
+
+        [$whole, $fraction] = array_pad(explode('.', ltrim($value, '+'), 2), 2, '');
+        $digits = trim($whole.$fraction, '0');
+
+        // Count significant digits: drop leading zeros of the whole number and trailing zeros of the fraction.
+        $significant = ltrim($whole.rtrim($fraction, '0'), '0');
+
+        return $digits !== '' && strlen($significant) <= $maxDigits;
+    }
+
+    /**
      * Canonical string with exactly $scale decimals, rounded half up (away from zero).
      */
     public static function round(string $value, int $scale): string

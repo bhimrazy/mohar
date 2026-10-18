@@ -23,7 +23,7 @@ class CurrencyRatesRequest extends FormRequest
     {
         /** @var Currency $currency */
         $currency = $this->route('currency');
-        $sources = array_keys(app(ExchangeRateSources::class)->for($currency->code));
+        $sources = array_keys(app(ExchangeRateSources::class)->for($currency->code, Currency::default()->code));
 
         return [
             'rate_source' => ['required', 'string', Rule::in([ExchangeRateSources::MANUAL, ...$sources])],
@@ -38,7 +38,10 @@ class CurrencyRatesRequest extends FormRequest
      */
     public function messages(): array
     {
-        return ['rate_source.in' => __('This source does not publish a rate for :code.', ['code' => $this->route('currency') instanceof Currency ? $this->route('currency')->code : ''])];
+        return ['rate_source.in' => __('This source does not publish a rate for :code against :default.', [
+            'code' => $this->route('currency') instanceof Currency ? $this->route('currency')->code : '',
+            'default' => Currency::default()->code,
+        ])];
     }
 
     /**

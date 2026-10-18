@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use OverflowException;
 
 /**
  * @property int $id
@@ -59,8 +61,13 @@ class Currency extends Model
 
     protected static function booted(): void
     {
-        static::saved(fn () => CachedCurrencyDirectory::flush());
-        static::deleted(fn () => CachedCurrencyDirectory::flush());
+        // Flush now and again after commit, so a request that cached pre-commit values is corrected.
+        $flush = function (): void {
+            CachedCurrencyDirectory::flush();
+            DB::afterCommit(fn () => CachedCurrencyDirectory::flush());
+        };
+        static::saved($flush);
+        static::deleted($flush);
     }
 
     protected function casts(): array
@@ -97,16 +104,28 @@ class Currency extends Model
     }
 
     /**
-     * A converted price in this currency for a default-currency amount: exchange rate, then the FX buffer,
-     * then the rounding rule. Used by every module's price conversion so they agree to the minor unit.
+     * A converted price in this currency for a default-currency amount: amount × rate × (1 + buffer), rounded
+     * half up to the minor unit once, then the rounding rule. Used by every module's price conversion so they
+     * agree to the minor unit. Pass the default currency when converting many prices (avoids a query each).
      */
-    public function priceFromDefault(int $amount): int
+    public function priceFromDefault(int $amount, ?self $default = null): int
     {
-        $converted = $this->fromDefault($amount);
+        $default ??= self::default();
         $buffer = (string) $this->price_buffer_percent;
 
-        if ($converted !== 0 && Decimal::isPositive($buffer)) {
-            $converted = (int) Decimal::round(Decimal::multiply((string) $converted, Decimal::add('1', Decimal::divide($buffer, '100', 6))), 0);
+        if ($amount === 0 || ! Decimal::isPositive($buffer) || $this->code === $default->code) {
+            return $this->price_rounding->apply($this->code === $default->code ? $amount : $this->fromDefault($amount, $default));
+        }
+
+        try {
+            $converted = (int) Decimal::divide(
+                Decimal::multiply(Decimal::multiply((string) $amount, (string) $this->exchange_rate), Decimal::add('100', $buffer)),
+                Decimal::multiply((string) $default->exchange_rate, '100'),
+                0,
+            );
+        } catch (OverflowException) {
+            // Beyond 18 significant digits: convert first, then apply the buffer (may differ by one minor unit).
+            $converted = (int) Decimal::round(Decimal::multiply((string) $this->fromDefault($amount, $default), Decimal::add('1', Decimal::divide($buffer, '100', 6))), 0);
         }
 
         return $this->price_rounding->apply($converted);
@@ -115,9 +134,9 @@ class Currency extends Model
     /**
      * Convert an amount in the default currency into this currency.
      */
-    public function fromDefault(int $amount): int
+    public function fromDefault(int $amount, ?self $default = null): int
     {
-        return self::default()->convertTo($amount, $this);
+        return ($default ?? self::default())->convertTo($amount, $this);
     }
 
     /**

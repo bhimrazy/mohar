@@ -3,7 +3,9 @@
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Support\Currencies\PriceConverters;
 use Inertia\Testing\AssertableInertia as Assert;
+use Tests\Fakes\Platform\FakePriceConverter;
 
 test('converting between currencies uses both rates and rounds half up', function () {
     $usd = Currency::factory()->create();
@@ -40,7 +42,8 @@ test('currency management requires core.currencies.manage', function () {
 });
 
 test('a currency can be created, listed and edited', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     Currency::factory()->create();
 
     $this->post(route('admin.platform.currencies.store'), ['code' => 'npr', 'name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'decimals' => 2, 'format' => '1,23,456.78', 'exchange_rate' => '134.4'])
@@ -68,7 +71,8 @@ test('the display form cannot change an existing currency rate', function () {
 });
 
 test('currency validation rejects bad codes, decimals, formats and rates', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     Currency::factory()->create();
 
     $this->post(route('admin.platform.currencies.store'), ['code' => 'US', 'name' => '', 'decimals' => 1, 'format' => '1-234', 'exchange_rate' => 0])
@@ -125,7 +129,8 @@ test('the default currency cannot change once invoices exist (422)', function ()
 });
 
 test('the default currency and currencies used by clients cannot be deleted', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     $usd = Currency::factory()->create();
     $eur = Currency::factory()->euro()->create();
     $gbp = Currency::factory()->create(['code' => 'GBP', 'name' => 'Pound', 'is_default' => false]);
@@ -136,4 +141,55 @@ test('the default currency and currencies used by clients cannot be deleted', fu
     $this->delete(route('admin.platform.currencies.destroy', $gbp))->assertRedirect(route('admin.platform.currencies.index'));
 
     expect(Currency::query()->pluck('code')->sort()->values()->all())->toBe(['EUR', 'USD']);
+});
+
+test('creating or deleting a currency needs the rates permission and a recent password', function () {
+    Currency::factory()->create();
+    $npr = Currency::factory()->npr()->create();
+    $payload = ['code' => 'INR', 'name' => 'Indian Rupee', 'prefix' => '₹', 'decimals' => 2, 'format' => '1,23,456.78', 'exchange_rate' => '1'];
+
+    actingAsStaff(['core.currencies.manage']);
+    confirmPassword();
+    $this->get(route('admin.platform.currencies.create'))->assertForbidden();
+    $this->post(route('admin.platform.currencies.store'), $payload)->assertForbidden();
+    $this->delete(route('admin.platform.currencies.destroy', $npr))->assertForbidden();
+
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    $this->flushSession();
+    $this->post(route('admin.platform.currencies.store'), $payload)->assertSessionHasErrors('password_confirmation');
+    $this->delete(route('admin.platform.currencies.destroy', $npr))->assertSessionHasErrors('password_confirmation');
+
+    expect(Currency::query()->pluck('code')->sort()->values()->all())->toBe(['NPR', 'USD'])
+        ->and($npr->fresh()->exchange_rate)->toBe('134.400000');
+});
+
+test('a currency used by prices, invoices or payments cannot be deleted', function () {
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
+    Currency::factory()->create();
+    $npr = Currency::factory()->npr()->create();
+    $inr = Currency::factory()->inr()->create();
+    $converter = new FakePriceConverter;
+    $converter->currenciesInUse = ['NPR'];
+    app()->instance(FakePriceConverter::class, $converter);
+    app(PriceConverters::class)->register(FakePriceConverter::class);
+    $this->app->instance(InvoiceQueries::class, new class implements InvoiceQueries
+    {
+        public function hasPayments(int $invoiceId): bool
+        {
+            return false;
+        }
+
+        public function hasDocumentsInCurrency(string $currency): bool
+        {
+            return $currency === 'INR';
+        }
+    });
+
+    $this->delete(route('admin.platform.currencies.destroy', $npr))
+        ->assertSessionHasErrors(['currency' => 'Test prices have prices in this currency. Remove those prices before deleting it.']);
+    $this->delete(route('admin.platform.currencies.destroy', $inr))
+        ->assertSessionHasErrors(['currency' => 'Invoices, quotes or transactions use this currency, so it cannot be deleted.']);
+
+    expect(Currency::query()->count())->toBe(3);
 });

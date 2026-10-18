@@ -18,9 +18,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $transfer
  * @property int|null $renew
  * @property bool $is_manual set by staff in a non-default currency: price conversion leaves it alone
+ * @property bool $enabled false when price conversion turned off a row whose default-currency price was removed
  * @property-read Tld $tld
  */
-#[Fillable(['tld_id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew', 'is_manual'])]
+#[Fillable(['tld_id', 'currency', 'client_group_id', 'years', 'register', 'transfer', 'renew', 'is_manual', 'enabled'])]
 class TldPrice extends Model
 {
     public const ACTIONS = ['register', 'transfer', 'renew'];
@@ -34,6 +35,7 @@ class TldPrice extends Model
             'renew' => 'integer',
             'client_group_id' => 'integer',
             'is_manual' => 'boolean',
+            'enabled' => 'boolean',
         ];
     }
 

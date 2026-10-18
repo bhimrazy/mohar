@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -23,6 +24,10 @@ return new class extends Migration
 
         DB::table('currencies')->whereIn('code', ['INR', 'NPR'])->where('format', '1,234.56')->update(['format' => '1,23,456.78']);
         DB::table('currencies')->where('code', 'NPR')->where('prefix', 'रू ')->update(['prefix' => 'Rs ']);
+
+        // Every currency starts on the manual source, so the legacy flag must agree with it.
+        DB::table('currencies')->update(['is_auto_rate' => false]);
+        Cache::forget('core.currency_displays.v1');
     }
 
     public function down(): void

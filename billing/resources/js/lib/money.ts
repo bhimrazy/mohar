@@ -265,7 +265,12 @@ export function formatMoney(
         ? formatter.format(value)
         : `${value.toFixed(2)} ${code}`;
 
-    return withCode(formatted.replace('-', MINUS), code, options);
+    // Plain spaces, as the server's MoneyFormatter prints them ("CHF 1,234.50").
+    return withCode(
+        formatted.replace('-', MINUS).replace(/\u00a0/g, ' '),
+        code,
+        options,
+    );
 }
 
 /** Compact amounts for chart axes and dense summaries: "$48K", "₹12L", "Rs 1.2L". */
@@ -295,7 +300,8 @@ export function formatMoneyCompact(
             maximumFractionDigits: 1,
         })
             .format(fromMinor(amountMinor))
-            .replace('-', MINUS);
+            .replace('-', MINUS)
+            .replace(/\u00a0/g, ' ');
     } catch {
         return formatMoney(amountMinor, code, locale);
     }
