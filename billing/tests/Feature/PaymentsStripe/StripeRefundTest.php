@@ -53,7 +53,7 @@ test('staff refund part of a Stripe payment and then the rest, in Stripe units w
         ->and($payment->invoice->fresh()->status)->toBe(InvoiceStatus::Refunded);
 
     // The webhooks for these refunds don't book them a second time.
-    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001' => Http::response(stripeFixture('refund', ['metadata' => ['mohar_origin' => 'admin']]))]);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['metadata' => ['mohar_origin' => 'admin']]))]);
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001'))->assertOk()->assertJson(['result' => 'ignored event type']);
     expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(2);
 });

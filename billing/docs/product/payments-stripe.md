@@ -138,6 +138,9 @@ stored:
 - **Amount guard on the webhook path:** the PaymentIntent's `amount_received` and `currency` must equal the
   `mohar_amount`/`mohar_currency` we wrote when creating the session. The retrieved session must carry our
   reference in both `client_reference_id` and metadata.
+- Refunds and disputes are retrieved with their PaymentIntent expanded. One that has no `mohar_reference` was
+  made by another integration on the same Stripe account and is acknowledged without booking, so Stripe doesn't
+  retry it for days.
 - `charge.refunded` is not used: its object is the charge, which doesn't say which refund is new. Stripe's own
   guidance is to listen to `refund.created`.
 - Refunds made from our admin carry `metadata[mohar_origin]=admin`, so their webhooks are ignored and can't race

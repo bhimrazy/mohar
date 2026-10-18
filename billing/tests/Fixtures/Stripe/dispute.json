@@ -7,7 +7,17 @@
     "currency": "usd",
     "livemode": false,
     "metadata": {},
-    "payment_intent": "pi_3MoharIntent0001",
+    "payment_intent": {
+        "id": "pi_3MoharIntent0001",
+        "object": "payment_intent",
+        "amount": 2500,
+        "currency": "usd",
+        "metadata": {
+            "mohar_reference": "reference",
+            "mohar_invoice_id": "1"
+        },
+        "status": "succeeded"
+    },
     "reason": "fraudulent",
     "status": "needs_response"
 }

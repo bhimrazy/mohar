@@ -166,7 +166,7 @@ test('Stripe being unreachable during the retrieve makes Stripe deliver the even
 test('a refund made in the Stripe Dashboard is recorded once from refund.created', function () {
     [$invoice] = paidStripeAttempt();
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
-    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001' => Http::response(stripeFixture('refund'))]);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund'))]);
 
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0003'))->assertOk()->assertJson(['result' => 'refund recorded']);
     postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0004'))->assertOk()->assertJson(['result' => 'duplicate']);
@@ -179,7 +179,7 @@ test('a refund made in the Stripe Dashboard is recorded once from refund.created
 test('refund webhooks for refunds made from our admin, or not yet succeeded, book nothing', function (array $refund) {
     paidStripeAttempt();
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
-    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001' => Http::response(stripeFixture('refund', $refund))]);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', $refund))]);
 
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0005'))->assertOk()->assertJson(['result' => 'ignored event type']);
 
@@ -187,13 +187,14 @@ test('refund webhooks for refunds made from our admin, or not yet succeeded, boo
 })->with([
     'made from the admin' => [['metadata' => ['mohar_origin' => 'admin']]],
     'pending' => [['status' => 'pending']],
+    'of a payment not made here' => [['payment_intent' => ['metadata' => ['mohar_reference' => null]]]],
 ]);
 
 test('a dispute is recorded as a chargeback and flags the invoice for staff', function () {
     Event::fake([PaymentReversed::class]);
     [$invoice] = paidStripeAttempt();
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
-    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001' => Http::response(stripeFixture('dispute'))]);
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response(stripeFixture('dispute'))]);
 
     postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0006'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
     postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0006'))->assertOk()->assertJson(['result' => 'duplicate']);
@@ -201,4 +202,13 @@ test('a dispute is recorded as a chargeback and flags the invoice for staff', fu
     expect(Transaction::query()->where('type', TransactionType::Chargeback)->sole())->gateway_txn_id->toBe('du_1MoharDispute0001')
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
     Event::assertDispatchedTimes(PaymentReversed::class, 1);
+});
+
+test('a dispute of a payment made by another integration on the account is acknowledged, not retried', function () {
+    paidStripeAttempt();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0002*' => Http::response(stripeFixture('dispute', ['id' => 'du_1MoharDispute0002', 'payment_intent' => ['id' => 'pi_3SomeoneElse00001', 'metadata' => ['mohar_reference' => null]]]))]);
+
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0002'))->assertOk()->assertJson(['result' => 'ignored event type']);
+
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(0);
 });

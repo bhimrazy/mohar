@@ -513,7 +513,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
 
     private function refundEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection
     {
-        $response = $this->client->get($gateway, 'refunds/'.$context->objectId, background: true);
+        $response = $this->client->get($gateway, 'refunds/'.$context->objectId, ['payment_intent'], background: true);
 
         if (($unavailable = $this->unavailable($response, $context)) !== null) {
             return $unavailable;
@@ -521,6 +521,12 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
 
         $refund = (array) $response->json();
         $status = is_string($refund['status'] ?? null) ? $refund['status'] : 'unknown';
+        $intent = self::ourIntent($refund['payment_intent'] ?? null);
+
+        if ($intent === null) {
+            // Another integration on the same Stripe account: not ours to book, and retrying won't change that.
+            return $context->ignored('refund of a payment not made here');
+        }
 
         if (($refund['metadata']['mohar_origin'] ?? null) === self::REFUND_ORIGIN) {
             // Booked by the refund action already; a later failure needs staff to look at it.
@@ -534,8 +540,8 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         $currency = is_string($refund['currency'] ?? null) ? $refund['currency'] : '';
         $amount = StripeAmount::fromStripe($refund['amount'] ?? null, $currency);
 
-        if (! is_string($refund['id'] ?? null) || ! is_string($refund['payment_intent'] ?? null) || $amount === null) {
-            return $context->ignored('refund without a PaymentIntent');
+        if (! is_string($refund['id'] ?? null) || $amount === null) {
+            return $context->ignored('refund without an amount');
         }
 
         return new CallbackEvent(
@@ -544,16 +550,16 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             txnId: $refund['id'],
             amount: $amount,
             currency: strtoupper($currency),
-            parentTxnId: $refund['payment_intent'],
+            parentTxnId: $intent,
             reason: is_string($refund['reason'] ?? null) ? $refund['reason'] : null,
-            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $refund['payment_intent'], 'amount' => $refund['amount'], 'currency' => $currency],
+            raw: [...$context->raw(), 'refund' => $refund['id'], 'payment_intent' => $intent, 'amount' => $refund['amount'], 'currency' => $currency],
             sentAt: $context->sentAt,
         );
     }
 
     private function disputeEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection
     {
-        $response = $this->client->get($gateway, 'disputes/'.$context->objectId, background: true);
+        $response = $this->client->get($gateway, 'disputes/'.$context->objectId, ['payment_intent'], background: true);
 
         if (($unavailable = $this->unavailable($response, $context)) !== null) {
             return $unavailable;
@@ -562,9 +568,14 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         $dispute = (array) $response->json();
         $currency = is_string($dispute['currency'] ?? null) ? $dispute['currency'] : '';
         $amount = StripeAmount::fromStripe($dispute['amount'] ?? null, $currency);
+        $intent = self::ourIntent($dispute['payment_intent'] ?? null);
 
-        if (! is_string($dispute['id'] ?? null) || ! is_string($dispute['payment_intent'] ?? null) || $amount === null) {
-            return $context->ignored('dispute without a PaymentIntent');
+        if ($intent === null) {
+            return $context->ignored('dispute of a payment not made here');
+        }
+
+        if (! is_string($dispute['id'] ?? null) || $amount === null) {
+            return $context->ignored('dispute without an amount');
         }
 
         return new CallbackEvent(
@@ -573,9 +584,9 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             txnId: $dispute['id'],
             amount: $amount,
             currency: strtoupper($currency),
-            parentTxnId: $dispute['payment_intent'],
+            parentTxnId: $intent,
             reason: is_string($dispute['reason'] ?? null) ? 'dispute: '.$dispute['reason'] : 'dispute',
-            raw: [...$context->raw(), 'dispute' => $dispute['id'], 'payment_intent' => $dispute['payment_intent'], 'amount' => $dispute['amount'], 'currency' => $currency, 'status' => $dispute['status'] ?? null],
+            raw: [...$context->raw(), 'dispute' => $dispute['id'], 'payment_intent' => $intent, 'amount' => $dispute['amount'], 'currency' => $currency, 'status' => $dispute['status'] ?? null],
             sentAt: $context->sentAt,
         );
     }
@@ -593,6 +604,14 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         return $response->status() === 404
             ? $context->ignored('object not found at Stripe')
             : new CallbackRejection('Stripe retrieve failed: '.mb_substr(StripeClient::errorSummary($response), 0, 120));
+    }
+
+    /**
+     * The id of an expanded PaymentIntent this site created (it carries our reference), else null.
+     */
+    private static function ourIntent(mixed $intent): ?string
+    {
+        return is_array($intent) && is_string($intent['id'] ?? null) && is_string($intent['metadata']['mohar_reference'] ?? null) ? $intent['id'] : null;
     }
 
     private function expireSession(GatewayConfig $gateway, string $reference): void
