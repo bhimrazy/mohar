@@ -371,18 +371,18 @@ export default function TicketsIndex({
                             Close tickets
                         </Button>
                         {can.blockSenders && (
-<ConfirmDialog
-                            trigger={
-                                <Button size="sm" variant="outline">
-                                    Block sender
-                                </Button>
-                            }
-                            title={`Block the senders of ${selected.length} tickets?`}
-                            description="Their future emails are dropped by a spam rule and these tickets are closed. You can remove the rule under Email piping."
-                            confirmLabel="Block senders"
-                            onConfirm={() => bulk('block_sender')}
-                        />
-)}
+                            <ConfirmDialog
+                                trigger={
+                                    <Button size="sm" variant="outline">
+                                        Block sender
+                                    </Button>
+                                }
+                                title={`Block the senders of ${selected.length} tickets?`}
+                                description="Their future emails are dropped by a spam rule and these tickets are closed. You can remove the rule under Email piping."
+                                confirmLabel="Block senders"
+                                onConfirm={() => bulk('block_sender')}
+                            />
+                        )}
                         {can.delete && (
                             <ConfirmDialog
                                 trigger={
