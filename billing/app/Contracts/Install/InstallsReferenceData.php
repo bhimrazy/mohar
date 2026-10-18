@@ -5,16 +5,22 @@ namespace App\Contracts\Install;
 use App\Data\Install\ReferenceDataResult;
 
 /**
+ * Provider contract (SPI, ADR 0010): implemented by modules and packages, so it never gains a method. A new ability
+ * (an upgrade preview, a drift report) is a separate capability interface an installer may also implement.
+ *
  * Reference data a module needs on every install, production included: rows the application cannot work without
  * (currencies, system roles, default email templates). Never demo data, users, credentials or network calls.
  *
- * Registered in bootModule() and run in order by `php artisan app:install` and by DatabaseSeeder:
+ * Registered in bootModule() and run in order by `php artisan app:install` and by DatabaseSeeder, each installer in
+ * its own database transaction:
  *
  *   app(ReferenceDataRegistry::class)->register('notifications_templates', DefaultTemplates::class, order: 100);
  *
- * install() runs inside a database transaction and must be idempotent: on an unchanged database a second run
- * creates and updates nothing. Rows the operator owns after install (a currency's rate, a template's wording) are
- * created when missing and then left alone; rows the system owns (system roles) are brought up to date.
+ * install() must be idempotent: on an unchanged database a second run creates and updates nothing. Two kinds of rows:
+ * - rows the operator owns after install (currencies, template wording) are created on the first install only; a
+ *   later run never re-creates one staff deleted and never changes one staff edited;
+ * - rows the system owns (system roles) are found by a stable key, never by a display name staff can change, and are
+ *   brought back to their definition, with an audit entry for every change.
  */
 interface InstallsReferenceData
 {

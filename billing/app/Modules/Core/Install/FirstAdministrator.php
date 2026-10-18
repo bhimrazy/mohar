@@ -7,17 +7,23 @@ use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Security\PasswordPolicy;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use LogicException;
 
 /**
- * Creates a full administrator from the install command. The account is a verified, active staff member in the
- * system "Full Administrator" role; two-factor setup is enforced at first sign-in by security.staff_2fa_required.
+ * Creates a full administrator from the install command: a verified, active staff member in the system role keyed
+ * "full_administrator". The Platform module's EnforceStaffSecurity middleware then requires a new password (for a
+ * one-time password) and two-factor setup (security.staff_2fa_required) before the admin area opens; the install
+ * pre-flight warns in production when either safeguard is off.
  */
 final class FirstAdministrator
 {
     public const GENERATED_PASSWORD_LENGTH = 24;
+
+    /** @var (Closure(): string)|null */
+    private static ?Closure $passwordGenerator = null;
 
     public function __construct(private ActivityLogger $activity) {}
 
@@ -57,6 +63,10 @@ final class FirstAdministrator
      */
     public static function generatePassword(): string
     {
+        if (self::$passwordGenerator !== null) {
+            return (self::$passwordGenerator)();
+        }
+
         do {
             $password = Str::password(self::GENERATED_PASSWORD_LENGTH);
         } while (! (preg_match('/[a-z]/', $password) && preg_match('/[A-Z]/', $password) && preg_match('/\d/', $password) && preg_match('/[^a-zA-Z\d]/', $password)));
@@ -65,14 +75,38 @@ final class FirstAdministrator
     }
 
     /**
-     * @param  bool  $temporary  a generated one-time password: the administrator must choose a new one at first sign-in
+     * Replace the password generator (tests); null restores the random one.
+     *
+     * @param  (Closure(): string)|null  $generator
      */
-    public function create(string $name, string $email, string $password, bool $temporary): User
+    public static function generatePasswordsUsing(?Closure $generator): void
     {
-        $role = Role::query()->where('name', SystemRoles::FULL_ADMINISTRATOR)->where('is_system', true)->first()
-            ?? throw new LogicException('The Full Administrator role is missing: install the reference data first.');
+        self::$passwordGenerator = $generator;
+    }
 
-        $user = DB::transaction(function () use ($name, $email, $password, $temporary, $role): User {
+    /**
+     * Concurrent installs are serialised on the Full Administrator role row: the admin count and the email are checked
+     * again under that lock, so two runs cannot both create the "first" administrator.
+     *
+     * @param  bool  $temporary  a generated one-time password: the administrator must choose a new one at first sign-in
+     * @param  bool  $additional  create one even though a full administrator already exists
+     *
+     * @throws AdministratorRefused
+     */
+    public function create(string $name, string $email, string $password, bool $temporary, bool $additional = false): User
+    {
+        $user = DB::transaction(function () use ($name, $email, $password, $temporary, $additional): User {
+            $role = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->lockForUpdate()->first()
+                ?? throw new LogicException('The Full Administrator system role is missing: install the reference data first.');
+
+            if (User::query()->where('email', mb_strtolower(trim($email)))->exists()) {
+                throw new AdministratorRefused("{$email} already belongs to an account. The installer does not promote existing accounts: use Admin → Staff, or choose another address.");
+            }
+
+            if (! $additional && $this->count() > 0) {
+                throw new AdministratorRefused('A full administrator already exists, so none was created. Pass --additional-admin to add another.');
+            }
+
             // Saving a new password clears must_change_password, so the flag is set in a second save.
             $user = User::query()->create(['name' => $name, 'email' => $email, 'password' => $password]);
             $user->forceFill([
@@ -83,10 +117,11 @@ final class FirstAdministrator
                 'must_change_password' => $temporary,
             ])->save();
 
+            $this->activity->log('Full administrator created by the installer', $user, properties: ['email' => $user->email, 'one_time_password' => $temporary], event: 'staff.created');
+
             return $user;
         });
 
-        $this->activity->log('Full administrator created by the installer', $user, properties: ['email' => $user->email, 'one_time_password' => $temporary], event: 'staff.created');
         StaffCreated::dispatch($user->id);
 
         return $user;

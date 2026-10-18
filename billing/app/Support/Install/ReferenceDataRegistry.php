@@ -15,7 +15,7 @@ use LogicException;
  *   app(ReferenceDataRegistry::class)->register('core_currencies', DefaultCurrencies::class, order: 10);
  *
  * `order` sorts installers that depend on others' rows (lower runs first; equal orders keep registration order).
- * Core uses 10–20; module installers default to 100. Registration resolves nothing: installers are built through
+ * Orders below 100 are reserved for Core (currencies 10, roles 20); module installers default to 100. Registration resolves nothing: installers are built through
  * the container when the install runs.
  */
 class ReferenceDataRegistry
@@ -61,8 +61,12 @@ class ReferenceDataRegistry
         $item = $this->items[$key]['item'];
         $installer = $item instanceof Closure ? $item($this->container) : $this->container->make($item);
 
-        if (! $installer instanceof InstallsReferenceData || $installer->key() !== $key) {
-            throw new LogicException("The reference-data installer registered as [{$key}] does not report that key.");
+        if (! $installer instanceof InstallsReferenceData) {
+            throw new LogicException("The reference-data installer registered as [{$key}] resolves to ".get_debug_type($installer).', not an '.InstallsReferenceData::class.'.');
+        }
+
+        if ($installer->key() !== $key) {
+            throw new LogicException("The reference-data installer registered as [{$key}] reports the key [{$installer->key()}].");
         }
 
         return $installer;

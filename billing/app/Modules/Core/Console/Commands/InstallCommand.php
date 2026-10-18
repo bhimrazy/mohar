@@ -4,6 +4,7 @@ namespace App\Modules\Core\Console\Commands;
 
 use App\Contracts\Branding\BrandProvider;
 use App\Models\User;
+use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\CheckStatus;
 use App\Modules\Core\Install\EnvironmentCheck;
 use App\Modules\Core\Install\EnvironmentChecks;
@@ -15,6 +16,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Validator;
+use Symfony\Component\Console\Output\OutputInterface;
 
 use function Laravel\Prompts\password;
 use function Laravel\Prompts\text;
@@ -93,7 +95,7 @@ class InstallCommand extends Command
         $existing = $administrators->count();
 
         if ($email !== '') {
-            return $this->administratorWithGeneratedPassword($administrators, mb_strtolower($email), $existing > 0 && ! $additional);
+            return $this->administratorWithGeneratedPassword($administrators, mb_strtolower($email), $additional);
         }
 
         if ($existing > 0 && ! $additional) {
@@ -133,13 +135,20 @@ class InstallCommand extends Command
             validate: fn (string $value): ?string => hash_equals($password, $value) ? null : 'The passwords do not match.',
         );
 
-        $administrators->create(trim($name), $email, $password, temporary: false);
+        try {
+            $administrators->create(trim($name), $email, $password, temporary: false, additional: $additional);
+        } catch (AdministratorRefused $refused) {
+            $this->components->error($refused->getMessage());
+
+            return self::FAILURE;
+        }
+
         $this->components->info("Full administrator {$email} created. Two-factor authentication is set up at first sign-in.");
 
         return self::SUCCESS;
     }
 
-    private function administratorWithGeneratedPassword(FirstAdministrator $administrators, string $email, bool $refuseNew): int
+    private function administratorWithGeneratedPassword(FirstAdministrator $administrators, string $email, bool $additional): int
     {
         $existing = User::query()->where('email', $email)->first();
 
@@ -151,12 +160,6 @@ class InstallCommand extends Command
             }
 
             $this->components->error("{$email} already belongs to an account that is not a full administrator. The installer does not promote existing accounts: use Admin → Staff, or choose another address.");
-
-            return self::FAILURE;
-        }
-
-        if ($refuseNew) {
-            $this->components->error('A full administrator already exists, so none was created. Pass --additional-admin to add another.');
 
             return self::FAILURE;
         }
@@ -174,10 +177,18 @@ class InstallCommand extends Command
         }
 
         $password = FirstAdministrator::generatePassword();
-        $administrators->create($name, $email, $password, temporary: true);
+
+        try {
+            $administrators->create($name, $email, $password, temporary: true, additional: $additional);
+        } catch (AdministratorRefused $refused) {
+            $this->components->error($refused->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->components->info("Full administrator {$email} created with a one-time password. It is shown once and must be changed at first sign-in, followed by two-factor setup:");
-        $this->line('  '.$password);
+        // Raw: a generated password can contain "<info>", "</>" or "\<", which the console formatter would rewrite.
+        $this->output->writeln('  '.$password, OutputInterface::OUTPUT_RAW);
         $this->newLine();
 
         return self::SUCCESS;
@@ -203,7 +214,7 @@ class InstallCommand extends Command
         $this->line('  1. Scheduler: add this cron entry for the web server user:');
         $this->line('       * * * * * cd '.base_path().' && php artisan schedule:run >> /dev/null 2>&1');
         $this->line('  2. Queue workers: keep these running under systemd or Supervisor:');
-        $this->line('       php artisan queue:work --queue=payments,provisioning,registrar --tries=3');
+        $this->line('       php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=85');
         $this->line('       php artisan queue:work --queue=notifications,webhooks --tries=3');
         $this->line('       php artisan queue:work --queue=default --tries=3');
         $this->line('  3. Mail: set MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD and MAIL_FROM_ADDRESS in .env.');

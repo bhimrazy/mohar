@@ -3,6 +3,7 @@
 namespace App\Modules\Core\Install;
 
 use App\Modules\Core\Support\AutomationStatus;
+use App\Modules\Core\Support\Settings;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +20,7 @@ final class EnvironmentChecks
     /** A scheduler heartbeat older than this is reported as stale. */
     private const HEARTBEAT_STALE_MINUTES = 5;
 
-    public function __construct(private Migrator $migrator, private AutomationStatus $automation) {}
+    public function __construct(private Migrator $migrator, private AutomationStatus $automation, private Settings $settings) {}
 
     /**
      * @return list<EnvironmentCheck>
@@ -40,7 +41,7 @@ final class EnvironmentChecks
                 ? new EnvironmentCheck('Scheduler', CheckStatus::Skipped, 'Needs a migrated database.')
                 : $this->scheduler(),
             $this->objectStorage(),
-            ...$this->production(),
+            ...$this->production(databaseReady: $migrations->status === CheckStatus::Ok),
         ];
     }
 
@@ -150,7 +151,7 @@ final class EnvironmentChecks
     /**
      * @return list<EnvironmentCheck>
      */
-    private function production(): array
+    private function production(bool $databaseReady): array
     {
         if (! app()->isProduction()) {
             return [];
@@ -166,6 +167,13 @@ final class EnvironmentChecks
 
         if (in_array((string) config("mail.mailers.{$mailer}.transport", $mailer), ['log', 'array'], true)) {
             $checks[] = new EnvironmentCheck('Mail', CheckStatus::Warning, "MAIL_MAILER={$mailer} sends nothing. Security notices and invoices need real mail: set the MAIL_* settings.");
+        }
+
+        // Staff 2FA and the forced change of a one-time password are enforced by the Platform module's middleware.
+        if (! app()->providerIsLoaded('App\\Modules\\Platform\\PlatformServiceProvider')) {
+            $checks[] = new EnvironmentCheck('Staff security', CheckStatus::Warning, 'The Platform module is not loaded: staff two-factor authentication and the forced change of a one-time password are not enforced.');
+        } elseif ($databaseReady && ! (bool) $this->settings->get('security.staff_2fa_required', true)) {
+            $checks[] = new EnvironmentCheck('Staff security', CheckStatus::Warning, 'Two-factor authentication is not required for staff. Turn on "Require two-factor authentication for staff" in Admin → Settings → Security.');
         }
 
         return $checks;

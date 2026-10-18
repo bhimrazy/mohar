@@ -41,7 +41,7 @@ test('no module or area wildcard reaches a sensitive permission; "*" and explici
 });
 
 test('seeding keeps system roles explicit and rewrites stale wildcard grants', function () {
-    Role::query()->create(['name' => 'Billing', 'permissions' => ['core.clients.*', 'billing.*'], 'is_system' => true]);
+    Role::query()->forceCreate(['key' => 'billing', 'name' => 'Billing', 'permissions' => ['core.clients.*', 'billing.*'], 'is_system' => true]);
 
     $this->seed(CoreSeeder::class);
     $this->seed(CoreSeeder::class);

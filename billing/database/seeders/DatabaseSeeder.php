@@ -6,6 +6,8 @@ use App\Modules\Core\Install\ReferenceDataInstaller;
 use App\Providers\ModulesServiceProvider;
 use Illuminate\Database\Seeder;
 
+use function Laravel\Prompts\warning;
+
 class DatabaseSeeder extends Seeder
 {
     /**
@@ -19,7 +21,8 @@ class DatabaseSeeder extends Seeder
         $installer->install();
 
         if (app()->isProduction()) {
-            $this->command->warn('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
+            // A prompt note, not $this->command: it also prints when the seeder is invoked outside Artisan.
+            warning('Production: reference data installed, demo data skipped. Create the first administrator with `php artisan app:install`.');
 
             return;
         }

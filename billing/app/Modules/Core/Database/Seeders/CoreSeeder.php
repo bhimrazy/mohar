@@ -7,6 +7,7 @@ use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Demo accounts: admin@example.com (Full Administrator) and demo@example.com with the password "password", plus
@@ -17,10 +18,10 @@ class CoreSeeder extends DemoSeeder
 {
     public function run(DefaultCurrencies $currencies, SystemRoles $roles): void
     {
-        $currencies->install();
-        $roles->install();
+        DB::transaction(fn () => $currencies->install());
+        DB::transaction(fn () => $roles->install());
 
-        $admin = Role::query()->where('name', SystemRoles::FULL_ADMINISTRATOR)->sole();
+        $admin = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->sole();
 
         User::query()->firstOrCreate(['email' => 'admin@example.com'], [
             'name' => 'Admin',

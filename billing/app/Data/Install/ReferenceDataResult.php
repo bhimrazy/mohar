@@ -12,9 +12,4 @@ final readonly class ReferenceDataResult
         public int $updated = 0,
         public int $unchanged = 0,
     ) {}
-
-    public function changed(): bool
-    {
-        return $this->created > 0 || $this->updated > 0;
-    }
 }

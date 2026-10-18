@@ -48,12 +48,16 @@ test('a duplicate key is refused unless it replaces the installer', function () 
     expect($registry->get('core_roles'))->toBe($replacement);
 });
 
-test('an invalid key or an installer reporting another key is refused', function () {
+test('an invalid key, an installer reporting another key, or a registration of the wrong type is refused', function () {
     $registry = app(ReferenceDataRegistry::class);
 
     expect(fn () => $registry->register('Notifications.Templates', fn () => referenceInstaller('x')))->toThrow(InvalidArgumentException::class);
 
     $registry->register('test_mismatch', fn () => referenceInstaller('test_other'));
 
-    expect(fn () => $registry->get('test_mismatch'))->toThrow(LogicException::class, 'does not report that key');
+    expect(fn () => $registry->get('test_mismatch'))->toThrow(LogicException::class, 'reports the key [test_other]');
+
+    $registry->register('test_wrong_type', fn () => new stdClass);
+
+    expect(fn () => $registry->get('test_wrong_type'))->toThrow(LogicException::class, 'resolves to stdClass, not an '.InstallsReferenceData::class);
 });

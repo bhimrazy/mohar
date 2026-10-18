@@ -7,9 +7,10 @@ use App\Data\Install\ReferenceDataResult;
 use App\Modules\Core\Models\Currency;
 
 /**
- * The primary currencies: USD (the default), INR and NPR. A missing one is created; an existing one is never changed,
- * because staff own its rate, symbol and format after install. USD becomes the default only when no currency is.
- * Rates are starting values relative to USD; staff set real rates in Admin → Setup → Currencies.
+ * The primary currencies: USD (the default), INR and NPR. They are created only on the first install, while the
+ * currencies table is empty. After that staff own the list: a later run never re-creates a currency staff deleted
+ * and never changes a rate, symbol or format. Rates are starting values relative to USD; staff set real rates in
+ * Admin → Setup → Currencies.
  */
 final class DefaultCurrencies implements InstallsReferenceData
 {
@@ -36,18 +37,16 @@ final class DefaultCurrencies implements InstallsReferenceData
 
     public function install(): ReferenceDataResult
     {
-        $hasDefault = Currency::query()->where('is_default', true)->exists();
-        $created = 0;
+        $existing = Currency::query()->count();
 
-        foreach (self::CURRENCIES as $code => $attributes) {
-            $currency = Currency::query()->firstOrCreate(['code' => $code], [
-                ...$attributes,
-                'is_default' => $code === self::DEFAULT_CODE && ! $hasDefault,
-            ]);
-
-            $created += $currency->wasRecentlyCreated ? 1 : 0;
+        if ($existing > 0) {
+            return new ReferenceDataResult(unchanged: $existing);
         }
 
-        return new ReferenceDataResult(created: $created, unchanged: count(self::CURRENCIES) - $created);
+        foreach (self::CURRENCIES as $code => $attributes) {
+            Currency::query()->create(['code' => $code, ...$attributes, 'is_default' => $code === self::DEFAULT_CODE]);
+        }
+
+        return new ReferenceDataResult(created: count(self::CURRENCIES));
     }
 }

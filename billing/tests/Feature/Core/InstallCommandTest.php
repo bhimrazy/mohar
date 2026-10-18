@@ -2,22 +2,33 @@
 
 use App\Contracts\Install\InstallsReferenceData;
 use App\Data\Install\ReferenceDataResult;
+use App\Events\Core\RoleUpdated;
 use App\Events\Core\StaffCreated;
 use App\Models\User;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
+use App\Modules\Core\Install\AdministratorRefused;
+use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Support\Settings;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Security\PasswordPolicy;
 use Database\Seeders\DatabaseSeeder;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rules\Password;
 
 const STRONG_PASSWORD = 'Plum-Orbit-73-Lantern';
 
@@ -48,8 +59,8 @@ function referenceSnapshot(): array
     return [
         'currencies' => Currency::query()->whereIn('code', ['USD', 'INR', 'NPR'])->orderBy('code')->get()
             ->mapWithKeys(fn (Currency $currency) => [$currency->code => $currency->only(['name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'is_auto_rate', 'is_default'])])->all(),
-        'roles' => Role::query()->where('is_system', true)->orderBy('name')->get()
-            ->mapWithKeys(fn (Role $role) => [$role->name => $role->only(['description', 'permissions'])])->all(),
+        'roles' => Role::query()->where('is_system', true)->orderBy('key')->get()
+            ->mapWithKeys(fn (Role $role) => [$role->key => $role->only(['name', 'description', 'permissions'])])->all(),
     ];
 }
 
@@ -74,17 +85,17 @@ test('an install on an empty database creates the reference data and one full ad
     expect($status)->toBe(0);
 
     $admin = User::query()->sole();
-    preg_match('/^\s{2}(\S{24})$/m', $output, $match);
+    preg_match('/one-time password\..*\R+  (\S{24})\R/', $output, $match);
 
     expect($admin->only(['name', 'email', 'is_staff', 'is_active', 'must_change_password']))
         ->toBe(['name' => 'Olga Owner', 'email' => 'owner@example.test', 'is_staff' => true, 'is_active' => true, 'must_change_password' => true])
         ->and($admin->email_verified_at)->not->toBeNull()
-        ->and($admin->role?->name)->toBe('Full Administrator')
+        ->and($admin->role?->key)->toBe('full_administrator')
         ->and($match)->toHaveCount(2)
         ->and(Hash::check($match[1], $admin->password))->toBeTrue();
 
     expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => false, 'USD' => true])
-        ->and(Role::query()->where('is_system', true)->orderBy('name')->pluck('name')->all())->toBe(['Billing', 'Full Administrator', 'Sales', 'Support'])
+        ->and(Role::query()->where('is_system', true)->orderBy('key')->pluck('name', 'key')->all())->toBe(['billing' => 'Billing', 'full_administrator' => 'Full Administrator', 'sales' => 'Sales', 'support' => 'Support'])
         ->and(Role::query()->count())->toBe(4)
         ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'migrations', 'roles', 'users']);
 
@@ -322,30 +333,167 @@ test('the demo seed installs exactly the reference data an install creates, thro
         ->and(User::query()->where('email', 'admin@example.com')->exists())->toBeTrue();
 });
 
-test('USD does not take the default from a currency staff already made the default', function () {
+test('currencies are created on the first install only, so an existing list is left as staff made it', function () {
     Currency::factory()->euro()->create(['is_default' => true]);
 
-    app(ReferenceDataInstaller::class)->install();
+    $results = app(ReferenceDataInstaller::class)->install();
 
-    expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())
-        ->toBe(['EUR' => true, 'INR' => false, 'NPR' => false, 'USD' => false]);
+    expect(Currency::query()->pluck('is_default', 'code')->all())->toBe(['EUR' => true])
+        ->and($results['core_currencies']['result'])->toEqual(new ReferenceDataResult(unchanged: 1));
 });
 
-test('an existing currency keeps the rate and symbol staff set', function () {
-    Currency::factory()->inr()->create(['exchange_rate' => 88.5, 'prefix' => 'Rs ']);
+test('a currency staff deleted is not re-created by a later run, and an edited one keeps its rate', function () {
+    app(ReferenceDataInstaller::class)->install();
+    Currency::query()->where('code', 'INR')->delete();
+    Currency::query()->where('code', 'NPR')->update(['exchange_rate' => 140.25]);
+
+    app(ReferenceDataInstaller::class)->install();
+
+    expect(Currency::query()->orderBy('code')->pluck('exchange_rate', 'code')->all())->toBe(['NPR' => '140.250000', 'USD' => '1.000000']);
+});
+
+test('a system role edited away from its definition gets its permissions back, with an audit entry and an event', function () {
+    app(ReferenceDataInstaller::class)->install();
+    $support = Role::query()->where('key', 'support')->sole();
+    $support->forceFill(['permissions' => ['billing.refunds.manage', 'support.*']])->save();
+    Event::fake([RoleUpdated::class]);
 
     $results = app(ReferenceDataInstaller::class)->install();
 
-    expect(Currency::query()->where('code', 'INR')->sole()->only(['exchange_rate', 'prefix']))->toBe(['exchange_rate' => '88.500000', 'prefix' => 'Rs '])
-        ->and($results['core_currencies']['result'])->toEqual(new ReferenceDataResult(created: 2, unchanged: 1));
-});
-
-test('a system role edited away from its definition is restored and reported as updated', function () {
-    app(ReferenceDataInstaller::class)->install();
-    Role::query()->where('name', 'Support')->update(['permissions' => json_encode(['support.*', 'billing.refunds.manage'])]);
-
-    $results = app(ReferenceDataInstaller::class)->install();
-
-    expect(Role::query()->where('name', 'Support')->sole()->permissions)->toBe(['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view'])
+    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'services.services.view', 'support.*'])
         ->and($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3));
+
+    $log = ActivityLog::query()->where('event', 'role.updated')->sole();
+    expect($log->subject_id)->toBe($support->id)
+        ->and($log->properties)->toBe(['role' => 'Support', 'added' => ['core.clients.view', 'domains.domains.view', 'services.services.view'], 'removed' => ['billing.refunds.manage']]);
+
+    Event::assertDispatched(RoleUpdated::class, fn (RoleUpdated $event) => $event->roleId === $support->id);
+});
+
+test('a renamed system role keeps its name and is still reset, and a custom role with a system name is never touched', function () {
+    app(ReferenceDataInstaller::class)->install();
+    $billing = Role::query()->where('key', 'billing')->sole();
+    $billing->forceFill(['name' => 'Accounts', 'permissions' => ['billing.*']])->save();
+    $custom = Role::factory()->create(['name' => 'Billing', 'permissions' => ['core.clients.view']]);
+
+    $results = app(ReferenceDataInstaller::class)->install();
+
+    expect($billing->refresh()->only(['name', 'is_system', 'permissions']))->toBe(['name' => 'Accounts', 'is_system' => true, 'permissions' => SystemRoles::permissions('billing')])
+        ->and($custom->refresh()->only(['key', 'is_system', 'permissions']))->toBe(['key' => null, 'is_system' => false, 'permissions' => ['core.clients.view']])
+        ->and(Role::query()->count())->toBe(5)
+        ->and($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3));
+});
+
+test('a missing system role whose name a custom role took is created under a free name', function () {
+    $custom = Role::factory()->create(['name' => 'Sales', 'permissions' => ['orders.orders.view']]);
+
+    app(ReferenceDataInstaller::class)->install();
+
+    expect(Role::query()->where('key', 'sales')->sole()->name)->toBe('Sales (system)')
+        ->and($custom->refresh()->only(['key', 'permissions']))->toBe(['key' => null, 'permissions' => ['orders.orders.view']]);
+});
+
+test('a generated password with console markup characters is printed exactly as it was hashed', function () {
+    $password = 'Ab1\\<</><info>x</info>\\Zz9!';
+    FirstAdministrator::generatePasswordsUsing(fn (): string => $password);
+
+    try {
+        [$status, $output] = runInstall(['--admin-email' => 'owner@example.test']);
+    } finally {
+        FirstAdministrator::generatePasswordsUsing(null);
+    }
+
+    expect($status)->toBe(0)
+        ->and($output)->toContain("\n  {$password}\n")
+        ->and(Hash::check($password, User::query()->sole()->password))->toBeTrue();
+});
+
+test('creating a full administrator re-checks under the role lock and refuses a second one unless asked', function () {
+    app(ReferenceDataInstaller::class)->install();
+    $administrators = app(FirstAdministrator::class);
+    $administrators->create('First', 'first@example.test', STRONG_PASSWORD, temporary: false);
+
+    expect(fn () => $administrators->create('Second', 'second@example.test', STRONG_PASSWORD, temporary: false))
+        ->toThrow(AdministratorRefused::class, 'A full administrator already exists')
+        ->and(fn () => $administrators->create('Again', 'first@example.test', STRONG_PASSWORD, temporary: false, additional: true))
+        ->toThrow(AdministratorRefused::class, 'already belongs to an account')
+        ->and(User::query()->pluck('email')->all())->toBe(['first@example.test']);
+
+    $administrators->create('Second', 'second@example.test', STRONG_PASSWORD, temporary: false, additional: true);
+
+    expect($administrators->count())->toBe(2);
+});
+
+test('two installs started at the same time create exactly one full administrator', function () {
+    $config = config('database.connections.'.config('database.default'));
+    config(['database.connections.install_race' => $config]);
+    $race = DB::connection('install_race');
+    $env = [
+        'APP_ENV' => 'local', 'DB_CONNECTION' => 'pgsql', 'DB_URL' => '', 'DB_HOST' => (string) $config['host'], 'DB_PORT' => (string) $config['port'],
+        'DB_DATABASE' => (string) $config['database'], 'DB_USERNAME' => (string) $config['username'], 'DB_PASSWORD' => (string) $config['password'],
+        'OBJECTS_DRIVER' => 'local', 'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync', 'MAIL_MAILER' => 'array', 'XDEBUG_MODE' => 'off',
+    ];
+    $install = fn (string ...$options): array => ['php', 'artisan', 'app:install', '--no-interaction', ...$options];
+
+    try {
+        // Committed reference data first (the test's own transaction is invisible to other processes).
+        Process::path(base_path())->env($env)->run($install());
+
+        $results = Process::pool(fn (Pool $pool) => [
+            $pool->as('a')->path(base_path())->env($env)->command($install('--admin-email=a@race.test')),
+            $pool->as('b')->path(base_path())->env($env)->command($install('--admin-email=b@race.test')),
+        ])->start()->wait();
+
+        $exitCodes = [$results['a']->exitCode(), $results['b']->exitCode()];
+        sort($exitCodes);
+
+        expect($exitCodes)->toBe([0, 1])
+            ->and($results['a']->output().$results['b']->output())->toContain('A full administrator already exists')
+            ->and($race->table('users')->where('is_staff', true)->count())->toBe(1);
+    } finally {
+        foreach (['activity_log', 'users', 'roles', 'currencies'] as $table) {
+            $race->table($table)->delete();
+        }
+
+        DB::purge('install_race');
+    }
+})->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'Row locks need PostgreSQL; other processes cannot see an in-memory SQLite database');
+
+test('in production the default password rule is the production policy', function () {
+    app()->detectEnvironment(fn (): string => 'production');
+
+    try {
+        expect(Password::defaults())->toEqual(PasswordPolicy::production());
+    } finally {
+        app()->detectEnvironment(fn (): string => 'testing');
+    }
+});
+
+test('a chosen password is accepted when the breach API cannot be reached', function () {
+    Http::fake(['api.pwnedpasswords.com/range/*' => fn () => throw new ConnectionException('unreachable')]);
+    Exceptions::fake();
+
+    $this->artisan('app:install')
+        ->expectsQuestion('Administrator name', 'Ada Admin')
+        ->expectsQuestion('Administrator email', 'ada@example.test')
+        ->expectsQuestion('Password', STRONG_PASSWORD)
+        ->expectsQuestion('Confirm password', STRONG_PASSWORD)
+        ->assertSuccessful();
+
+    expect(User::query()->count())->toBe(1);
+    Exceptions::assertReported(ConnectionException::class);
+});
+
+test('in production the pre-flight warns when staff two-factor authentication is not required', function () {
+    app(Settings::class)->set('security.staff_2fa_required', false);
+    app()->detectEnvironment(fn (): string => 'production');
+
+    try {
+        [$status, $output] = runInstall(['--admin-email' => 'owner@example.test']);
+    } finally {
+        app()->detectEnvironment(fn (): string => 'testing');
+    }
+
+    expect($status)->toBe(0)
+        ->and($output)->toContain('Two-factor authentication is not required for staff.');
 });
