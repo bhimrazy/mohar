@@ -2,12 +2,14 @@
 
 namespace App\Modules\Notifications\Services;
 
+use App\Data\Install\ReferenceDataResult;
 use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Models\EmailTemplate;
 
 /**
- * The seeded system templates (Resources/templates.php). Used by the seeder and "restore default text".
+ * The system templates (Resources/templates.php). Installed by the DefaultTemplates reference-data installer;
+ * also the source of "restore default text".
  */
 class TemplateCatalog
 {
@@ -38,10 +40,12 @@ class TemplateCatalog
 
     /**
      * Creates missing system templates and their default-locale text; never overwrites staff edits.
+     * Counts template texts created, and those already present (left as they are).
      */
-    public function install(string $locale): int
+    public function install(string $locale): ReferenceDataResult
     {
         $created = 0;
+        $unchanged = 0;
 
         foreach ($this->all() as $definition) {
             $template = EmailTemplate::query()->firstOrCreate(['key' => $definition['key']], [
@@ -59,9 +63,9 @@ class TemplateCatalog
                 'action_label' => $definition['action_label'] ?? null,
             ]);
 
-            $created += (int) $translation->wasRecentlyCreated;
+            $translation->wasRecentlyCreated ? $created++ : $unchanged++;
         }
 
-        return $created;
+        return new ReferenceDataResult(created: $created, unchanged: $unchanged);
     }
 }

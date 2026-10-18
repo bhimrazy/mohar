@@ -7,6 +7,7 @@ use App\Contracts\Notifications\EmailTemplates;
 use App\Models\User;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
+use App\Modules\Notifications\Install\DefaultTemplates;
 use App\Modules\Notifications\Listeners\BrandOutgoingMail;
 use App\Modules\Notifications\Listeners\PublishEventWebhooks;
 use App\Modules\Notifications\Listeners\SendEventEmails;
@@ -20,6 +21,7 @@ use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\WebhookEventTypes;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -77,6 +79,8 @@ class NotificationsServiceProvider extends ModuleServiceProvider
         $this->registerDashboard();
         $this->registerPermissions();
         $this->registerSettings();
+
+        $this->app->make(ReferenceDataRegistry::class)->register(DefaultTemplates::KEY, DefaultTemplates::class, order: 100);
 
         $this->app->make(Automation::class)->task('notifications.prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneNotificationLogs::class)->handle($today));
     }
