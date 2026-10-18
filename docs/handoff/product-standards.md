@@ -106,6 +106,12 @@ every item.
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
 
+## Simulators and test doubles
+
+- Simulators of third-party services never change or weaken product behaviour: no production footprint, no
+  "simulator mode" branches in drivers, overrides only from the environment and refused in production, and the
+  full security checks (address guard, pinning, signatures, lookup) stay on against them. (2026-10-18)
+
 ## Work products
 
 - Each topic has one artifact page; update it rather than creating a new page. (2026-10-18)
