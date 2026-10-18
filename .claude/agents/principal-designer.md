@@ -32,3 +32,6 @@ tokens only, reuse shared components, cover light and dark modes, and check keyb
 Capture before/after screenshots with headless Playwright into `billing/docs/screenshots/`. Heavy
 commands through `/workspaces/whmcs/scripts/heavy.sh`. Report: what changed, screenshot paths, and any
 decision the owner must make.
+
+Before committing screenshots or images, run `npm run images:optimize -- <paths>` in `billing/`; CI fails on
+images over 500 KB.

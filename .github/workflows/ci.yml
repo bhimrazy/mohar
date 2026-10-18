@@ -161,6 +161,9 @@ jobs:
             - name: vp check (format + lint)
               run: npx vp check
 
+            - name: Image sizes (docs screenshots, 500 KB max)
+              run: npm run images:check
+
             - name: Pint
               if: steps.changes.outputs.code == 'true'
               run: vendor/bin/pint --parallel --test
