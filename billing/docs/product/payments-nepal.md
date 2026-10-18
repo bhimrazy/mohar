@@ -504,7 +504,7 @@ stored in `provider_ref`.
 Drivers ship their provider's official logo through the optional `ProvidesLogo` contract (`GatewayLogo` DTO:
 light-background URL, optional dark-background URL, alt text). The client pay panel and the admin gateway screens
 show it, and fall back to the text name when a driver has none. The files are served from `public/images/gateways/`
-and are byte-identical to their sources (scaled only, in CSS: 28 px high on checkout, 24 px in the admin list).
+and are byte-identical to their sources (scaled only, in CSS: 40 px high including the files' own padding on checkout, 32 px in the admin list).
 
 | File                                       | Source (official)                                                                                                                                                                                             | Fetched    |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |

@@ -40,7 +40,7 @@ export default function GatewaysIndex({
                             <GatewayLogo
                                 name={gateway.display_name}
                                 logo={gateway.logo}
-                                className="h-6"
+                                className="my-0 h-8"
                             />
                         )}
                         {gateway.display_name}

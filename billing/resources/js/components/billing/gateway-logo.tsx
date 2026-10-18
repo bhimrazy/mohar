@@ -23,7 +23,7 @@ export function GatewayLogo({
         return <span className={className}>{name}</span>;
     }
 
-    const size = cn('h-7 w-auto shrink-0 object-contain', className);
+    const size = cn('-my-1.5 h-10 w-auto shrink-0 object-contain', className);
 
     return (
         <>
