@@ -9,6 +9,7 @@ use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Core\Models\Currency;
+use Illuminate\Database\QueryException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Catalog\FakeProvisioningDrivers;
 
@@ -163,6 +164,22 @@ describe('custom fields', function () {
 
         $this->delete(route('admin.catalog.products.fields.destroy', [$product, $field]))->assertRedirect();
         $this->assertModelMissing($field);
+    });
+
+    it('keeps module keys unique per product, so a driver reads one value per key', function () {
+        actingAsStaff(['catalog.products.manage']);
+        $product = Product::factory()->create();
+        $other = Product::factory()->create();
+        $field = ProductCustomField::factory()->create(['product_id' => $product->id, 'module_key' => 'hostname']);
+
+        $this->post(route('admin.catalog.products.fields.store', $product), ['name' => 'Host', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasErrors('module_key');
+        $this->post(route('admin.catalog.products.fields.store', $other), ['name' => 'Host', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasNoErrors();
+        $this->put(route('admin.catalog.products.fields.update', [$product, $field]), ['name' => 'Hostname', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasNoErrors();
+
+        expect(fn () => ProductCustomField::factory()->create(['product_id' => $product->id, 'module_key' => 'hostname']))->toThrow(QueryException::class);
     });
 
     it('rejects invalid patterns and dropdowns without choices', function () {

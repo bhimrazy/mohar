@@ -2,12 +2,16 @@
 
 namespace App\Modules\Billing\Http\Requests\Admin;
 
+use App\Data\Integrations\SettingField;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class GatewayRequest extends FormRequest
 {
+    use KeepsSecretsOutOfOldInput;
+
     public function authorize(): bool
     {
         return $this->user()?->hasPermission('billing.gateways.manage') ?? false;
@@ -28,5 +32,18 @@ class GatewayRequest extends FormRequest
             'settings.*' => ['nullable', 'string', 'max:5000'],
             'replacement' => ['nullable', 'string', Rule::in(array_keys(app(GatewayManager::class)->drivers()))],
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function secretInputPaths(): array
+    {
+        $key = (string) $this->route('gateway');
+        $fields = array_key_exists($key, app(GatewayManager::class)->drivers())
+            ? array_map(SettingField::fromArray(...), app(GatewayManager::class)->driver($key)->settingsFields())
+            : [];
+
+        return $this->settingInputPaths('settings', $fields);
     }
 }

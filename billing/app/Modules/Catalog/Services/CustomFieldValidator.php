@@ -23,7 +23,7 @@ class CustomFieldValidator
         $fields = ProductCustomField::query()
             ->where('product_id', $productId)
             ->when(! $asStaff, fn ($query) => $query->where('is_admin_only', false)->where('show_on_order', true))
-            ->get();
+            ->orderBy('sort_order')->orderBy('id')->get();
 
         $errors = [];
 

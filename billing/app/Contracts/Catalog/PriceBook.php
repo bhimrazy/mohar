@@ -16,9 +16,10 @@ interface PriceBook
     public function product(int $productId): ?ProductSummary;
 
     /**
-     * A service's option selections and custom field values keyed by module key, for its provisioning driver. Unlike
-     * the order-form reads it includes hidden options, admin-only fields and retired products; entries without a
-     * module key are left out (their secret values still count).
+     * A service's option selections and custom field values keyed by module key, for its provisioning driver (value
+     * rules on ModuleInputs: yes/no options are "1"/"0"). Unlike the order-form reads it includes hidden options,
+     * admin-only fields and retired products. Entries without a module key, and selections that no longer match a
+     * value of their option, are left out; secret custom field values still count.
      *
      * @param  array<int|string, int|string|null>  $optionSelections  option id => value id, or the quantity
      * @param  array<int|string, mixed>  $customFieldValues  field id => value

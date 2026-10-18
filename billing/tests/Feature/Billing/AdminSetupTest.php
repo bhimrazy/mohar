@@ -16,6 +16,17 @@ require_once __DIR__.'/helpers.php';
 /** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
+test('a failed gateway save never flashes a secret setting into the session', function () {
+    actingAsStaff(['billing.gateways.manage']);
+
+    $this->put(route('admin.billing.gateways.update', 'sandbox_card'), [
+        'display_name' => '', 'settings' => ['webhook_secret' => 'whsec_flash_me', 'fee_percent' => '2.9', 'undeclared' => 'x'],
+    ])->assertSessionHasErrors('display_name');
+
+    expect(session()->getOldInput('settings'))->toBe(['fee_percent' => '2.9'])
+        ->and(json_encode(session()->all()))->not->toContain('whsec_flash_me');
+});
+
 test('gateways can be configured without exposing stored secrets', function () {
     actingAsStaff(['billing.gateways.manage']);
 

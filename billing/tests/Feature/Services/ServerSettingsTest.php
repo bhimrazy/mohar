@@ -14,6 +14,7 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Modules\Services\Support\ServerSettings;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Services\ServicesTestKit;
@@ -121,4 +122,124 @@ test('drivers receive the settings, and an echoed secret setting is redacted fro
         ->and($connection->secretSettingKeys)->toBe(['reseller_secret'])
         ->and($connection->secrets())->toContain('Echoed-S3cret-77')
         ->and(json_encode(ModuleCommand::query()->where('service_id', $service->id)->sole()->request))->toContain('eu-1')->not->toContain('Echoed-S3cret-77');
+});
+
+test('a failed server save never flashes credentials or secret settings into the session', function () {
+    $this->post(route('admin.services.servers.store'), [...settingsServerPayload(['region' => 'eu-1', 'reseller_secret' => 'Flash-S3cret']), 'port' => 99999, 'api_token' => 'Flash-Token', 'access_hash' => 'Flash-Hash', 'password' => 'Flash-Pass'])
+        ->assertSessionHasErrors('port');
+
+    expect(session()->getOldInput('settings'))->toBe(['region' => 'eu-1'])
+        ->and(session()->getOldInput('name'))->toBe('Panel 1')
+        ->and(json_encode(session()->all()))->not->toContain('Flash-');
+});
+
+test('a required secret must be entered again when the server switches to another driver', function () {
+    app(ProvisioningDriverRegistry::class)->register('other_panel', fn () => new class implements ProvisioningDriver
+    {
+        public function key(): string
+        {
+            return 'other_panel';
+        }
+
+        public function name(): string
+        {
+            return 'Other panel';
+        }
+
+        public function metadata(): DriverMetadata
+        {
+            return new DriverMetadata(requiresServer: true, serverFields: [new SettingField('reseller_secret', 'Reseller secret', FieldType::Secret, required: true)]);
+        }
+
+        public function create(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function suspend(ProvisioningContext $context, string $reason): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function unsuspend(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function terminate(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+    });
+    $server = Server::factory()->create(['driver' => 'settings_panel', 'settings' => ['region' => 'eu-1', 'reseller_secret' => 'Old-S3cret']]);
+
+    $this->put(route('admin.services.servers.update', $server), [...settingsServerPayload(['reseller_secret' => '']), 'driver' => 'other_panel'])
+        ->assertSessionHasErrors('settings.reseller_secret');
+
+    expect($server->refresh()->driver)->toBe('settings_panel');
+});
+
+test('defaults the form shows are stored and reach the driver', function () {
+    app(ProvisioningDriverRegistry::class)->register('default_panel', fn () => new class implements ProvisioningDriver
+    {
+        public function key(): string
+        {
+            return 'default_panel';
+        }
+
+        public function name(): string
+        {
+            return 'Default panel';
+        }
+
+        public function metadata(): DriverMetadata
+        {
+            return new DriverMetadata(requiresServer: true, serverFields: [
+                new SettingField('zone', 'Zone', required: true, default: 'a'),
+                new SettingField('region', 'Region', default: 'eu-1'),
+                new SettingField('verify', 'Verify certificate', FieldType::Boolean, default: true),
+            ]);
+        }
+
+        public function create(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function suspend(ProvisioningContext $context, string $reason): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function unsuspend(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+
+        public function terminate(ProvisioningContext $context): DriverResult
+        {
+            return DriverResult::ok();
+        }
+    });
+
+    $this->post(route('admin.services.servers.store'), [...settingsServerPayload([]), 'driver' => 'default_panel', 'settings' => []])->assertSessionHasNoErrors();
+
+    $server = Server::query()->sole();
+    expect($server->settings)->toBe(['zone' => 'a', 'region' => 'eu-1', 'verify' => true])
+        ->and(app(ProvisioningSnapshots::class)->connection($server)->settings)->toBe(['zone' => 'a', 'region' => 'eu-1', 'verify' => true]);
+});
+
+test('settings written outside the form are audited, secrets as rotated', function () {
+    $server = Server::factory()->create(['driver' => 'settings_panel', 'settings' => ['region' => 'eu-1']]);
+    $settings = app(ServerSettings::class);
+
+    $settings->put($server, 'reseller_secret', 'Pinned-S3cret', 'Trusted after a connection test');
+    $settings->put($server, 'region', 'us-2');
+
+    expect($server->refresh()->settings)->toBe(['region' => 'us-2', 'reseller_secret' => 'Pinned-S3cret'])
+        ->and(ActivityLog::query()->where('subject_id', $server->id)->orderBy('id')->pluck('properties')->all())->toBe([
+            ['changes' => ['settings.reseller_secret' => 'rotated'], 'reason' => 'Trusted after a connection test'],
+            ['changes' => ['settings.region' => ['from' => 'eu-1', 'to' => 'us-2']]],
+        ])
+        ->and(fn () => $settings->put($server, 'undeclared', 'x'))->toThrow(InvalidArgumentException::class);
 });

@@ -69,6 +69,10 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
 
 ### Module inputs, server settings and one field shape (ADR 0009 amendment 1, PR B2)
 
+- `ServerConnection::$settings` is a `#[\SensitiveParameter]` (compatible).
+- Added `App\Support\Integrations\KeepsSecretsOutOfOldInput`: form requests that carry integration secrets flash
+  old input without them on a validation error, driven by `SettingField` secret flags (used by the server and gateway
+  forms).
 - Added `PriceBook::moduleInputs(productId, optionSelections, customFieldValues): App\Data\Catalog\ModuleInputs`.
   This is a service contract, so adding a method is compatible; the fakes are updated. It returns configurable options
   as module key => module value (or label, quantity, `1`/`0`), custom fields by module key, and the secret values. It
@@ -79,6 +83,7 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
 - `ServerConnection::$settings` and `$secretSettingKeys` are filled from the new encrypted `servers.settings` column,
   which holds the driver's `serverFields`.
 - `ProvisioningDrivers::all()` gains a `fields` key in the `SettingField::toArray()` shape next to `config_fields`,
-  which keeps its shape and is **deprecated** (removed before 1.0; read `fields`). Catalog reads `fields`. The gateway
+  which keeps its shape and is **deprecated** (removed before kernel API 1.0.0, issue #68; read `fields`).
+  Implementers MUST return both keys until then. Catalog reads `fields`. The gateway
   `fields` prop and the server form's `driverFields` use the same shape, rendered by one React component
   (`components/app/setting-field.tsx`).

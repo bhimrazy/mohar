@@ -99,8 +99,8 @@ class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Provi
                 )),
             ],
             serverFields: [
-                new SettingField('region', 'Region (demo)', help: 'Shown on the module log only.'),
-                new SettingField('webhook_secret', 'Webhook secret (demo)', FieldType::Secret, help: 'Stored encrypted; never shown again.'),
+                new SettingField('region', 'Region (demo)', help: 'Sent with every account request, so it shows in the module log.'),
+                new SettingField('webhook_secret', 'Webhook secret (demo)', FieldType::Secret, help: 'Demo of a secret server setting: stored encrypted and never sent to the browser.'),
             ],
         );
     }
@@ -328,6 +328,7 @@ class LogDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Provi
             'auth' => $context->server === null ? null : $this->auth($context->server)['auth'],
             'account' => $context->service->username,
             'domain' => $context->service->domain,
+            'region' => $context->server->settings['region'] ?? null,
         ];
     }
 

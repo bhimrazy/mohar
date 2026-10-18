@@ -31,6 +31,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Forgot-password** gives the same answer for known and unknown addresses and is throttled (5 a minute per IP,
   5 an hour per address).
 - `php artisan app:install` and `db:seed` install the default email templates; staff edits are never overwritten.
+- **Provisioning drivers read custom fields and configurable options by module key only** (#65). Set a module key on
+  any custom field or option a driver reads; fields without one are no longer sent. A custom field's module key must
+  now be unique per product: the migration fails if a product already has two fields with the same key, so rename
+  duplicates first.
 
 ### Platform foundation
 
@@ -92,7 +96,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   instead of reporting a failure.
 - Servers store driver-declared settings (encrypted `servers.settings`), shown on the server form through the shared
   settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
-  value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers (B2).
+  value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers. A failed save never flashes a secret into the
+  session (#65).
 
 ### Core
 
@@ -345,7 +350,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   module being loaded. Every driver passes a shared contract dataset.
 - `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
   `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
-  gains `fields` in the shared `SettingField` shape (`config_fields` deprecated) (#62 B2).
+  gains `fields` in the shared `SettingField` shape (`config_fields` deprecated). Module keys of custom fields are unique per product (#65).
 - `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
   details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
   `IntegrationDriver`.
