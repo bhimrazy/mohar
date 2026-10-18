@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Contracts\Services\Provisioning\TestsServerConnection;
+use App\Data\Integrations\SettingField;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\SaveServer;
@@ -127,6 +128,10 @@ class ServerController extends Controller
     {
         return [
             'drivers' => $this->driverOptions($drivers),
+            'driverFields' => array_combine($drivers->keys(), array_map(
+                fn (string $key): array => array_map(fn (SettingField $field): array => $field->toArray(), $drivers->metadata($key)->serverFields),
+                $drivers->keys(),
+            )),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'fillTypes' => array_map(fn (FillType $type): array => ['value' => $type->value, 'label' => $type->label()], FillType::cases()),
         ];

@@ -14,6 +14,7 @@ use App\Enums\BillingCycle;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\Catalog;
+use App\Modules\Services\Support\ServerSettings;
 
 /**
  * Builds the read-only snapshots drivers receive (ADR 0009 §2). Everything a driver may know about a service is
@@ -21,7 +22,7 @@ use App\Modules\Services\Support\Catalog;
  */
 class ProvisioningSnapshots
 {
-    public function __construct(private Catalog $catalog) {}
+    public function __construct(private Catalog $catalog, private ServerSettings $serverSettings) {}
 
     public function context(Service $service, ?Server $server, ?ProductSummary $product, ProvisioningDriver $driver): ProvisioningContext
     {
@@ -52,7 +53,9 @@ class ProvisioningSnapshots
             password: $server->password,
             apiToken: $server->api_token,
             accessHash: $server->access_hash,
+            settings: $server->settings ?? [],
             nameservers: $server->nameservers ?? [],
+            secretSettingKeys: $this->serverSettings->secretKeys($server->driver),
         );
     }
 

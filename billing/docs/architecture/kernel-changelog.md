@@ -55,3 +55,16 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an
   arch rule keeps the old names out.
+
+### Module inputs, server settings and one field shape (ADR 0009 amendment 1, PR B2)
+
+- Added `PriceBook::moduleInputs(productId, optionSelections, customFieldValues): App\Data\Catalog\ModuleInputs`.
+  This is a service contract, so adding a method is compatible; the fakes are updated. It returns configurable options
+  as module key => module value (or label, quantity, `1`/`0`), custom fields by module key, and the secret values. It
+  includes hidden options, admin-only fields and retired products. `ProvisioningContext::$configOptions` and
+  `$customFields` are now keyed by module key only; the old fallback to a slug of the field name is gone.
+- `ServerConnection::$settings` and `$secretSettingKeys` are filled from the new encrypted `servers.settings` column,
+  which holds the driver's `serverFields`.
+- **Breaking (documented array shape):** the `config_fields` of `ProvisioningDrivers::all()` and the gateway `fields`
+  prop now use `SettingField::toArray()`, the same as the server form's `driverFields`. One React renderer
+  (`components/app/setting-field.tsx`) serves gateways, products and servers.

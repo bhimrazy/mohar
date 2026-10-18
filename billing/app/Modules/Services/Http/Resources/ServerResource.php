@@ -3,11 +3,12 @@
 namespace App\Modules\Services\Http\Resources;
 
 use App\Modules\Services\Models\Server;
+use App\Modules\Services\Support\ServerSettings;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Server without secrets (only whether each credential is set).
+ * Server without secrets (only whether each credential and secret setting is set).
  *
  * @mixin Server
  */
@@ -40,6 +41,7 @@ class ServerResource extends JsonResource
             'currency' => $this->currency,
             'datacenter' => $this->datacenter,
             'status_url' => $this->status_url,
+            'settings' => app(ServerSettings::class)->forForm($this->resource),
             'groups' => $this->whenLoaded('groups', fn () => $this->groups->map(fn ($group): array => ['id' => $group->id, 'name' => $group->name])->values()),
         ];
     }

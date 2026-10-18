@@ -47,7 +47,7 @@ class GatewayController extends Controller
                 'secrets_set' => collect($fields)->filter(fn (SettingField $field): bool => $field->isSecret())
                     ->mapWithKeys(fn (SettingField $field): array => [$field->key => (string) $model->setting($field->key, '') !== '']),
             ],
-            'fields' => $driver->settingsFields(),
+            'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $fields),
             'currencies' => Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code'),
             'replacements' => array_values(array_map(fn (GatewayDriver $other): array => ['value' => $other->key(), 'label' => $this->gateways->gateway($other->key())->display_name], array_filter($this->gateways->drivers(), fn (GatewayDriver $other): bool => $other->key() !== $gateway))),
             'webhook_url' => $driver->supports(GatewayDriver::WEBHOOK) ? route('billing.webhooks', $gateway) : null,

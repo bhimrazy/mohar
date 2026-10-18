@@ -65,7 +65,8 @@ Settings, connection checks, logos and log redaction are shared by every driver 
 
 - `Data\Integrations\SettingField` with `Enums\FieldType` is the one settings-field schema. A secret is a type
   (`Secret`, `SecretText`), not a flag. Gateways still return arrays, which Billing reads through
-  `SettingField::fromArray()` until the gateway family is aligned.
+  `SettingField::fromArray()` until the gateway family is aligned. Every field list sent to the browser is
+  `SettingField::toArray()`, rendered by `resources/js/components/app/setting-field.tsx`.
 - `Data\Integrations\ConnectionCheck` is the result of any credential test.
 - `Contracts\Integrations\ProvidesLogo` (returning `Data\Integrations\IntegrationLogo`) lets any driver ship a logo.
 - `Support\Integrations\Redactor` masks secrets in the gateway, module and registrar logs (one rule, matched by

@@ -1,23 +1,16 @@
-import InputError from '@/components/input-error';
 import { Field } from '@/components/app/field';
+import { SettingFieldInput } from '@/components/app/setting-field';
+import type { SettingFieldData } from '@/components/app/setting-field';
 import { KeyValueEditor } from '@/components/catalog/key-value-editor';
 import { SelectInput } from '@/components/catalog/select-input';
 import type { KeyValuePair } from '@/components/catalog/types';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 
 /** Shape of App\Contracts\Services\ProvisioningDrivers::all(). */
 export type ProvisioningDriver = {
     key: string;
     label: string;
-    config_fields: {
-        key: string;
-        label: string;
-        type: string;
-        required: boolean;
-        secret: boolean;
-        options?: string[];
-    }[];
+    config_fields: SettingFieldData[];
 };
 
 type DriverSettingsProps = {
@@ -124,98 +117,24 @@ export function DriverSettings({
 
             {fields.length > 0 && (
                 <div className="grid items-start gap-6 sm:grid-cols-2">
-                    {fields.map((field) => {
-                        const id = `${idPrefix}-setting-${field.key}`;
-                        const error = errors[`driver_settings.${field.key}`];
-
-                        if (
-                            field.type === 'checkbox' ||
-                            field.type === 'boolean'
-                        ) {
-                            return (
-                                <div
-                                    key={field.key}
-                                    className="grid gap-1 sm:col-span-2"
-                                >
-                                    <label
-                                        htmlFor={id}
-                                        className="flex items-center gap-2 text-sm font-medium"
-                                    >
-                                        <Checkbox
-                                            id={id}
-                                            checked={valueOf(field.key) === '1'}
-                                            disabled={disabled}
-                                            onCheckedChange={(checked) =>
-                                                setValue(
-                                                    field.key,
-                                                    checked === true
-                                                        ? '1'
-                                                        : '0',
-                                                )
-                                            }
-                                        />
-                                        {field.label}
-                                    </label>
-                                    <InputError message={error} />
-                                </div>
-                            );
-                        }
-
-                        return (
-                            <Field
-                                key={field.key}
-                                htmlFor={id}
-                                label={field.label}
-                                optional={!field.required}
-                                error={error}
-                            >
-                                {field.options && field.options.length > 0 ? (
-                                    <SelectInput
-                                        id={id}
-                                        value={valueOf(field.key)}
-                                        onChange={(value) =>
-                                            setValue(field.key, value)
-                                        }
-                                        options={field.options.map(
-                                            (option) => ({
-                                                value: option,
-                                                label: option,
-                                            }),
-                                        )}
-                                        disabled={disabled}
-                                        invalid={!!error}
-                                    />
-                                ) : (
-                                    <Input
-                                        id={id}
-                                        type={
-                                            field.secret
-                                                ? 'password'
-                                                : field.type === 'number'
-                                                  ? 'number'
-                                                  : 'text'
-                                        }
-                                        autoComplete="off"
-                                        placeholder={
-                                            secretKeys.includes(field.key)
-                                                ? '•••••••• (leave empty to keep)'
-                                                : undefined
-                                        }
-                                        value={valueOf(field.key)}
-                                        disabled={disabled}
-                                        onChange={(event) =>
-                                            setValue(
-                                                field.key,
-                                                event.target.value,
-                                            )
-                                        }
-                                        aria-invalid={!!error}
-                                        aria-describedby={`${id}-description`}
-                                    />
-                                )}
-                            </Field>
-                        );
-                    })}
+                    {fields.map((field) => (
+                        <SettingFieldInput
+                            key={field.key}
+                            className={
+                                field.type === 'text' ||
+                                field.type === 'secret_text'
+                                    ? 'sm:col-span-2'
+                                    : undefined
+                            }
+                            id={`${idPrefix}-setting-${field.key}`}
+                            field={field}
+                            value={valueOf(field.key)}
+                            onChange={(value) => setValue(field.key, value)}
+                            disabled={disabled}
+                            secretStored={secretKeys.includes(field.key)}
+                            error={errors[`driver_settings.${field.key}`]}
+                        />
+                    ))}
                 </div>
             )}
 
