@@ -96,7 +96,8 @@ PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private 
 - Branches: `feature/<slug>` from `develop`; `develop` is integration; `main` is release.
 - Commit messages: Conventional Commits, ending with the attribution trailer the harness specifies.
 - PR bodies: summary, spec coverage, shared-kernel changes, security notes, tests, screenshots.
-- Screenshots: headless Playwright against a running instance, saved under
+- Screenshots: run `npm run images:optimize -- <paths>` (in `billing/`) before committing images; CI fails
+  on any image over 500 KB (`npm run images:check`). Screenshots: headless Playwright against a running instance, saved under
   `billing/docs/screenshots/<module>/` and linked from progress.md.
 - Tests: Pest feature tests per capability, reasonable not exhaustive. Browser E2E will use the Pest
   browser plugin (Playwright) for critical flows only.

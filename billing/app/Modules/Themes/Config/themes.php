@@ -16,7 +16,7 @@ return [
     'allow_user_choice' => true,
 
     // Brand: the display name is the core.company_name setting (falls back to config('app.name')).
-    'tagline' => 'Billing in good order.',
+    'tagline' => 'Web hosting billing, sealed and settled.',
 
     // Uploaded overrides on the objects disk (served through /branding/{kind}); null = default.
     'logo_light' => null,
