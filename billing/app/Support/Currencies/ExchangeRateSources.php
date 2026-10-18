@@ -16,9 +16,6 @@ class ExchangeRateSources
 {
     public const MANUAL = 'manual';
 
-    /** @var array<string, class-string<ExchangeRateSource>> */
-    private array $classes = [];
-
     /** @var array<string, ExchangeRateSource> */
     private array $resolved = [];
 
@@ -33,7 +30,6 @@ class ExchangeRateSources
             throw new InvalidArgumentException("Invalid exchange-rate source key [{$source->key()}].");
         }
 
-        $this->classes[$source->key()] = $class;
         $this->resolved[$source->key()] = $source;
     }
 
