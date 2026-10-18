@@ -1,6 +1,6 @@
 # ADR 0016 — Integration simulators and the end-to-end scenario
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-18 · Owner: Principal architect · Decided by the CTO (see "CTO decisions")
 - Related: ADR 0005 (quality gates), 0006 (PostgreSQL gate), 0007 (pinning and cooldown), 0009 (extension contracts),
   0013 (company clock), 0015 (outbound connection policy); `docs/handoff/product-standards.md` "Simulators and test
   doubles"; PRs #58 (Stripe), #69 and #73 (cPanel/WHM).
@@ -216,6 +216,19 @@ The real smoke runs must still check all of this later:
 - **A shared codespace.** Commands run through `scripts/heavy.sh`, and port 8000 and the preview database are refused.
 - **Clean-room.** Responses are written by us from the reference, and no SDK or docs text is copied.
 - **Leaked secrets in recordings.** The kernel `Redactor` and a pre-commit scan run over `recordings/`.
+
+## CTO decisions (2026-10-18)
+
+1. `mohar/simulators` as a first-party Composer path package in `require-dev` is approved. It contains only our own
+   code, so the ADR 0007 cooldown (which governs third-party releases) does not apply; any third-party dependency it
+   ever needs goes through ADR 0007 as usual.
+2. S0 is approved, including the ADR 0015 amendment: loopback is refused in production even when
+   `OUTBOUND_ALLOW_LOOPBACK` is set.
+3. The end-to-end scenario is HTTP-level. A browser-level run (Pest browser plugin, Playwright) needs new dependencies
+   and the owner's approval; it is a later step.
+4. `stripe/stripe-mock` is not adopted.
+5. The end-to-end CI job is non-required until it passes 10 consecutive runs, then becomes required.
+6. Outbound webhooks are simulated in process; `WebhookUrlGuard` gets no loopback or private-address exception.
 
 ## Consequences
 
