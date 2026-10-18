@@ -32,6 +32,7 @@ use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -157,7 +158,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
                     'title' => "#{$order->number}",
                     'subtitle' => $order->client->display_name,
                     'href' => route('admin.orders.show', $order),
-                    'meta' => Money::of($order->total, $order->currency)->format(),
+                    'meta' => app(MoneyFormatter::class)->format(Money::of($order->total, $order->currency)),
                     'status' => $order->status->value,
                 ])->all(),
         ], 'orders.orders.view', 30, 'md');

@@ -4,6 +4,7 @@ namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Core\Models\Currency;
+use App\Support\Currencies\Decimal;
 
 /**
  * Conversion between client currencies using the configured exchange rates (relative to the default currency).
@@ -17,14 +18,15 @@ class CurrencyConverter
         }
 
         $rates = Currency::query()->whereIn('code', [strtoupper($from), strtoupper($to)])->pluck('exchange_rate', 'code');
-        $source = (float) ($rates[strtoupper($from)] ?? 0);
-        $target = (float) ($rates[strtoupper($to)] ?? 0);
+        $source = (string) ($rates[strtoupper($from)] ?? '0');
+        $target = (string) ($rates[strtoupper($to)] ?? '0');
 
-        if ($source <= 0 || $target <= 0) {
+        if (! Decimal::isPositive($source) || ! Decimal::isPositive($target)) {
             throw new BillingException(__('No exchange rate is configured for :from → :to.', ['from' => $from, 'to' => $to]));
         }
 
-        return round($target / $source, 6);
+        // Cross rate via the default currency, exact to six decimals (stored on the transaction as is).
+        return (float) Decimal::divide($target, $source, 6);
     }
 
     public function convert(int $amount, float $rate): int

@@ -209,11 +209,11 @@ class ConvertPrices implements PriceConverter
 
     private function itemLabel(Price $price): string
     {
-        $model = $price->priceable;
+        $model = $price->loadMissing('priceable')->priceable;
 
         return match (true) {
             $model instanceof Product, $model instanceof Addon => $model->name,
-            $model instanceof ConfigOptionValue => $model->option->name.': '.$model->label,
+            $model instanceof ConfigOptionValue => $model->loadMissing('option')->option->name.': '.$model->label,
             $model instanceof Model => class_basename($model).' #'.$model->getKey(),
             default => '#'.$price->priceable_id,
         };

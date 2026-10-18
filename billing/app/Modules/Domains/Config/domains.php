@@ -12,6 +12,9 @@ return [
     'renew_on_payment' => true,
     'enable_renewal_orders' => true,
 
+    // Converted prices: regenerate other-currency TLD prices after exchange rates change (off by default).
+    'auto_convert_prices' => false,
+
     // Expiry lifecycle (§4.5)
     'grace_redemption_enabled' => true,
 

@@ -104,7 +104,7 @@ export default function ProductsIndex({
         },
         {
             key: 'price',
-            header: `From (${currency})`,
+            header: 'From',
             align: 'right',
             cell: (product) =>
                 product.payment_type === 'free' ? (

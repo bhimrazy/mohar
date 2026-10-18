@@ -73,7 +73,7 @@ class EcbRateSource implements ExchangeRateSource
         }
 
         $day = $document->children(self::NAMESPACE)->Cube->Cube ?? null;
-        $time = $day !== null ? (string) $day['time'] : '';
+        $time = $day !== null ? (string) $day->attributes()['time'] : '';
 
         if ($day === null || preg_match('/^\d{4}-\d{2}-\d{2}$/', $time) !== 1) {
             throw new ExchangeRateUnavailable('The European Central Bank feed has no dated rates.');
@@ -82,8 +82,10 @@ class EcbRateSource implements ExchangeRateSource
         $rates = [];
 
         foreach ($day->children(self::NAMESPACE)->Cube as $cube) {
-            $code = strtoupper((string) $cube['currency']);
-            $rate = trim((string) $cube['rate']);
+            // Attributes are unqualified, so read them outside the feed's default namespace.
+            $attributes = $cube->attributes();
+            $code = strtoupper((string) $attributes['currency']);
+            $rate = trim((string) $attributes['rate']);
 
             if (preg_match('/^[A-Z]{3}$/', $code) === 1 && Decimal::isValid($rate) && Decimal::isPositive($rate)) {
                 $rates[$code] = ['units' => $rate, 'base' => '1'];

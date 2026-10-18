@@ -109,6 +109,23 @@ test('gateway refunds of converted payments are sent in the charged currency', f
         ->and(RecordingSandboxDriver::$refunds[0]->originalAmount->amount)->toBe(11_000);
 });
 
+test('issued invoices and recorded payments keep the exchange rate in force when they were created', function () {
+    Currency::factory()->create(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => '0.900000', 'is_default' => false]);
+    $client = Client::factory()->create(['currency' => 'EUR']);
+    $invoice = issueInvoice($client, [10_000]);
+    $payment = app(ApplyPayment::class)->handle($invoice, new PaymentData(
+        10_000, 'sandbox_card', 'ch_locked', gatewayAmount: 11_000, gatewayCurrency: 'USD', exchangeRate: 1.1, fromGateway: true,
+    ));
+    $total = $invoice->fresh()->total;
+
+    Currency::query()->where('code', 'EUR')->update(['exchange_rate' => '0.500000']); // a later rate update
+    app(RefundTransaction::class)->handle($payment, 5_000, RefundMode::Gateway);
+
+    expect($invoice->fresh()->total)->toBe($total)
+        ->and($payment->fresh()->exchange_rate)->toBe('1.100000')
+        ->and(RecordingSandboxDriver::$refunds[0]->amount->amount)->toBe(5_500); // stored rate, not the new one
+});
+
 test('refund and chargeback webhooks are converted back to the invoice currency', function () {
     Currency::factory()->create(['code' => 'EUR', 'name' => 'Euro', 'prefix' => '€', 'exchange_rate' => 1, 'is_default' => false]);
     $client = Client::factory()->create(['currency' => 'EUR']);

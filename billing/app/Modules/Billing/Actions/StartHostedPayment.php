@@ -15,6 +15,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Services\CurrencyConverter;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
@@ -66,8 +67,8 @@ class StartHostedPayment
         if (! $limits->allows($amount->amount)) {
             throw new BillingException(__(':gateway accepts payments between :min and :max.', [
                 'gateway' => $gateway->display_name,
-                'min' => Money::of($limits->min, $amount->currency)->format(),
-                'max' => $limits->max !== null ? Money::of($limits->max, $amount->currency)->format() : '∞',
+                'min' => app(MoneyFormatter::class)->format(Money::of($limits->min, $amount->currency)),
+                'max' => $limits->max !== null ? app(MoneyFormatter::class)->format(Money::of($limits->max, $amount->currency)) : '∞',
             ]));
         }
 

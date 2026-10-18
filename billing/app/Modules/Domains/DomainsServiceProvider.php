@@ -7,6 +7,7 @@ use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
+use App\Events\Core\ExchangeRatesUpdated;
 use App\Events\Services\ServiceActivated;
 use App\Events\Services\ServiceRenewed;
 use App\Events\Services\ServiceSuspended;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
+use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
@@ -30,6 +32,7 @@ use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
+use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -109,6 +112,18 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation->task('domains.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $this->app->make(SendExpiryReminders::class)->handle($today));
 
         $automation->task('domains.lifecycle', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $this->app->make(ApplyExpiryLifecycle::class)->handle($today));
+
+        $this->app->make(PriceConverters::class)->register(ConvertTldPrices::class);
+        Event::listen(ExchangeRatesUpdated::class, function (): void {
+            $convert = $this->app->make(ConvertTldPrices::class);
+
+            if ($convert->automatic()) {
+                $convert->apply();
+            }
+        });
+        $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
+            ? $this->app->make(ConvertTldPrices::class)->apply()
+            : 'disabled');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => RegistrarCommandLog::query()
             ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))
@@ -196,6 +211,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.renew_on_payment', 'Renew at the registrar when the renewal invoice is paid', 'boolean'),
             new SettingDefinition('domains.enable_renewal_orders', 'Allow clients to order renewals', 'boolean'),
             new SettingDefinition('domains.grace_redemption_enabled', 'Use grace and redemption periods', 'boolean'),
+            new SettingDefinition('domains.auto_convert_prices', 'Convert TLD prices from the default currency automatically', 'boolean', 'After exchange rates change, TLD prices in other currencies are recalculated from the default-currency price with each currency\'s buffer and rounding. Prices marked "set manually" are kept.'),
             new SettingDefinition('domains.default_nameservers', 'Default nameservers', 'text', 'One hostname per line (2–5).'),
             new SettingDefinition('domains.use_client_contacts', 'Use the client profile for admin, tech and billing contacts', 'boolean'),
             new SettingDefinition('domains.default_contact', 'Default contact (JSON)', 'text', 'Used for admin/tech/billing contacts when client contacts are off.'),

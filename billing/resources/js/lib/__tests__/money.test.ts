@@ -1,5 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { formatMoney, parseMoneyInput, toMinor } from '../money';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+    configureCurrencies,
+    currencySymbol,
+    formatMoney,
+    formatMoneyCompact,
+    parseMoneyInput,
+    toMinor,
+} from '../money';
+import type { CurrencyFormat } from '../money';
 
 describe('parseMoneyInput', () => {
     it.each([
@@ -41,8 +49,83 @@ describe('toMinor', () => {
     });
 });
 
+const SEEDED: CurrencyFormat[] = [
+    { code: 'USD', prefix: '$', suffix: '', decimals: 2, format: '1,234.56' },
+    { code: 'INR', prefix: '₹', suffix: '', decimals: 2, format: '1,23,456.78' },
+    { code: 'NPR', prefix: 'Rs ', suffix: '', decimals: 2, format: '1,23,456.78' },
+];
+
 describe('formatMoney', () => {
+    afterEach(() => configureCurrencies([]));
+
     it('uses Indian grouping for INR in en-IN', () => {
         expect(formatMoney(10000050, 'INR', 'en-IN')).toBe('₹1,00,000.50');
+    });
+
+    it('formats each configured currency with its symbol and grouping', () => {
+        configureCurrencies(SEEDED);
+
+        expect(formatMoney(123450, 'USD')).toBe('$1,234.50');
+        expect(formatMoney(123456700, 'USD')).toBe('$1,234,567.00');
+        expect(formatMoney(12345600, 'INR')).toBe('₹1,23,456.00');
+        expect(formatMoney(12345600, 'NPR')).toBe('Rs 1,23,456.00');
+        expect(formatMoney(1234567800, 'npr')).toBe('Rs 1,23,45,678.00');
+        expect(formatMoney(5, 'NPR')).toBe('Rs 0.05');
+    });
+
+    it('puts a true minus before the symbol and signs credits when asked', () => {
+        configureCurrencies(SEEDED);
+
+        expect(formatMoney(-120000, 'NPR')).toBe('−Rs 1,200.00');
+        expect(formatMoney(-1200, 'USD')).toBe('−$12.00');
+        expect(formatMoney(1200, 'USD', undefined, { signed: true })).toBe(
+            '+$12.00',
+        );
+        expect(formatMoney(0, 'USD', undefined, { signed: true })).toBe(
+            '$0.00',
+        );
+    });
+
+    it('follows a customised prefix, suffix and separators', () => {
+        configureCurrencies([
+            { code: 'NPR', prefix: 'रू ', suffix: '', decimals: 2, format: '1,23,456.78' },
+            { code: 'EUR', prefix: '', suffix: ' €', decimals: 2, format: '1.234,56' },
+            { code: 'CHF', prefix: 'CHF ', suffix: '', decimals: 2, format: '1234.56' },
+        ]);
+
+        expect(formatMoney(12345600, 'NPR')).toBe('रू 1,23,456.00');
+        expect(formatMoney(123456789, 'EUR')).toBe('1.234.567,89 €');
+        expect(formatMoney(123456789, 'CHF')).toBe('CHF 1234567.89');
+        expect(currencySymbol('EUR')).toBe('€');
+    });
+
+    it('falls back to the Intl narrow symbol for currencies that are not configured', () => {
+        configureCurrencies(SEEDED);
+
+        expect(formatMoney(123450, 'GBP')).toBe('£1,234.50');
+        expect(formatMoney(-500, 'AUD')).toBe('−$5.00');
+        expect(currencySymbol('GBP')).toBe('£');
+    });
+
+    it('appends the code only when asked and never twice', () => {
+        configureCurrencies(SEEDED);
+
+        expect(formatMoney(100, 'USD', undefined, { showCode: true })).toBe(
+            '$1.00 USD',
+        );
+    });
+
+    it('keeps the configured symbol in compact amounts', () => {
+        configureCurrencies(SEEDED);
+
+        expect(formatMoneyCompact(4800000, 'USD')).toBe('$48K');
+        expect(formatMoneyCompact(120000000, 'NPR')).toBe('Rs 12L');
+    });
+
+    it('ignores a missing shared prop instead of clearing the configuration', () => {
+        configureCurrencies(SEEDED);
+        configureCurrencies(undefined);
+
+        expect(formatMoney(100, 'NPR')).toBe('Rs 1.00');
     });
 });

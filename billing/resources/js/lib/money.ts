@@ -128,14 +128,14 @@ export function currencyFormat(currency: string): CurrencyFormat | null {
 }
 
 /**
- * The symbol shown before amounts, e.g. "$", "₹", "Rs " (input adornments, compact labels).
+ * The symbol shown with amounts, e.g. "$", "₹", "Rs" (input adornments, compact labels).
  * Falls back to the Intl narrow symbol, then the ISO code.
  */
 export function currencySymbol(currency: string): string {
     const display = currencyFormat(currency);
 
     if (display) {
-        return display.prefix || display.suffix || display.code;
+        return display.prefix.trim() || display.suffix.trim() || display.code;
     }
 
     const parts = getFormatter(
