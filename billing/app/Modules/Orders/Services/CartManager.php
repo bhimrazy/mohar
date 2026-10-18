@@ -8,8 +8,10 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Http\Middleware\CaptureReferralAndPromo;
 use App\Modules\Orders\Models\Cart;
+use App\Modules\Orders\OrdersServiceProvider;
 use Illuminate\Contracts\Session\Session;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
@@ -72,7 +74,9 @@ class CartManager
     {
         $pendingPromo = $request->session()->pull(CaptureReferralAndPromo::SESSION_PROMO);
 
-        if ($cart->promotion_code === null && is_string($pendingPromo)) {
+        // ?promo= links are a second way to try codes: they share a strict per-session/IP budget.
+        if ($cart->promotion_code === null && is_string($pendingPromo)
+            && RateLimiter::attempt('orders-promo-link|'.OrdersServiceProvider::throttleKey($request), 5, fn (): bool => true)) {
             $cart->promotion_code = $pendingPromo;
         }
 

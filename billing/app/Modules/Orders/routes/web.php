@@ -11,20 +11,20 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('store')->name('store.')->group(function (): void {
     Route::get('/', [StoreController::class, 'index'])->name('index');
     Route::get('products/{product}', [StoreController::class, 'show'])->whereNumber('product')->name('products.show');
-    Route::post('products/{product}/quote', [StoreController::class, 'quote'])->whereNumber('product')->middleware('throttle:120,1')->name('products.quote');
+    Route::post('products/{product}/quote', [StoreController::class, 'quote'])->whereNumber('product')->middleware('throttle:orders-quote')->name('products.quote');
     Route::get('domains', [StoreController::class, 'domains'])->name('domains');
-    Route::put('currency', [StoreController::class, 'currency'])->name('currency');
+    Route::put('currency', [StoreController::class, 'currency'])->middleware('throttle:orders-cart')->name('currency');
 
     Route::get('cart', [CartController::class, 'show'])->name('cart');
-    Route::post('cart/products/{product}', [CartController::class, 'storeProduct'])->whereNumber('product')->name('cart.products.store');
-    Route::put('cart/items/{item}', [CartController::class, 'updateProduct'])->name('cart.items.update');
-    Route::delete('cart/items/{item}', [CartController::class, 'destroy'])->name('cart.items.destroy');
-    Route::post('cart/domains', [CartController::class, 'storeDomain'])->name('cart.domains.store');
-    Route::post('cart/promotion', [CartController::class, 'applyPromotion'])->middleware('throttle:20,1')->name('cart.promotion.store');
-    Route::delete('cart/promotion', [CartController::class, 'removePromotion'])->name('cart.promotion.destroy');
+    Route::post('cart/products/{product}', [CartController::class, 'storeProduct'])->whereNumber('product')->middleware('throttle:orders-cart')->name('cart.products.store');
+    Route::put('cart/items/{item}', [CartController::class, 'updateProduct'])->middleware('throttle:orders-cart')->name('cart.items.update');
+    Route::delete('cart/items/{item}', [CartController::class, 'destroy'])->middleware('throttle:orders-cart')->name('cart.items.destroy');
+    Route::post('cart/domains', [CartController::class, 'storeDomain'])->middleware('throttle:orders-cart')->name('cart.domains.store');
+    Route::post('cart/promotion', [CartController::class, 'applyPromotion'])->middleware('throttle:orders-promo')->name('cart.promotion.store');
+    Route::delete('cart/promotion', [CartController::class, 'removePromotion'])->middleware('throttle:orders-cart')->name('cart.promotion.destroy');
 
     Route::get('checkout', [CheckoutController::class, 'show'])->name('checkout');
-    Route::post('checkout', [CheckoutController::class, 'store'])->middleware('throttle:10,1')->name('checkout.store');
+    Route::post('checkout', [CheckoutController::class, 'store'])->middleware('throttle:orders-checkout')->name('checkout.store');
     Route::get('orders/{order:number}/complete', [CheckoutController::class, 'complete'])->name('checkout.complete');
 });
 

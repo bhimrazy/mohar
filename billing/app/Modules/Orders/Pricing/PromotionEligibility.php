@@ -32,18 +32,20 @@ class PromotionEligibility
      */
     public function check(Promotion $promotion, array $lines, int $subtotal, string $currency, ?Client $client): ?string
     {
+        // Unknown, expired and not-yet-active codes share one message so the store does not confirm which
+        // codes exist (anti-enumeration); restrictions below only apply to live codes.
         if ($promotion->expired_at !== null) {
-            return __('This promotion code has expired.');
+            return self::invalidCode();
         }
 
         $today = $this->clock->now()->toDateString();
 
         if ($promotion->starts_on !== null && $today < $promotion->starts_on->toDateString()) {
-            return __('This promotion code is not active yet.');
+            return self::invalidCode();
         }
 
         if ($promotion->expires_on !== null && $today > $promotion->expires_on->toDateString()) {
-            return __('This promotion code has expired.');
+            return self::invalidCode();
         }
 
         if ($promotion->max_uses > 0 && $promotion->uses >= $promotion->max_uses) {
@@ -63,6 +65,11 @@ class PromotionEligibility
         }
 
         return null;
+    }
+
+    public static function invalidCode(): string
+    {
+        return __('This promotion code is not valid.');
     }
 
     private function clientError(Promotion $promotion, ?Client $client): ?string

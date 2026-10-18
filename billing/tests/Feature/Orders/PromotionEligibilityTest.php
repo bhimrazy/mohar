@@ -35,20 +35,20 @@ it('accepts a promotion until the end of its expiry day in the company timezone'
     expect(pricePromotion($promotion->code)->promotionError)->toBeNull();
 
     $this->travelTo(CarbonImmutable::parse('2026-12-01 00:01', 'Europe/Berlin'));
-    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code has expired.');
+    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code is not valid.');
 });
 
 it('is not valid before its start date', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-17 12:00'));
     $promotion = Promotion::factory()->create(['starts_on' => '2026-10-18']);
 
-    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code is not active yet.');
+    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code is not valid.');
 });
 
 it('rejects a manually expired promotion', function () {
     $promotion = Promotion::factory()->create(['expired_at' => now()]);
 
-    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code has expired.');
+    expect(pricePromotion($promotion->code)->promotionError)->toBe('This promotion code is not valid.');
 });
 
 it('rejects a promotion that reached its usage limit', function () {
@@ -164,8 +164,11 @@ it('matches promotion codes case-insensitively', function () {
         ->and(pricePromotion('Welcome10')->promotionApplied())->toBeTrue();
 });
 
-it('reports an unknown code', function () {
-    expect(pricePromotion('NOPE')->promotionError)->toBe('This promotion code does not exist.');
+it('does not reveal whether an unknown or expired code exists', function () {
+    Promotion::factory()->create(['code' => 'OLD', 'expired_at' => now()]);
+    expect(pricePromotion('OLD')->promotionError)->toBe(pricePromotion('NOPE')->promotionError);
+
+    expect(pricePromotion('NOPE')->promotionError)->toBe('This promotion code is not valid.');
 });
 
 it('reports a code that matches nothing in the cart', function () {

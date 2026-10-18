@@ -174,7 +174,7 @@ describe('cart', function () {
         $promotion = Promotion::factory()->percent('10')->create();
 
         $this->post(route('store.cart.promotion.store'), ['promotion_code' => 'nope'])
-            ->assertSessionHasErrors(['promotion_code' => 'This promotion code does not exist.']);
+            ->assertSessionHasErrors(['promotion_code' => 'This promotion code is not valid.']);
 
         $this->post(route('store.cart.promotion.store'), ['promotion_code' => strtolower($promotion->code)])
             ->assertRedirect(route('store.cart'));
@@ -248,4 +248,44 @@ it('does not count cancelled or fraud orders as using a domain', function () {
 
     $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'reuse.com'])
         ->assertSessionHasNoErrors();
+});
+
+describe('rate limits', function () {
+    it('does not let price previews use up the checkout budget', function () {
+        $client = Client::factory()->withOwner()->create();
+        $this->actingAs($client->users()->sole());
+        OrdersFakes::cartFor($client, [OrdersFakes::productItem(1)]);
+
+        foreach (range(1, 15) as $attempt) {
+            $this->postJson(route('store.products.quote', 1), ['cycle' => 'monthly'])->assertOk();
+        }
+
+        $this->post(route('store.checkout.store'), ['payment_gateway' => 'bank_transfer', 'accept_tos' => true, 'idempotency_key' => 'rate-1'])
+            ->assertRedirect();
+    });
+
+    it('limits promotion code attempts', function () {
+        foreach (range(1, 10) as $attempt) {
+            $this->post(route('store.cart.promotion.store'), ['promotion_code' => "GUESS{$attempt}"])->assertSessionHasErrors('promotion_code');
+        }
+
+        $this->post(route('store.cart.promotion.store'), ['promotion_code' => 'GUESS11'])->assertTooManyRequests();
+    });
+
+    it('caps how many ?promo= links a session can try', function () {
+        $promotion = Promotion::factory()->percent('10')->create();
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
+
+        foreach (range(1, 5) as $attempt) {
+            $this->delete(route('store.cart.promotion.destroy'));
+            $this->get(route('store.index', ['promo' => "GUESS{$attempt}"]));
+            $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
+        }
+
+        $this->delete(route('store.cart.promotion.destroy'));
+        $this->get(route('store.index', ['promo' => $promotion->code]));
+        $this->post(route('store.cart.products.store', 1), ['cycle' => 'monthly']);
+
+        expect(Cart::query()->sole()->promotion_code)->toBeNull();
+    });
 });

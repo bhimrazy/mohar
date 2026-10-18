@@ -212,7 +212,7 @@ class CartPricer
         $promotion = Promotion::findByCode($code);
 
         if ($promotion === null) {
-            $cart->promotionError = __('This promotion code does not exist.');
+            $cart->promotionError = PromotionEligibility::invalidCode();
 
             return;
         }
