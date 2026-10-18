@@ -29,7 +29,7 @@ class EmailLogController extends Controller
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
             ->when($request->filled('template'), fn ($query) => $query->where('template_key', $request->string('template')->toString()))
             ->when($request->filled('client'), fn ($query) => $query->where('client_id', $request->integer('client')))
-            ->orderByDesc('created_at')->orderByDesc('id')
+            ->orderByDesc('id')
             ->paginate(25)->withQueryString();
 
         return Inertia::render('admin/notifications/emails/index', [

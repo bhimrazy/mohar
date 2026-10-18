@@ -53,6 +53,8 @@ return new class extends Migration
             $table->json('cc')->nullable();
             $table->json('bcc')->nullable();
             $table->string('from')->nullable();
+            $table->string('from_name')->nullable();
+            $table->string('reply_to')->nullable();
             $table->string('subject', 255);
             $table->longText('body_html')->nullable();
             $table->longText('body_text')->nullable();
@@ -71,7 +73,7 @@ return new class extends Migration
             $table->timestamps();
             $table->index(['related_type', 'related_id']);
             $table->index('created_at');
-            $table->index(['client_id', 'created_at']);            // admin log filtered by client
+            $table->index(['client_id', 'id']);                    // admin log filtered by client (newest first)
             $table->index(['client_id', 'status', 'sent_at']);     // client email history
             $table->index(['status', 'updated_at']);               // failed-email dashboard to-do
             $table->index(['body_purged_at', 'created_at']);       // retention purge

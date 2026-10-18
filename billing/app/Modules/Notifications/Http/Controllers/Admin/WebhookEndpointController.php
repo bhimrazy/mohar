@@ -34,7 +34,7 @@ class WebhookEndpointController extends Controller
         return Inertia::render('admin/notifications/webhooks/index', [
             'endpoints' => WebhookEndpoint::query()->orderBy('id')->get()->map(fn (WebhookEndpoint $endpoint): array => [
                 ...$this->summary($endpoint),
-                'last_delivery' => WebhookDelivery::query()->where('webhook_endpoint_id', $endpoint->id)->orderByDesc('updated_at')->orderByDesc('id')->first(['status', 'updated_at'])?->only(['status', 'updated_at']),
+                'last_delivery' => WebhookDelivery::query()->where('webhook_endpoint_id', $endpoint->id)->orderByDesc('id')->first(['status', 'updated_at'])?->only(['status', 'updated_at']),
             ])->values(),
         ]);
     }
@@ -69,7 +69,7 @@ class WebhookEndpointController extends Controller
 
         $deliveries = $endpoint->deliveries()
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
-            ->orderByDesc('created_at')->orderByDesc('id')->paginate(25)->withQueryString();
+            ->orderByDesc('id')->paginate(25)->withQueryString();
 
         return Inertia::render('admin/notifications/webhooks/show', [
             'endpoint' => $this->summary($endpoint),
