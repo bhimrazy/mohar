@@ -53,7 +53,7 @@ export function ListGroupCard({
                     <TabsContent
                         key={list.key}
                         value={list.key}
-                        className="flex flex-col"
+                        className="flex flex-col rounded-b-xl focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                     >
                         <ListRows
                             items={list.items.slice(0, 6).map((item) => ({

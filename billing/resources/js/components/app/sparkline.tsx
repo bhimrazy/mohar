@@ -33,6 +33,7 @@ export function Sparkline({
             aria-hidden={label ? undefined : true}
         >
             <AreaChart
+                accessibilityLayer={false}
                 data={data}
                 margin={{ top: 2, right: 0, bottom: 0, left: 0 }}
             >

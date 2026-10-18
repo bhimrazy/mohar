@@ -280,6 +280,7 @@ export function TimeSeriesChart({
         >
             {kind === 'bar' ? (
                 <BarChart
+                    accessibilityLayer={false}
                     data={data}
                     margin={{ left: 0, right: 4, top: 8 }}
                     barCategoryGap="22%"
@@ -299,7 +300,11 @@ export function TimeSeriesChart({
                     ))}
                 </BarChart>
             ) : (
-                <AreaChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
+                <AreaChart
+                    accessibilityLayer={false}
+                    data={data}
+                    margin={{ left: 0, right: 8, top: 8 }}
+                >
                     <defs>
                         {keys.map((key) => (
                             <linearGradient
