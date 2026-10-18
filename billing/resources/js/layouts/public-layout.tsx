@@ -27,7 +27,13 @@ type PublicPageProps = {
     support_email?: string | null;
 };
 
-type NavLink = { label: string; href: string; active: boolean };
+type NavLink = {
+    label: string;
+    href: string;
+    active: boolean;
+    /** Hidden on phones to keep the header on one line (the footer links to it). */
+    wide?: boolean;
+};
 
 const SUPPORT_PATHS = [
     '/knowledgebase',
@@ -59,6 +65,7 @@ function useNavLinks(): NavLink[] {
             label: 'Support',
             href: kb.url(),
             active: SUPPORT_PATHS.some((prefix) => path.startsWith(prefix)),
+            wide: true,
         },
     ];
 }
@@ -137,6 +144,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 className={cn(
                                     'rounded-md px-2 py-2 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:px-3',
                                     link.active && 'text-foreground',
+                                    link.wide && 'hidden sm:inline',
                                 )}
                             >
                                 {link.label}
