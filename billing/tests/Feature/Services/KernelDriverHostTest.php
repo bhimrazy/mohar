@@ -3,6 +3,7 @@
 use App\Contracts\Services\Provisioning\ProvidesFieldOptions;
 use App\Contracts\Services\Provisioning\ProvisioningDriver;
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Contracts\Services\ServiceRegistry;
 use App\Data\Integrations\SettingField;
 use App\Data\Services\Provisioning\DriverMetadata;
 use App\Data\Services\Provisioning\DriverResult;
@@ -31,6 +32,8 @@ use App\Modules\Services\Support\UsernameGenerator;
 use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -368,4 +371,51 @@ test('staff "run now" queues commands whose driver needs longer than a page requ
 
     expect($outcome->status)->toBe('queued');
     Queue::assertPushed(RunModuleCommand::class, fn (RunModuleCommand $job) => $job->serviceId === $service->id && $job->timeout === 150);
+});
+
+test('after an unknown create, a failed job does not downgrade the verify item or let create run again', function () {
+    $service = Service::factory()->pending()->create(['server_id' => Server::factory()->create()->id]);
+    $this->kit->driver->failNext('create', message: 'Read timed out after sending', unknown: true);
+
+    app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+    (new RunModuleCommand($service->id, 'create'))->failed(new RuntimeException('Worker lost'));
+    RunModuleCommand::dispatch($service->id, 'create');
+    app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
+
+    expect($this->kit->driver->callsFor('create'))->toHaveCount(1)
+        ->and(ModuleQueueItem::query()->where('subject_id', $service->id)->sole())
+        ->kind->toBe(ModuleQueueItem::KIND_VERIFY)
+        ->last_error->toStartWith('Outcome unknown');
+});
+
+test('a job redelivered after a worker timeout during create never calls create again', function () {
+    $service = Service::factory()->pending()->create(['server_id' => Server::factory()->create()->id]);
+    $this->kit->driver->whileRunning = function (string $command): void {
+        if ($command === 'create') {
+            throw new TimeoutExceededException('The job has timed out.');
+        }
+    };
+
+    RunModuleCommand::dispatch($service->id, 'create');
+    $this->kit->driver->whileRunning = null;
+    (new RunModuleCommand($service->id, 'create'))->failed(new MaxAttemptsExceededException('Redelivered beyond its tries.'));
+    RunModuleCommand::dispatch($service->id, 'create');
+
+    expect($this->kit->driver->callsFor('create'))->toHaveCount(1)
+        ->and(ModuleQueueItem::query()->where('subject_id', $service->id)->sole()->kind)->toBe(ModuleQueueItem::KIND_VERIFY)
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Pending);
+});
+
+test('provisioning a long-running driver on order acceptance reports it as queued', function () {
+    Queue::fake();
+    app(ProvisioningDriverRegistry::class)->register('strict_panel', fn () => strictPanel());
+    $this->kit->priceBook->addProduct(43, 'Strict', driver: 'strict_panel');
+    $service = Service::factory()->pending()->create(['product_id' => 43, 'server_id' => Server::factory()->create(['driver' => 'strict_panel'])->id]);
+
+    $result = app(ServiceRegistry::class)->provision($service->id);
+
+    expect($result->success)->toBeFalse()
+        ->and($result->pending)->toBeTrue()
+        ->and($result->message)->not->toContain('fail');
+    Queue::assertPushed(RunModuleCommand::class);
 });

@@ -73,6 +73,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   applies to generated and staff-typed usernames (manual services stay free-form). Long-running drivers get longer
   job timeouts (up to 180 s), and staff "run now" queues them instead of blocking the page. One broken driver no
   longer stops automation for other services. The queue `retry_after` default is now 240 s.
+- An open "verify" item (unknown outcome) can no longer be turned into an ordinary failure by a later job failure,
+  so create is never sent twice. Accepting an order whose provisioning is queued says "Provisioning queued for …"
+  instead of reporting a failure.
 - Servers store driver-declared settings (encrypted `servers.settings`), shown on the server form through the shared
   settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
   value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers (B2).
