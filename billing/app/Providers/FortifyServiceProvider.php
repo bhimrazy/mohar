@@ -4,13 +4,17 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\PasswordResetLinkRequestedResponse;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
+use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -21,7 +25,9 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Known and unknown addresses get the same response on POST /forgot-password.
+        $this->app->bind(SuccessfulPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
+        $this->app->bind(FailedPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
     }
 
     /**
@@ -91,6 +97,21 @@ class FortifyServiceProvider extends ServiceProvider
             $throttleKey = Str::transliterate(Str::lower(is_string($username) ? $username : '').'|'.$request->ip());
 
             return Limit::perMinute(5)->by($throttleKey);
+        });
+
+        // POST /forgot-password: per IP and per email address (Fortify registers the route without a limiter).
+        RateLimiter::for('password-reset-link', function (Request $request): array {
+            $email = $request->input(Fortify::email());
+
+            return [
+                Limit::perMinute(5)->by('ip|'.$request->ip()),
+                Limit::perHour(5)->by('email|'.Str::transliterate(Str::lower(is_string($email) ? $email : ''))),
+            ];
+        });
+
+        $this->app->booted(function (): void {
+            Route::getRoutes()->refreshNameLookups();
+            Route::getRoutes()->getByName('password.email')?->middleware('throttle:password-reset-link');
         });
 
         RateLimiter::for('passkeys', function (Request $request) {
