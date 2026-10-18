@@ -39,6 +39,7 @@ use Throwable;
  * initiate() creates a Checkout Session and sends the customer to its url. The browser return is a hint only:
  * lookup() retrieves the session stored on the attempt (with its PaymentIntent) and Billing settles from that.
  * Webhooks are verified, then the object they name is retrieved from Stripe; the posted body is never trusted.
+ * Payment events name our attempt, which Billing settles by lookup against the attempt's stored amount and rate.
  * Refunds (full and partial) go through the Refunds API.
  */
 final class StripeDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
@@ -86,7 +87,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
                 'help' => 'Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.'],
             ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created. Paste its whsec_… secret here.'],
+                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created. Paste its whsec_… secret here.'],
             ['key' => 'publishable_key', 'label' => 'Publishable key', 'type' => 'string',
                 'help' => 'Optional (pk_…). Checkout doesn\'t need it; "Test connection" checks that it belongs to the same mode as the secret key.'],
         ];
@@ -283,7 +284,8 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
 
         try {
             return match ($type) {
-                'checkout.session.completed', 'checkout.session.async_payment_succeeded' => $this->sessionEvent($gateway, $context),
+                'checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed',
+                'checkout.session.expired' => $this->sessionEvent($gateway, $context),
                 'payment_intent.succeeded' => $this->paymentIntentEvent($gateway, $context),
                 'refund.created', 'refund.updated' => $this->refundEvent($gateway, $context),
                 'charge.dispute.created' => $this->disputeEvent($gateway, $context),
@@ -440,9 +442,13 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         return StripeAmount::fromStripe($balance['fee'] ?? null, $currency) ?? 0;
     }
 
+    /**
+     * A Checkout Session event names the attempt (our reference) to settle; Billing then looks it up and checks it
+     * against the attempt's stored amount, currency and rate.
+     */
     private function sessionEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection
     {
-        $response = $this->client->get($gateway, 'checkout/sessions/'.$context->objectId, ['payment_intent'], background: true);
+        $response = $this->client->get($gateway, 'checkout/sessions/'.$context->objectId, background: true);
 
         if (($unavailable = $this->unavailable($response, $context)) !== null) {
             return $unavailable;
@@ -451,15 +457,12 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         $session = (array) $response->json();
         $reference = $session['client_reference_id'] ?? null;
 
-        if (($session['mode'] ?? null) !== 'payment' || ! is_string($reference) || ($session['metadata']['mohar_reference'] ?? null) !== $reference) {
+        if (($session['mode'] ?? null) !== 'payment' || ! is_string($reference) || ! self::isReference($reference)
+            || ($session['metadata']['mohar_reference'] ?? null) !== $reference) {
             return $context->ignored('not a payment session from this site');
         }
 
-        if (($session['payment_status'] ?? null) !== 'paid' || ! is_array($session['payment_intent'] ?? null)) {
-            return $context->ignored('session not paid yet');
-        }
-
-        return $this->paymentFromIntent($session['payment_intent'], $context, $reference);
+        return CallbackEvent::attemptUpdated($reference, $context->objectId, [...$context->raw(), 'status' => $session['status'] ?? null], $context->sentAt);
     }
 
     private function paymentIntentEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection
@@ -470,45 +473,14 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $unavailable;
         }
 
-        return $this->paymentFromIntent((array) $response->json(), $context);
-    }
+        $intent = (array) $response->json();
+        $reference = $intent['metadata']['mohar_reference'] ?? null;
 
-    /**
-     * A succeeded PaymentIntent we created: amount and currency must equal what we asked for (our metadata).
-     *
-     * @param  array<string, mixed>  $intent
-     */
-    private function paymentFromIntent(array $intent, WebhookContext $context, ?string $reference = null): CallbackEvent|CallbackRejection
-    {
-        $metadata = is_array($intent['metadata'] ?? null) ? $intent['metadata'] : [];
-        $invoiceId = $metadata['mohar_invoice_id'] ?? null;
-
-        if (! is_string($intent['id'] ?? null) || ! is_string($invoiceId) || ! ctype_digit($invoiceId) || ! is_string($metadata['mohar_reference'] ?? null)
-            || ($reference !== null && $metadata['mohar_reference'] !== $reference)) {
-            return $context->ignored('not an invoice payment from this site');
+        if (($intent['metadata']['mohar_flow'] ?? null) !== 'checkout' || ! is_string($reference) || ! self::isReference($reference)) {
+            return $context->ignored('not a checkout payment from this site');
         }
 
-        if (($intent['status'] ?? null) !== 'succeeded') {
-            return $context->ignored('payment not succeeded');
-        }
-
-        $currency = is_string($intent['currency'] ?? null) ? $intent['currency'] : '';
-        $received = $intent['amount_received'] ?? null;
-        $amount = StripeAmount::fromStripe($received, $currency);
-
-        if ($currency !== ($metadata['mohar_currency'] ?? null) || (string) (is_int($received) ? $received : '') !== ($metadata['mohar_amount'] ?? null) || $amount === null) {
-            return new CallbackRejection('amount or currency differs from the payment we requested');
-        }
-
-        return new CallbackEvent(
-            type: CallbackEvent::PAYMENT_SUCCEEDED,
-            invoiceId: (int) $invoiceId,
-            txnId: $intent['id'],
-            amount: $amount,
-            currency: strtoupper($currency),
-            raw: [...$context->raw(), 'payment_intent' => $intent['id'], 'reference' => $metadata['mohar_reference'], 'amount' => $received, 'currency' => $currency],
-            sentAt: $context->sentAt,
-        );
+        return CallbackEvent::attemptUpdated($reference, $context->objectId, [...$context->raw(), 'status' => $intent['status'] ?? null], $context->sentAt);
     }
 
     private function refundEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection

@@ -9,13 +9,16 @@ use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\RecordChargeback;
 use App\Modules\Billing\Actions\RefundTransaction;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use Illuminate\Http\Request;
@@ -38,6 +41,7 @@ class GatewayCallbackHandler
         private RefundTransaction $refund,
         private RecordChargeback $chargeback,
         private GatewayAmounts $amounts,
+        private SettlePaymentAttempt $settle,
     ) {}
 
     /**
@@ -91,6 +95,7 @@ class GatewayCallbackHandler
                 CallbackEvent::PAYMENT_FAILED => $this->failure($gatewayKey, $event),
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
                 CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
+                CallbackEvent::ATTEMPT_UPDATED => $this->attemptUpdated($gatewayKey, $event),
                 // Unknown event types are acknowledged and ignored, never booked as money movements.
                 default => $this->outcome($gatewayKey, 200, 'ignored event type', ['type' => $event->type, 'txn_id' => $event->txnId], $event->invoiceId),
             };
@@ -143,6 +148,34 @@ class GatewayCallbackHandler
         $this->applyPayment->handle($invoice, $data);
 
         return $this->outcome($gatewayKey, 200, $closed ? 'payment recorded on closed invoice' : 'payment recorded', $event->raw, $invoice->id);
+    }
+
+    /**
+     * A hosted attempt changed at the provider: settle it exactly like the return route and the poller do (lookup,
+     * then the guards against the attempt's stored amount, currency and rate). The event's own figures are unused.
+     *
+     * @return Outcome
+     */
+    private function attemptUpdated(string $gatewayKey, CallbackEvent $event): array
+    {
+        $attempt = $event->reference !== null
+            ? PaymentAttempt::query()->where('gateway', $gatewayKey)->where('reference', $event->reference)->first()
+            : null;
+
+        if ($attempt === null) {
+            // Retrying won't create it: acknowledge so the provider stops.
+            return $this->outcome($gatewayKey, 200, 'unknown attempt', ['reference' => $event->reference, ...$event->raw]);
+        }
+
+        $before = $attempt->status;
+        $status = $this->settle->handle($attempt);
+        $result = match (true) {
+            $status === AttemptStatus::Succeeded && $before === AttemptStatus::Succeeded => 'duplicate',
+            $status === AttemptStatus::Succeeded => 'payment recorded',
+            default => 'attempt '.$status->value,
+        };
+
+        return $this->outcome($gatewayKey, 200, $result, ['reference' => $attempt->reference, ...$event->raw], $attempt->invoice_id);
     }
 
     /**

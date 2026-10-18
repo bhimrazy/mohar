@@ -123,21 +123,22 @@ stored:
 4. The object is **retrieved from Stripe** with our pinned API version. Only ids and the type come from the body,
    so the event's own API version doesn't matter.
 
-| Event                                                                                                | Retrieve                  | Result for Billing                                                                                       |
-| ---------------------------------------------------------------------------------------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `checkout.session.completed`, `checkout.session.async_payment_succeeded`                             | session (+ PaymentIntent) | payment succeeded, when paid and the PI matches our metadata (amount, currency, reference); else ignored |
-| `payment_intent.succeeded`                                                                           | PaymentIntent             | payment succeeded (same txn id as above, so duplicates are no-ops)                                       |
-| `payment_intent.payment_failed`, `checkout.session.expired`, `checkout.session.async_payment_failed` | —                         | acknowledged and logged; Checkout shows the failure itself and the poller closes the attempt by lookup   |
-| `refund.created`, `refund.updated`                                                                   | refund                    | refund recorded when `succeeded` and not made from our admin (`metadata.mohar_origin`); else ignored     |
-| `charge.dispute.created`                                                                             | dispute                   | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)   |
-| anything else (also `charge.refunded`)                                                               | —                         | 200, logged as ignored                                                                                   |
+| Event                                                                                                                                         | Retrieve      | Result for Billing                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired` | session       | settle the attempt named by our reference (Billing looks it up and applies its guards); sessions not created here are ignored |
+| `payment_intent.succeeded`                                                                                                                    | PaymentIntent | the same, for PaymentIntents our Checkout created (`mohar_flow=checkout`)                                                     |
+| `payment_intent.payment_failed`                                                                                                               | —             | acknowledged and logged; Checkout shows the failure and the customer can retry there                                          |
+| `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded` and not made from our admin (`metadata.mohar_origin`); else ignored                          |
+| `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
+| anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
 
 - **Idempotency:** payments are unique on `(stripe, pi_…, payment)`, refunds on `re_…`, chargebacks on `du_…`
   (Billing's unique index). A replayed or duplicated delivery, or a webhook racing the return route or the
   poller, ends as "duplicate".
-- **Amount guard on the webhook path:** the PaymentIntent's `amount_received` and `currency` must equal the
-  `mohar_amount`/`mohar_currency` we wrote when creating the session. The retrieved session must carry our
-  reference in both `client_reference_id` and metadata.
+- **Webhook payments settle the attempt** (`CallbackEvent::ATTEMPT_UPDATED` carrying our reference): Billing runs
+  the same `SettlePaymentAttempt` as the return route and the poller, so the amount, currency and exchange rate
+  stored on the attempt are used. A webhook never records a payment from its own figures or a fresh exchange
+  rate. A reference we never issued is acknowledged ("unknown attempt").
 - Refunds and disputes are retrieved with their PaymentIntent expanded. One that has no `mohar_reference` was
   made by another integration on the same Stripe account and is acknowledged without booking, so Stripe doesn't
   retry it for days.
