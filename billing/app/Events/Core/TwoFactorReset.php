@@ -2,13 +2,14 @@
 
 namespace App\Events\Core;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * An administrator reset a user's two-factor authentication.
  */
-final class TwoFactorReset
+final class TwoFactorReset implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

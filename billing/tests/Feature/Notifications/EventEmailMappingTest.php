@@ -1,7 +1,7 @@
 <?php
 
+use App\Contracts\Auth\AuthMailer;
 use App\Events\Billing\InvoiceCreated;
-use App\Events\Core\PasswordResetRequested;
 use App\Events\Domains\DomainExpiryDigest;
 use App\Events\Support\TicketReplied;
 use App\Models\User;
@@ -71,7 +71,7 @@ it('always sends password resets, whatever the preferences (criterion 3)', funct
     $user = User::factory()->create(['email' => 'owner@example.test']);
     $this->client->users()->attach($user, ['is_owner' => true]);
 
-    event(new PasswordResetRequested($user->id, url('/reset-password/secret-token'), '2026-10-18 12:00'));
+    app(AuthMailer::class)->sendPasswordReset($user, 'secret-token');
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->hasTo('owner@example.test') && str_contains((string) $mail->htmlBody, 'secret-token'));
     $logged = EmailMessage::query()->where('template_key', 'auth.password_reset')->sole();
@@ -83,7 +83,7 @@ it('always sends password resets, whatever the preferences (criterion 3)', funct
 it('uses the staff template for staff password resets', function () {
     $staff = fullAdministrator('sam@example.test');
 
-    event(new PasswordResetRequested($staff->id, 'https://billing.test/reset-password/t', '2026-10-18 12:00'));
+    app(AuthMailer::class)->sendPasswordReset($staff, 'staff-token');
 
     expect(loggedRecipients('staff.password_reset'))->toBe(['sam@example.test'])
         ->and(loggedRecipients('auth.password_reset'))->toBe([]);

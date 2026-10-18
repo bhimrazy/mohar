@@ -1,13 +1,14 @@
 <?php
 
-use App\Events\Core\EmailVerificationRequested;
-use App\Events\Core\PasswordResetRequested;
+use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
+use App\Modules\Notifications\Services\TemplatedAuthMailer;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 
@@ -66,17 +67,25 @@ it('falls back to Laravel\'s notifications when no template is installed', funct
     Mail::assertNothingSent();
 });
 
-it('dispatches the auth events instead of the framework notifications while Notifications listens', function () {
-    Notification::fake();
-    $user = User::factory()->create();
-    Event::fake([PasswordResetRequested::class, EmailVerificationRequested::class]);
+it('binds the templated AuthMailer, over Core\'s Laravel default', function () {
+    expect(app(AuthMailer::class))->toBeInstanceOf(TemplatedAuthMailer::class);
+});
 
-    $user->sendPasswordResetNotification('plain-token');
+it('never puts the reset token or a signed link in a dispatched event', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    $user = User::factory()->unverified()->create();
+    $payloads = [];
+    Event::listen('*', function (string $name, array $data) use (&$payloads): void {
+        foreach ($data as $item) {
+            $payloads[] = $name.' '.(is_object($item) ? json_encode(get_object_vars($item)) : json_encode($item));
+        }
+    });
+
+    $user->sendPasswordResetNotification('visible-token-123');
     $user->sendEmailVerificationNotification();
 
-    Event::assertDispatched(PasswordResetRequested::class, fn (PasswordResetRequested $event): bool => $event->userId === $user->id && str_contains($event->resetUrl, 'plain-token'));
-    Event::assertDispatched(EmailVerificationRequested::class, fn (EmailVerificationRequested $event): bool => str_contains($event->verifyUrl, 'signature='));
-    Notification::assertNothingSent();
+    expect(implode("\n", $payloads))->not->toContain('visible-token-123')->not->toContain('signature=');
 });
 
 it('sends disabled auth templates anyway', function () {

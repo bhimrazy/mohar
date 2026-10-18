@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core;
 
+use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
@@ -18,6 +19,7 @@ use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
+use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientServiceDirectory;
 use App\Modules\Core\Support\NullEmailTemplates;
@@ -59,6 +61,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
         $this->app->bindIf(BrandProvider::class, DefaultBrandProvider::class);
         $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
+        $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
     }
 
     protected function schedule(Schedule $schedule): void

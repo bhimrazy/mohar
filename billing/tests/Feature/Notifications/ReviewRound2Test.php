@@ -1,6 +1,6 @@
 <?php
 
-use App\Events\Core\PasswordResetRequested;
+use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
@@ -68,7 +68,7 @@ it('B1: a leaking body that bypassed validation still only reaches the recipient
     resetTemplate()->translations()->update(['body' => $body]);
     $user = User::factory()->create(['email' => 'ann@example.test']);
 
-    event(new PasswordResetRequested($user->id, 'https://localhost/reset-password/TOKEN123?email=ann%40example.test', 'soon', 'TOKEN123'));
+    app(AuthMailer::class)->sendPasswordReset($user, 'TOKEN123');
 
     Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail): bool {
         $html = (string) $mail->htmlBody;
@@ -105,15 +105,13 @@ it('2: falls back to Laravel\'s reset mail when the template cannot render', fun
     Notification::assertSentTo($user, ResetPassword::class);
 });
 
-it('2: a re-handled reset occurrence neither sends again nor triggers the fallback', function () {
+it('2: a repeated request for the same token neither sends again nor triggers the fallback', function () {
     Mail::fake();
     Notification::fake();
     seedEmailTemplates();
     $user = User::factory()->create();
-    $event = new PasswordResetRequested($user->id, 'https://localhost/reset-password/T', 'soon', 'T');
-
-    event($event);
-    event($event);
+    app(AuthMailer::class)->sendPasswordReset($user, 'same-token');
+    app(AuthMailer::class)->sendPasswordReset($user, 'same-token');
 
     Mail::assertSentCount(1);
     Notification::assertNothingSent();

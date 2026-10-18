@@ -2,11 +2,11 @@
 
 namespace Tests\Feature\Auth;
 
-use App\Events\Core\PasswordResetRequested;
+use App\Contracts\Auth\AuthMailer;
 use App\Models\User;
+use App\Modules\Core\Support\LaravelAuthMailer;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Fortify\Features;
 use Tests\TestCase;
@@ -96,14 +96,15 @@ class PasswordResetTest extends TestCase
     }
 
     /**
-     * Without a PasswordResetRequested listener (e.g. MODULES= without Notifications) Laravel's own
-     * ResetPassword notification is sent directly. With Notifications loaded the tests above get it from
-     * the module's fallback (no template seeded); the templated path is covered in tests/Feature/Notifications.
+     * With Core's default AuthMailer (no Notifications module) Laravel's own ResetPassword notification is
+     * sent. With Notifications loaded the tests above get it from the module's fallback (no template seeded);
+     * the templated path is covered in tests/Feature/Notifications.
      */
-    public function test_reset_link_uses_laravel_notification_without_a_listener(): void
+    public function test_reset_link_uses_laravel_notification_with_the_core_auth_mailer(): void
     {
         Notification::fake();
-        Event::forget(PasswordResetRequested::class);
+        // Core's default binding, as when the Notifications module is not installed (MODULES=).
+        $this->app->instance(AuthMailer::class, new LaravelAuthMailer);
 
         $user = User::factory()->create();
 

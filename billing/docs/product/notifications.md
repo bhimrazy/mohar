@@ -237,7 +237,11 @@ Email preferences per user/contact (categories), "email history" list of message
   `webhooks.allow_private_targets` → config-only `notifications.webhooks_allow_private_targets` (ignored in production).
 - Passwords are never emailed (supersedes the welcome-email password in §4/§5 and criterion 9): welcome mail links
   to the client-area service page. The log still redacts one-time links (reset, verify, invite).
-- Dedupe keys use a per-occurrence event id (`App\Support\Events\IdentifiesOccurrence`), not the payload.
+- Dedupe keys use a per-occurrence event id (`App\Contracts\Events\DomainEvent`, implemented by
+  `IdentifiesOccurrence`), not the payload.
+- Password reset and email verification are sent through the `App\Contracts\Auth\AuthMailer` contract (Core default:
+  Laravel's notifications; Notifications: its templates), not through events, so no event carries a token or signed
+  URL (ADR 0011). `PasswordResetRequested` / `EmailVerificationRequested` in §6 are therefore not events.
 
 ## 16. Out of scope for v1
 

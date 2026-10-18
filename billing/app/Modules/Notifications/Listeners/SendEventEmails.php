@@ -15,8 +15,6 @@ use App\Events\Billing\QuoteSent;
 use App\Events\Core\AutomationRunCompleted;
 use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
-use App\Events\Core\EmailVerificationRequested;
-use App\Events\Core\PasswordResetRequested;
 use App\Events\Core\StaffLoginFailuresThreshold;
 use App\Events\Domains\DomainExpiryDigest;
 use App\Events\Domains\DomainRegistered;
@@ -50,7 +48,6 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Enums\EmailCategory;
-use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Enums\StaffCategory;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
@@ -62,8 +59,6 @@ use App\Modules\Notifications\Support\MoneyText;
 use App\Modules\Notifications\Webhooks\WebhookUrlGuard;
 use Carbon\CarbonImmutable;
 use Closure;
-use Illuminate\Auth\Notifications\ResetPassword;
-use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
 use Throwable;
 
@@ -86,8 +81,6 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
      * @var array<class-string, string>
      */
     public const EVENTS = [
-        PasswordResetRequested::class => 'passwordReset',
-        EmailVerificationRequested::class => 'emailVerification',
         ClientRegistered::class => 'clientRegistered',
         ClientUpdated::class => 'clientUpdated',
         OrderPlaced::class => 'orderPlaced',
@@ -137,8 +130,6 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     {
         try {
             match (true) {
-                $event instanceof PasswordResetRequested => $this->passwordReset($event),
-                $event instanceof EmailVerificationRequested => $this->emailVerification($event),
                 $event instanceof ClientRegistered => $this->clientRegistered($event),
                 $event instanceof ClientUpdated => $this->clientUpdated($event),
                 $event instanceof OrderPlaced => $this->orderPlaced($event),
@@ -182,59 +173,6 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             };
         } catch (Throwable $exception) {
             report($exception);
-        }
-    }
-
-    // ── Auth (always sent, ignores preferences) ─────────────────────────────────────────────────
-
-    /**
-     * Falls back to Laravel's own notification when no template could be used, so a reset never gets lost.
-     */
-    public function passwordReset(PasswordResetRequested $event): void
-    {
-        $user = User::query()->find($event->userId);
-
-        if ($user === null) {
-            return;
-        }
-
-        $sent = $this->safelyCollect(function () use ($event, $user): array {
-            $client = $user->is_staff ? null : $user->clients()->orderBy('clients.id')->first();
-            $recipient = $this->recipients->user($user->id, $client);
-
-            return $this->send($user->is_staff ? 'staff.password_reset' : 'auth.password_reset', $recipient === null ? [] : [$recipient], [
-                ...$this->context->client($client?->id),
-                'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
-                'auth' => ['reset_url' => $event->resetUrl, 'expires_at' => $event->expiresAt],
-            ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
-        });
-
-        if (! $this->handled($sent) && $event->token !== '') {
-            $user->notify(new ResetPassword($event->token));
-        }
-    }
-
-    public function emailVerification(EmailVerificationRequested $event): void
-    {
-        $user = User::query()->find($event->userId);
-
-        if ($user === null) {
-            return;
-        }
-
-        $sent = $this->safelyCollect(function () use ($event, $user): array {
-            $client = $user->clients()->orderBy('clients.id')->first();
-            $recipient = $this->recipients->user($user->id, $client);
-
-            return $this->send('auth.email_verification', $recipient === null ? [] : [$recipient], [
-                ...$this->context->client($client?->id),
-                'user' => ['first_name' => $recipient?->firstName(), 'email' => $user->email],
-                'auth' => ['verify_url' => $event->verifyUrl],
-            ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
-        });
-
-        if (! $this->handled($sent)) {
-            $user->notify(new VerifyEmail);
         }
     }
 
@@ -740,38 +678,6 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         }
 
         return 'service.welcome.'.($product !== null && in_array($product->type, ['shared_hosting', 'reseller_hosting', 'server'], true) ? $product->type : 'other');
-    }
-
-    /**
-     * Auth mail counts as handled once a message is queued, sent or deliberately suppressed; nothing at all
-     * (no template) or only failed rows (unrenderable template) means Laravel's notification must go out.
-     *
-     * @param  list<EmailMessage>  $messages
-     */
-    private function handled(array $messages): bool
-    {
-        foreach ($messages as $message) {
-            if ($message->status !== EmailStatus::Failed) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @param  Closure(): list<EmailMessage>  $callback
-     * @return list<EmailMessage>
-     */
-    private function safelyCollect(Closure $callback): array
-    {
-        try {
-            return $callback();
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return [];
-        }
     }
 
     /**
