@@ -180,13 +180,13 @@ test('only registered secrets are decrypted, and only with ciphertext bound to t
 
     // Ciphertext copied into a non-secret setting is shown as the opaque string, never decrypted.
     DB::table('settings')->insert(['key' => 'acme.label', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
-    Cache::forget('core.settings');
+    Cache::memo()->forget('core.settings');
     expect($settings->get('acme.label'))->not->toContain('sk_bound_111');
 
     // Ciphertext copied into another secret setting is refused.
     app(SettingsRegistry::class)->section('acme2', 'Acme 2', [new SettingDefinition('acme.other_key', 'Other key', secret: true)]);
     DB::table('settings')->insert(['key' => 'acme.other_key', 'value' => $ciphertext, 'created_at' => now(), 'updated_at' => now()]);
-    Cache::forget('core.settings');
+    Cache::memo()->forget('core.settings');
     expect($settings->get('acme.other_key', 'fallback'))->toBe('fallback')
         ->and($settings->get('acme.api_key'))->toBe('sk_bound_111');
 });
