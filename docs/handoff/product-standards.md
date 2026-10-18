@@ -37,6 +37,10 @@ every item.
 - Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
   modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
   primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
+- Every email can be answered: Reply-To is a real, monitored department or support address (never
+  noreply), and the footer shows the support address as text. Security emails add "If this wasn't you,
+  contact …". Only company or department addresses, never staff members' personal addresses.
+  (2026-10-18)
 - Email content sits in a centred card with a fixed maximum width, chosen by the design between 600 and
   680px for the best line length. Wider screens only widen the background, and narrow screens shrink the
   card to fit. (2026-10-18)
