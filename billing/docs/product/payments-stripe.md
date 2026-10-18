@@ -172,16 +172,76 @@ stored:
 - A refund that later fails at Stripe arrives as `refund.updated` with status `failed`; it is logged for staff.
   Reversing an already booked refund is not automated in v1.
 
-## 7. Saved cards and auto-capture (second PR)
+## 7. Saved cards and auto-capture (second PR, design for architecture review)
 
-- Card setup: Checkout `mode=setup` with `customer` (created once per client, metadata `mohar_client_id`) and
-  `setup_intent_data.metadata`. After the return, the SetupIntent and PaymentMethod are retrieved server-side;
-  the stored token holds `cus_…` and `pm_…` (encrypted with the pay method), plus brand, last 4 and expiry.
-- Renewals: `POST /v1/payment_intents` with `customer`, `payment_method`, `confirm=true`, `off_session=true`.
-  `succeeded` → success; `processing` → pending (settled by `payment_intent.succeeded`); a card decline → declined
-  with the decline code; `authentication_required` (SCA) → declined with reason `authentication_required`, which
-  Billing's `PaymentFailed` carries to the customer as "your bank needs you to confirm this payment" with a link
-  to the invoice, where Checkout handles 3-D Secure.
+Status: **proposed** (CTO, 2026-10-18: build after the architect reviews this contract). The SCA email depends on
+Notifications (#28).
+
+### 7.1 Kernel contract (new, opt-in)
+
+```php
+namespace App\Contracts\Billing;
+
+/** A driver that saves cards on the provider's own hosted page (Stripe Checkout mode=setup). Requires CAPTURE. */
+interface HostedCardSetup extends GatewayDriver
+{
+    /** Server-side: create the provider's setup session. Nothing is saved yet. */
+    public function beginSetup(GatewayConfig $gateway, CardSetupRequest $request): RedirectInstruction;
+
+    /** Authoritative: retrieve the setup stored for our reference and return what to save (never card data). */
+    public function completeSetup(GatewayConfig $gateway, CardSetupRef $setup): CardSetupResult;
+
+    /** Best effort: detach the saved method at the provider when the client removes it. */
+    public function forgetToken(GatewayConfig $gateway, string $token): void;
+}
+```
+
+DTOs in `app/Data/Billing` (final, readonly):
+
+- `CardSetupRequest { reference, clientId, returnUrl, cancelUrl, customerEmail?, customerName? }`
+- `CardSetupRef { reference, clientId, providerRef }`
+- `CardSetupResult { status: completed|pending|cancelled|failed, token: ?CardToken }` (`CardToken` already exists:
+  token, brand, last4, expiry)
+- `ChargeResult::REASON_AUTHENTICATION_REQUIRED = 'authentication_required'` (constant only).
+
+### 7.2 Billing changes
+
+- **Start:** `POST /client/payment-methods/setup/{gateway}` (client area, `ClientContext` billing permission,
+  `throttle:billing-pay`) → `beginSetup()` → `Inertia::location($url)`. The setup (reference → client, gateway,
+  provider ref, expiry) is kept in the cache for 1 hour: no money is involved, and a lost entry only means the
+  customer adds the card again. No migration.
+- **Return:** `GET /client/payment-methods/setup/{gateway}/return?ref=` (authenticated; the reference must belong to
+  the current `ClientContext`) → `completeSetup()` → store the `CardToken` as a pay method (same rules as
+  `ManagePayMethods::store`: encrypted token, brand, last 4, expiry, first card becomes default). A cancel return
+  saves nothing.
+- **Pay-methods page:** gateways implementing `HostedCardSetup` show "Add a card" (posts to the start route) instead
+  of the sandbox vault. Removing a card calls `forgetToken()`.
+- **Payment-options rule:** `ClientPaymentOptions::kind()` returns `redirect` for every `HostedPaymentDriver`, even
+  when it also declares `capture` (`checkout_mode` stays a sandbox-only setting). On the pay panel, saved cards of
+  that gateway are listed above "Pay with a new card on Stripe"; choosing one captures it like an inline card.
+- **SCA:** `CaptureInvoice` treats `REASON_AUTHENTICATION_REQUIRED` as "needs the customer", not as a bad card: it
+  dispatches `PaymentFailed` with that reason (Notifications renders "Your bank needs you to confirm this payment"
+  with a link to the invoice, where Checkout runs 3-D Secure) and does **not** count it towards
+  `max_failures_per_pay_method`.
+- **Pending off-session charges** (`processing`) get a payment attempt row (provider ref = `pi_…`, the charge amount
+  and rate), so `payment_intent.succeeded` settles them through `ATTEMPT_UPDATED` like Checkout payments. The
+  driver's `lookup()` accepts a `pi_…` reference as well as a `cs_…` one. No push path, no fresh exchange rate.
+
+### 7.3 Stripe driver
+
+- `beginSetup`: create a Customer (`metadata[mohar_client_id]`, idempotency key `mohar-customer-<ref>`), then a
+  Checkout Session `mode=setup`, `customer`, `currency` (required in setup mode without explicit method types),
+  `setup_intent_data[metadata]` with our reference and client id.
+- `completeSetup`: retrieve the session with `setup_intent.payment_method` expanded; require `status=complete`,
+  our reference, `metadata.mohar_client_id` equal to `CardSetupRef::clientId`, SetupIntent `succeeded` and a `card`
+  payment method. Token: `cus_…|pm_…` (stored encrypted by Billing).
+- `capture`: `POST /v1/payment_intents` with `customer`, `payment_method`, `confirm=true`, `off_session=true`,
+  metadata (`mohar_flow=off_session`, invoice id, amount, currency), idempotency key per call. `succeeded` →
+  success; `processing` → pending; HTTP 402 `authentication_required` → declined with
+  `REASON_AUTHENTICATION_REQUIRED`; other card errors → declined with the decline code.
+- `forgetToken`: `POST /v1/payment_methods/{pm}/detach`.
+- One Stripe Customer per saved card (no customer lookup or search), so nothing about our clients is read back
+  from Stripe.
 - Card numbers never reach our servers: card entry happens only on Stripe's pages.
 
 ## 8. Security
