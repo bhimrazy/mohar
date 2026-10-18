@@ -199,9 +199,6 @@ class InstallCommand extends Command
     private function nextSteps(): void
     {
         $url = rtrim((string) config('app.url'), '/');
-        $company = Route::has('admin.settings.edit') ? route('admin.settings.edit', 'company') : $url.'/admin/settings/company';
-        $currencies = Route::has('admin.currencies.index') ? route('admin.currencies.index') : $url.'/admin/currencies';
-
         $this->components->info('Next steps (docs/devops/install.md).');
         $this->line('  1. Scheduler: add this cron entry for the web server user:');
         $this->line('       * * * * * cd '.base_path().' && php artisan schedule:run >> /dev/null 2>&1');
@@ -212,8 +209,15 @@ class InstallCommand extends Command
         $this->line('  3. Mail: set MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD and MAIL_FROM_ADDRESS in .env.');
         $this->line('  4. Object storage: run `php artisan objects:ensure-bucket` once the OBJECTS_* settings point at your bucket.');
         $this->line("  5. Sign in at {$url}/login and set up two-factor authentication.");
-        $this->line("  6. Company profile: {$company}");
-        $this->line("  7. Exchange rates: review the starting rates at {$currencies}");
+
+        // The settings and currency screens belong to the Platform module, which may not be installed.
+        if (Route::has('admin.platform.settings.edit')) {
+            $this->line('  6. Company profile: '.route('admin.platform.settings.edit', 'company'));
+        }
+
+        if (Route::has('admin.platform.currencies.index')) {
+            $this->line('  7. Exchange rates: review the starting rates at '.route('admin.platform.currencies.index'));
+        }
     }
 
     private function brandName(): string

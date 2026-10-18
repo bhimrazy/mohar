@@ -9,7 +9,7 @@ use App\Modules\Core\Models\Currency;
 /**
  * The primary currencies: USD (the default), INR and NPR. A missing one is created; an existing one is never changed,
  * because staff own its rate, symbol and format after install. USD becomes the default only when no currency is.
- * Rates are starting values relative to USD; staff set real rates in Admin → Settings → Currencies.
+ * Rates are starting values relative to USD; staff set real rates in Admin → Setup → Currencies.
  */
 final class DefaultCurrencies implements InstallsReferenceData
 {

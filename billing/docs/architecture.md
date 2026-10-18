@@ -22,8 +22,9 @@ app/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
     Models/  Actions/  Services/  Drivers/  Jobs/  Listeners/  Policies/
-    Console/Commands/             auto-registered artisan commands
-    Database/Migrations|Factories|Seeders/<Module>Seeder.php (auto-run by DatabaseSeeder)
+    Console/Commands/             auto-registered artisan commands (`<module>:<action>`)
+    Install/                      InstallsReferenceData implementations (reference data, every environment)
+    Database/Migrations|Factories|Seeders/<Module>Seeder.php (demo data; DatabaseSeeder runs it outside production)
     Http/Controllers/{Admin,Client,Public}/  Http/Requests/  Http/Resources/
     routes/web.php                auto-loaded in the "web" middleware group
 resources/js/pages/{admin,client,public}/<module>/...   Inertia pages
@@ -140,6 +141,23 @@ app(GlobalSearch::class)->provider('Invoices', fn (string $term) => [...['title'
 ```
 
 Every permission you check must be registered; every tunable setting must be registered with a definition.
+
+**Reference data and demo data** — rows the app cannot run without (currencies, system roles, later the default
+email templates) are reference data: an `App\Contracts\Install\InstallsReferenceData` in the module's `Install/`,
+registered in `bootModule()`:
+
+```php
+app(ReferenceDataRegistry::class)->register('notifications_templates', DefaultTemplates::class, order: 100); // Core uses 10–20
+```
+
+`php artisan app:install` (production install, `docs/devops/install.md`) and `DatabaseSeeder` both run every
+registered installer in order, each in a transaction, so the demo and production never drift. `install()` is
+idempotent (a second run creates and updates nothing), returns a `ReferenceDataResult`, creates operator-owned rows
+only when missing and resets system-owned rows to their definition. No users, credentials, demo rows or network calls.
+Everything else a module seeds (demo accounts, products, invoices, tickets) goes in its `<Module>Seeder`, which
+extends `DemoSeeder` and so refuses to run in production. Settings, the automation time and theme presets are
+defaults in code and config, not rows. Commands are named `<module>:<action>`; the install command is the
+brand-neutral `app:install`.
 
 **Themes & brand** — the Themes module renders the active theme's CSS variables into the root view
 (schema: `App\Support\Themes\ThemeSchema`, "billing-theme" v1). Theme packs add presets with

@@ -16,7 +16,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 - GitHub: `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
 - App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Setup:
-  `billing/docs/devops/local-setup.md`.
+  `billing/docs/devops/local-setup.md`. Production install and upgrade (`php artisan app:install`):
+  `billing/docs/devops/install.md`.
 
 ## Open pull requests
 
