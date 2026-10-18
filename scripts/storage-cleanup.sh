@@ -52,6 +52,7 @@ if command -v docker >/dev/null 2>&1; then
     echo "- docker: stopped containers older than 2h and dangling images"
     run docker container prune -f --filter "until=2h"
     run docker image prune -f
+    run docker volume prune -f   # anonymous volumes no container uses (named volumes are kept)
     # Tagged images no container uses and nothing in compose or CI references (e.g. an extra Postgres version).
     referenced="$(grep -rhoE '[a-z0-9./_-]+:[0-9A-Za-z._-]+' "$root/billing/compose.yaml" "$root/.github" 2>/dev/null | sort -u)"
     in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"

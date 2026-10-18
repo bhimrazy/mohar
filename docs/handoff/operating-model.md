@@ -85,7 +85,10 @@ in-memory data; `scripts/pg.sh --stop` stops it). Don't start private PostgreSQL
 
 ## Machine limits (GitHub Codespace)
 
-- 4 vCPU, 15 GB RAM, 32 GB disk. No swap.
+- 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
+  9 GB of it is the base image. `/vscode` (VS Code server) is a separate disk. `/tmp` is a separate large
+  disk (about 100 GB free) that a codespace restart wipes: use it for disposable caches only (the npm
+  cache lives in `/tmp/npm-cache`), never for work.
 - `scripts/heavy.sh` allows 3 heavy commands machine-wide (`HEAVY_SLOTS`), at low CPU/IO priority.
 - `scripts/resource-monitor.sh <log>` logs load, memory, disk and top processes every 30 s. Start it in
   the background at the start of each session; slow down (fewer agents) when load stays above 4.
