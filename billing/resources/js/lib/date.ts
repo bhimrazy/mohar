@@ -30,6 +30,50 @@ export function parseDate(
     return Number.isNaN(date.getTime()) ? null : { date, dateOnly };
 }
 
+const MONTHS = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+];
+
+/** Admin → Settings → Company → Date format (PHP tokens), shared as `dateFormat`. */
+let dateFormatSetting: string | null = null;
+
+export function setDateFormat(format: string | null | undefined): void {
+    dateFormatSetting = format && /[YmndjM]/.test(format) ? format : null;
+}
+
+/** Formats with the PHP-style tokens the date format setting offers: Y m n d j M. */
+export function formatWithPattern(
+    date: Date,
+    pattern: string,
+    utc: boolean,
+): string {
+    const year = utc ? date.getUTCFullYear() : date.getFullYear();
+    const month = utc ? date.getUTCMonth() : date.getMonth();
+    const day = utc ? date.getUTCDate() : date.getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const tokens: Record<string, string> = {
+        Y: String(year),
+        m: pad(month + 1),
+        n: String(month + 1),
+        d: pad(day),
+        j: String(day),
+        M: MONTHS[month],
+    };
+
+    return pattern.replace(/[YmndjM]/g, (token) => tokens[token]);
+}
+
 export function formatDate(
     value: string | Date,
     format: DateFormat = 'date',
@@ -39,6 +83,18 @@ export function formatDate(
 
     if (!parsed) {
         return '';
+    }
+
+    if (dateFormatSetting && format !== 'time') {
+        const day = formatWithPattern(
+            parsed.date,
+            dateFormatSetting,
+            parsed.dateOnly,
+        );
+
+        return format === 'datetime' && !parsed.dateOnly
+            ? `${day}, ${new Intl.DateTimeFormat(locale, formatOptions.time).format(parsed.date)}`
+            : day;
     }
 
     return new Intl.DateTimeFormat(locale, {

@@ -6,6 +6,7 @@ import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import PreviewLayout from '@/layouts/preview-layout';
 import PublicLayout from '@/layouts/public-layout';
+import { setDateFormat } from '@/lib/date';
 import { showsPublicPageInClientArea } from '@/lib/layout-area';
 import SettingsLayout from '@/layouts/settings/layout';
 
@@ -18,11 +19,15 @@ router.on('navigate', (event) => {
         | { name?: string }
         | undefined;
     brandName = brand?.name || brandName;
+    setDateFormat(event.detail.page.props.dateFormat as string | undefined);
 });
 
 void createInertiaApp({
     title: (title) => (title ? `${title} · ${brandName}` : brandName),
     layout: (name, page) => {
+        // Resolved before the page renders, so dates use the current setting.
+        setDateFormat(page.props.dateFormat as string | undefined);
+
         switch (true) {
             case name === 'welcome':
                 return null;

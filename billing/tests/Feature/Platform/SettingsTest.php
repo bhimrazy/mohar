@@ -125,6 +125,18 @@ test('the next read sees an updated setting even through a fresh Settings instan
     expect((new Settings(app(SettingsRegistry::class)))->get('core.company_name'))->toBe('Northwind Hosting');
 });
 
+test('every page receives the date format setting so dates follow it', function () {
+    actingAsClient();
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', 'M j, Y'));
+
+    app(Settings::class)->set('core.date_format', 'd/m/Y');
+
+    $this->get(route('client.dashboard'))
+        ->assertInertia(fn (Assert $page) => $page->where('dateFormat', 'd/m/Y'));
+});
+
 test('unknown sections return 404', function () {
     actingAsStaff();
 
