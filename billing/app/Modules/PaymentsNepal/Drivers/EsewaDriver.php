@@ -4,16 +4,16 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
-use App\Contracts\Billing\ProvidesLogo;
+use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
-use App\Data\Billing\ConnectionCheck;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\GatewayConfig;
-use App\Data\Billing\GatewayLogo;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\ReturnHint;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\IntegrationLogo;
 use App\Modules\PaymentsNepal\Support\NprAmount;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
@@ -57,9 +57,9 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     }
 
     /** eSewa's official developer-site logos (docs/product/payments-nepal.md §8.6), served from public/images/gateways. */
-    public function logo(): GatewayLogo
+    public function logo(): IntegrationLogo
     {
-        return new GatewayLogo(asset('images/gateways/esewa.png'), __('Pay with eSewa'), darkUrl: asset('images/gateways/esewa-on-dark.png'));
+        return new IntegrationLogo(asset('images/gateways/esewa.png'), __('Pay with eSewa'), darkUrl: asset('images/gateways/esewa-on-dark.png'));
     }
 
     public function capabilities(): array

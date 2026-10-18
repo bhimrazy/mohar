@@ -2,8 +2,8 @@
 
 namespace App\Contracts\Billing;
 
-use App\Data\Billing\ConnectionCheck;
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\ConnectionCheck;
 
 /**
  * Opt-in for drivers that can check their saved credentials against the provider. Shown in the admin gateway form

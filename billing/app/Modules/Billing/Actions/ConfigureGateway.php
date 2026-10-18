@@ -3,6 +3,8 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Contracts\Billing\GatewayDriver;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Events\Billing\GatewayConfigurationChanged;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
@@ -42,19 +44,19 @@ class ConfigureGateway
         $config = $gateway->config ?? [];
         $changes = [];
 
-        foreach ($driver->settingsFields() as $field) {
-            $value = (string) ($settings[$field['key']] ?? '');
-            $secret = in_array($field['type'], ['secret', 'secret_text'], true);
+        foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+            $value = (string) ($settings[$field->key] ?? '');
+            $secret = $field->isSecret();
 
             if (! $secret || $value !== '') {
-                $before = (string) ($config[$field['key']] ?? '');
+                $before = (string) ($config[$field->key] ?? '');
 
                 if ($before !== $value) {
                     // Secret values never reach the audit trail.
-                    $changes['settings.'.$field['key']] = $secret ? 'rotated' : ['from' => $before, 'to' => $value];
+                    $changes['settings.'.$field->key] = $secret ? 'rotated' : ['from' => $before, 'to' => $value];
                 }
 
-                $config[$field['key']] = $value;
+                $config[$field->key] = $value;
             }
         }
 
@@ -92,13 +94,13 @@ class ConfigureGateway
      */
     private function assertActivatable(GatewayDriver $driver, array $config): void
     {
-        foreach ($driver->settingsFields() as $field) {
-            if ($field['type'] === 'boolean') {
+        foreach (array_map(SettingField::fromArray(...), $driver->settingsFields()) as $field) {
+            if ($field->type === FieldType::Boolean) {
                 continue;
             }
 
-            if (($field['required'] ?? false) && trim((string) ($config[$field['key']] ?? '')) === '') {
-                throw new BillingException(__(':field is required to activate this gateway.', ['field' => $field['label']]));
+            if ($field->required && trim((string) ($config[$field->key] ?? '')) === '') {
+                throw new BillingException(__(':field is required to activate this gateway.', ['field' => $field->label]));
             }
         }
 

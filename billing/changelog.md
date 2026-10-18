@@ -138,6 +138,154 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
 
+### Orders
+
+- Storefront and cart: guest carts merge into the account on login, every read re-quotes the cart, and carts expire
+  after `orders.cart_ttl_days` (`orders:prune-carts`).
+- Promotions of four types (percentage, fixed amount, price override, free setup) with usage restrictions; admin
+  CRUD with a usage report (`orders.promotions.manage`).
+- Checkout with inline registration and an idempotency key. The order, its items, pending services, addons and
+  domains, stock reservation, promotion redemption and the invoice (`Invoicer::issue`) are written in one
+  transaction; then the fraud check runs, `OrderPlaced` is dispatched and on-order provisioning starts.
+- Fraud drivers `none` and `rules` (banned email domains, max orders per IP, max pending orders, skip for existing
+  clients, timeout, fail-open), configured with `orders.fraud.configure`.
+- Admin: order list and detail with accept (runs account creation per item), cancel, mark as fraud, set pending,
+  delete, bulk actions and staff-placed orders (`orders.orders.view|create|accept|cancel|mark_fraud|delete`).
+  Client area: order history.
+- Settings for terms of service, auto-accept on payment, unpaid-order auto-cancel and checkout notes; stale pending
+  orders are cancelled by `orders:cancel-stale-pending`.
+- Public layout for storefront pages; `formatMoney` groups INR and NPR in the en-IN style. Navigation badge,
+  quick-create, dashboard widget and todos; demo seeder in USD/INR/NPR.
+
+### Billing
+
+- Implements `Invoicer`, `TaxCalculator`, `CreditLedger`, `GatewayDirectory` and `InvoiceQueries`, and consults
+  `PaymentGuard` before taking a payment.
+- Invoices are immutable once issued; changes go through an adjustments ledger. Gap-free and proforma numbering,
+  client snapshots, reopen, auto-cancel, and quotes; invoice and quote PDFs are cached on the `objects` disk.
+- Payments: partial payments, overpayment to credit, credit ledger, add funds, mass pay, payment batches, refunds
+  with their reverse effects, chargebacks, manual transactions and currency conversion.
+- Tax: two levels, compound and inclusive rates, exemptions, EU reverse charge (VAT ID format check only, no
+  VIES), India GST (CGST + SGST within a state, IGST across states by GSTIN), Nepal VAT 13 %, effective-dated rules.
+- Gateway contracts in the shared kernel: `GatewayDriver`, `HostedPaymentDriver` (initiate, browser return as a
+  hint, authoritative `lookup()`) and `GatewayRegistry`. An attempt is settled only through `lookup()` with amount,
+  currency and reference checks; a reconciliation poller (`billing:reconcile-payments`) resolves open attempts and
+  unresolved ones become staff todos. Drivers: `bank_transfer`, `manual` and `sandbox_card` (full hosted flow
+  without network calls).
+- Automation tasks: late fees, auto-capture with retries, payment reminders, auto-cancel, payment reconciliation
+  and housekeeping.
+- Admin and client UI for invoices, transactions, quotes, account credit and gateways; permissions
+  `billing.invoices.*`, `billing.payments.manage`, `billing.refunds.manage`, `billing.transactions.*`,
+  `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
+  `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
+  (USD/INR/NPR).
+
+### Nepal payments
+
+- New `PaymentsNepal` module with hosted drivers for Khalti (KPG-2) and eSewa (ePay v2), registered with Billing's
+  `GatewayRegistry`. Credentials are stored in the encrypted gateway config and are write-only in the admin form.
+- A payment is marked paid only after the provider's status lookup agrees, including on a validly signed eSewa
+  return. Amount, currency and reference are compared with the stored attempt; a mismatch goes to staff review.
+  eSewa responses are checked with `hash_equals` over the provider's `signed_field_names`.
+- Khalti: full refunds through the API; partial refunds stay off behind `payments_nepal.khalti.partial_refunds`.
+  eSewa refunds are recorded manually. Both drivers have a "Test connection" button on the admin gateway form
+  (`billing.gateways.manage`, throttled).
+- Sandbox mode (`SandboxPolicy`) cannot be activated, offered or charged in production; a SANDBOX badge shows in
+  admin and on the client pay panel.
+- A started payment stays on the client and admin invoice, and a second one is refused until the provider session
+  expires. Methods outside a provider's amount limits are listed disabled with the reason; a converting gateway
+  shows the amount it will charge before the redirect.
+- Form-post gateways now open a full-page checkout whose CSP allows exactly the provider origin
+  (`SecurityHeaders::allowFormAction()`); before, the browser blocked the eSewa form.
+- Provider logos on the pay panel and admin gateway pages; client pay requests are rate limited per user.
+
+### Support
+
+- Helpdesk: departments with staff scoping, masked ticket numbers (`support.ticket_number_format`), guest tickets
+  through access-key links, replies and internal notes in sanitised Markdown, statuses with an audit trail, reply
+  collision detection, canned replies, signatures, ticket merge and reply ratings.
+- Attachments are private files on the `objects` disk with authorised downloads, extension, size and count limits,
+  and pruning (`support:prune-attachments`).
+- Inbound email: signed webhook `POST /api/v1/inbound/email/{provider}` (`generic` HMAC provider, secret in
+  `support.inbound_secret`) with deduplication, loop, auto-reply, per-sender rate limit and spam filters and bounce
+  handling; admin inbound log with import into a ticket; raw messages purged by `support:purge-inbound-raw`.
+- Auto-close after `support.auto_close_hours` (`support:auto-close`, hourly and in housekeeping).
+- Knowledge base (views, votes, search, private articles), announcements (scheduled, RSS feed) and network status
+  incidents.
+- Guest forms use a honeypot and rate limiting. Ticket events live in `app/Events/Support`.
+- Tickets navigation badge, "New ticket" quick-create, dashboard widget and todos; `support.*` permissions for
+  tickets, departments, canned replies, inbound email, knowledge base, announcements, network status and settings.
+
+### Currencies
+
+- One money display: prefix, suffix and number format per currency, including Indian lakh/crore grouping
+  (`1,23,456.78`). `App\Support\Currencies\MoneyFormatter` on the server and `formatMoney` in the browser read the
+  same settings; amount inputs label the currency, and invoice and quote PDFs state the currency under the totals.
+  NPR's seeded prefix changes to "Rs ".
+- Exchange-rate sources: Manual, ECB reference rates (`ecb`) and Nepal Rastra Bank (`nrb`), behind the
+  `ExchangeRateSource` contract. Rates are derived through the default currency with twelve decimals and no floats.
+- The `platform.exchange-rates` task runs first in the daily pipeline; `platform.rates_update_time` moves it to
+  `platform:update-exchange-rates` at a set time, and Admin → Currencies → "Update rates now" runs it on demand.
+- A fetched rate that moves more than `platform.rates_max_change_percent` (default 10) is held for staff review and
+  shown in "Needs attention", as are stale automatic and manual rates. Every rate change writes rate history and an
+  activity entry; the currency page charts the last 90 days.
+- Converted prices: a per-currency FX buffer and rounding rule, a preview-and-apply page for Catalog and TLD prices
+  (`PriceConverter` contract), and a queued conversion after a rate change when auto-convert is on. Prices set
+  manually in a non-default currency are never converted; existing services and issued invoices are not repriced.
+- New sensitive permission `core.currencies.rates` (see Upgrade notes).
+
+### Dashboard and automation
+
+- Admin dashboard v2: KPIs for MRR, income this month, outstanding and overdue with sparklines and trend pills; a
+  counter strip; "Needs attention" with icons and context lines.
+- Trends: 12-month income against the year before (with a 30-day range and table view), new orders per day by product
+  type, new clients, and income and tax collected per currency.
+- System health aggregated from modules (scheduler, daily automation, queue, provisioning, payment gateways,
+  registrar commands); recent orders, payments, tickets, renewals and newest clients; an Activity card with staff
+  sign-ins; quick actions.
+- Reporting-currency switch: each currency on its own, or "All (est.)" converted at today's rates.
+- Automation tasks have readable names and descriptions everywhere (`Automation::task()` takes `label` and
+  `description`). The Automation page adds scheduler state, 7-day success rate, failures in 24 hours, next run,
+  average run time, runs per day, time per stage and a cron fix banner when the scheduler is late or stopped.
+- Charts expose a "Show as table" toggle and no longer take keyboard focus; theme chart palettes were adjusted to
+  pass the colour-vision checks.
+- Kernel: dashboard `breakdown` widget type, `health()` registry, `mirrorsTodo` cards and `Trend`; new index
+  `invoices(status, paid_at)`.
+
+### Install
+
+- `php artisan app:install`: an idempotent production install. It runs pre-flight checks (APP_KEY, database and
+  migrations block; queue, scheduler, objects disk, `APP_DEBUG` and the mailer warn), installs each module's reference
+  data, creates the first full administrator and prints the next steps.
+- The administrator password follows the production password rules in every environment and is never accepted as a
+  CLI option. `--admin-email` creates the account with a one-time password printed once and a forced change at
+  first sign-in; `--additional-admin` is required for a second administrator, and existing accounts are never
+  promoted.
+- Reference data comes from `InstallsReferenceData` installers in `ReferenceDataRegistry`. Core installs USD, INR
+  and NPR (only while no currency exists) and the four system roles, matched by the new `roles.key`; a re-run
+  resets system-role permissions and keeps staff-chosen names.
+- `db:seed --force` in production installs reference data and skips demo data. Guide: `docs/devops/install.md`.
+
+### Shared kernel
+
+- Integrations area (ADR 0009, step 1): `IntegrationDriver` and an abstract `DriverRegistry` (keyed registration,
+  lazy resolution, capabilities computed from the family's interfaces) for driver families to extend.
+- `SettingField` DTO and `FieldType` enum for driver settings; Billing reads gateway settings through
+  `SettingField::fromArray()`. `ConnectionCheck`, `ProvidesLogo` and `IntegrationLogo` moved to the Integrations
+  namespace.
+- `Redactor` moved to the kernel and is shared by Services, Domains and Billing's gateway log: one `[redacted]`
+  mask (Services logs used `***`), registrar and cPanel key lists, `cpsess` token values and `excerpt()` for raw
+  driver output.
+- `OutboundAddressGuard` resolves a host once and refuses loopback, link-local, cloud metadata, multicast and
+  reserved addresses; `pin()` connects to the checked address with `CURLOPT_CONNECT_TO`, bypasses proxies and turns
+  redirects off. The policy is install-wide (`OUTBOUND_ALLOW_PRIVATE_ADDRESSES`, `OUTBOUND_ALLOW_LOOPBACK`; ADR
+  0015).
+
+### Security
+
+- Password-reset and verification links no longer take their host from the request. Outside `local`, every generated
+  URL, including queued mail, uses `APP_URL`, and production rejects requests for foreign hosts with 400.
+
 ### Database hardening (audit 1)
 
 - Whole-database audit on PostgreSQL with 100k clients and 1M-row log tables:
