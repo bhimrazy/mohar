@@ -2,10 +2,11 @@
 
 namespace App\Events\Affiliates;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class AffiliateActivated
+final class AffiliateActivated implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

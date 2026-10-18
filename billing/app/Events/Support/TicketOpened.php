@@ -2,10 +2,11 @@
 
 namespace App\Events\Support;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class TicketOpened
+final class TicketOpened implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

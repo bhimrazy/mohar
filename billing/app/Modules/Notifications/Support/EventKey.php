@@ -2,13 +2,14 @@
 
 namespace App\Modules\Notifications\Support;
 
+use App\Contracts\Events\DomainEvent;
 use Illuminate\Support\Str;
 use Ramsey\Uuid\Uuid;
 use WeakMap;
 
 /**
  * The identity of one event occurrence (spec §7, §8): email dedupe keys and webhook event ids derive
- * from it. Shared events carry their own occurrence id (App\Support\Events\IdentifiesOccurrence); any
+ * from it. Kernel events implement DomainEvent and carry their own occurrence id; any
  * other object gets one per instance. Re-handling the same occurrence is skipped; two separate events
  * with identical payloads both count.
  */
@@ -21,8 +22,8 @@ final class EventKey
 
     public static function of(object $event): string
     {
-        if (method_exists($event, 'occurrenceId')) {
-            return (string) $event->occurrenceId();
+        if ($event instanceof DomainEvent) {
+            return $event->occurrenceId();
         }
 
         self::$instances ??= new WeakMap;

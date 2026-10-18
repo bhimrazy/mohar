@@ -2,10 +2,11 @@
 
 namespace App\Events\Billing;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class InvoiceCancelled
+final class InvoiceCancelled implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

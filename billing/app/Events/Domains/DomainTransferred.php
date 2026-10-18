@@ -2,10 +2,11 @@
 
 namespace App\Events\Domains;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class DomainTransferred
+final class DomainTransferred implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

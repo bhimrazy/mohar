@@ -2,13 +2,14 @@
 
 namespace App\Events\Notifications;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * Emitted when an email was logged but deliberately not sent (mail disabled, template disabled, ...).
  */
-final class EmailSuppressed
+final class EmailSuppressed implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

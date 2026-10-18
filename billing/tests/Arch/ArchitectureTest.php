@@ -1,5 +1,8 @@
 <?php
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
+
 /*
  * Architecture rules enforced in CI (docs/architecture.md → "Dependency rules").
  * Modules may depend on Core and the shared kernel only; cross-module calls go through
@@ -36,6 +39,12 @@ arch('contracts are interfaces')
 arch('DTOs and events are final and immutable-by-construction')
     ->expect(['App\Data', 'App\Events'])
     ->toBeFinal();
+
+arch('every kernel event is a DomainEvent with an occurrence id (ADR 0011)')
+    ->expect('App\Events')
+    ->classes()
+    ->toImplement(DomainEvent::class)
+    ->toUseTrait(IdentifiesOccurrence::class);
 
 arch('no debugging leftovers')
     ->expect(['dd', 'dump', 'ray', 'var_dump', 'print_r', 'die', 'exit'])

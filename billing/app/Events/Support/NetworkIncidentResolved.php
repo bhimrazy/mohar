@@ -2,13 +2,14 @@
 
 namespace App\Events\Support;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A network incident was resolved.
  */
-final class NetworkIncidentResolved
+final class NetworkIncidentResolved implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

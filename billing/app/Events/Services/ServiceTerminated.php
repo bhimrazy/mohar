@@ -2,10 +2,11 @@
 
 namespace App\Events\Services;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class ServiceTerminated
+final class ServiceTerminated implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

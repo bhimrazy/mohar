@@ -2,10 +2,11 @@
 
 namespace App\Events\Domains;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class DomainRenewed
+final class DomainRenewed implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

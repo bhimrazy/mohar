@@ -2,13 +2,14 @@
 
 namespace App\Events\Domains;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * A transfer has been pending longer than domains.transfer_stale_days (staff notification).
  */
-final class DomainTransferStale
+final class DomainTransferStale implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

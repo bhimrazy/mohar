@@ -2,13 +2,14 @@
 
 namespace App\Events\Domains;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * An EPP/transfer code was retrieved; actor is "client" or "staff".
  */
-final class DomainEppCodeRetrieved
+final class DomainEppCodeRetrieved implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

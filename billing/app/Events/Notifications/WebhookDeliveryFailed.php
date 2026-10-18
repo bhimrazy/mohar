@@ -2,13 +2,14 @@
 
 namespace App\Events\Notifications;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * One failed delivery attempt; $abandoned when no further attempt will be made.
  */
-final class WebhookDeliveryFailed
+final class WebhookDeliveryFailed implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

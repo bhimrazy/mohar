@@ -13,12 +13,16 @@ use Illuminate\Support\Str;
  */
 trait IdentifiesOccurrence
 {
-    public string $occurrenceId = '';
+    /**
+     * UUIDv7 (time-ordered); set once, on first read or serialisation (ADR 0011). Private, so nothing outside
+     * the event can change it (PHPStan rejects a lazily initialised readonly property).
+     */
+    private string $occurrenceId = '';
 
     public function occurrenceId(): string
     {
         if ($this->occurrenceId === '') {
-            $this->occurrenceId = (string) Str::uuid();
+            $this->occurrenceId = (string) Str::uuid7();
         }
 
         return $this->occurrenceId;

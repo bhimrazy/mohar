@@ -2,6 +2,7 @@
 
 namespace App\Events\Orders;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -9,7 +10,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  * Dispatched after the checkout transaction commits. On a failed fraud check OrderMarkedFraud is dispatched
  * first (ADR 0008: listeners must not assume an order between the two).
  */
-final class OrderPlaced
+final class OrderPlaced implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

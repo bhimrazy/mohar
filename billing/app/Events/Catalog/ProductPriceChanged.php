@@ -2,6 +2,7 @@
 
 namespace App\Events\Catalog;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
@@ -11,7 +12,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  * $priceableType is product|addon|config_option_value; amounts are minor units, null when the row was
  * added (old) or removed (new).
  */
-final class ProductPriceChanged
+final class ProductPriceChanged implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 

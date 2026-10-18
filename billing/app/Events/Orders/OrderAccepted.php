@@ -2,10 +2,11 @@
 
 namespace App\Events\Orders;
 
+use App\Contracts\Events\DomainEvent;
 use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class OrderAccepted
+final class OrderAccepted implements DomainEvent
 {
     use Dispatchable, IdentifiesOccurrence;
 
