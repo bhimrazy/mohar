@@ -120,7 +120,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   sign-in, token permissions and expiry, root or reseller, packages and name servers, and is limited to 6 runs a
   minute per staff member. `php artisan provisioning:cpanel-smoke` checks a real server (read-only unless
   `--lifecycle --confirm-lifecycle`).
-- **Test connection opens the server form with a checklist** (#1b): each step passes, warns or fails in a plain
+- **Test connection opens the server form with a checklist** (#73): each step passes, warns or fails in a plain
   sentence, with the WHM version, root or reseller access, token expiry and name servers. When a server presents a
   certificate that is not trusted, staff see its subject, issuer, expiry and SPKI fingerprint and can trust exactly
   that fingerprint ("Trust this certificate": the sensitive server permission and a recent password, audited).
