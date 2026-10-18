@@ -110,8 +110,7 @@ class SupportServiceProvider extends ModuleServiceProvider
             'value' => $user !== null ? $this->awaitingQuery($user)->count() : 0,
             'href' => route('admin.support.tickets.index', ['view' => 'awaiting']),
             'icon' => 'Inbox',
-            'mirrorsTodo' => true,
-        ], 'support.tickets.view', 51);
+        ], 'support.tickets.view', 51, mirrorsTodo: true);
 
         $dashboard->card('admin', 'support.mine', fn (?User $user): array => [
             'label' => 'My assigned tickets',

@@ -16,9 +16,8 @@ import { formatDate } from '@/lib/date';
 import { dashboard } from '@/routes/admin';
 
 /**
- * Props from Core's Admin\DashboardController (kernel Dashboard registry): eager `widgets`, heavy
- * `deferredWidgets`, `todos` (Needs attention) and `health` (system health, deferred). The controller's
- * separate `cards`, `activity` and `automation` props remain for simpler consumers.
+ * Props from Core's Admin\DashboardController (kernel Dashboard registry): eager `widgets` and `todos` (Needs
+ * attention), then `deferredWidgets` and `health` (system health) in one deferred request.
  */
 type DashboardProps = {
     widgets: DashboardWidget[];

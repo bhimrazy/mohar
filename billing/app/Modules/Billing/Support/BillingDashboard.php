@@ -33,7 +33,11 @@ class BillingDashboard
     private const INCOME_TYPES = [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback];
 
     /** A currency with no open or recently closed invoices. */
-    private const EMPTY_BOOK = ['outstanding' => 0, 'outstanding_count' => 0, 'overdue' => 0, 'overdue_count' => 0, 'oldest_due' => null, 'invoices' => []];
+    private const EMPTY_BOOK = [
+        'outstanding' => 0, 'outstanding_count' => 0, 'overdue' => 0, 'overdue_count' => 0, 'oldest_due' => null,
+        'outstanding_weeks' => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'outstanding_month_ago' => 0,
+        'overdue_weeks' => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], 'overdue_month_ago' => 0,
+    ];
 
     /** Weekly points on the KPI sparklines. */
     private const WEEKS = 12;
@@ -76,7 +80,7 @@ class BillingDashboard
             'icon' => 'CreditCard',
         ], 'billing.payments.manage', 13);
 
-        $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.transactions.view', 40);
+        $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
 
     /**
@@ -108,7 +112,7 @@ class BillingDashboard
             $data['income'],
             $this->consolidateDaily($data['income']),
             $view,
-            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp'],
+            ['href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp', 'primary' => true],
         );
     }
 
@@ -119,23 +123,19 @@ class BillingDashboard
     {
         $data = $this->dataset();
 
-        $view = function (array $book): array {
-            $snapshots = $this->snapshots($book, overdueOnly: false);
-
-            return [
-                'trend' => Trend::percent($book['outstanding'], $snapshots['month_ago'], upIsGood: false),
-                'hint' => trans_choice('{0} No unpaid invoices|{1} 1 unpaid invoice|[2,*] :count unpaid invoices', $book['outstanding_count']),
-                'sparkline' => $snapshots['weeks'],
-                'amount' => $book['outstanding'],
-            ];
-        };
+        $view = fn (array $book): array => [
+            'trend' => Trend::percent($book['outstanding'], $book['outstanding_month_ago'], upIsGood: false),
+            'hint' => trans_choice('{0} No unpaid invoices|{1} 1 unpaid invoice|[2,*] :count unpaid invoices', $book['outstanding_count']),
+            'sparkline' => $book['outstanding_weeks'],
+            'amount' => $book['outstanding'],
+        ];
 
         return $this->moneyCard(
             'Outstanding',
             $data['receivables'],
             $this->consolidateBooks($data['receivables']),
             $view,
-            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt'],
+            ['href' => route('admin.billing.invoices.index', ['status' => 'unpaid']), 'icon' => 'Receipt', 'primary' => true],
             self::EMPTY_BOOK,
         );
     }
@@ -148,15 +148,14 @@ class BillingDashboard
         $data = $this->dataset();
 
         $view = function (array $book): array {
-            $snapshots = $this->snapshots($book, overdueOnly: true);
             $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays(CarbonImmutable::today());
 
             return [
-                'trend' => Trend::percent($book['overdue'], $snapshots['month_ago'], upIsGood: false),
+                'trend' => Trend::percent($book['overdue'], $book['overdue_month_ago'], upIsGood: false),
                 'hint' => $book['overdue_count'] === 0
                     ? 'Nothing overdue'
                     : trans_choice('{1} 1 invoice|[2,*] :count invoices', $book['overdue_count']).($oldest === null ? '' : ", oldest {$oldest} days"),
-                'sparkline' => $snapshots['weeks'],
+                'sparkline' => $book['overdue_weeks'],
                 'amount' => $book['overdue'],
             ];
         };
@@ -167,7 +166,7 @@ class BillingDashboard
                 $data['receivables'],
                 $this->consolidateBooks($data['receivables']),
                 $view,
-                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger'],
+                ['href' => route('admin.billing.invoices.index', ['status' => 'overdue']), 'icon' => 'AlertTriangle', 'tone' => 'danger', 'primary' => true],
                 self::EMPTY_BOOK,
             ),
             'count' => array_sum(array_column($data['receivables'], 'overdue_count')),
@@ -404,55 +403,71 @@ class BillingDashboard
         $book = self::EMPTY_BOOK;
 
         foreach ($books as $code => $single) {
-            $book['outstanding'] += $rollup->toDefault($single['outstanding'], $code) ?? 0;
-            $book['overdue'] += $rollup->toDefault($single['overdue'], $code) ?? 0;
+            foreach (['outstanding', 'overdue', 'outstanding_month_ago', 'overdue_month_ago'] as $key) {
+                $book[$key] += $rollup->toDefault($single[$key], $code) ?? 0;
+            }
+
+            foreach (['outstanding_weeks', 'overdue_weeks'] as $key) {
+                foreach ($single[$key] as $index => $amount) {
+                    $book[$key][$index] += $rollup->toDefault($amount, $code) ?? 0;
+                }
+            }
+
             $book['outstanding_count'] += $single['outstanding_count'];
             $book['overdue_count'] += $single['overdue_count'];
             $book['oldest_due'] = $single['oldest_due'] !== null && ($book['oldest_due'] === null || $single['oldest_due'] < $book['oldest_due'])
                 ? $single['oldest_due'] : $book['oldest_due'];
-
-            foreach ($single['invoices'] as $invoice) {
-                $book['invoices'][] = [...$invoice, 'total' => $rollup->toDefault($invoice['total'], $code) ?? 0, 'balance' => $rollup->toDefault($invoice['balance'], $code) ?? 0];
-            }
         }
 
         return $book;
     }
 
     /**
-     * Weekly receivable snapshots (12 points ending today) and the value 30 days ago. The last point is the exact
-     * current figure; earlier points are reconstructed from issue, paid and cancelled dates.
+     * Weekly receivable snapshots (12 points ending today) and the value 30 days ago, for outstanding and overdue.
+     * The last point is the exact current figure; earlier points are reconstructed from issue, paid and cancelled
+     * dates. Overdue follows the same rule as today's figure: an invoice still open today counts only while it is
+     * Unpaid (not Payment pending or Collections); one closed since then counts while it was open and past due.
      *
-     * @param  array<string, mixed>  $book
-     * @return array{weeks: list<int>, month_ago: int}
+     * @param  list<array{issue_date: string, due_date: string|null, paid_at: string|null, cancelled_at: string|null, amount: int, counts_overdue: bool}>  $invoices
+     * @return array{outstanding_weeks: list<int>, outstanding_month_ago: int, overdue_weeks: list<int>, overdue_month_ago: int}
      */
-    private function snapshots(array $book, bool $overdueOnly): array
+    private function snapshots(array $invoices, int $outstanding, int $overdue): array
     {
         $today = CarbonImmutable::today();
-        $at = function (CarbonImmutable $date) use ($book, $overdueOnly): int {
+        $at = function (CarbonImmutable $date) use ($invoices): array {
             $day = $date->toDateString();
-            $sum = 0;
+            $sums = [0, 0];
 
-            foreach ($book['invoices'] as $invoice) {
-                $open = $invoice['issue_date'] <= $day
-                    && ($invoice['paid_at'] === null || $invoice['paid_at'] > $day)
-                    && ($invoice['cancelled_at'] === null || $invoice['cancelled_at'] > $day);
+            foreach ($invoices as $invoice) {
+                if ($invoice['issue_date'] > $day || ($invoice['paid_at'] !== null && $invoice['paid_at'] <= $day) || ($invoice['cancelled_at'] !== null && $invoice['cancelled_at'] <= $day)) {
+                    continue;
+                }
 
-                if ($open && (! $overdueOnly || ($invoice['due_date'] !== null && $invoice['due_date'] < $day && $invoice['can_be_overdue']))) {
-                    $sum += $invoice['payable'] ? $invoice['balance'] : $invoice['total'];
+                $sums[0] += $invoice['amount'];
+
+                if ($invoice['counts_overdue'] && $invoice['due_date'] !== null && $invoice['due_date'] < $day) {
+                    $sums[1] += $invoice['amount'];
                 }
             }
 
-            return $sum;
+            return $sums;
         };
-        $current = $overdueOnly ? $book['overdue'] : $book['outstanding'];
-        $weeks = [];
+        $weeks = [[], []];
 
         for ($week = self::WEEKS - 1; $week >= 1; $week--) {
-            $weeks[] = $at($today->subWeeks($week));
+            [$open, $late] = $at($today->subWeeks($week));
+            $weeks[0][] = $open;
+            $weeks[1][] = $late;
         }
 
-        return ['weeks' => [...$weeks, $current], 'month_ago' => $at($today->subDays(30))];
+        $monthAgo = $at($today->subDays(30));
+
+        return [
+            'outstanding_weeks' => [...$weeks[0], $outstanding],
+            'outstanding_month_ago' => $monthAgo[0],
+            'overdue_weeks' => [...$weeks[1], $overdue],
+            'overdue_month_ago' => $monthAgo[1],
+        ];
     }
 
     /**
@@ -604,57 +619,56 @@ class BillingDashboard
     }
 
     /**
+     * Per-currency receivable books: today's totals plus their weekly history. Reads open invoices and those closed
+     * within the window in three indexed queries (status; status + paid_at; status + cancelled_at), and caches only
+     * the computed figures, never the rows.
+     *
      * @return array<string, array<string, mixed>>
      */
     private function receivables(CarbonImmutable $today): array
     {
         $since = $today->subWeeks(self::WEEKS)->subDay();
+        $columns = ['id', 'currency', 'status', 'issue_date', 'due_date', 'paid_at', 'cancelled_at', 'total', 'balance'];
+        $base = fn () => Invoice::query()->whereNotNull('issue_date')->toBase();
+        $rows = $base()->whereIn('status', InvoiceStatus::payable())->get($columns)
+            ->concat($base()->whereIn('status', [InvoiceStatus::Paid, InvoiceStatus::Refunded])->where('paid_at', '>=', $since)->get($columns))
+            ->concat($base()->where('status', InvoiceStatus::Cancelled)->where('cancelled_at', '>=', $since)->get($columns))
+            ->unique('id');
         $payable = array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable());
+        $date = fn (mixed $value): ?string => $value === null ? null : substr((string) $value, 0, 10);
         $books = [];
+        $invoices = [];
 
-        Invoice::query()
-            ->where('status', '!=', InvoiceStatus::Draft)
-            ->whereNotNull('issue_date')
-            ->where(fn ($query) => $query->whereIn('status', $payable)
-                ->orWhere('paid_at', '>=', $since)
-                ->orWhere('cancelled_at', '>=', $since))
-            ->toBase()
-            ->get(['currency', 'status', 'issue_date', 'due_date', 'paid_at', 'cancelled_at', 'total', 'balance'])
-            ->each(function (object $row) use (&$books, $payable, $today): void {
-                $code = (string) $row->currency;
-                $isPayable = in_array($row->status, $payable, true);
-                $books[$code] ??= self::EMPTY_BOOK;
-                $dueDate = $row->due_date === null ? null : substr((string) $row->due_date, 0, 10);
-                $paidAt = $row->paid_at === null ? null : substr((string) $row->paid_at, 0, 10);
-                $cancelledAt = $row->cancelled_at === null ? null : substr((string) $row->cancelled_at, 0, 10);
+        foreach ($rows as $row) {
+            $code = (string) $row->currency;
+            $isPayable = in_array($row->status, $payable, true);
+            $books[$code] ??= self::EMPTY_BOOK;
+            $dueDate = $date($row->due_date);
 
-                // A closed invoice without a closing date cannot be placed in history.
-                if (! $isPayable && $paidAt === null && $cancelledAt === null) {
-                    return;
+            if ($isPayable) {
+                $books[$code]['outstanding'] += (int) $row->balance;
+                $books[$code]['outstanding_count']++;
+
+                if ($row->status === InvoiceStatus::Unpaid->value && $dueDate !== null && $dueDate < $today->toDateString()) {
+                    $books[$code]['overdue'] += (int) $row->balance;
+                    $books[$code]['overdue_count']++;
+                    $books[$code]['oldest_due'] = $books[$code]['oldest_due'] === null || $dueDate < $books[$code]['oldest_due'] ? $dueDate : $books[$code]['oldest_due'];
                 }
+            }
 
-                if ($isPayable) {
-                    $books[$code]['outstanding'] += (int) $row->balance;
-                    $books[$code]['outstanding_count']++;
+            $invoices[$code][] = [
+                'issue_date' => (string) $date($row->issue_date),
+                'due_date' => $dueDate,
+                'paid_at' => $isPayable ? null : $date($row->paid_at),
+                'cancelled_at' => $isPayable ? null : $date($row->cancelled_at),
+                'amount' => $isPayable ? (int) $row->balance : (int) $row->total,
+                'counts_overdue' => ! $isPayable || $row->status === InvoiceStatus::Unpaid->value,
+            ];
+        }
 
-                    if ($row->status === InvoiceStatus::Unpaid->value && $dueDate !== null && $dueDate < $today->toDateString()) {
-                        $books[$code]['overdue'] += (int) $row->balance;
-                        $books[$code]['overdue_count']++;
-                        $books[$code]['oldest_due'] = $books[$code]['oldest_due'] === null || $dueDate < $books[$code]['oldest_due'] ? $dueDate : $books[$code]['oldest_due'];
-                    }
-                }
-
-                $books[$code]['invoices'][] = [
-                    'issue_date' => substr((string) $row->issue_date, 0, 10),
-                    'due_date' => $dueDate,
-                    'paid_at' => $paidAt,
-                    'cancelled_at' => $cancelledAt,
-                    'total' => (int) $row->total,
-                    'balance' => (int) $row->balance,
-                    'payable' => $isPayable,
-                    'can_be_overdue' => ! in_array($row->status, [InvoiceStatus::PaymentPending->value], true),
-                ];
-            });
+        foreach ($books as $code => $book) {
+            $books[$code] = [...$book, ...$this->snapshots($invoices[$code], $book['outstanding'], $book['overdue'])];
+        }
 
         return $books;
     }
@@ -698,10 +712,10 @@ class BillingDashboard
     }
 
     /**
-     * One currency table read per request (memoised for the lifetime of the request).
+     * Request-scoped (bound in CoreServiceProvider), so Billing and Services share one read of the currency table.
      */
     private function rollup(): CurrencyRollup
     {
-        return once(fn (): CurrencyRollup => new CurrencyRollup);
+        return app(CurrencyRollup::class);
     }
 }

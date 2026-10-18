@@ -29,6 +29,8 @@ export type StatWidget = WidgetBase & {
     trend?: StatTrend;
     sparkline?: number[];
     tone?: 'default' | 'danger' | 'warning';
+    /** A KPI for the top row (at most four are shown there). */
+    primary?: boolean;
     /** Same figure as the Needs attention item with this key: shown there only, not in the counter strip. */
     mirrorsTodo?: boolean;
     variants?: Variants<StatWidget>;

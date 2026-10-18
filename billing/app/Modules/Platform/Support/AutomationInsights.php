@@ -51,14 +51,16 @@ class AutomationInsights
                 'updated_at' => $run->updated_at === null ? null : CarbonImmutable::parse((string) $run->updated_at),
             ]);
 
+        $nextRun = $this->nextRun($today);
+
         return [
             'hasRuns' => $runs->isNotEmpty() || AutomationRun::query()->exists(),
             'scheduler' => $this->scheduler(),
             'successRate' => $this->successRate($runs, $today),
             'failed24h' => $runs->filter(fn (array $run): bool => $run['status'] === 'failed' && $run['updated_at']?->gte(now()->subDay()))->count(),
-            'nextRunAt' => $this->nextRun($today)->toIso8601String(),
+            'nextRunAt' => $nextRun->toIso8601String(),
             'duration' => $this->duration($runs, $today),
-            'perDay' => $this->perDay($runs, $since, count($tasks)),
+            'perDay' => $this->perDay($runs, $since, count($tasks), todayPending: $nextRun->isSameDay($today)),
             'processedToday' => $this->processedToday($runs, $today, $tasks),
             'stageDurations' => $this->stageDurations($runs, $today, $tasks),
             'cronCommand' => sprintf('* * * * * cd %s && php artisan schedule:run >> /dev/null 2>&1', base_path()),
@@ -152,12 +154,13 @@ class AutomationInsights
     }
 
     /**
-     * Runs per day: succeeded, failed, and registered tasks with no run that day (the silent-cron signal).
+     * Runs per day: succeeded, failed, and registered tasks with no run that day (the silent-cron signal). Before
+     * today's scheduled time, today's missing runs are not due yet and count as zero.
      *
      * @param  Collection<int, Run>  $runs
      * @return list<array{x: string, success: int, failed: int, missing: int}>
      */
-    private function perDay(Collection $runs, CarbonImmutable $since, int $taskCount): array
+    private function perDay(Collection $runs, CarbonImmutable $since, int $taskCount, bool $todayPending): array
     {
         $byDay = $runs->groupBy('day');
         $days = [];
@@ -167,7 +170,8 @@ class AutomationInsights
             $set = $byDay->get($day, collect());
             $success = $set->where('status', 'success')->count();
             $failed = $set->where('status', 'failed')->count();
-            $days[] = ['x' => $day, 'success' => $success, 'failed' => $failed, 'missing' => max(0, $taskCount - $success - $failed)];
+            $notDue = $todayPending && $offset === self::DAYS - 1;
+            $days[] = ['x' => $day, 'success' => $success, 'failed' => $failed, 'missing' => $notDue ? 0 : max(0, $taskCount - $success - $failed)];
         }
 
         return $days;

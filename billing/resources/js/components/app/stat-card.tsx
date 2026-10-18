@@ -38,7 +38,16 @@ type StatCardProps = {
     className?: string;
 };
 
-function trendIsGood(trend: StatTrend): boolean | null {
+/** Screen-reader prefix for a trend, e.g. "Up, good, " (colour alone must not carry good or bad). */
+export function trendSpeech(trend: StatTrend): string {
+    if (trend.direction === 'flat') {
+        return 'No change, ';
+    }
+
+    return `${trend.direction === 'up' ? 'Up' : 'Down'}, ${trendIsGood(trend) ? 'good' : 'needs attention'}, `;
+}
+
+export function trendIsGood(trend: StatTrend): boolean | null {
     if (trend.direction === 'flat') {
         return null;
     }
@@ -65,11 +74,7 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
             )}
         >
             <Icon className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">
-                {trend.direction === 'flat'
-                    ? 'No change'
-                    : `${trend.direction === 'up' ? 'Up' : 'Down'} (${isGood ? 'good' : 'needs attention'})`}
-            </span>
+            <span className="sr-only">{trendSpeech(trend)}</span>
             {trend.value}
         </span>
     );

@@ -133,16 +133,14 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'value' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
             'href' => route('admin.services.index', ['status' => 'pending']),
             'icon' => 'Package',
-            'mirrorsTodo' => true,
-        ], 'services.services.view', 31);
+        ], 'services.services.view', 31, mirrorsTodo: true);
 
         $dashboard->card('admin', 'services.failed', fn (?User $user): array => [
             'label' => 'Failed module actions',
             'value' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
-            'mirrorsTodo' => true,
-        ], 'services.module_log.view', 32);
+        ], 'services.module_log.view', 32, mirrorsTodo: true);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Services waiting for provisioning',

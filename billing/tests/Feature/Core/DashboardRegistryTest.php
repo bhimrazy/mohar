@@ -56,6 +56,20 @@ test('trend pills compare against the previous period and say nothing without on
     expect(Trend::percent(1_200, 1_000))->toBe(['value' => '20.0%', 'direction' => 'up', 'upIsGood' => true])
         ->and(Trend::percent(500, 1_000, upIsGood: false))->toBe(['value' => '50.0%', 'direction' => 'down', 'upIsGood' => false])
         ->and(Trend::percent(1_000, 1_000))->toMatchArray(['direction' => 'flat'])
-        ->and(Trend::percent(1_000, 0))->toBeNull()
-        ->and(Trend::delta(9, 6, upIsGood: false))->toBe(['value' => '+3', 'direction' => 'up', 'upIsGood' => false]);
+        ->and(Trend::percent(1_000, 0))->toBeNull();
+});
+
+test('cards that mirror a to-do are returned by resolve() but skipped by resolveWidgets() without running', function () {
+    $dashboard = new Dashboard;
+    $runs = 0;
+    $dashboard->card('admin', 'x.pending', function () use (&$runs) {
+        $runs++;
+
+        return ['label' => 'Pending', 'value' => 2];
+    }, mirrorsTodo: true);
+    $user = User::factory()->staff()->create();
+
+    expect($dashboard->resolveWidgets('admin', $user))->toBe([])
+        ->and($runs)->toBe(0)
+        ->and($dashboard->resolve('admin', $user)[0])->toMatchArray(['key' => 'x.pending', 'mirrorsTodo' => true, 'value' => 2]);
 });

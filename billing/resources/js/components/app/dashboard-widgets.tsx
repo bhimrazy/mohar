@@ -18,6 +18,7 @@ import { ListWidget } from '@/components/app/list-widget';
 import { NeedsAttention } from '@/components/app/needs-attention';
 import type { TodoItem } from '@/components/app/needs-attention';
 import { StatCard } from '@/components/app/stat-card';
+import { trendSpeech } from '@/components/app/stat-card';
 import type { StatTrend } from '@/components/app/stat-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatMoney } from '@/lib/money';
@@ -33,7 +34,7 @@ export type {
     StatWidget,
 } from '@/components/app/dashboard/types';
 
-/** The first stat cards by registry order are the primary KPIs; the rest form the counter strip. */
+/** Stat cards flagged `primary` form the KPI row (at most four); without any flag, the first four do. */
 const PRIMARY_STATS = 4;
 
 /** Rows shown per list card. */
@@ -83,13 +84,7 @@ function TrendText({ trend }: { trend: StatTrend }) {
             )}
         >
             <span aria-hidden="true">{arrow}</span>
-            <span className="sr-only">
-                {trend.direction === 'up'
-                    ? 'Up'
-                    : trend.direction === 'down'
-                      ? 'Down'
-                      : 'No change'}
-            </span>{' '}
+            <span className="sr-only">{trendSpeech(trend)}</span>{' '}
             {trend.value.replace(/^-/, '')}
         </span>
     );
@@ -270,6 +265,11 @@ export function DashboardWidgets({
     const lists = all.filter(
         (widget): widget is ListWidgetData => widget.type === 'list',
     );
+    const flagged = stats.filter((stat) => stat.primary);
+    const primary = (flagged.length > 0 ? flagged : stats).slice(
+        0,
+        PRIMARY_STATS,
+    );
     const hero = charts.find((chart) => chart.currency) ?? null;
     // Trends keep registry order across charts and breakdowns (both arrive in order within each prop).
     const trends = [...charts.filter((chart) => chart !== hero), ...breakdowns];
@@ -281,11 +281,11 @@ export function DashboardWidgets({
         <>
             <div className="grid gap-(--page-gap) lg:grid-cols-3">
                 <StatWidgets
-                    widgets={stats.slice(0, PRIMARY_STATS)}
+                    widgets={primary}
                     className="order-2 md:order-1 lg:col-span-3"
                 />
                 <StatStrip
-                    widgets={stats.slice(PRIMARY_STATS)}
+                    widgets={stats.filter((stat) => !primary.includes(stat))}
                     className="order-4 md:order-2 lg:col-span-3"
                 />
                 {hero ? (

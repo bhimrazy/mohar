@@ -74,8 +74,8 @@ test('dashboards show billing cards', function () {
     Invoice::factory()->overdue()->create();
 
     $this->get(route('admin.dashboard'))->assertInertia(fn (Assert $page) => $page
-        ->where('cards', fn ($cards) => collect($cards)->firstWhere('key', 'billing.overdue')['count'] === 1
-            && collect($cards)->firstWhere('key', 'billing.unpaid')['money']['currency'] === 'USD'));
+        ->where('widgets', fn ($widgets) => collect($widgets)->firstWhere('key', 'billing.overdue')['count'] === 1
+            && collect($widgets)->firstWhere('key', 'billing.unpaid')['money']['currency'] === 'USD'));
 
     $client = Client::factory()->withOwner()->create();
     $this->actingAs($client->users()->firstOrFail());

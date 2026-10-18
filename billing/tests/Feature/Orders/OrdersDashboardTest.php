@@ -3,6 +3,7 @@
 use App\Contracts\Catalog\PriceBook;
 use App\Modules\Catalog\Enums\ProductType;
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
 use App\Support\Dashboard\Dashboard;
@@ -54,4 +55,16 @@ test('without the catalog, service orders fall under Other', function () {
 
 test('the chart is hidden without order access', function () {
     expect(collect(app(Dashboard::class)->resolveWidgets('admin', actingAsStaff(['billing.*'])))->pluck('key'))->not->toContain('orders.by_type');
+});
+
+test('days follow the company timezone: an early-morning order in Kathmandu lands on its local day, first day included', function () {
+    app(Settings::class)->set('system.timezone', 'Asia/Kathmandu'); // UTC+5:45; local today is 2026-10-18
+    placedOrder(null, domain: true, when: '2026-10-04 20:00:00');  // 2026-10-05 01:45 local: the first day of the window
+    placedOrder(null, domain: true, when: '2026-10-04 18:00:00');  // 2026-10-04 23:45 local: before the window
+
+    $chart = ordersByType();
+    $domains = collect($chart['series'])->firstWhere('name', 'Domains');
+
+    expect($chart['description'])->toBe('Last 14 days · 1 order')
+        ->and($domains['points'][0])->toBe(['x' => '2026-10-05', 'y' => 1]);
 });

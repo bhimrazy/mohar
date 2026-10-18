@@ -35,8 +35,8 @@ class OrdersDashboard
      */
     private function byType(): array
     {
-        $today = $this->clock->today();
-        $start = $today->subDays(self::DAYS - 1);
+        // Company-local midnight 13 days ago; converted to UTC only for the query (created_at is stored in UTC).
+        $start = $this->clock->now()->startOfDay()->subDays(self::DAYS - 1);
         $days = [];
 
         for ($offset = 0; $offset < self::DAYS; $offset++) {
@@ -58,7 +58,7 @@ class OrdersDashboard
         $types = [];
 
         foreach ($orders as $order) {
-            $day = CarbonImmutable::parse($order->created_at)->setTimezone($this->clock->timezone())->toDateString();
+            $day = CarbonImmutable::parse($order->created_at, 'UTC')->setTimezone($this->clock->timezone())->toDateString();
 
             if (isset($days[$day])) {
                 $days[$day][$this->category($firstItems->get($order->id), $types)]++;

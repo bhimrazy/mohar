@@ -11,7 +11,6 @@ use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Platform's admin dashboard widgets and "Needs attention" to-dos.
@@ -139,8 +138,8 @@ class PlatformDashboard
      */
     private function queueHealth(): array
     {
-        $failed = Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count() : 0;
-        $waiting = config('queue.default') === 'database' && Schema::hasTable('jobs') ? DB::table('jobs')->count() : null;
+        $failed = DB::table('failed_jobs')->where('failed_at', '>=', now()->subDay())->count();
+        $waiting = config('queue.default') === 'database' ? DB::table('jobs')->count() : null;
 
         return [
             'label' => 'Queue',

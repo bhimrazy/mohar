@@ -84,8 +84,8 @@ export function TableToggle({
         <button
             type="button"
             aria-pressed={pressed}
-            aria-label={`${pressed ? 'Show chart' : 'Show as table'}: ${label}`}
-            title={pressed ? 'Show chart' : 'Show as table'}
+            aria-label={`Show as table: ${label}`}
+            title="Show as table"
             onClick={() => onPressedChange(!pressed)}
             className={cn(
                 'grid size-8 place-items-center rounded-md border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none',

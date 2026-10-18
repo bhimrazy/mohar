@@ -139,3 +139,34 @@ test('money widgets carry a variant for each configured currency, empty ones inc
         ->and($widgets['billing.unpaid']['variants']['USD'])->toMatchArray(['money' => ['amount' => 0, 'currency' => 'USD'], 'hint' => 'No unpaid invoices'])
         ->and($widgets['billing.overdue']['variants']['INR']['hint'])->toBe('Nothing overdue');
 });
+
+test('the overdue trend compares like with like: Collections invoices are not overdue today or in history', function () {
+    $issued = ['issue_date' => '2026-06-01', 'due_date' => '2026-06-15'];
+    Invoice::factory()->create(['client_id' => $this->usd->id, 'status' => 'collections', 'total' => 5_000, 'balance' => 5_000, ...$issued]);
+    Invoice::factory()->create(['client_id' => $this->usd->id, 'status' => 'unpaid', 'total' => 3_000, 'balance' => 3_000, ...$issued]);
+
+    $overdue = billingWidgets()['billing.overdue'];
+
+    expect($overdue['money']['amount'])->toBe(3_000)
+        ->and($overdue['sparkline'])->toBe(array_fill(0, 12, 3_000))
+        ->and($overdue['trend'])->toMatchArray(['value' => '0.0%', 'direction' => 'flat']);
+});
+
+test('the gateway check and its to-do need billing.payments.manage, like the page they link to', function () {
+    PaymentAttempt::query()->forceCreate([
+        'reference' => 'pa_'.Str::random(12), 'gateway' => 'sandbox_card', 'client_id' => $this->usd->id, 'amount' => 1_000,
+        'currency' => 'USD', 'document_amount' => 1_000, 'document_currency' => 'USD', 'status' => AttemptStatus::Ambiguous, 'updated_at' => now()->subHours(2),
+    ]);
+    $user = actingAsStaff(['billing.transactions.view']);
+
+    expect(collect(app(Dashboard::class)->resolveHealth('admin', $user))->pluck('key'))->not->toContain('billing.gateways')
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', $user))->pluck('key'))->not->toContain('billing.payment_review');
+});
+
+test('the four money KPIs are flagged for the top row', function () {
+    $widgets = billingWidgets();
+
+    expect($widgets['billing.income']['primary'])->toBeTrue()
+        ->and($widgets['billing.unpaid']['primary'])->toBeTrue()
+        ->and($widgets['billing.overdue']['primary'])->toBeTrue();
+});

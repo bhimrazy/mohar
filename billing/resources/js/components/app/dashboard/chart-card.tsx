@@ -5,6 +5,7 @@ import {
     seriesColor,
     TimeSeriesChart,
 } from '@/components/app/time-series-chart';
+import { trendSpeech } from '@/components/app/stat-card';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
@@ -80,13 +81,7 @@ function SummaryTrend({
             )}
         >
             <Icon className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">
-                {trend.direction === 'up'
-                    ? 'Up'
-                    : trend.direction === 'down'
-                      ? 'Down'
-                      : 'No change'}
-            </span>
+            <span className="sr-only">{trendSpeech(trend)}</span>
             {trend.value}
             {trend.label && <span className="font-normal"> {trend.label}</span>}
         </span>

@@ -146,8 +146,9 @@ card is the link (to services, transactions, unpaid and overdue invoices).
 Every remaining stat as a compact tile: icon, label, value, optional context line or trend. Four per row from
 `lg`, two on phones with two-line labels. Tiles keep their links; zero values stay (a zero is information).
 
-A counter that is the same figure as a Needs attention item (same query, same permission, same key) is sent
-with `mirrorsTodo: true` and shown only in Needs attention (CTO decision, 2026-10-18): pending orders,
+A counter that is the same figure as a Needs attention item (same query, same permission, same key) is
+registered with `mirrorsTodo: true`; the admin dashboard skips it without running its query and shows the
+figure only in Needs attention (CTO decision, 2026-10-18): pending orders,
 pending provisioning, failed module actions, domains expiring in 30 days and tickets awaiting staff reply.
 Seven counters remain: active clients, new clients this month, orders today, active services, pending domain
 registrations, open tickets, my assigned tickets.
@@ -248,7 +249,12 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 `App\Support\Dashboard\Dashboard`. Modules that send none of the new fields keep working unchanged.
 
 - **stat** gains optional `sparkline: int[]`, `trend: {value, direction: up|down|flat, upIsGood?}`,
-  `tone: default|warning|danger`, `money: {amount, currency}` (already sent by Billing).
+  `tone: default|warning|danger`, `money: {amount, currency}` (already sent by Billing) and `primary: bool`
+  (the KPI row: up to four flagged cards; without any flag the first four by order, as before).
+- **card()/widget()** gain `mirrorsTodo: bool`: `resolveWidgets()` skips such a card without running it;
+  `resolve()` (client area, simple dashboards) still returns it, marked `mirrorsTodo: true`.
+- **Controller props:** `todos` and `widgets` (closures, first paint), `deferredWidgets` and `health` (one
+  deferred request). The unused `cards`, `activity` and `automation` props are gone.
 - **chart** gains optional `stacked: bool`, `description`, `summary: {money|value, label, trend?}`, series
   `compare: bool` (drawn as the neutral dashed baseline), `ranges: {key: {label, series, summary?}}`, and
   `xFormat: month|day|dayOfMonth|week`.
@@ -276,9 +282,23 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - Daily buckets use `date(<column>)`, which SQLite, MySQL and PostgreSQL all accept; months, weeks and
   comparisons are built in PHP. No `strftime`, `date_trunc` or `DATE_FORMAT`.
 - Billing computes one per-currency dataset for all its widgets and caches it for 60 seconds
-  (`Cache::remember`, key includes the date), so the four Billing widgets share one set of queries.
+  (`Cache::remember`, key includes the date), so the Billing widgets share one set of queries. The cache holds
+  computed figures only (daily income, per-currency receivable totals with their 12 weekly points, tax),
+  never invoice rows. The dataset is the same for every user; permissions apply per widget.
+- Receivables are read in three indexed queries: payable statuses (`invoices(status, due_date)`), paid or
+  refunded since the window start (`invoices(status, paid_at)`, added here), cancelled since the window start.
 - Historical outstanding/overdue points are reconstructed from issue, paid and cancelled dates; partial
-  payments on still-open invoices count at today's balance. The last point always equals the KPI value.
+  payments on still-open invoices count at today's balance. Overdue uses one rule today and in history: an
+  invoice still open counts only while Unpaid (not Payment pending or Collections); one closed since counts
+  while it was open and past due. The last point always equals the KPI value.
+- Budget: one visit makes about 50 queries for first paint and about 24 for the deferred request (all
+  modules and permissions, cold cache), with no growth per row. `DashboardQueryCountTest` holds the ceilings
+  (60 and 32).
+- **Calendars.** Orders buckets days in the company timezone (`system.timezone`, window computed locally then
+  converted to UTC). Billing, Core sign-ups, Services MRR and the Automation page bucket in the application
+  timezone (UTC), each consistent with its own window, so none undercounts; but on a company east or west of
+  UTC, income days and order days are different calendars. Follow-up: a company clock for Billing's series
+  (and `date()` buckets offset to it).
 - Each widget is registered with its permission and hidden when the user lacks it. Widgets touch only their
   own module's tables; cross-module data goes through contracts (`PriceBook::product()` for product type).
 - Demo seeding: billing history extends to 24 months with gradual growth so the YoY comparison is

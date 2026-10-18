@@ -38,7 +38,7 @@ class ServicesDashboard
      */
     private function mrr(): array
     {
-        $rollup = new CurrencyRollup;
+        $rollup = app(CurrencyRollup::class);
         $today = CarbonImmutable::today();
         $points = [];
 
@@ -110,6 +110,7 @@ class ServicesDashboard
             ),
             'href' => route('admin.services.index', ['status' => 'active']),
             'icon' => 'Repeat',
+            'primary' => true,
             'variants' => $variants === [] ? (object) [] : $variants,
         ];
     }

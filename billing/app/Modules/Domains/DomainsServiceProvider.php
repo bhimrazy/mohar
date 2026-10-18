@@ -159,8 +159,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'value' => Domain::query()->expiringWithin(30)->count(),
             'href' => route('admin.domains.index', ['expiring' => 30]),
             'icon' => 'Globe',
-            'mirrorsTodo' => true,
-        ], 'domains.domains.view', 40);
+        ], 'domains.domains.view', 40, mirrorsTodo: true);
 
         $dashboard->card('admin', 'domains.pending', fn (?User $user): array => [
             'label' => 'Pending registrations',

@@ -27,20 +27,4 @@ final class Trend
             'upIsGood' => $upIsGood,
         ];
     }
-
-    /**
-     * Absolute change in a count, e.g. "+3".
-     *
-     * @return array{value: string, direction: string, upIsGood: bool}
-     */
-    public static function delta(int $current, int $previous, bool $upIsGood = true): array
-    {
-        $change = $current - $previous;
-
-        return [
-            'value' => ($change > 0 ? '+' : ($change < 0 ? '−' : '')).abs($change),
-            'direction' => $change === 0 ? 'flat' : ($change > 0 ? 'up' : 'down'),
-            'upIsGood' => $upIsGood,
-        ];
-    }
 }

@@ -57,7 +57,7 @@ class AutomationController extends Controller
                 'last_run_date' => $lastRuns->get($key)?->run_date->toDateString(),
             ], array_keys($automation->ordered()), array_values($automation->ordered())),
             'filters' => $filters,
-            'insights' => $insights->summary(),
+            'insights' => fn (): array => $insights->summary(),
             'scheduledAt' => (string) $settings->get('core.automation_time', config('core.automation_time')),
             'can' => ['run' => $request->user()?->hasPermission('core.automation.run') ?? false],
         ]);

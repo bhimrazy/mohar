@@ -103,15 +103,13 @@ test('the dashboard flags automation that has not run for over 26 hours and fail
     actingAsStaff(['core.automation.view']);
 
     $this->get(route('admin.dashboard'))->assertInertia(fn (Assert $page) => $page
-        ->where('todos', fn ($todos) => collect($todos)->pluck('key')->contains('platform.automation.stale'))
-        ->where('automation.stale', true));
+        ->where('todos', fn ($todos) => collect($todos)->pluck('key')->contains('platform.automation.stale')));
 
     AutomationRun::query()->create(['run_date' => today(), 'task' => 'test.housekeeping', 'status' => 'failed', 'summary' => 'boom']);
 
     $this->get(route('admin.dashboard'))->assertInertia(fn (Assert $page) => $page
         ->where('todos', fn ($todos) => ! collect($todos)->pluck('key')->contains('platform.automation.stale')
-            && collect($todos)->firstWhere('key', 'platform.automation.failed')['count'] === 1)
-        ->where('automation.failed_today', 1));
+            && collect($todos)->firstWhere('key', 'platform.automation.failed')['count'] === 1));
 });
 
 test('the scheduler heartbeat is recorded', function () {
@@ -178,4 +176,15 @@ test('the scheduler state follows the heartbeat, and a fresh install has no runs
 
     Cache::forever(AutomationStatus::HEARTBEAT_KEY, now()->subHours(3)->toIso8601String());
     expect($state()['scheduler']['state'])->toBe('stopped');
+});
+
+test('before today\'s scheduled run, today does not count as missed', function () {
+    app(Settings::class)->set('core.automation_time', '03:00');
+    $this->travelTo('2026-10-18 01:00:00');
+    actingAsStaff(['core.automation.view']);
+
+    $perDay = $this->get(route('admin.platform.automation.index'))->viewData('page')['props']['insights']['perDay'];
+
+    expect($perDay[29])->toMatchArray(['x' => '2026-10-18', 'missing' => 0])
+        ->and($perDay[28]['missing'])->toBe(count(app(Automation::class)->ordered()));
 });

@@ -12,8 +12,9 @@ use Closure;
  * Stat card (shortcut). Optional: 'money' => ['amount', 'currency'], 'hint', 'trend' => ['value' => '12%', 'direction' =>
  * 'up'|'down'|'flat', 'upIsGood' => bool], 'sparkline' => int[] (12 points), 'tone' => 'default'|'warning'|'danger':
  *   $dashboard->card('admin', 'billing.overdue', fn ($user) => ['label' => 'Overdue', 'value' => 3, 'href' => ..., 'icon' => 'Receipt'], 'billing.invoices.view');
- * The first four stat cards by order are the dashboard's primary KPIs; the rest form the counter strip. A card that is the
- * same figure as a to-do with the same key sets 'mirrorsTodo' => true: the dashboard then shows it once, in Needs attention.
+ * Stat cards sending 'primary' => true form the KPI row (up to four, by order); the rest form the counter strip. A card
+ * that is the same figure as a to-do with the same key is registered with mirrorsTodo: true: resolveWidgets() then skips
+ * it (the dashboard shows it once, in Needs attention, without running its query), while resolve() still returns it.
  *
  * Other widgets — type + payload shape:
  *   'list'  => ['title' => 'Recent orders', 'items' => [['title', 'subtitle'?, 'href'?, 'meta'?, 'money'?, 'status'?]], 'href'? (view all),
@@ -43,7 +44,7 @@ class Dashboard
 
     public const SIZES = ['sm', 'md', 'lg'];
 
-    /** @var array<string, list<array{key: string, type: string, size: string, deferred: bool, resolver: Closure, permission: ?string, order: int}>> */
+    /** @var array<string, list<array{key: string, type: string, size: string, deferred: bool, mirrorsTodo: bool, resolver: Closure, permission: ?string, order: int}>> */
     private array $widgets = [];
 
     /** @var array<string, list<array{key: string, resolver: Closure, permission: ?string, order: int}>> */
@@ -52,18 +53,19 @@ class Dashboard
     /** @var array<string, list<array{key: string, resolver: Closure, permission: ?string, order: int}>> */
     private array $health = [];
 
-    public function card(string $area, string $key, Closure $resolver, ?string $permission = null, int $order = 100): void
+    public function card(string $area, string $key, Closure $resolver, ?string $permission = null, int $order = 100, bool $mirrorsTodo = false): void
     {
-        $this->widget($area, $key, 'stat', $resolver, $permission, $order, 'sm');
+        $this->widget($area, $key, 'stat', $resolver, $permission, $order, 'sm', mirrorsTodo: $mirrorsTodo);
     }
 
-    public function widget(string $area, string $key, string $type, Closure $resolver, ?string $permission = null, int $order = 100, string $size = 'md', bool $deferred = false): void
+    public function widget(string $area, string $key, string $type, Closure $resolver, ?string $permission = null, int $order = 100, string $size = 'md', bool $deferred = false, bool $mirrorsTodo = false): void
     {
         $this->widgets[$area][] = [
             'key' => $key,
             'type' => in_array($type, self::TYPES, true) ? $type : 'list',
             'size' => in_array($size, self::SIZES, true) ? $size : 'md',
             'deferred' => $deferred,
+            'mirrorsTodo' => $mirrorsTodo,
             'resolver' => $resolver,
             'permission' => $permission,
             'order' => $order,
@@ -81,34 +83,46 @@ class Dashboard
     }
 
     /**
-     * Stat cards only (kept for simple dashboards).
+     * Stat cards only (kept for simple dashboards and the client area), including cards that mirror a to-do; those
+     * carry 'mirrorsTodo' => true.
      *
      * @return list<array<string, mixed>>
      */
     public function resolve(string $area, ?User $user, mixed ...$arguments): array
     {
         return array_values(array_filter(
-            $this->resolveWidgets($area, $user, false, ...$arguments),
+            $this->resolveSet($area, $user, false, true, ...$arguments),
             fn (array $widget): bool => $widget['type'] === 'stat',
         ));
     }
 
     /**
-     * All visible widgets in order: ['key', 'type', 'size', ...payload].
+     * All visible widgets in order: ['key', 'type', 'size', ...payload]. Cards that mirror a to-do are skipped
+     * without running their resolvers.
      *
      * @param  bool|null  $deferred  null = all, true = only deferred, false = only eager
      * @return list<array<string, mixed>>
      */
     public function resolveWidgets(string $area, ?User $user, ?bool $deferred = null, mixed ...$arguments): array
     {
+        return $this->resolveSet($area, $user, $deferred, false, ...$arguments);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function resolveSet(string $area, ?User $user, ?bool $deferred, bool $withMirrors, mixed ...$arguments): array
+    {
         return array_values(collect($this->widgets[$area] ?? [])
             ->filter(fn (array $widget): bool => $deferred === null || $widget['deferred'] === $deferred)
+            ->filter(fn (array $widget): bool => $withMirrors || ! $widget['mirrorsTodo'])
             ->filter(fn (array $widget): bool => $this->allowed($widget['permission'], $user))
             ->sortBy('order')
             ->map(fn (array $widget): array => [
                 'key' => $widget['key'],
                 'type' => $widget['type'],
                 'size' => $widget['size'],
+                ...($widget['mirrorsTodo'] ? ['mirrorsTodo' => true] : []),
                 ...($widget['resolver'])($user, ...$arguments),
             ])
             ->all());
