@@ -73,6 +73,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   applies to generated and staff-typed usernames (manual services stay free-form). Long-running drivers get longer
   job timeouts (up to 180 s), and staff "run now" queues them instead of blocking the page. One broken driver no
   longer stops automation for other services. The queue `retry_after` default is now 240 s.
+- Servers store driver-declared settings (encrypted `servers.settings`), shown on the server form through the shared
+  settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
+  value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers (B2).
 
 ### Core
 
@@ -294,6 +297,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `ReconcileStatus` enums, `UsernamePolicy` and per-driver command timeouts, and the final
   `ProvisioningDriverRegistry`. A package registers a driver from its own service provider without the Services
   module being loaded. Every driver passes a shared contract dataset.
+- `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
+  `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
+  gains `fields` in the shared `SettingField` shape (`config_fields` deprecated) (#62 B2).
 - `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
   details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
   `IntegrationDriver`.

@@ -72,8 +72,11 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   as module key => module value (or label, quantity, `1`/`0`), custom fields by module key, and the secret values. It
   includes hidden options, admin-only fields and retired products. `ProvisioningContext::$configOptions` and
   `$customFields` are now keyed by module key only; the old fallback to a slug of the field name is gone.
+- Added `PriceBook::productsForDriver(driverKey): list<ProductSummary>` (cPanel K10): every non-retired product of a
+  driver, hidden ones included, for import matching and package warnings.
 - `ServerConnection::$settings` and `$secretSettingKeys` are filled from the new encrypted `servers.settings` column,
   which holds the driver's `serverFields`.
-- **Breaking (documented array shape):** the `config_fields` of `ProvisioningDrivers::all()` and the gateway `fields`
-  prop now use `SettingField::toArray()`, the same as the server form's `driverFields`. One React renderer
-  (`components/app/setting-field.tsx`) serves gateways, products and servers.
+- `ProvisioningDrivers::all()` gains a `fields` key in the `SettingField::toArray()` shape next to `config_fields`,
+  which keeps its shape and is **deprecated** (removed before 1.0; read `fields`). Catalog reads `fields`. The gateway
+  `fields` prop and the server form's `driverFields` use the same shape, rendered by one React component
+  (`components/app/setting-field.tsx`).

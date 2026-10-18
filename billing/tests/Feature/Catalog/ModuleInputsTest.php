@@ -36,3 +36,12 @@ test('module inputs map selections and custom fields by module key, hidden, admi
         ->and($inputs->secretValues)->toBe(['pin-4242'])
         ->and(app(PriceBook::class)->moduleInputs(999_999, [], [])->configOptions)->toBe([]);
 });
+
+test('products for a driver include hidden ones and leave retired ones out', function () {
+    $visible = Product::factory()->create(['provisioning_driver' => 'cpanel']);
+    $hidden = Product::factory()->create(['provisioning_driver' => 'cpanel', 'is_hidden' => true]);
+    Product::factory()->create(['provisioning_driver' => 'cpanel', 'is_retired' => true]);
+    Product::factory()->create(['provisioning_driver' => 'log']);
+
+    expect(array_map(fn ($product) => $product->id, app(PriceBook::class)->productsForDriver('cpanel')))->toBe([$visible->id, $hidden->id]);
+});

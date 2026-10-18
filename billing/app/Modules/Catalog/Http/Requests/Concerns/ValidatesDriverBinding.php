@@ -56,7 +56,7 @@ trait ValidatesDriverBinding
 
         $config = $this->driverConfig();
 
-        foreach ($driver['config_fields'] as $field) {
+        foreach ($driver['fields'] as $field) {
             if ($field['required'] && trim($config[$field['key']] ?? '') === '') {
                 $validator->errors()->add("driver_settings.{$field['key']}", __('Enter :label.', ['label' => $field['label']]));
             }

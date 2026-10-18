@@ -19,9 +19,13 @@ test('with Services loaded, the package driver is listed for the product editor 
         ->and($drivers['acme_panel'])->toBe([
             'key' => 'acme_panel',
             'label' => 'Acme Panel',
-            'config_fields' => [
+            'fields' => [
                 ['key' => 'plan', 'label' => 'Acme plan', 'type' => 'string', 'secret' => false, 'required' => true, 'help' => 'The plan name as it appears in Acme Panel.', 'options' => [], 'default' => null, 'options_source' => null],
                 ['key' => 'reseller_key', 'label' => 'Reseller key', 'type' => 'secret', 'secret' => true, 'required' => false, 'help' => null, 'options' => [], 'default' => null, 'options_source' => null],
+            ],
+            'config_fields' => [
+                ['key' => 'plan', 'label' => 'Acme plan', 'type' => 'text', 'required' => true, 'secret' => false],
+                ['key' => 'reseller_key', 'label' => 'Reseller key', 'type' => 'password', 'required' => false, 'secret' => true],
             ],
         ]);
 });

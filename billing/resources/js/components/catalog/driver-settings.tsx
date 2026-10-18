@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 export type ProvisioningDriver = {
     key: string;
     label: string;
-    config_fields: SettingFieldData[];
+    fields: SettingFieldData[];
 };
 
 type DriverSettingsProps = {
@@ -43,7 +43,7 @@ export function DriverSettings({
     secretKeys = [],
 }: DriverSettingsProps) {
     const selected = drivers.find((candidate) => candidate.key === driver);
-    const fields = selected?.config_fields ?? [];
+    const fields = selected?.fields ?? [];
     const declared = fields.map((field) => field.key);
     const extra = config.filter((pair) => !declared.includes(pair.key));
     const valueOf = (key: string) =>

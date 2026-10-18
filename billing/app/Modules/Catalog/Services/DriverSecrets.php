@@ -25,7 +25,7 @@ class DriverSecrets
 
         foreach ($this->drivers->all() as $candidate) {
             if ($candidate['key'] === $driver) {
-                foreach ($candidate['config_fields'] as $field) {
+                foreach ($candidate['fields'] as $field) {
                     if ($field['secret']) {
                         $declared[] = $field['key'];
                     }

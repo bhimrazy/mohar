@@ -134,6 +134,11 @@ class FakePriceBook implements PriceBook
      * Custom fields from $customFields (module key, password type); options from $moduleOptions (option id => module
      * key), passing the selected value through.
      */
+    public function productsForDriver(string $driverKey): array
+    {
+        return array_values(array_filter($this->products, fn (ProductSummary $product): bool => $product->provisioningDriver === $driverKey));
+    }
+
     public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs
     {
         $fields = [];

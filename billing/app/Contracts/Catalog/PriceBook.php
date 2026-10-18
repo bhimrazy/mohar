@@ -26,6 +26,14 @@ interface PriceBook
     public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs;
 
     /**
+     * Every product provisioned by the driver, hidden ones included and retired ones left out, in id order (account
+     * import matching and package warnings).
+     *
+     * @return list<ProductSummary>
+     */
+    public function productsForDriver(string $driverKey): array;
+
+    /**
      * Price of a product with config options; null if not offered in that cycle/currency, the product is
      * retired/unknown, or a selected option/value is invalid. MUST NOT throw for invalid selections.
      */

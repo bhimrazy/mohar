@@ -6,6 +6,7 @@ use App\Contracts\Services\Provisioning\ProvidesFieldOptions;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Data\Integrations\SettingField;
 use App\Data\Services\RemoteOptions;
+use App\Enums\FieldType;
 use App\Modules\Services\Models\Server;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
@@ -31,7 +32,8 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
         return array_map(fn (string $key): array => [
             'key' => $key,
             'label' => $this->drivers->get($key)->name(),
-            'config_fields' => array_map(fn (SettingField $field): array => $field->toArray(), $this->drivers->metadata($key)->productConfigFields),
+            'fields' => array_map(fn (SettingField $field): array => $field->toArray(), $this->drivers->metadata($key)->productConfigFields),
+            'config_fields' => array_map($this->legacyField(...), $this->drivers->metadata($key)->productConfigFields),
         ], $this->drivers->keys());
     }
 
@@ -87,5 +89,29 @@ class RegistryProvisioningDrivers implements ProvisioningDrivers
         }
 
         return new RemoteOptions($options, $missingOn, $unreachable);
+    }
+
+    /**
+     * The deprecated `config_fields` shape (ProvisioningDrivers::all()).
+     *
+     * @return array{key: string, label: string, type: string, required: bool, secret: bool, options?: list<string>, options_source?: string}
+     */
+    private function legacyField(SettingField $field): array
+    {
+        $remote = $field->optionsSource !== null;
+
+        return [
+            'key' => $field->key,
+            'label' => $field->label,
+            'type' => match (true) {
+                $field->isSecret() => 'password',
+                $remote, $field->type === FieldType::String => 'text',
+                default => $field->type->value,
+            },
+            'required' => $field->required,
+            'secret' => $field->isSecret(),
+            ...($field->type === FieldType::Select && ! $remote ? ['options' => array_map('strval', array_keys($field->options))] : []),
+            ...($remote ? ['options_source' => (string) $field->optionsSource] : []),
+        ];
     }
 }

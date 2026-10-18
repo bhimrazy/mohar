@@ -42,6 +42,17 @@ class CatalogPriceBook implements PriceBook
         return $product === null ? null : $this->summarise($product);
     }
 
+    public function productsForDriver(string $driverKey): array
+    {
+        return array_values(Product::query()->with('group:id,name,allowed_gateways')
+            ->where('provisioning_driver', $driverKey)
+            ->where('is_retired', false)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Product $product): ProductSummary => $this->summarise($product))
+            ->all());
+    }
+
     public function productBySlug(string $slug): ?ProductSummary
     {
         $product = Product::query()->with('group:id,name,allowed_gateways')->where('slug', strtolower(trim($slug)))->first();
