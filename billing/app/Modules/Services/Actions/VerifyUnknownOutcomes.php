@@ -11,6 +11,7 @@ use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
+use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Modules\Services\Services\ServiceDrivers;
 use App\Modules\Services\Support\Catalog;
@@ -115,7 +116,7 @@ class VerifyUnknownOutcomes
         $secrets = [];
 
         try {
-            $context = $this->snapshots->context($service, $service->server, $this->catalog->product($service->product_id), $driver);
+            $context = $this->snapshots->context($this->asAttempted($service, $item), $service->server, $this->catalog->product($service->product_id), $driver);
             $secrets = $context->secrets();
             $lookup = $driver instanceof ReconcilesCommands ? $driver->reconcile($context, $command->value, $this->attemptedAt($item)) : new CommandLookup(ReconcileStatus::Unknown);
         } catch (Throwable $exception) {
@@ -143,13 +144,34 @@ class VerifyUnknownOutcomes
      */
     private function attemptedAt(ModuleQueueItem $item): CarbonImmutable
     {
-        $at = ModuleCommand::query()
+        return $this->unknownAttempt($item)->created_at ?? $item->created_at ?? CarbonImmutable::now();
+    }
+
+    private function unknownAttempt(ModuleQueueItem $item): ?ModuleCommand
+    {
+        return ModuleCommand::query()
             ->where('service_id', $item->subject_id)
             ->where('command', $item->command)
             ->where('status', ModuleCommand::UNKNOWN)
             ->orderByDesc('id')
-            ->value('created_at');
+            ->first();
+    }
 
-        return $at !== null ? CarbonImmutable::parse($at) : ($item->created_at ?? CarbonImmutable::now());
+    /**
+     * The service as the unknown attempt sent it: the username and domain recorded on its module command row, so an
+     * edit made since cannot be checked against that attempt. Never saved.
+     */
+    private function asAttempted(Service $service, ModuleQueueItem $item): Service
+    {
+        $target = $this->unknownAttempt($item)?->request['target'] ?? null;
+
+        if (! is_array($target)) {
+            return $service;
+        }
+
+        $attempted = clone $service;
+        $attempted->setRawAttributes([...$service->getAttributes(), 'username' => $target['username'] ?? null, 'domain' => $target['domain'] ?? null]);
+
+        return $attempted;
     }
 }

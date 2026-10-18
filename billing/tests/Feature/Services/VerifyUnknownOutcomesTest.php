@@ -118,3 +118,15 @@ test('checking needs the module log manage permission', function () {
 
     $this->post(route('admin.services.module-log.check', verifyItem($service)))->assertForbidden();
 });
+
+test('the check uses the username and domain the attempt sent, not later edits', function () {
+    $service = unknownCpanelCreate();
+    $service->update(['username' => 'edited1', 'domain' => 'edited-later.com']);
+    Whm::fake(['listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
+
+    $this->artisan('services:verify-unknown')->assertSuccessful();
+
+    expect(Whm::params(Whm::sent('listaccts')[0]))->toMatchArray(['search' => 'example'])
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and($service->username)->toBe('example');
+});
