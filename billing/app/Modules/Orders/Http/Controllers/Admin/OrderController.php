@@ -46,6 +46,7 @@ class OrderController extends Controller
     public function index(Request $request, CheckoutGateways $gateways): Response
     {
         $this->authorize('orders.orders.view');
+        $request->validate(['from' => ['nullable', 'date'], 'to' => ['nullable', 'date']]);
 
         $orders = Order::query()
             ->with('client')

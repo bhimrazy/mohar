@@ -72,6 +72,12 @@ describe('index', function () {
                 ->where('orders.data.0.id', $last->id)->where('orders.data.1.id', $first->id));
     });
 
+    it('rejects a date filter that is not a date', function () {
+        actingAsStaff(['orders.orders.view']);
+
+        $this->get(route('admin.orders.index', ['from' => 'garbage']))->assertSessionHasErrors('from');
+    });
+
     it('finds an order by number', function () {
         actingAsStaff(['orders.orders.view']);
         $order = Order::factory()->create(['number' => '4815162342']);
