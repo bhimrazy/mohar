@@ -3,6 +3,7 @@
 namespace App\Modules\Platform\Database\Seeders;
 
 use App\Models\User;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
@@ -15,14 +16,13 @@ use App\Modules\Platform\Models\ExchangeRateHistory;
 use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Currencies\Decimal;
-use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
 /**
  * Demo data for the platform admin: staff in each seeded role, client groups, an extra currency,
  * contacts and a second login on the demo account, a pending invitation and some activity.
  */
-class PlatformSeeder extends Seeder
+class PlatformSeeder extends DemoSeeder
 {
     public function run(ActivityLogger $activity, Settings $settings): void
     {

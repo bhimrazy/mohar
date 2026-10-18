@@ -14,6 +14,7 @@ use App\Events\Services\ServiceTerminated;
 use App\Events\Services\ServiceUnsuspended;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\ApplyExpiryLifecycle;
 use App\Modules\Domains\Actions\ConvertTldPrices;
@@ -117,9 +118,8 @@ class DomainsServiceProvider extends ModuleServiceProvider
             ? $this->app->make(ConvertTldPrices::class)->apply()
             : 'disabled');
 
-        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => RegistrarCommandLog::query()
-            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))
-            ->delete());
+        $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
+            ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))));
     }
 
     private function registerNavigation(): void

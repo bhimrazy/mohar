@@ -52,17 +52,18 @@ class Settings
             Setting::query()->updateOrCreate(['key' => $key], ['value' => $this->forStorage($key, $value)]);
         }
 
-        Cache::forget(self::CACHE_KEY);
+        Cache::memo()->forget(self::CACHE_KEY);
     }
 
     /**
-     * Raw stored values (secret settings stay encrypted here; use get() to read them).
+     * Raw stored values (secret settings stay encrypted here; use get() to read them). Memoized for the current
+     * request or queued job, so the many get() calls of one page cost one cache read, not one each.
      *
      * @return array<string, mixed>
      */
     public function all(): array
     {
-        return Cache::rememberForever(self::CACHE_KEY, fn (): array => Setting::query()->pluck('value', 'key')->all());
+        return Cache::memo()->rememberForever(self::CACHE_KEY, fn (): array => Setting::query()->pluck('value', 'key')->all());
     }
 
     /**
@@ -80,7 +81,7 @@ class Settings
             }
         });
 
-        Cache::forget(self::CACHE_KEY);
+        Cache::memo()->forget(self::CACHE_KEY);
 
         return $count;
     }

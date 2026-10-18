@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Database\Seeders;
 
 use App\Enums\BillingCycle;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
@@ -17,7 +18,6 @@ use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\UsageSnapshot;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Seeder;
 
 /**
  * Demo data: a server group with two "log" driver servers and services in every status.
@@ -26,7 +26,7 @@ use Illuminate\Database\Seeder;
  * service's product_name snapshot. Lifecycle changes run through the real module command
  * executor so the module log and failed-actions queue have realistic entries.
  */
-class ServicesSeeder extends Seeder
+class ServicesSeeder extends DemoSeeder
 {
     /** @var array<int, array{name: string, amount: int}> */
     private const PRODUCTS = [

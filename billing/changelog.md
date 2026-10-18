@@ -138,6 +138,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
 
+### Database hardening (audit 1)
+
+- Whole-database audit on PostgreSQL with 100k clients and 1M-row log tables:
+  `docs/database/audit-2026-10-18.md` (findings per module, EXPLAIN before/after, queries per page).
+- 55 indexes in eight migrations: every foreign key now has an index (PostgreSQL does not add them), plus the
+  transaction list sort, client sign-up date and `lower(email)` sender matching. Built CONCURRENTLY through the
+  new `OnlineIndex` helper (refuses to run inside a transaction or to reuse a differently defined index). The admin order list went from 0.7–9 s to 4 ms; client service and order lists,
+  service addons, usage history, module and registrar logs, and user deletes stopped scanning whole tables.
+- Constraints: one default currency, and one default-list TLD price per TLD, currency and years (partial
+  unique indexes; NULL `client_group_id` had bypassed the unique key).
+- Fixed: daily automation (suspensions, terminations, cancellations, limited-service completion, upgrade
+  expiry, stale-order cancellation) skipped a page of matches after every 1,000 rows it changed; it now pages by
+  id. Usage sync no longer stores a second snapshot when re-run for an earlier date.
+- Order and transaction date filters use index ranges instead of `whereDate()` on timestamps; settings are read
+  once per request instead of one cache query per lookup (33 per admin page); retention pruning deletes in
+  batches (`ChunkedDelete`, which keeps rows that stopped matching after selection).
+- Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
+  with a known password); production reference data comes from the install path in #47.
+
 ### DevOps
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;

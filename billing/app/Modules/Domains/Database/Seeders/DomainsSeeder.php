@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Database\Seeders;
 
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -11,9 +12,8 @@ use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Seeder;
 
-class DomainsSeeder extends Seeder
+class DomainsSeeder extends DemoSeeder
 {
     /**
      * Yearly prices in the default currency (minor units): register, transfer, renew. Other currencies are

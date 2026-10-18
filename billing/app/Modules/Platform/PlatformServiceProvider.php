@@ -5,6 +5,7 @@ namespace App\Modules\Platform;
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
+use App\Modules\Core\Support\ChunkedDelete;
 use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
@@ -153,7 +154,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             $days = max(30, (int) $this->app->make(Settings::class)->get('platform.activity_log_retention_days', 365));
 
             // Entries tied to a client are kept until the client is deleted (spec §8).
-            $count = DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days))->delete();
+            $count = ChunkedDelete::run(DB::table('activity_log')->whereNull('client_id')->where('created_at', '<', $today->subDays($days)));
 
             return trans_choice('{0} no entries pruned|{1} 1 entry pruned|[2,*] :count entries pruned', $count);
         });

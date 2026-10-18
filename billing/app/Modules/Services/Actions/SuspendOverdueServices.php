@@ -40,8 +40,7 @@ class SuspendOverdueServices
             ->where('status', ServiceStatus::Active->value)
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<', $today)
-            ->orderBy('id')
-            ->each(function (Service $service) use ($today, &$count): void {
+            ->eachById(function (Service $service) use ($today, &$count): void {
                 if ($this->shouldSuspend($service, $service->suspend_days_override ?? $this->catalog->product($service->product_id)?->suspendAfterDays, $today)) {
                     $this->commands->queue($service, ModuleCommandName::Suspend, ['reason' => 'overdue']);
                     $count++;
@@ -54,8 +53,7 @@ class SuspendOverdueServices
             ->where('status', ServiceStatus::Active->value)
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<', $today)
-            ->orderBy('id')
-            ->each(function (ServiceAddon $addon) use ($today, &$count): void {
+            ->eachById(function (ServiceAddon $addon) use ($today, &$count): void {
                 if (! $this->shouldSuspend($addon, $addon->service->suspend_days_override ?? $this->catalog->product($addon->service->product_id)?->suspendAfterDays, $today)) {
                     return;
                 }

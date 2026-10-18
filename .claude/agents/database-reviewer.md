@@ -9,10 +9,10 @@ fast test suite run SQLite. Code is Laravel 13 Eloquent and query builder. Money
 units (ADR 0002). Read `billing/docs/architecture.md` (incl. PostgreSQL portability rules), ADR 0002,
 ADR 0006 and the module specs for the tables in scope.
 
-Review against evidence, not guesses: read the migrations and models, then run real queries. Use a
-private PostgreSQL container on a free port for EXPLAIN and load probes (`docker run -d --rm --name
-<name> -p <port>:5432 -e POSTGRES_PASSWORD=billing -e POSTGRES_USER=billing -e POSTGRES_DB=billing
-postgres:18.6-alpine`), migrate and seed it, and remove it afterwards. Heavy commands go through
+Review against evidence, not guesses: read the migrations and models, then run real queries. Use the
+shared PostgreSQL server with your own database for EXPLAIN and load probes:
+`eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"` exports the DB_* variables, then migrate and seed. Drop
+your database when done (`docker exec mohar-pg dropdb -U billing <db>`); don't start private containers. Heavy commands go through
 `/workspaces/whmcs/scripts/heavy.sh`, with `XDEBUG_MODE=off`.
 
 Check:

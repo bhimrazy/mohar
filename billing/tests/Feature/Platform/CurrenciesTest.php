@@ -4,6 +4,9 @@ use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Currencies\PriceConverters;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Platform\FakePriceConverter;
 
@@ -203,4 +206,41 @@ test('with NPR as the default currency, conversions between USD and INR stay exa
     expect($usd->fresh()->exchange_rate)->toBe('0.006581545347')
         ->and($usd->convertTo(1_000_000, $inr))->toBe(94_918_007)
         ->and($inr->convertTo(94_918_007, $usd))->toBe(1_000_000);
+});
+
+test('a default saved concurrently gives a friendly error instead of a 500', function () {
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
+    Currency::factory()->create();
+    $eur = Currency::factory()->euro()->create();
+    Currency::factory()->create(['code' => 'GBP', 'name' => 'Pound', 'exchange_rate' => '0.8', 'is_default' => false]);
+
+    // Another request makes GBP the default between our "clear the old default" and "set the new one".
+    Currency::updating(function (Currency $currency): void {
+        if ($currency->code === 'EUR' && $currency->is_default) {
+            DB::table('currencies')->where('code', 'GBP')->update(['is_default' => true]);
+        }
+    });
+
+    $this->post(route('admin.platform.currencies.default', $eur))
+        ->assertSessionHasErrors(['currency' => 'Another default currency was just saved; reload and try again.']);
+
+    expect(Currency::query()->where('is_default', true)->pluck('code')->all())->toBe(['USD']);
+});
+
+test('after the rate-precision migration, many non-default currencies coexist and only one default is allowed', function () {
+    expect(Schema::hasIndex('currencies', 'currencies_single_default_unique'))->toBeTrue();
+    $migration = require base_path('app/Modules/Core/Database/Migrations/2026_10_18_000140_add_currency_rate_sources_and_display.php');
+
+    // As on a database where the one-default index already exists when this migration runs.
+    $migration->down();
+    $migration->up();
+
+    Currency::factory()->create();
+    Currency::factory()->inr()->create();
+    Currency::factory()->npr()->create();
+
+    expect(Schema::hasIndex('currencies', 'currencies_single_default_unique'))->toBeTrue()
+        ->and(Currency::query()->where('is_default', false)->count())->toBe(2)
+        ->and(fn () => Currency::factory()->euro()->create(['is_default' => true]))->toThrow(UniqueConstraintViolationException::class);
 });

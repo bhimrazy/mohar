@@ -14,6 +14,7 @@ use App\Modules\Platform\Support\ExchangeRateLock;
 use App\Support\Currencies\Decimal;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -54,24 +55,38 @@ class SaveCurrency
             $currency->rate_updated_at = now();
         }
 
-        DB::transaction(function () use ($currency, $creating, $before): void {
-            $currency->save();
+        try {
+            DB::transaction(function () use ($currency, $creating, $before): void {
+                $currency->save();
 
-            if ($creating) {
-                $this->apply->seedHistory($currency);
+                if ($creating) {
+                    $this->apply->seedHistory($currency);
+                }
+
+                $this->activity->log(
+                    $creating ? "Currency {$currency->code} created" : "Currency {$currency->code} updated",
+                    $currency,
+                    properties: $creating
+                        ? ['currency' => $currency->code, 'rate' => $currency->exchange_rate]
+                        : ['old' => $before, 'new' => $currency->only(['code', 'name', 'prefix', 'suffix', 'format'])],
+                    event: $creating ? 'currency.created' : 'currency.updated',
+                );
+            });
+        } catch (UniqueConstraintViolationException $exception) {
+            // Two "first" currencies saved at once would both be the default; a duplicate code is validated earlier.
+            if ($currency->is_default) {
+                throw self::defaultConflict();
             }
 
-            $this->activity->log(
-                $creating ? "Currency {$currency->code} created" : "Currency {$currency->code} updated",
-                $currency,
-                properties: $creating
-                    ? ['currency' => $currency->code, 'rate' => $currency->exchange_rate]
-                    : ['old' => $before, 'new' => $currency->only(['code', 'name', 'prefix', 'suffix', 'format'])],
-                event: $creating ? 'currency.created' : 'currency.updated',
-            );
-        });
+            throw $exception;
+        }
 
         return $currency;
+    }
+
+    private static function defaultConflict(): ValidationException
+    {
+        return ValidationException::withMessages(['currency' => __('Another default currency was just saved; reload and try again.')]);
     }
 
     /**
@@ -135,27 +150,32 @@ class SaveCurrency
 
         $previous = Currency::default()->code;
 
-        $rebased = ExchangeRateLock::run(fn (): array => DB::transaction(function () use ($currency): array {
-            $currency = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
-            $base = (string) $currency->exchange_rate;
-            $codes = [];
+        try {
+            $rebased = ExchangeRateLock::run(fn (): array => DB::transaction(function () use ($currency): array {
+                $currency = Currency::query()->whereKey($currency->id)->lockForUpdate()->firstOrFail();
+                $base = (string) $currency->exchange_rate;
+                $codes = [];
 
-            Currency::query()->whereKeyNot($currency->id)->orderBy('id')->lockForUpdate()->get()->each(function (Currency $other) use ($base, &$codes): void {
-                $this->apply->seedHistory($other);
-                $other->forceFill(['is_default' => false])->save();
-                $this->apply->handle($other, Decimal::divide((string) $other->exchange_rate, $base, Currency::RATE_SCALE), 'rebase');
-                $codes[] = $other->code;
-            });
+                Currency::query()->whereKeyNot($currency->id)->orderBy('id')->lockForUpdate()->get()->each(function (Currency $other) use ($base, &$codes): void {
+                    $this->apply->seedHistory($other);
+                    $other->forceFill(['is_default' => false])->save();
+                    $this->apply->handle($other, Decimal::divide((string) $other->exchange_rate, $base, Currency::RATE_SCALE), 'rebase');
+                    $codes[] = $other->code;
+                });
 
-            $this->apply->seedHistory($currency);
-            $currency->forceFill(['is_default' => true, 'rate_source' => ExchangeRateSources::MANUAL, 'is_auto_rate' => false])->save();
-            $this->apply->handle($currency, '1', 'rebase');
+                $this->apply->seedHistory($currency);
+                $currency->forceFill(['is_default' => true, 'rate_source' => ExchangeRateSources::MANUAL, 'is_auto_rate' => false])->save();
+                $this->apply->handle($currency, '1', 'rebase');
 
-            // Proposals were computed against the old default.
-            ExchangeRateReview::query()->whereNotNull('pending_currency')->update(['status' => ExchangeRateReview::SUPERSEDED, 'pending_currency' => null]);
+                // Proposals were computed against the old default.
+                ExchangeRateReview::query()->whereNotNull('pending_currency')->update(['status' => ExchangeRateReview::SUPERSEDED, 'pending_currency' => null]);
 
-            return [...$codes, $currency->code];
-        }));
+                return [...$codes, $currency->code];
+            }));
+        } catch (UniqueConstraintViolationException) {
+            // Another default was saved meanwhile (currencies_single_default_unique allows only one).
+            throw self::defaultConflict();
+        }
 
         $currency->refresh();
         $this->activity->log("Default currency changed to {$currency->code}", $currency, properties: ['old' => $previous, 'new' => $currency->code], event: 'currency.default_changed');

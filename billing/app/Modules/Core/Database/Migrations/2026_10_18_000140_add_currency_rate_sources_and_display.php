@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Support\OnlineIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Cache;
@@ -19,6 +20,7 @@ return new class extends Migration
         Schema::table('currencies', function (Blueprint $table) {
             $table->decimal('exchange_rate', 24, 12)->default(1)->change();
         });
+        self::restoreSingleDefaultIndex();
 
         Schema::table('currencies', function (Blueprint $table) {
             $table->string('rate_source', 30)->default('manual')->after('exchange_rate');
@@ -47,5 +49,22 @@ return new class extends Migration
         Schema::table('currencies', function (Blueprint $table) {
             $table->decimal('exchange_rate', 16, 6)->default(1)->change();
         });
+        self::restoreSingleDefaultIndex();
+    }
+
+    /**
+     * On SQLite a column change rebuilds the table, which turns the partial "one default currency" index
+     * (2026_10_18_000150) into a plain unique index on is_default, so two non-default currencies could no longer
+     * coexist. When that index exists (this migration ran after it), rebuild it as the partial index. The table is
+     * tiny, so a locking build is fine.
+     */
+    private static function restoreSingleDefaultIndex(): void
+    {
+        if (! Schema::hasIndex('currencies', 'currencies_single_default_unique')) {
+            return;
+        }
+
+        OnlineIndex::drop('currencies', 'currencies_single_default_unique', allowLocking: true);
+        OnlineIndex::create('currencies', ['is_default'], 'currencies_single_default_unique', unique: true, where: 'is_default = true', allowLocking: true);
     }
 };

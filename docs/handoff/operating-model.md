@@ -37,6 +37,8 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
    non-trivial queries), `principal-architect` (every PR that changes the shared kernel), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
+   Send all requested changes in one message, and start a review only after the engineer reports a pushed,
+   clean head. Reviewing a head that is still changing wastes the review.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, resolve conflicts, run all gates locally,
    mark the PR ready (`gh pr ready <n>`; CI skips drafts), wait for CI, post a sign-off comment, `gh pr merge <n> --merge`. Remove the worktree and branch.
@@ -65,8 +67,9 @@ $H npm run build
 $H php artisan test --compact                        # full Pest suite, SQLite
 ```
 
-PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private container on a free port and use
-`DB_PORT=<port> composer test:pgsql` (see `billing/docs/devops/local-setup.md`). CI is a single job
+PostgreSQL runs in CI on every non-draft PR. To run it locally, use the one shared server with a database per worktree:
+`eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)" && composer test:pgsql` (server `mohar-pg` on 127.0.0.1:55432,
+in-memory data; `scripts/pg.sh --stop` stops it). Don't start private PostgreSQL containers. CI is a single job
 (`billing/docs/devops/ci.md`) that took 3.5–5.5 minutes per run on 2026-10-18; keep it a single job.
 
 ## Integration rules
@@ -84,11 +87,17 @@ PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private 
 
 ## Machine limits (GitHub Codespace)
 
-- 4 vCPU, 15 GB RAM, 32 GB disk. No swap.
+- 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
+  9 GB of it is the base image. `/vscode` (VS Code server) is a separate disk. `/tmp` is a separate large
+  disk (about 100 GB free) that a codespace restart wipes: use it for disposable caches only (the npm
+  cache lives in `/tmp/npm-cache`), never for work.
 - `scripts/heavy.sh` allows 3 heavy commands machine-wide (`HEAVY_SLOTS`), at low CPU/IO priority.
 - `scripts/resource-monitor.sh <log>` logs load, memory, disk and top processes every 30 s. Start it in
   the background at the start of each session; slow down (fewer agents) when load stays above 4.
-- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). Remove worktrees once merged.
+- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). `scripts/storage-cleanup.sh` (dry run by
+  default, `--apply` to act) removes worktrees whose PR is merged and that are clean and pushed, clears stale
+  Laravel caches, prunes stopped containers and dangling images, and clears the npm cache only when free
+  space is low. Run it in a background loop every 30 minutes during long sessions.
 - Dev servers: give each agent its own port range (8100–8299) and stop servers by port PID
   (`ss -ltnp | grep :<port>`). Never `pkill -f`; it can match the calling shell.
 - `/tmp` scratch space is wiped when the session restarts. Keep anything reusable in the repo or in

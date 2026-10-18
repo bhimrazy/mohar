@@ -6,9 +6,8 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
-use Illuminate\Database\Seeder;
 
-class CoreSeeder extends Seeder
+class CoreSeeder extends DemoSeeder
 {
     public function run(): void
     {

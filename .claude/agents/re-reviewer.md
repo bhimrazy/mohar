@@ -10,8 +10,8 @@ against the current head by reading code, running targeted tests and re-running 
 probes where there were any.
 
 Read-only; probes in a scratch directory, removed afterwards (`git status` clean). Heavy commands through
-`/workspaces/whmcs/scripts/heavy.sh`, `XDEBUG_MODE=off`. For PostgreSQL use a private container on a
-free port and remove it afterwards. Run the full suite once to catch regressions from the fixes.
+`/workspaces/whmcs/scripts/heavy.sh`, `XDEBUG_MODE=off`. For PostgreSQL use the shared server with your own
+database: `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`, then `composer test:pgsql`. Run the full suite once to catch regressions from the fixes.
 
 Post one review with `gh pr review <n> --comment --body-file <file>`:
 

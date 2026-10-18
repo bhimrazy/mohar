@@ -176,7 +176,9 @@ backoff; automation registered in the provider's `schedule()` with `->withoutOve
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Notifications 7xxxxx, Affiliates 8xxxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx).
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, PaymentsNepal 75xxxx,
+Notifications 80xxxx, Affiliates 85xxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx). New modules take a free
+block and add it here in the same PR.
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
 PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):

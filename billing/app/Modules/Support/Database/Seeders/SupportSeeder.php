@@ -4,6 +4,7 @@ namespace App\Modules\Support\Database\Seeders;
 
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Models\User;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
 use App\Modules\Support\Actions\AddNote;
 use App\Modules\Support\Actions\CloseTicket;
@@ -32,14 +33,13 @@ use App\Modules\Support\Models\TicketMessage;
 use App\Modules\Support\Services\AttachmentStore;
 use App\Modules\Support\Services\IncomingFile;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Seeder;
 use Throwable;
 
 /**
  * Demo helpdesk: departments, canned replies, knowledge base, announcements, incidents and
  * tickets with conversations for the demo client. Safe to re-run (skips when departments exist).
  */
-class SupportSeeder extends Seeder
+class SupportSeeder extends DemoSeeder
 {
     public function run(): void
     {
