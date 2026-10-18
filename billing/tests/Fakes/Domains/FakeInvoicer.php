@@ -106,6 +106,11 @@ class FakeInvoicer implements Invoicer
         return array_values($this->invoices);
     }
 
+    public function lastInvoiceId(): ?int
+    {
+        return array_key_last($this->invoices);
+    }
+
     private function bills(InvoiceDraft $draft, BillableType $type, int $billableId): bool
     {
         foreach ($draft->lines as $line) {
