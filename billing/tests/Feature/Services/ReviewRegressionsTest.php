@@ -373,7 +373,7 @@ test('ServiceActivated carries the next due date', function () {
     Event::assertDispatched(ServiceActivated::class, fn (ServiceActivated $event) => $event->nextDueDate === $service->next_due_date->toDateString());
 });
 
-test('drivers receive custom fields by module key and password fields are redacted', function () {
+test('drivers receive custom fields by module key only, and password fields are redacted even without one', function () {
     $this->kit->priceBook->addProduct(11, 'Starter');
     $this->kit->priceBook->customFields[11] = [
         ['id' => 5, 'name' => 'Root access', 'type' => 'text', 'required' => false, 'options' => [], 'module_key' => 'root'],
@@ -389,8 +389,23 @@ test('drivers receive custom fields by module key and password fields are redact
 
     RunModuleCommand::dispatch($service->id, 'create');
 
-    expect($seen)->toBe(['root' => 'yes', 'panel_pin' => 'pin-998877'])
+    expect($seen)->toBe(['root' => 'yes'])
         ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toBe('failed with [redacted]');
+});
+
+test('drivers receive configurable options by module key, never install ids', function () {
+    $this->kit->priceBook->addProduct(12, 'VPS');
+    $this->kit->priceBook->moduleOptions[12] = [31 => ['key' => 'os', 'values' => [301 => 'ubuntu-2404']], 32 => ['key' => 'region', 'values' => [321 => 'eu']]];
+    $service = Service::factory()->pending()->onServer()->create(['product_id' => 12]);
+    $service->syncConfigOptions([31 => 301, 32 => 999]);
+    $seen = null;
+    $this->kit->driver->whileRunning = function (string $command, $context) use (&$seen) {
+        $seen = $context?->configOptions;
+    };
+
+    RunModuleCommand::dispatch($service->id, 'create');
+
+    expect($seen)->toBe(['os' => 'ubuntu-2404']);
 });
 
 test('product suspend overrides apply when the service has none', function () {

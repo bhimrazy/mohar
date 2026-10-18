@@ -11,7 +11,7 @@ final readonly class ProvisioningContext
     /**
      * @param  array<string, mixed>  $productConfig  values of the driver's product config fields
      * @param  array<string, mixed>  $configOptions  configurable options by module key: the selected value's module value,
-     *                                               or the quantity (empty until PriceBook::moduleInputs() lands, PR B2)
+     *                                               or the quantity
      * @param  array<string, mixed>  $customFields  custom field values by module key
      * @param  list<string>  $secretValues  every Secret- or SecretText-typed value in $productConfig and $customFields,
      *                                      for redaction

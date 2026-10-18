@@ -3,12 +3,14 @@
 namespace App\Modules\Catalog\Services;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Data\Catalog\ModuleInputs;
 use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Events\Catalog\ProductStockDepleted;
 use App\Modules\Catalog\Enums\ConfigOptionType;
+use App\Modules\Catalog\Enums\CustomFieldType;
 use App\Modules\Catalog\Enums\FreeDomain;
 use App\Modules\Catalog\Enums\PaymentType;
 use App\Modules\Catalog\Models\Addon;
@@ -38,6 +40,17 @@ class CatalogPriceBook implements PriceBook
         $product = Product::query()->with('group:id,name,allowed_gateways')->find($productId);
 
         return $product === null ? null : $this->summarise($product);
+    }
+
+    public function productsForDriver(string $driverKey): array
+    {
+        return array_values(Product::query()->with('group:id,name,allowed_gateways')
+            ->where('provisioning_driver', $driverKey)
+            ->where('is_retired', false)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Product $product): ProductSummary => $this->summarise($product))
+            ->all());
     }
 
     public function productBySlug(string $slug): ?ProductSummary
@@ -226,6 +239,65 @@ class CatalogPriceBook implements PriceBook
         }
 
         return $result;
+    }
+
+    public function moduleInputs(int $productId, array $optionSelections, array $customFieldValues): ModuleInputs
+    {
+        $product = Product::query()->with(['configOptionGroups.options.values', 'customFields'])->find($productId);
+
+        if ($product === null) {
+            return new ModuleInputs;
+        }
+
+        $options = [];
+
+        foreach ($this->optionsOf($product) as $option) {
+            $selected = $optionSelections[$option->id] ?? null;
+
+            if ($option->module_key === null || $option->module_key === '' || $selected === null || $selected === '') {
+                continue;
+            }
+
+            if ($option->type === ConfigOptionType::Quantity) {
+                $options[$option->module_key] = (int) $selected;
+
+                continue;
+            }
+
+            if ($option->type === ConfigOptionType::YesNo) {
+                $options[$option->module_key] = (int) $selected === 0 ? '0' : '1';
+
+                continue;
+            }
+
+            // A value that no longer belongs to the option (deleted, moved) is left out: its id means nothing to a driver.
+            $value = $option->values->firstWhere('id', (int) $selected);
+
+            if ($value !== null) {
+                $options[$option->module_key] = $value->module_value !== null && $value->module_value !== '' ? $value->module_value : $value->label;
+            }
+        }
+
+        $fields = [];
+        $secrets = [];
+
+        foreach ($product->customFields as $field) {
+            if (! array_key_exists($field->id, $customFieldValues)) {
+                continue;
+            }
+
+            $value = $customFieldValues[$field->id];
+
+            if ($field->type === CustomFieldType::Password && is_scalar($value) && (string) $value !== '') {
+                $secrets[] = (string) $value;
+            }
+
+            if ($field->module_key !== null && $field->module_key !== '') {
+                $fields[$field->module_key] = $value;
+            }
+        }
+
+        return new ModuleInputs($options, $fields, $secrets);
     }
 
     /**
