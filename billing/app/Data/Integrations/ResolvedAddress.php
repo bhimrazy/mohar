@@ -14,12 +14,14 @@ final readonly class ResolvedAddress
     ) {}
 
     /**
-     * The CURLOPT_RESOLVE entry that pins $host:$port to $ip, so DNS cannot change between check and connect.
+     * The CURLOPT_CONNECT_TO entry that sends every connection of the request to $ip:$port, whatever host and port
+     * the URL names (both fields empty, so they match anything). The URL's host is still used for TLS and the Host
+     * header.
      */
-    public function curlResolve(): string
+    public function curlConnectTo(): string
     {
         $ip = str_contains($this->ip, ':') ? "[{$this->ip}]" : $this->ip;
 
-        return "{$this->host}:{$this->port}:{$ip}";
+        return "::{$ip}:{$this->port}";
     }
 }

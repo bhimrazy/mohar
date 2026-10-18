@@ -21,7 +21,8 @@ test('provisioning-shaped fields map password and the secret flag onto secret ty
     expect(SettingField::fromArray(['key' => 'password', 'label' => 'Password', 'type' => 'password', 'required' => true, 'secret' => true])->type)->toBe(FieldType::Secret)
         ->and(SettingField::fromArray(['key' => 'token', 'label' => 'Token', 'type' => 'text', 'required' => false, 'secret' => true])->type)->toBe(FieldType::SecretText)
         ->and(SettingField::fromArray(['key' => 'enabled', 'label' => 'Enabled', 'type' => 'checkbox'])->type)->toBe(FieldType::Boolean)
-        ->and(SettingField::fromArray(['key' => 'fail', 'label' => 'Fail', 'type' => 'select', 'options' => ['', 'create']])->options)->toBe(['' => '', 'create' => 'create']);
+        ->and(SettingField::fromArray(['key' => 'fail', 'label' => 'Fail', 'type' => 'select', 'secret' => false, 'options' => ['', 'create']])->options)->toBe(['' => '', 'create' => 'create'])
+        ->and(SettingField::fromArray(['key' => 'mode', 'label' => 'Mode', 'type' => 'select', 'options' => [0 => 'Off', 1 => 'On']])->options)->toBe([0 => 'Off', 1 => 'On']);
 });
 
 test('an unknown type, or a secret flag on a type that cannot hold a secret, is refused', function () {
@@ -34,4 +35,9 @@ test('a select can take its options from the remote system', function () {
 
     expect($field->optionsSource)->toBe('remote')
         ->and($field->toArray())->toMatchArray(['options_source' => 'remote', 'options' => []]);
+});
+
+test('a secret cannot ship a default, and only a select takes remote options', function () {
+    expect(fn () => new SettingField('api_key', 'API key', FieldType::Secret, default: 'sk_live'))->toThrow(InvalidArgumentException::class, 'cannot have a default')
+        ->and(fn () => new SettingField('plan', 'Plan', optionsSource: SettingField::OPTIONS_REMOTE))->toThrow(InvalidArgumentException::class, 'Only a select');
 });

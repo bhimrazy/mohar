@@ -122,7 +122,7 @@ class RegistrarGateway
             'request' => $this->redactor->redact($request, sensitiveKeys: self::codeKeys($command)),
             'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, sensitiveKeys: self::codeKeys($command))),
             'success' => $success,
-            'error' => $error,
+            'error' => $error === null ? null : $this->redactor->maskValues($error, []),
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
             'staff_id' => $staffId,
         ]);

@@ -17,8 +17,13 @@ use Illuminate\Http\Client\PendingRequest;
  * policy allows them), and every IPv6 form that carries an IPv4 address (mapped, compatible, 6to4, NAT64) is judged
  * by that IPv4 address. Teredo and local-use NAT64 are refused outright.
  *
- * pin() makes an HTTP request connect to exactly the checked IP, bypass any proxy configured for the process (a proxy
- * would resolve the name again and defeat the pin), and follow no redirects.
+ * pin() makes an HTTP request connect to exactly the checked IP and port (CURLOPT_CONNECT_TO with wildcard host and
+ * port, so a URL that names another host or port still lands there), bypass any proxy configured for the process
+ * (`proxy: ''`; a proxy would resolve the name again and defeat the pin), and follow no redirects. Pin a fresh
+ * PendingRequest per destination: pin() changes the request it is given.
+ *
+ * resolve() uses the system resolver, which has no deadline of its own (resolv.conf, typically 5 s per server and
+ * attempt). Callers in a web request should expect that; queued jobs are bounded by their own timeout.
  *
  * @api
  */
@@ -30,7 +35,8 @@ final class OutboundAddressGuard
         'link-local' => ['169.254.0.0/16', 'fe80::/10'],
         'cloud metadata' => ['100.100.100.200/32', '168.63.129.16/32', 'fd00:ec2::254/128'],
         'multicast' => ['224.0.0.0/4', 'ff00::/8'],
-        'reserved' => ['240.0.0.0/4', '192.0.0.0/24', '198.18.0.0/15', '2001:db8::/32'],
+        'reserved' => ['240.0.0.0/4', '192.0.0.0/24', '198.18.0.0/15', '2001:2::/48'],
+        'documentation' => ['192.0.2.0/24', '198.51.100.0/24', '203.0.113.0/24', '2001:db8::/32', '3fff::/20'],
         'tunnelled' => ['2001::/32', '64:ff9b:1::/48'],
     ];
 
@@ -58,6 +64,12 @@ final class OutboundAddressGuard
 
         $literal = filter_var($host, FILTER_VALIDATE_IP) !== false;
 
+        // A numeric host that is not a canonical IP (2130706433, 0177.1, 0x7f.1) is parsed differently by different
+        // resolvers; refuse it rather than trust that curl and the system resolver agree.
+        if (! $literal && preg_match('/(^|\.)(\d+|0x[0-9a-f]*)$/', $host) === 1) {
+            throw new OutboundAddressRefused("\"{$host}\" is not a valid host name; use a name or a dotted IP address.");
+        }
+
         if ($host === '' || (! $literal && preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/', $host) !== 1)) {
             throw new OutboundAddressRefused("\"{$host}\" is not a valid host name.");
         }
@@ -72,7 +84,7 @@ final class OutboundAddressGuard
             $reason = $this->refusal($ip);
 
             if ($reason !== null) {
-                throw new OutboundAddressRefused($literal ? "{$host} is a {$reason} address, which is not allowed." : "{$host} resolves to {$ip}, a {$reason} address, which is not allowed.");
+                throw new OutboundAddressRefused($literal ? "{$host} is not allowed ({$reason} address)." : "{$host} resolves to {$ip}, which is not allowed ({$reason} address).");
             }
         }
 
@@ -86,7 +98,7 @@ final class OutboundAddressGuard
     {
         return $request->withoutRedirecting()->withOptions([
             'proxy' => '',
-            'curl' => [CURLOPT_RESOLVE => [$address->curlResolve()], CURLOPT_NOPROXY => '*'],
+            'curl' => [CURLOPT_CONNECT_TO => [$address->curlConnectTo()]],
         ]);
     }
 

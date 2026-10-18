@@ -45,8 +45,11 @@ ignored.
 - IPv6 is allow-listed. An address passes only if it is global unicast (`2000::/3`), or ULA or `::1` when the policy
   allows them. IPv4-mapped, IPv4-compatible, 6to4 and well-known NAT64 addresses are judged by the IPv4 address they
   carry.
-- If any resolved address is refused, the whole host is refused. The connection is pinned to the checked address with
-  `CURLOPT_RESOLVE`, so a second DNS answer (rebinding) cannot change the target.
+- If any resolved address is refused, the whole host is refused. The connection is pinned to the checked address and
+  port with a wildcard `CURLOPT_CONNECT_TO` entry (`::ip:port`), so neither a second DNS answer (rebinding) nor a URL
+  that names another host or port can change the target. TLS still checks the URL's host name.
+- Numeric hosts that are not canonical IP addresses (`2130706433`, `0177.1`, `0x7f.1`) are refused, because resolvers
+  disagree on how to read them. The documentation, benchmark and TEST-NET ranges are refused as well.
 
 ### Destination profiles
 
@@ -57,7 +60,8 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
 
 ### Proxies, redirects and responses
 
-- `pin()` **bypasses** any process-wide proxy (`proxy` set to empty, `CURLOPT_NOPROXY=*`). A proxy would defeat the pin.
+- `pin()` **bypasses** any process-wide proxy by setting Guzzle's `proxy` option to an empty string; Guzzle then
+  disables the environment proxy (`http_proxy`, `https_proxy`) for that request. A proxy would defeat the pin.
   An install whose egress must go through a proxy has to allow these hosts directly. Refusing every pinned call there
   would break real installs silently, while bypassing fails loudly with a connection error.
 - Redirects are never followed. A 3xx answer is a failure that the driver reports.

@@ -48,7 +48,8 @@ final readonly class SettingField
 
     /**
      * Read an array-shaped field: the gateway shape (`type: secret|secret_text|…`, `options` as value => label)
-     * or the older provisioning shape (`type: password`, `secret: bool`, `options` as a list of values).
+     * or the older provisioning shape (`type: password`, `secret: bool`, `options` as a list of values). Throws for
+     * a secret with a default or remote options on a non-select, like the constructor.
      *
      * @param  array{key: string, label: string, type?: string, secret?: bool, required?: bool, help?: string|null, options?: array<array-key, string>, default?: string|int|bool|null, options_source?: string|null}  $field
      */
@@ -56,7 +57,9 @@ final readonly class SettingField
     {
         $options = $field['options'] ?? [];
 
-        if (array_is_list($options)) {
+        // Only the older provisioning shape (recognised by its `secret` flag) lists bare values; a gateway map keyed
+        // 0..n ([0 => 'Off', 1 => 'On']) is a value => label map like any other.
+        if (array_key_exists('secret', $field) && array_is_list($options)) {
             $options = array_combine($options, $options);
         }
 

@@ -43,14 +43,13 @@ class GatewayLogger
     }
 
     /**
-     * Gateway payloads are redacted with the kernel rules shared by every integration log (card numbers, card and
-     * secret keys, known credential values).
+     * Gateway payloads go through the kernel payment rule (App\Support\Integrations\Redactor::redactPayment()).
      *
      * @param  array<array-key, mixed>  $payload
      * @return array<array-key, mixed>
      */
     public static function redact(array $payload): array
     {
-        return app(Redactor::class)->redact($payload);
+        return app(Redactor::class)->redactPayment($payload);
     }
 }

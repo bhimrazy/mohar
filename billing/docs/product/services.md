@@ -180,7 +180,7 @@ interfaces, registered with `App\Support\Services\ProvisioningDriverRegistry::re
 - Every command runs as queued job `RunModuleCommand` on queue `provisioning`, unique per `(subject, command)` and serialized per subject with a lock (suspend/unsuspend/terminate never overlap). Staff-triggered commands run synchronously with timeout `services.module.sync_timeout_seconds: 60` and fall back to queued. **MUST**
 - Retries: retryable failures up to `services.module.max_attempts: 3` with backoff `[60, 300, 900]` s; non-retryable fail immediately. After final failure: `module_queue` entry (open), event `ModuleCommandFailed`, staff notification; service status unchanged. **MUST**
 - Retry / Mark resolved / Dismiss in the queue UI; a later successful run of the same command auto-resolves open entries. **MUST**
-- Logging: every attempt logged in `module_commands` with request/response **redacted** (keys matching `password|secret|token|api_key|hash|authorization` and the current credential values replaced by `***`). Retention `services.module_log.retention_days: 30` (daily prune). **MUST**
+- Logging: every attempt logged in `module_commands` with request/response **redacted** (through `App\Support\Integrations\Redactor`: keys naming a secret, including `password`, `secret`, `token`, `api_key`, `hash` and `authorization` in any spelling, and the current credential values, replaced by `[redacted]`). Retention `services.module_log.retention_days: 30` (daily prune). **MUST**
 - Username generation: from domain: lowercase letters/digits, starts with a letter, max 8 chars **including** any numeric suffix, unique per server (truncate and append digits on collision); `services.random_usernames: false`. Password: 16 chars, mixed classes. Generation is overridable by driver. **MUST**
 
 ## 9. Servers & server groups
@@ -268,7 +268,7 @@ and `Addon*` equivalents (`AddonActivated`, `AddonSuspended`, …).
 28. Given fill_sequentially with S1 (100/100) and S2 (0/50), then S2 is picked; with both full, create fails "no server capacity".
 29. Given a driver throwing a retryable error twice then succeeding, then 3 attempts are logged and no module queue entry remains open.
 30. Given a non-retryable failure, then one attempt is logged, a module queue entry is open and status is unchanged.
-31. Given a module call whose request contains the server password, then the stored log contains `***` instead of it.
+31. Given a module call whose request contains the server password, then the stored log contains `[redacted]` instead of it.
 32. Given suspend and terminate dispatched concurrently for one service, then they execute sequentially.
 33. Given domain "example-shop.com" on a server where "examples" exists, then the generated username is "example1" (8 chars, unique on that server).
 34. Given recurring_cycles_limit 3, after 3 renewals invoiced no 4th is generated and the service becomes completed after the last period ends.
