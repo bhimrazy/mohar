@@ -1,4 +1,5 @@
 import { parseMoneyInput } from '@/lib/money';
+import type { GatewayLogoData } from './gateway-logo';
 
 /**
  * Billing page props as sent by app/Modules/Billing/Http/Resources/*.
@@ -154,6 +155,7 @@ export type ClientGatewayOption = {
     instructions: string | null;
     vault_url: string | null;
     sandbox?: boolean;
+    logo?: GatewayLogoData | null;
 };
 
 export type PaymentOptions = {

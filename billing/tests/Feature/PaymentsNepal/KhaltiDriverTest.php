@@ -289,3 +289,22 @@ test('staff can test the saved key without it ever reaching the page', function 
     'accepted' => [404, 'success'],
     'rejected' => [401, 'error'],
 ]);
+
+test('checkout shows the official logos with an accessible name and other gateways fall back to their name', function () {
+    nepalGateway('esewa', ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'fake-esewa-secret']);
+    Gateway::factory()->create();
+    [, $invoice] = nprInvoice();
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', function ($gateways) {
+            $logos = collect($gateways)->mapWithKeys(fn ($gateway) => [$gateway['key'] => $gateway['logo']]);
+
+            return $logos['khalti'] === ['url' => asset('images/gateways/khalti.svg'), 'dark_url' => null, 'alt' => 'Pay with Khalti']
+                && $logos['esewa'] === ['url' => asset('images/gateways/esewa.png'), 'dark_url' => asset('images/gateways/esewa-on-dark.png'), 'alt' => 'Pay with eSewa']
+                && $logos['bank_transfer'] === null;
+        }));
+
+    foreach (['khalti.svg', 'esewa.png', 'esewa-on-dark.png'] as $file) {
+        expect(public_path('images/gateways/'.$file))->toBeFile();
+    }
+});

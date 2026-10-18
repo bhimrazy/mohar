@@ -498,3 +498,23 @@ stored in `provider_ref`.
 | expired             | Expired (HTTP 400)                         | —                             | expired                                                      |
 | refunded / partial  | Refunded, Partially refunded               | FULL_REFUND, PARTIAL_REFUND   | ambiguous: "refunded at the provider before it was recorded" |
 | retryable           | 401/403/429/5xx, unreachable               | `code: 0`, 5xx, unreachable   | unchanged, polled again                                      |
+
+### 8.6 Provider logos (owner decision 2026-10-18)
+
+Drivers ship their provider's official logo through the optional `ProvidesLogo` contract (`GatewayLogo` DTO:
+light-background URL, optional dark-background URL, alt text). The client pay panel and the admin gateway screens
+show it, and fall back to the text name when a driver has none. The files are served from `public/images/gateways/`
+and are byte-identical to their sources (scaled only, in CSS: 28 px high on checkout, 24 px in the admin list).
+
+| File                                       | Source (official)                                                                                                                                                                                             | Fetched    |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `khalti.svg`                               | Khalti's developer docs logo: `https://github.com/khalti/docs.khalti.com/blob/8766d60d39ef9e931bd2377e7fd6173694c7ab8f/overrides/.icons/img/khalti_logo.svg` (the logo `mkdocs.yml` sets for docs.khalti.com) | 2026-10-18 |
+| `esewa.png` (for light backgrounds)        | eSewa developer site: `https://developer.esewa.com.np/assets/img/esewa-logo-dark.png`                                                                                                                         | 2026-10-18 |
+| `esewa-on-dark.png` (for dark backgrounds) | eSewa developer site: `https://developer.esewa.com.np/assets/img/esewa-logo-light.png`                                                                                                                        | 2026-10-18 |
+
+- **Brand guidelines:** `khalti.com/logo/` redirects to `campaigns.khalti.com/brandbook/`, whose host no longer
+  resolves. eSewa's developer site publishes no logo rules and has no SVG. Until either provider supplies a brand
+  kit, we use the files unmodified, scale them only, keep their own padding as clear space, and show each variant on
+  the background it was made for.
+- **Follow-up:** ask both merchant teams (merchant@khalti.com, eSewa merchant support) for their brand kits and
+  usage terms.

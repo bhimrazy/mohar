@@ -6,6 +6,8 @@ import { FormActions } from '@/components/app/form-actions';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { GatewayLogo } from '@/components/billing/gateway-logo';
+import type { GatewayLogoData } from '@/components/billing/gateway-logo';
 import { SelectField } from '@/components/billing/select-field';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -93,6 +95,7 @@ type Props = {
         driver_name: string;
         display_name: string;
         sandbox: boolean;
+        logo: GatewayLogoData | null;
         is_active: boolean;
         show_on_order_form: boolean;
         sort_order: number;
@@ -186,7 +189,19 @@ export default function GatewayEdit({
                             />
                         ) : undefined
                     }
-                    description={gateway.driver_name}
+                    description={
+                        gateway.logo ? (
+                            <span className="flex items-center gap-2">
+                                <GatewayLogo
+                                    name={gateway.driver_name}
+                                    logo={gateway.logo}
+                                />
+                                {gateway.driver_name}
+                            </span>
+                        ) : (
+                            gateway.driver_name
+                        )
+                    }
                 />
                 <form onSubmit={submit} className="grid gap-6">
                     <SectionCard title="General">

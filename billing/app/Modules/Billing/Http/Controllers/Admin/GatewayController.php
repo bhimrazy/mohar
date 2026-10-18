@@ -112,6 +112,7 @@ class GatewayController extends Controller
             'convert_to_currency' => $model->convert_to_currency,
             'capabilities' => $driver->capabilities(),
             'sandbox' => $this->gateways->isSandbox($driver->key()),
+            'logo' => $this->gateways->logo($driver->key()),
         ];
     }
 }

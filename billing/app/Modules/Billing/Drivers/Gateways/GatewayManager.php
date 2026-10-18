@@ -5,6 +5,7 @@ namespace App\Modules\Billing\Drivers\Gateways;
 use App\Contracts\Billing\GatewayDriver;
 use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ProvidesLogo;
 use App\Data\Billing\GatewayConfig;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
@@ -76,6 +77,18 @@ class GatewayManager implements GatewayRegistry
             sandbox: filter_var($settings['sandbox'] ?? false, FILTER_VALIDATE_BOOLEAN),
             convertToCurrency: $gateway->convert_to_currency,
         );
+    }
+
+    /**
+     * The provider logo a driver ships (ProvidesLogo), for checkout and admin screens; null means "show the name".
+     *
+     * @return array{url: string, dark_url: string|null, alt: string}|null
+     */
+    public function logo(string $key): ?array
+    {
+        $driver = $this->drivers[$key] ?? null;
+
+        return $driver instanceof ProvidesLogo ? $driver->logo()?->toArray() : null;
     }
 
     /**

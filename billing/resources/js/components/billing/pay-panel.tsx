@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { RouteAction } from '@/types/app';
 import { CardFields, tokenizeCard, useCardForm } from './card-form';
+import { GatewayLogo } from './gateway-logo';
 import type { PaymentOptions } from './types';
 
 type PayPanelProps = {
@@ -160,23 +161,32 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             checked={gateway === option.key}
                             onChange={setGateway}
                         >
-                            {option.kind === 'redirect' ? (
-                                <Wallet
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden="true"
-                                />
-                            ) : option.kind === 'card' ? (
-                                <CreditCard
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden="true"
+                            {option.logo ? (
+                                <GatewayLogo
+                                    name={option.name}
+                                    logo={option.logo}
                                 />
                             ) : (
-                                <Landmark
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden="true"
-                                />
+                                <>
+                                    {option.kind === 'redirect' ? (
+                                        <Wallet
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    ) : option.kind === 'card' ? (
+                                        <CreditCard
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    ) : (
+                                        <Landmark
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                    {option.name}
+                                </>
                             )}
-                            {option.name}
                             {option.sandbox && (
                                 <StatusBadge
                                     status="sandbox"

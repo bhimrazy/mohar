@@ -4,10 +4,12 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\ChargeResult;
 use App\Data\Billing\ConnectionCheck;
 use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\GatewayLogo;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
@@ -30,7 +32,7 @@ use Illuminate\Http\Request;
  * browser return is unsigned, so it is a hint only: lookup() of the pidx stored on the attempt is the only
  * source of truth, and only "Completed" counts as paid. Refunds (full or partial) go through Khalti's API.
  */
-final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver
+final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
 {
     public const KEY = 'khalti';
 
@@ -44,6 +46,12 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
     public function name(): string
     {
         return 'Khalti';
+    }
+
+    /** Khalti's official docs logo (docs/product/payments-nepal.md §8.6), served from public/images/gateways. */
+    public function logo(): GatewayLogo
+    {
+        return new GatewayLogo(asset('images/gateways/khalti.svg'), __('Pay with Khalti'));
     }
 
     public function capabilities(): array

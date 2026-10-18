@@ -4,6 +4,8 @@ import type { DataTableColumn } from '@/components/app/data-table';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { StatusBadge } from '@/components/app/status-badge';
+import { GatewayLogo } from '@/components/billing/gateway-logo';
+import type { GatewayLogoData } from '@/components/billing/gateway-logo';
 import { humanize } from '@/components/billing/types';
 import { edit } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/GatewayController';
 
@@ -18,6 +20,7 @@ type GatewayRow = {
     convert_to_currency: string | null;
     capabilities: string[];
     sandbox: boolean;
+    logo: GatewayLogoData | null;
 };
 
 export default function GatewaysIndex({
@@ -33,6 +36,13 @@ export default function GatewaysIndex({
             cell: (gateway) => (
                 <div>
                     <div className="flex items-center gap-2">
+                        {gateway.logo && (
+                            <GatewayLogo
+                                name={gateway.display_name}
+                                logo={gateway.logo}
+                                className="h-6"
+                            />
+                        )}
                         {gateway.display_name}
                         {gateway.sandbox && (
                             <StatusBadge

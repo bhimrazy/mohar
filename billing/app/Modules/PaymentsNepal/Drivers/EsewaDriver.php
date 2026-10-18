@@ -4,10 +4,12 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\ConnectionCheck;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\GatewayConfig;
+use App\Data\Billing\GatewayLogo;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
@@ -29,7 +31,7 @@ use Illuminate\Support\Str;
  * signed_field_names; a valid signature only makes it a trustworthy hint. The status-check API, queried with our
  * stored amount, is what settles. eSewa has no refund API: refunds are made in the merchant portal and recorded.
  */
-final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver
+final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
 {
     public const KEY = 'esewa';
 
@@ -52,6 +54,12 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     public function name(): string
     {
         return 'eSewa';
+    }
+
+    /** eSewa's official developer-site logos (docs/product/payments-nepal.md §8.6), served from public/images/gateways. */
+    public function logo(): GatewayLogo
+    {
+        return new GatewayLogo(asset('images/gateways/esewa.png'), __('Pay with eSewa'), darkUrl: asset('images/gateways/esewa-on-dark.png'));
     }
 
     public function capabilities(): array

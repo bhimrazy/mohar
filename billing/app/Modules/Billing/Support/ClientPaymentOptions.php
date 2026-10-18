@@ -160,6 +160,7 @@ class ClientPaymentOptions
                     'instructions' => $invoice !== null ? $driver->instructions($this->gateways->config($gateway), $invoice->displayNumber()) : null,
                     'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) && Route::has('billing.sandbox.tokens') ? route('billing.sandbox.tokens') : null,
                     'sandbox' => $this->gateways->isSandbox($gateway),
+                    'logo' => $this->gateways->logo($gateway->key),
                 ];
             }, $gateways)),
             'can_choose_gateway' => $this->settings->bool('clients_choose_gateway'),
