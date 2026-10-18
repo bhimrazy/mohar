@@ -148,16 +148,20 @@ export default function EmailLogShow({
                                         <DateTime value={message.sent_at} />
                                     ),
                                 },
-                                {
-                                    label: 'Why not sent',
-                                    value:
-                                        message.failure_reason ??
-                                        message.suppressed_reason?.replace(
-                                            '_',
-                                            ' ',
-                                        ),
-                                    full: true,
-                                },
+                                ...(message.status === 'sent'
+                                    ? []
+                                    : [
+                                          {
+                                              label: 'Why not sent',
+                                              value:
+                                                  message.failure_reason ??
+                                                  message.suppressed_reason?.replace(
+                                                      '_',
+                                                      ' ',
+                                                  ),
+                                              full: true,
+                                          },
+                                      ]),
                                 {
                                     label: 'Provider message id',
                                     value: message.provider_message_id && (

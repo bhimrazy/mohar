@@ -66,7 +66,7 @@ export default function TemplatesIndex({
             header: 'Subject',
             hideOnMobile: true,
             cell: (template) => (
-                <span className="line-clamp-1 text-sm text-muted-foreground">
+                <span className="block max-w-[26rem] truncate text-sm text-muted-foreground">
                     {template.subject}
                 </span>
             ),
@@ -75,12 +75,7 @@ export default function TemplatesIndex({
             key: 'type',
             header: 'Type',
             cell: (template) => (
-                <span className="text-sm">
-                    {typeLabel(template.type)}
-                    {template.audience === 'staff' && (
-                        <span className="text-muted-foreground"> · staff</span>
-                    )}
-                </span>
+                <span className="text-sm">{typeLabel(template.type)}</span>
             ),
         },
         {
