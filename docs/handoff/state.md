@@ -41,6 +41,9 @@ draft PR into `develop` when their gates pass.
 
 ## Next
 
+The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
+studies). The items below are the near-term queue.
+
 1. Wave 2, when a build slot frees (at most two engineers at a time):
    - **Social sign-in** (owner request 2026-10-18; raised from P2 in the parity study). Admin → Settings →
      Sign-in integrations: per-provider enable, client ID and secret (write-only, encrypted), callback URL
