@@ -92,6 +92,14 @@ export default function Checkout({
         password_confirmation: '',
     });
     const errors = form.errors as Record<string, string | undefined>;
+    // Errors about the cart, promotion, domains or a replayed submit have no field on this page.
+    const generalError = Object.entries(errors).find(
+        ([key, message]) =>
+            message &&
+            (!(key in form.data) ||
+                key === 'idempotency_key' ||
+                key === 'expected_net_total'),
+    )?.[1];
     const countryOptions = useMemo(() => {
         const names = new Intl.DisplayNames(['en'], { type: 'region' });
 
@@ -151,7 +159,7 @@ export default function Checkout({
                         </p>
                     </header>
 
-                    {(errors.cart || errors.promotion_code) && (
+                    {generalError && (
                         <div
                             role="alert"
                             className="flex gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
@@ -161,7 +169,7 @@ export default function Checkout({
                                 aria-hidden="true"
                             />
                             <div className="space-y-1">
-                                <p>{errors.cart ?? errors.promotion_code}</p>
+                                <p>{generalError}</p>
                                 <Link
                                     href={store.cart.url()}
                                     className="font-medium underline underline-offset-4"
