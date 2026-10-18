@@ -41,7 +41,8 @@ class CurrencyRequest extends FormRequest
             'suffix' => ['nullable', 'string', 'max:10'],
             'decimals' => ['required', 'integer', Rule::in(Currency::DECIMALS)],
             'format' => ['required', Rule::in(Currency::FORMATS)],
-            'exchange_rate' => ['required', 'numeric', 'gt:0', 'max:9999999999', 'decimal:0,6'],
+            // The starting rate is set on create; later changes go through the rates form (core.currencies.rates).
+            'exchange_rate' => $currency instanceof Currency ? ['prohibited'] : ['required', 'numeric', 'gt:0', 'max:9999999999', 'decimal:0,6'],
         ];
     }
 }

@@ -43,8 +43,8 @@ test('a currency can be created, listed and edited', function () {
     actingAsStaff(['core.currencies.manage']);
     Currency::factory()->create();
 
-    $this->post(route('admin.platform.currencies.store'), ['code' => 'npr', 'name' => 'Nepalese Rupee', 'prefix' => 'रू ', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => '134.4'])
-        ->assertRedirect(route('admin.platform.currencies.index'));
+    $this->post(route('admin.platform.currencies.store'), ['code' => 'npr', 'name' => 'Nepalese Rupee', 'prefix' => 'Rs ', 'decimals' => 2, 'format' => '1,23,456.78', 'exchange_rate' => '134.4'])
+        ->assertRedirect();
 
     $npr = Currency::query()->where('code', 'NPR')->sole();
     expect($npr)->decimals->toBe(2)->exchange_rate->toBe('134.400000')->rate_updated_at->not->toBeNull();
@@ -52,9 +52,19 @@ test('a currency can be created, listed and edited', function () {
     $this->get(route('admin.platform.currencies.index'))
         ->assertInertia(fn (Assert $page) => $page->component('admin/platform/currencies/index')->has('currencies', 2)->where('currencies.0.is_default', true));
 
-    $this->put(route('admin.platform.currencies.update', $npr), ['code' => 'NPR', 'name' => 'Nepalese Rupee', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => '135'])
-        ->assertRedirect();
-    expect($npr->fresh()->exchange_rate)->toBe('135.000000');
+    $this->put(route('admin.platform.currencies.update', $npr), ['code' => 'NPR', 'name' => 'Nepali Rupee', 'prefix' => 'Rs ', 'decimals' => 2, 'format' => '1,23,456.78'])
+        ->assertRedirect(route('admin.platform.currencies.edit', $npr));
+    expect($npr->fresh())->name->toBe('Nepali Rupee')->format->toBe('1,23,456.78');
+});
+
+test('the display form cannot change an existing currency rate', function () {
+    actingAsStaff(['core.currencies.manage']);
+    Currency::factory()->create();
+    $npr = Currency::factory()->npr()->create();
+
+    $this->put(route('admin.platform.currencies.update', $npr), ['code' => 'NPR', 'name' => 'Nepalese Rupee', 'decimals' => 2, 'format' => '1,23,456.78', 'exchange_rate' => '999'])
+        ->assertSessionHasErrors('exchange_rate');
+    expect($npr->fresh()->exchange_rate)->toBe('134.400000');
 });
 
 test('currency validation rejects bad codes, decimals, formats and rates', function () {
@@ -70,17 +80,19 @@ test('currency validation rejects bad codes, decimals, formats and rates', funct
 });
 
 test('the default currency rate stays fixed at 1', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     $usd = Currency::factory()->create();
 
-    $this->put(route('admin.platform.currencies.update', $usd), ['code' => 'USD', 'name' => 'US Dollar', 'decimals' => 2, 'format' => '1,234.56', 'exchange_rate' => '2'])
+    $this->put(route('admin.platform.currencies.rates.update', $usd), ['rate_source' => 'manual', 'exchange_rate' => '2', 'price_rounding' => 'none'])
         ->assertRedirect();
 
     expect($usd->fresh()->exchange_rate)->toBe('1.000000');
 });
 
 test('changing the default currency rebases rates while no invoices exist', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     $usd = Currency::factory()->create();
     $eur = Currency::factory()->euro()->create(['exchange_rate' => '0.8']);
 
@@ -91,7 +103,8 @@ test('changing the default currency rebases rates while no invoices exist', func
 });
 
 test('the default currency cannot change once invoices exist (422)', function () {
-    actingAsStaff(['core.currencies.manage']);
+    actingAsStaff(['core.currencies.manage', 'core.currencies.rates']);
+    confirmPassword();
     Currency::factory()->create();
     $eur = Currency::factory()->euro()->create();
     $this->app->instance(InvoiceQueries::class, new class implements InvoiceQueries

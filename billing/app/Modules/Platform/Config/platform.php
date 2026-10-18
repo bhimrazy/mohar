@@ -15,4 +15,20 @@ return [
 
     /** Minutes the signed "enter impersonation" link is valid for. */
     'impersonation_link_minutes' => 2,
+
+    /*
+     * Exchange rates (spec §6). A fetched rate that moved more than rates_max_change_percent from the rate
+     * in force is held for staff review; auto-sourced rates not refreshed for rates_stale_after_days are
+     * flagged. rates_update_time ("HH:MM", empty = with the daily automation run) schedules the fetch.
+     */
+    'rates_max_change_percent' => 10,
+    'rates_stale_after_days' => 3,
+    'rates_update_time' => '',
+
+    'exchange_rates' => [
+        'ecb_url' => env('ECB_RATES_URL', 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml'),
+        'nrb_url' => env('NRB_RATES_URL', 'https://www.nrb.org.np/api/forex/v1/rates'),
+        'timeout' => 10,
+        'connect_timeout' => 5,
+    ],
 ];

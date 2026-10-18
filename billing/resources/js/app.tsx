@@ -2,6 +2,8 @@ import { createInertiaApp, router } from '@inertiajs/react';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
+import { configureCurrencies } from '@/lib/money';
+import type { CurrencyFormat } from '@/lib/money';
 import AppLayout from '@/layouts/app-layout';
 import AuthLayout from '@/layouts/auth-layout';
 import PreviewLayout from '@/layouts/preview-layout';
@@ -17,6 +19,17 @@ router.on('navigate', (event) => {
         | { name?: string }
         | undefined;
     brandName = brand?.name || brandName;
+    configureCurrencies(
+        event.detail.page.props.currencyFormats as CurrencyFormat[] | undefined,
+    );
+});
+
+// Currency display settings (shared `currencyFormats` prop) must be in place before a page renders,
+// so formatMoney() matches the server's formatting on the very first paint and after edits.
+router.on('beforeUpdate', (event) => {
+    configureCurrencies(
+        event.detail.page.props.currencyFormats as CurrencyFormat[] | undefined,
+    );
 });
 
 void createInertiaApp({
@@ -38,7 +51,11 @@ void createInertiaApp({
         }
     },
     strictMode: true,
-    withApp(app) {
+    withApp(app, { page }) {
+        configureCurrencies(
+            page.props.currencyFormats as CurrencyFormat[] | undefined,
+        );
+
         return (
             <TooltipProvider delayDuration={0}>
                 {app}

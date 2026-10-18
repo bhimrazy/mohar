@@ -2,7 +2,12 @@
 
 namespace App\Modules\Core\Models;
 
+use App\Data\Currencies\CurrencyDisplay;
+use App\Enums\PriceRounding;
 use App\Modules\Core\Database\Factories\CurrencyFactory;
+use App\Modules\Core\Support\CachedCurrencyDirectory;
+use App\Support\Currencies\Decimal;
+use App\Support\Currencies\MoneyFormatter;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -19,19 +24,23 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $decimals
  * @property string $format
  * @property string $exchange_rate
+ * @property string $rate_source "manual" or an ExchangeRateSources key
  * @property bool $is_auto_rate
- * @property CarbonImmutable|null $rate_updated_at
+ * @property CarbonImmutable|null $rate_updated_at when the rate last changed
+ * @property CarbonImmutable|null $rate_checked_at last successful fetch from the rate source
+ * @property PriceRounding $price_rounding
+ * @property string $price_buffer_percent
  * @property bool $is_default
  */
 #[UseFactory(CurrencyFactory::class)]
-#[Fillable(['code', 'name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'is_auto_rate', 'rate_updated_at', 'is_default'])]
+#[Fillable(['code', 'name', 'prefix', 'suffix', 'decimals', 'format', 'exchange_rate', 'rate_source', 'is_auto_rate', 'rate_updated_at', 'rate_checked_at', 'price_rounding', 'price_buffer_percent', 'is_default'])]
 class Currency extends Model
 {
     /** @use HasFactory<CurrencyFactory> */
     use HasFactory;
 
-    /** Supported number formats (thousands/decimal separators). */
-    public const FORMATS = ['1234.56', '1,234.56', '1.234,56', '1 234,56'];
+    /** Supported number formats (thousands/decimal separators; "1,23,456.78" = Indian lakh grouping). */
+    public const FORMATS = MoneyFormatter::FORMATS;
 
     /**
      * Supported minor-unit precisions. v1 stores every amount in 1/100 units (ADR 0002), so only 2-decimal
@@ -42,7 +51,16 @@ class Currency extends Model
     protected $attributes = [
         'decimals' => 2,
         'format' => '1,234.56',
+        'rate_source' => 'manual',
+        'price_rounding' => 'none',
+        'price_buffer_percent' => 0,
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(fn () => CachedCurrencyDirectory::flush());
+        static::deleted(fn () => CachedCurrencyDirectory::flush());
+    }
 
     protected function casts(): array
     {
@@ -51,8 +69,16 @@ class Currency extends Model
             'decimals' => 'integer',
             'is_auto_rate' => 'boolean',
             'rate_updated_at' => 'immutable_datetime',
+            'rate_checked_at' => 'immutable_datetime',
+            'price_rounding' => PriceRounding::class,
+            'price_buffer_percent' => 'decimal:2',
             'is_default' => 'boolean',
         ];
+    }
+
+    public function display(): CurrencyDisplay
+    {
+        return new CurrencyDisplay($this->code, (string) $this->prefix, (string) $this->suffix, $this->decimals, $this->format);
     }
 
     public static function default(): self
@@ -61,16 +87,28 @@ class Currency extends Model
             ?? static::query()->firstOrCreate(['code' => 'USD'], ['name' => 'US Dollar', 'prefix' => '$', 'is_default' => true]);
     }
 
+    /**
+     * Format an amount with this currency's display settings (see App\Support\Currencies\MoneyFormatter).
+     */
     public function format(Money $money): string
     {
-        [$thousands, $decimal] = match ($this->format) {
-            '1234.56' => ['', '.'],
-            '1.234,56' => ['.', ','],
-            '1 234,56' => [' ', ','],
-            default => [',', '.'],
-        };
+        return MoneyFormatter::render($money->amount, $this->display());
+    }
 
-        return $this->prefix.number_format($money->amount / (10 ** $this->decimals), $this->decimals, $decimal, $thousands).$this->suffix;
+    /**
+     * A converted price in this currency for a default-currency amount: exchange rate, then the FX buffer,
+     * then the rounding rule. Used by every module's price conversion so they agree to the minor unit.
+     */
+    public function priceFromDefault(int $amount): int
+    {
+        $converted = $this->fromDefault($amount);
+        $buffer = (string) $this->price_buffer_percent;
+
+        if ($converted !== 0 && Decimal::isPositive($buffer)) {
+            $converted = (int) Decimal::round(Decimal::multiply((string) $converted, Decimal::add('1', Decimal::divide($buffer, '100', 6))), 0);
+        }
+
+        return $this->price_rounding->apply($converted);
     }
 
     /**

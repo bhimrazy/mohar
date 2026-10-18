@@ -58,11 +58,11 @@ class ProductPricingRequest extends FormRequest
     }
 
     /**
-     * @return list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int}>
+     * @return list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int, manual?: bool}>
      */
     public function prices(): array
     {
-        /** @var list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int}> $prices */
+        /** @var list<array{currency: string, cycle: string, enabled: bool, amount: int, setup_fee: int, manual?: bool}> $prices */
         $prices = $this->validated('prices');
 
         return $prices;

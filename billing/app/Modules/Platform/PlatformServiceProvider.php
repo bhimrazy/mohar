@@ -6,19 +6,26 @@ use App\Models\User;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\Like;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Platform\Actions\Currencies\UpdateExchangeRates;
+use App\Modules\Platform\Drivers\ExchangeRates\EcbRateSource;
+use App\Modules\Platform\Drivers\ExchangeRates\NrbRateSource;
 use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
 use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
+use App\Modules\Platform\Models\ExchangeRateReview;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Modules\Platform\Services\ExchangeRateStatus;
 use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
+use App\Support\Currencies\ExchangeRateSources;
+use App\Support\Currencies\ExchangeRateUnavailable;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -31,6 +38,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
@@ -70,11 +78,68 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->registerSearch();
         $this->registerMergeParticipants();
         $this->registerAutomation();
+        $this->registerExchangeRates();
         $this->app->make(PlatformDashboard::class)->register($this->app->make(Dashboard::class));
 
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin-create', new NavItem('New client', 'admin.clients.create', 'UserPlus', order: 10, permission: 'core.clients.create'));
         $navigation->add('admin-create', new NavItem('Invite staff', 'admin.platform.staff.create', 'UserCog', order: 90, permission: 'core.staff.manage'));
+    }
+
+    /**
+     * Rate sources, the daily rate update and its "Needs attention" items (spec §6).
+     */
+    private function registerExchangeRates(): void
+    {
+        $sources = $this->app->make(ExchangeRateSources::class);
+        $sources->register(EcbRateSource::class);
+        $sources->register(NrbRateSource::class);
+
+        $this->app->make(Automation::class)->task('platform.exchange-rates', Automation::EXCHANGE_RATES, function (): string {
+            $result = $this->app->make(UpdateExchangeRates::class)->handle();
+            $summary = sprintf('%d updated, %d unchanged, %d held for review', count($result['updated']), count($result['unchanged']), count($result['held']));
+
+            if ($result['failed'] !== []) {
+                throw new ExchangeRateUnavailable($summary.'; failed: '.implode('; ', array_map(
+                    fn (string $code, string $error): string => "{$code}: {$error}",
+                    array_keys($result['failed']),
+                    $result['failed'],
+                )));
+            }
+
+            return $summary;
+        });
+
+        $dashboard = $this->app->make(Dashboard::class);
+        $dashboard->todo('admin', 'platform.exchange_rates.review', fn (): array => [
+            'label' => 'Exchange-rate changes waiting for approval',
+            'count' => ExchangeRateReview::query()->pending()->count(),
+            'href' => route('admin.platform.currencies.index'),
+            'tone' => 'warning',
+        ], 'core.currencies.rates', 30);
+        $dashboard->todo('admin', 'platform.exchange_rates.stale', fn (): array => [
+            'label' => 'Automatic exchange rates not updated recently',
+            'count' => $this->app->make(ExchangeRateStatus::class)->staleQuery()->count(),
+            'href' => route('admin.platform.currencies.index'),
+            'tone' => 'warning',
+        ], 'core.currencies.manage', 31);
+    }
+
+    /**
+     * A separate daily rate fetch when platform.rates_update_time is set. It runs the same pipeline task
+     * (recorded per date), so the main automation run skips it once it succeeded.
+     */
+    protected function schedule(Schedule $schedule): void
+    {
+        $time = (string) rescue(fn (): mixed => $this->app->make(Settings::class)->get('platform.rates_update_time'), '', report: false);
+
+        if (preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1) {
+            $schedule->command('automation:run', ['--only' => 'platform.exchange-rates'])
+                ->dailyAt($time)
+                ->name('platform.exchange-rates')
+                ->withoutOverlapping()
+                ->onOneServer();
+        }
     }
 
     /**
@@ -152,18 +217,25 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'core.staff.view' => 'View staff',
             'core.staff.manage' => 'Invite, edit and deactivate staff',
             'core.roles.manage' => 'Manage roles and permissions',
-            'core.currencies.manage' => 'Manage currencies and exchange rates',
+            'core.currencies.manage' => 'Manage currencies and how amounts are displayed',
+            'core.currencies.rates' => 'Change exchange rates, rate sources and converted prices',
             'core.client_groups.manage' => 'Manage client groups',
             'core.settings.view' => 'View settings',
             'core.settings.update' => 'Change general settings',
             'core.settings.security' => 'Change security settings',
             'core.automation.view' => 'View the automation log',
             'core.automation.run' => 'Run automation manually',
-        ], sensitive: ['core.staff.*', 'core.roles.*', 'core.settings.security']);
+        ], sensitive: ['core.staff.*', 'core.roles.*', 'core.settings.security', 'core.currencies.rates']);
     }
 
     private function registerSettings(): void
     {
+        $this->app->make(SettingsRegistry::class)->section('exchange_rates', 'Exchange rates', [
+            new SettingDefinition('platform.rates_max_change_percent', 'Largest automatic daily change (%)', 'integer', 'A fetched rate that moved more than this from the rate in force waits for staff approval. 0 turns the check off.', rules: ['min:0', 'max:100']),
+            new SettingDefinition('platform.rates_stale_after_days', 'Warn when automatic rates are older than (days)', 'integer', rules: ['min:1', 'max:60']),
+            new SettingDefinition('platform.rates_update_time', 'Rate update time', help: 'Server time (HH:MM) to fetch rates each day. Leave empty to fetch with the daily automation run.', rules: ['nullable', 'date_format:H:i']),
+        ], 'core.currencies.rates');
+
         $this->app->make(SettingsRegistry::class)->section('security', 'Security', [
             new SettingDefinition('security.staff_2fa_required', 'Require two-factor authentication for staff', 'boolean', 'Staff without 2FA must set it up before they can use the admin area.'),
             new SettingDefinition('security.login_max_attempts', 'Failed sign-ins before lockout', 'integer', 'Per email address and IP.', rules: ['min:3', 'max:20']),
