@@ -17,6 +17,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   batches and attempts). Existing values are kept; rolling the migrations back rounds rates to six decimals.
 - Existing prices in non-default currencies are marked "set manually" (TLD prices always; product prices when
   automatic conversion was off), so the first price conversion leaves them unchanged.
+- **Notifications permissions.** New `notifications.*` permissions: `templates.view`, `templates.manage`,
+  `log.view`, `log.resend`, `send`, `subscriptions.manage`, `webhooks.manage`, `delivery.manage` and
+  `settings.manage`. `templates.manage`, `webhooks.manage` and `delivery.manage` are sensitive: wildcards never grant
+  them and each change needs a recent password. Senders, Reply-To, the global BCC, template CC/BCC and
+  `notifications.auth_link_host` need `delivery.manage`.
+- **Mail now goes through the Notifications module.** Run queue workers for the `notifications` and `webhooks`
+  queues (`docs/devops/local-setup.md`). Password-reset and verification mail use the editable templates; Laravel's
+  own notification is the fallback only when no template message could be created.
+- **Account mail fails closed.** A reset, verification or invitation link that is not on `APP_URL` (or
+  `notifications.auth_link_host`) is never mailed: nothing is sent and a security event is logged. With an `http://`
+  `APP_URL` in production every such mail is held; the install pre-flight and the dashboard health card say so.
+- **Forgot-password** gives the same answer for known and unknown addresses and is throttled (5 a minute per IP,
+  5 an hour per address).
+- `php artisan app:install` and `db:seed` install the default email templates; staff edits are never overwritten.
 
 ### Platform foundation
 
@@ -215,6 +229,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Guest forms use a honeypot and rate limiting. Ticket events live in `app/Events/Support`.
 - Tickets navigation badge, "New ticket" quick-create, dashboard widget and todos; `support.*` permissions for
   tickets, departments, canned replies, inbound email, knowledge base, announcements, network status and settings.
+
+### Notifications
+
+- Email templates: 66 system templates for client and staff mail, per-language translations (recipient language,
+  then the default, then English), custom templates, preview in light and dark with sample data, test send and a
+  template select on products and addons. Templates use a sandboxed syntax (`{{ path | filter }}`, `{% if %}`,
+  `{% for %}`) that runs no code, escapes HTML and Markdown and has size and loop limits.
+- One branded layout for every email, framework and module mail included: logo (light and dark), the key-facts
+  block, a primary button, a text part, and a footer with address, help line, help-centre link and, for client mail
+  that can be switched off, the email-preferences link. The sender name is the company name; senders are set per
+  category (default, billing), and every mail has a Reply-To (billing, the ticket's department, or support).
+- Events from Billing, Orders, Services, Domains, Support and Core send the mapped templates, once per occurrence.
+  Recipients follow the account's email preferences, with the owner as fallback for invoice and domain mail; closed
+  accounts get none. Staff alerts go to the roles chosen per category under Setup → Staff email alerts.
+- Clients manage their email preferences and see their email history in the client area; at least one address on
+  the account keeps receiving each required category.
+- Email log with search, status, the stored copy, Resend, and retention of bodies (`notifications.prune` in
+  housekeeping). Failed mail shows in "Needs attention".
+- Outbound webhooks: endpoints per event type (28 events), HMAC-SHA256 signatures with secret rotation, https only,
+  private and reserved addresses refused, retries with backoff (1 minute up to 24 hours between attempts), automatic
+  disabling after repeated failures with a staff alert, a test ping, and a delivery log with resend.
+- Private links reach only their owner. Password-reset, verification and invitation links, and a guest's ticket
+  link (which carries its access key), are never part of template text: the system adds them as its own button,
+  checks the finished mail before it is sent, and masks them as •••• in the log. Mail that carries one is never
+  copied (no CC, BCC or global BCC); ticket CCs get the reply without the link. Account-mail text is plain and uses
+  first names and the company name only.
+- Resend is disabled for logged mail that carried a private link, with the reason shown; for ticket mail the page
+  links to the ticket.
+- Admin dashboard: "Account email" health check.
 
 ### Currencies
 
