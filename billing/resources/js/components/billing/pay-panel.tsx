@@ -162,10 +162,14 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             onChange={setGateway}
                         >
                             {option.logo ? (
-                                <GatewayLogo
-                                    name={option.name}
-                                    logo={option.logo}
-                                />
+                                <>
+                                    <GatewayLogo
+                                        name={option.name}
+                                        logo={option.logo}
+                                        decorative={option.show_name}
+                                    />
+                                    {option.show_name && option.name}
+                                </>
                             ) : (
                                 <>
                                     {option.kind === 'redirect' ? (

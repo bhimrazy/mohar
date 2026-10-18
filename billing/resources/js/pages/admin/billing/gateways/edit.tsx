@@ -195,6 +195,7 @@ export default function GatewayEdit({
                                 <GatewayLogo
                                     name={gateway.driver_name}
                                     logo={gateway.logo}
+                                    decorative
                                 />
                                 {gateway.driver_name}
                             </span>

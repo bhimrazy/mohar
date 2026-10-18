@@ -161,6 +161,8 @@ class ClientPaymentOptions
                     'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) && Route::has('billing.sandbox.tokens') ? route('billing.sandbox.tokens') : null,
                     'sandbox' => $this->gateways->isSandbox($gateway),
                     'logo' => $this->gateways->logo($gateway->key),
+                    // With a logo, the staff-set name is still shown when it says more than the provider's name.
+                    'show_name' => strcasecmp(trim($gateway->display_name), $driver->name()) !== 0,
                 ];
             }, $gateways)),
             'can_choose_gateway' => $this->settings->bool('clients_choose_gateway'),

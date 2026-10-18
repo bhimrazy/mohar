@@ -9,15 +9,18 @@ export type GatewayLogoData = {
 /**
  * A payment provider's official logo (shipped by its driver, used unmodified and only scaled), with the
  * provider's dark-background variant when it publishes one. Without a logo it falls back to the text name.
+ * `decorative` hides it from screen readers when the name is already written next to it.
  */
 export function GatewayLogo({
     name,
     logo,
     className,
+    decorative = false,
 }: {
     name: string;
     logo?: GatewayLogoData | null;
     className?: string;
+    decorative?: boolean;
 }) {
     if (!logo) {
         return <span className={className}>{name}</span>;
@@ -29,13 +32,13 @@ export function GatewayLogo({
         <>
             <img
                 src={logo.url}
-                alt={logo.alt}
+                alt={decorative ? '' : logo.alt}
                 className={cn(size, logo.dark_url && 'dark:hidden')}
             />
             {logo.dark_url && (
                 <img
                     src={logo.dark_url}
-                    alt={logo.alt}
+                    alt={decorative ? '' : logo.alt}
                     className={cn(size, 'hidden dark:block')}
                 />
             )}

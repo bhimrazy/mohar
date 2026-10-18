@@ -156,6 +156,7 @@ export type ClientGatewayOption = {
     vault_url: string | null;
     sandbox?: boolean;
     logo?: GatewayLogoData | null;
+    show_name?: boolean;
 };
 
 export type PaymentOptions = {
