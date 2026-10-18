@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Percent, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -35,6 +35,7 @@ type TaxRule = {
 
 type Props = {
     rules: TaxRule[];
+    settings_url: string | null;
     settings: {
         enabled: boolean;
         mode: string;
@@ -232,7 +233,11 @@ function RuleDialog({
     );
 }
 
-export default function TaxRulesIndex({ rules, settings }: Props) {
+export default function TaxRulesIndex({
+    rules,
+    settings,
+    settings_url,
+}: Props) {
     const [editing, setEditing] = useState<TaxRule | null>(null);
     const [open, setOpen] = useState(false);
     const [deleting, setDeleting] = useState<TaxRule | null>(null);
@@ -331,7 +336,22 @@ export default function TaxRulesIndex({ rules, settings }: Props) {
                 />
                 <SectionCard
                     title="Tax settings"
-                    description="Managed in the platform settings (Billing section)."
+                    description={
+                        settings_url ? (
+                            <>
+                                Change these in{' '}
+                                <Link
+                                    href={settings_url}
+                                    className="underline underline-offset-4 hover:text-foreground"
+                                >
+                                    Settings → Billing
+                                </Link>
+                                .
+                            </>
+                        ) : (
+                            'Managed in the platform settings (Billing section).'
+                        )
+                    }
                 >
                     <DescriptionList
                         columns={3}

@@ -8,6 +8,7 @@ use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,6 +31,8 @@ class TaxRuleController extends Controller
                     'priority' => $rule->priority,
                     'effective_from' => $rule->effective_from?->toDateString(),
                 ]),
+            // Billing settings are edited on the platform settings page (Billing section) when it is installed.
+            'settings_url' => Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'billing') : null,
             'settings' => [
                 'enabled' => $settings->bool('tax.enabled'),
                 'mode' => $settings->string('tax.mode', 'exclusive'),

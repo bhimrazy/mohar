@@ -8,6 +8,7 @@ use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Core\Models\ActivityLog;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Route;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -146,4 +147,11 @@ test('gateway, tax, refund and credit changes are audit-logged without secret va
     expect(json_encode($gatewayEntry->properties))->not->toContain('whsec_very_secret_value')
         ->and($gatewayEntry->properties['changes']['settings.webhook_secret'])->toBe('rotated');
     Event::assertDispatched(GatewayConfigurationChanged::class, fn ($event) => $event->changes['settings.webhook_secret'] === 'rotated');
+});
+
+test('the tax rules page links to the billing settings section', function () {
+    actingAsStaff(['billing.tax.manage']);
+
+    $this->get(route('admin.billing.tax-rules.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('settings_url', Route::has('admin.platform.settings.edit') ? route('admin.platform.settings.edit', 'billing') : null));
 });
