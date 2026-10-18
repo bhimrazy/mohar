@@ -12,6 +12,7 @@ use App\Data\Billing\QrPayload;
 use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
 use App\Events\Billing\InvoicePaid;
+use App\Models\User;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -223,6 +224,24 @@ test('NPR-only gateways require NPR or a configured conversion, and use form pos
     $transaction = Transaction::query()->where('gateway', 'fake_wallet')->firstOrFail();
     expect($usd->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($transaction)->amount_in->toBe(10_000)->gateway_amount->toBe(1_344_000)->gateway_currency->toBe('NPR');
+});
+
+test('the provider form page is bound to the client and to an open attempt', function () {
+    Currency::factory()->npr()->create();
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    $invoice = issueInvoice($client, [50_000]);
+    $checkoutUrl = (string) $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet'])->headers->get('Location');
+    $attempt = PaymentAttempt::query()->sole();
+
+    $this->get($checkoutUrl)->assertOk();
+
+    $attempt->update(['status' => AttemptStatus::Failed]);
+    $this->get($checkoutUrl)->assertRedirect(route('client.invoices.show', $invoice->id));
+
+    $other = Client::factory()->create(['currency' => 'NPR']);
+    $user = User::factory()->create(['email' => $other->email]);
+    $other->users()->attach($user, ['is_owner' => true]);
+    $this->actingAs($user)->get($checkoutUrl)->assertNotFound();
 });
 
 test('clients cannot start payments on other clients invoices and returns are bound to their gateway', function () {
