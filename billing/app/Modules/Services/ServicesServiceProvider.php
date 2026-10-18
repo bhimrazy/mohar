@@ -49,6 +49,7 @@ use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 
@@ -88,6 +89,12 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $this->registerPermissions();
         $this->registerSettings();
         $this->registerSearchAndMergeFields();
+    }
+
+    protected function schedule(Schedule $schedule): void
+    {
+        // Unknown outcomes (a create that timed out) settle themselves when the server shows the command ran.
+        $schedule->command('services:verify-unknown')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
     }
 
     private function registerAutomation(): void

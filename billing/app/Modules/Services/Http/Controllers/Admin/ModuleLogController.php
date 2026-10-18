@@ -2,8 +2,10 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Enums\ReconcileStatus;
 use App\Http\Controllers\Controller;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
+use App\Modules\Services\Actions\VerifyUnknownOutcomes;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Http\Controllers\Concerns\ConvertsServiceErrors;
@@ -26,7 +28,7 @@ class ModuleLogController extends Controller
 {
     use ConvertsServiceErrors;
 
-    public function index(Request $request): Response
+    public function index(Request $request, VerifyUnknownOutcomes $verify): Response
     {
         $this->authorize('services.module_log.view');
 
@@ -62,17 +64,28 @@ class ModuleLogController extends Controller
                     'attempts' => $item->attempts,
                     'status' => $item->status->value,
                     'updated_at' => $item->updated_at?->toIso8601String(),
+                    'can_check' => $verify->canCheck($item),
+                    'lookup_status' => $item->lookup_status?->value,
+                    'lookup_message' => $item->lookup_message,
+                    'looked_up_at' => $item->looked_up_at?->toIso8601String(),
+                    'retry_blocked' => $verify->runAgainBlockedReason($item),
                 ]) : null,
             'canManage' => $request->user()?->hasPermission('services.module_log.manage') ?? false,
         ]);
     }
 
-    public function retry(Request $request, ModuleQueueItem $item, ModuleCommandDispatcher $commands): RedirectResponse
+    public function retry(Request $request, ModuleQueueItem $item, ModuleCommandDispatcher $commands, VerifyUnknownOutcomes $verify): RedirectResponse
     {
         $this->authorize('services.module_log.manage');
 
         if ($item->status !== QueueStatus::Open || $item->service === null) {
             throw ValidationException::withMessages(['action' => __('This entry is no longer open.')]);
+        }
+
+        $blocked = $verify->runAgainBlockedReason($item);
+
+        if ($blocked !== null) {
+            throw ValidationException::withMessages(['action' => $blocked]);
         }
 
         $command = ModuleCommandName::from($item->command);
@@ -87,6 +100,30 @@ class ModuleLogController extends Controller
         $item->refresh()->update(['resolved_by' => $request->user()?->id]);
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __(':command succeeded for :label.', ['command' => $command->label(), 'label' => $item->service->label()])]);
+
+        return back();
+    }
+
+    /**
+     * "Check now": ask the server whether the command with the unknown outcome ran.
+     */
+    public function check(ModuleQueueItem $item, VerifyUnknownOutcomes $verify): RedirectResponse
+    {
+        $this->authorize('services.module_log.manage');
+
+        $status = $verify->check($item);
+
+        if ($status === null) {
+            throw ValidationException::withMessages(['action' => __('This entry cannot be checked on the server.')]);
+        }
+
+        Inertia::flash('toast', ['type' => $status === ReconcileStatus::Executed ? 'success' : 'info', 'message' => match ($status) {
+            ReconcileStatus::Executed => __('Confirmed on the server; the action is complete.'),
+            ReconcileStatus::NotExecuted => __('Not on the server: you can run the action again.'),
+            ReconcileStatus::InProgress => __('The server may still be working on it; check again in a few minutes.'),
+            ReconcileStatus::Conflict => __('The server holds a conflicting account; see the entry.'),
+            ReconcileStatus::Unknown => __('The server could not be checked; see the entry.'),
+        }]);
 
         return back();
     }

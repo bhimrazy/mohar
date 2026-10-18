@@ -34,6 +34,19 @@ type QueueRow = {
     attempts: number;
     status: string;
     updated_at: string | null;
+    can_check: boolean;
+    lookup_status: string | null;
+    lookup_message: string | null;
+    looked_up_at: string | null;
+    retry_blocked: string | null;
+};
+
+const lookupLabels: Record<string, string> = {
+    executed: 'Ran on the server',
+    not_executed: 'Not on the server',
+    in_progress: 'Still in progress on the server',
+    conflict: 'Conflict on the server',
+    unknown: 'Server check failed',
 };
 
 type Props = {
@@ -179,6 +192,28 @@ export default function ModuleLogIndex({
                                 cell: (row) => (
                                     <span className="block max-w-md text-sm whitespace-normal text-muted-foreground">
                                         {row.last_error}
+                                        {row.lookup_status && (
+                                            <span className="mt-1 block text-foreground">
+                                                {lookupLabels[
+                                                    row.lookup_status
+                                                ] ?? row.lookup_status}
+                                                {row.lookup_message &&
+                                                    `: ${row.lookup_message}`}{' '}
+                                                <span className="text-muted-foreground">
+                                                    (checked{' '}
+                                                    <DateTime
+                                                        value={row.looked_up_at}
+                                                        relative
+                                                    />
+                                                    )
+                                                </span>
+                                            </span>
+                                        )}
+                                        {row.retry_blocked && (
+                                            <span className="mt-1 block">
+                                                {row.retry_blocked}
+                                            </span>
+                                        )}
                                     </span>
                                 ),
                             },
@@ -200,7 +235,7 @@ export default function ModuleLogIndex({
                                           ),
                                           align: 'right' as const,
                                           cell: (row: QueueRow) => (
-                                              <span className="flex flex-wrap justify-end gap-2">
+                                              <span className="ml-auto flex max-w-64 flex-wrap justify-end gap-2">
                                                   <Button
                                                       size="sm"
                                                       variant="ghost"
@@ -227,8 +262,31 @@ export default function ModuleLogIndex({
                                                   >
                                                       Mark resolved
                                                   </Button>
+                                                  {row.can_check && (
+                                                      <Button
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() =>
+                                                              post(
+                                                                  ModuleLogController.check(
+                                                                      row.id,
+                                                                  ).url,
+                                                              )
+                                                          }
+                                                      >
+                                                          Check now
+                                                      </Button>
+                                                  )}
                                                   <Button
                                                       size="sm"
+                                                      disabled={
+                                                          row.retry_blocked !==
+                                                          null
+                                                      }
+                                                      title={
+                                                          row.retry_blocked ??
+                                                          undefined
+                                                      }
                                                       onClick={() =>
                                                           post(
                                                               ModuleLogController.retry(
@@ -237,7 +295,10 @@ export default function ModuleLogIndex({
                                                           )
                                                       }
                                                   >
-                                                      Retry
+                                                      {row.can_check &&
+                                                      row.command === 'create'
+                                                          ? 'Create again'
+                                                          : 'Retry'}
                                                   </Button>
                                               </span>
                                           ),

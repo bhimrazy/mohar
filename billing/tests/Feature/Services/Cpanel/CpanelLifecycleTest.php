@@ -3,6 +3,7 @@
 use App\Data\Services\Provisioning\PreviousPackage;
 use App\Data\Services\Provisioning\UsernamePolicy;
 use App\Enums\DriverOutcome;
+use App\Enums\ReconcileStatus;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Enums\ModuleCommandName;
@@ -134,6 +135,8 @@ test('a retried create after an unknown outcome adopts the account that attempt 
     app(ModuleCommandDispatcher::class)->runNow($service, ModuleCommandName::Create);
     $item = ModuleQueueItem::query()->where('subject_id', $service->id)->sole();
 
+    // The server check found nothing, so staff may create again; meanwhile the slow attempt's account appeared.
+    $item->update(['lookup_status' => ReconcileStatus::NotExecuted]);
     Whm::fake(['verify_new_username' => 'verify_new_username_taken', 'listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
     actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
     $this->post(route('admin.services.module-log.retry', $item))->assertSessionHasNoErrors();

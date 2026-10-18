@@ -92,6 +92,32 @@ class ExecuteModuleCommand
     }
 
     /**
+     * A command whose outcome was unknown turned out to have run (ReconcilesCommands answered Executed): apply it as a
+     * success, close its verify item and record the confirmation in the module log. Never calls the driver.
+     *
+     * @param  array<string, mixed>  $args
+     */
+    public function settle(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result): CommandOutcome
+    {
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($this->serviceDrivers->jobTimeoutFor($serviceId)))
+            ->block($this->settings->lockWaitSeconds(), function () use ($serviceId, $command, $args, $result): CommandOutcome {
+                $service = Service::withTrashed()->find($serviceId);
+
+                if ($service === null) {
+                    return CommandOutcome::skipped('Service not found.');
+                }
+
+                $this->startLog($service, $this->serviceDrivers->keyFor($service), $command, 'system', 1)->update([
+                    'success' => true,
+                    'status' => ModuleCommand::SUCCEEDED,
+                    'response' => ['verified' => (string) $result->message],
+                ]);
+
+                return $this->succeeded($serviceId, $command, [...$args, 'verified' => true], $result);
+            });
+    }
+
+    /**
      * The job died, timed out or ran out of tries: record the failure without calling the driver.
      * Only a job that died mid-call ($jobDied) marks running attempts as unknown; a job that merely
      * waited for the lock must not touch a call another worker is still making.
