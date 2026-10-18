@@ -117,6 +117,8 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('notifications.mail_disabled', 'Stop sending email', 'boolean', 'Messages are still logged, with status "suppressed".'),
             new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses.', rules: ['max:500']),
             new SettingDefinition('notifications.signature', 'Email signature', 'text', 'Inserted where templates use {{ signature }}.', rules: ['max:2000']),
+            new SettingDefinition('notifications.footer_address', 'Address in the email footer', 'text', 'Defaults to the seller address on invoices.', rules: ['max:500']),
+            new SettingDefinition('notifications.support_url', 'Help link in the email footer', help: 'Defaults to the client area ticket list.', rules: ['nullable', 'url', 'max:500']),
             new SettingDefinition('notifications.default_locale', 'Default email language', help: 'Locale code used when a client has no translation, e.g. en.', rules: ['required', 'max:10', 'alpha_dash']),
             new SettingDefinition('notifications.client_can_manage_preferences', 'Clients can manage their email preferences', 'boolean'),
             new SettingDefinition('notifications.notify_client_changes', 'Email staff when clients change their details', 'boolean'),

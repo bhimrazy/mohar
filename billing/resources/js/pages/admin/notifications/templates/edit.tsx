@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { SelectOption } from '@/types/app';
 import type { FieldGroups } from '@/types/notifications';
 
@@ -95,6 +96,7 @@ export default function TemplateEditor({
         locale: '',
     });
     const [preview, setPreview] = useState<Preview | null>(null);
+    const [scheme, setScheme] = useState<'light' | 'dark'>('light');
 
     useEffect(() => {
         if (!template) {
@@ -601,14 +603,38 @@ export default function TemplateEditor({
                                         </span>
                                     </div>
                                     <Tabs defaultValue="html">
-                                        <TabsList>
-                                            <TabsTrigger value="html">
-                                                HTML
-                                            </TabsTrigger>
-                                            <TabsTrigger value="text">
-                                                Text
-                                            </TabsTrigger>
-                                        </TabsList>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <TabsList>
+                                                <TabsTrigger value="html">
+                                                    HTML
+                                                </TabsTrigger>
+                                                <TabsTrigger value="text">
+                                                    Text
+                                                </TabsTrigger>
+                                            </TabsList>
+                                            <ToggleGroup
+                                                type="single"
+                                                size="sm"
+                                                variant="outline"
+                                                value={scheme}
+                                                onValueChange={(value) =>
+                                                    value &&
+                                                    setScheme(
+                                                        value as
+                                                            | 'light'
+                                                            | 'dark',
+                                                    )
+                                                }
+                                                aria-label="Preview colour scheme"
+                                            >
+                                                <ToggleGroupItem value="light">
+                                                    Light
+                                                </ToggleGroupItem>
+                                                <ToggleGroupItem value="dark">
+                                                    Dark
+                                                </ToggleGroupItem>
+                                            </ToggleGroup>
+                                        </div>
                                         <TabsContent
                                             value="html"
                                             className="pt-3"
@@ -617,6 +643,7 @@ export default function TemplateEditor({
                                                 title="Email preview"
                                                 html={preview?.html ?? null}
                                                 text={preview?.text}
+                                                scheme={scheme}
                                             />
                                         </TabsContent>
                                         <TabsContent

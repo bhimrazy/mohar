@@ -15,6 +15,8 @@ return [
     // §3 rendering
     'default_locale' => 'en',
     'signature' => '',
+    'footer_address' => '',
+    'support_url' => '',
 
     // §2 retention
     'email_log_body_retention_days' => 365,

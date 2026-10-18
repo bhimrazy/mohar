@@ -4,6 +4,8 @@ type EmailFrameProps = {
     html: string | null;
     text?: string | null;
     title: string;
+    /** Force the email's dark-mode styles (as Apple Mail / iOS would show them). */
+    scheme?: 'light' | 'dark';
     className?: string;
 };
 
@@ -11,7 +13,13 @@ type EmailFrameProps = {
  * Renders a stored or previewed email in a fully sandboxed iframe (no scripts, no same-origin
  * access), so email HTML can never touch the admin page. Falls back to the text part.
  */
-export function EmailFrame({ html, text, title, className }: EmailFrameProps) {
+export function EmailFrame({
+    html,
+    text,
+    title,
+    scheme = 'light',
+    className,
+}: EmailFrameProps) {
     if (!html) {
         return (
             <pre
@@ -29,7 +37,14 @@ export function EmailFrame({ html, text, title, className }: EmailFrameProps) {
         <iframe
             title={title}
             sandbox=""
-            srcDoc={html}
+            srcDoc={
+                scheme === 'dark'
+                    ? html.replaceAll(
+                          '@media (prefers-color-scheme: dark)',
+                          '@media all',
+                      )
+                    : html
+            }
             className={cn(
                 'h-[640px] w-full rounded-lg border bg-white',
                 className,

@@ -4,10 +4,13 @@ namespace App\Modules\Notifications\Services;
 
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
+use App\Modules\Notifications\Enums\TemplateAudience;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Rendering\TemplateSyntaxError;
+use App\Modules\Notifications\Support\EmailBody;
 use Illuminate\Mail\Markdown;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 /**
@@ -45,6 +48,7 @@ class EmailComposer
             $context,
             $translation->locale,
             $template->plain_text_only,
+            $this->preferencesUrl($template),
         );
     }
 
@@ -53,7 +57,7 @@ class EmailComposer
      *
      * @throws TemplateSyntaxError
      */
-    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false): ComposedEmail
+    public function composeSource(string $subject, string $body, array $context, string $locale, bool $plainTextOnly = false, ?string $preferencesUrl = null): ComposedEmail
     {
         $options = [
             'locale' => $locale,
@@ -66,15 +70,15 @@ class EmailComposer
         $html = $this->engine->render($body, $context, true, $options);
         $text = $this->engine->render($body, $context, false, $options);
 
-        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($html->output);
-        $wrappedText = $this->wrapText($text->output);
+        $wrappedHtml = $plainTextOnly ? null : $this->wrapHtml($html->output, $preferencesUrl);
+        $wrappedText = $this->wrapText($text->output, $preferencesUrl);
 
         return new ComposedEmail(
             subject: Str::limit(trim((string) preg_replace('/\s+/', ' ', $renderedSubject->output)), 250, ''),
             html: $wrappedHtml,
             text: $wrappedText,
-            storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output) : $wrappedHtml,
-            storedText: $hasRedactions ? $this->wrapText($this->engine->render($body, $redactedContext, false, $options)->output) : $wrappedText,
+            storedHtml: $hasRedactions && ! $plainTextOnly ? $this->wrapHtml($this->engine->render($body, $redactedContext, true, $options)->output, $preferencesUrl) : $wrappedHtml,
+            storedText: $hasRedactions ? $this->wrapText($this->engine->render($body, $redactedContext, false, $options)->output, $preferencesUrl) : $wrappedText,
             hasRedactions: $hasRedactions,
             warnings: array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings])),
         );
@@ -85,13 +89,34 @@ class EmailComposer
         return (string) $this->settings->get('notifications.default_locale', config('app.locale', 'en'));
     }
 
-    private function wrapHtml(string $markdownBody): string
+    /**
+     * Client mail whose category can be switched off links to the email preferences page (auth mail never does).
+     */
+    public function preferencesUrl(EmailTemplate $template): ?string
     {
-        return $this->markdown->render('notifications::mail.message', ['body' => $markdownBody])->toHtml();
+        if ($template->audience !== TemplateAudience::Client || str_starts_with($template->key, 'auth.') || ! Route::has('client.notifications.preferences.edit')) {
+            return null;
+        }
+
+        return route('client.notifications.preferences.edit');
     }
 
-    private function wrapText(string $plainBody): string
+    private function wrapHtml(string $markdownBody, ?string $preferencesUrl): string
     {
-        return trim($this->markdown->renderText('notifications::mail.message', ['body' => $plainBody])->toHtml());
+        $body = EmailBody::html($markdownBody);
+
+        return $this->markdown->render('notifications::mail.message', [
+            'body' => $body,
+            'preheader' => EmailBody::preheader($body),
+            'preferencesUrl' => $preferencesUrl,
+        ])->toHtml();
+    }
+
+    private function wrapText(string $plainBody, ?string $preferencesUrl): string
+    {
+        return trim($this->markdown->renderText('notifications::mail.message', [
+            'body' => EmailBody::text($plainBody),
+            'preferencesUrl' => $preferencesUrl,
+        ])->toHtml());
     }
 }

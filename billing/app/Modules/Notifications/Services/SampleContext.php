@@ -77,7 +77,7 @@ class SampleContext
                 'admin_url' => url('/admin/support/tickets/1'),
             ],
             'reply' => [
-                'author_name' => 'Sam from Support',
+                'author_name' => 'Sam Rivera',
                 'body_html' => '<p>Thanks for the details — the mailbox quota was full. We have raised it, please try again.</p>',
                 'excerpt' => 'Thanks for the details — the mailbox quota was full.',
             ],

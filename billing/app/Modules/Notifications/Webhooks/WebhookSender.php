@@ -2,6 +2,7 @@
 
 namespace App\Modules\Notifications\Webhooks;
 
+use App\Contracts\Branding\BrandProvider;
 use App\Events\Notifications\WebhookDelivered;
 use App\Events\Notifications\WebhookDeliveryFailed;
 use App\Events\Notifications\WebhookEndpointDisabled;
@@ -74,7 +75,7 @@ class WebhookSender
         );
 
         return Http::withHeaders([
-            'User-Agent' => Str::slug((string) $this->settings->get('core.company_name', config('app.name')), '').'-Webhooks/1',
+            'User-Agent' => (Str::slug(app(BrandProvider::class)->brand()->name, '') ?: 'Billing').'-Webhooks/1',
             'X-Webhook-Id' => $delivery->event_id,
             'X-Webhook-Event' => $delivery->event_type,
             'X-Webhook-Timestamp' => (string) $timestamp,

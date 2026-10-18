@@ -163,6 +163,7 @@ class EmailTemplateController extends Controller
                 $this->samples->build($template->audience === TemplateAudience::Staff),
                 (string) ($validated['locale'] ?? $this->composer->defaultLocale()),
                 $template->plain_text_only,
+                $this->composer->preferencesUrl($template),
             );
         } catch (TemplateSyntaxError $error) {
             return response()->json(['error' => $error->getMessage(), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
