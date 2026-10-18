@@ -149,10 +149,7 @@ export default function InvoicesIndex({
             header: 'Total',
             align: 'right',
             cell: (invoice) => (
-                <Money
-                    amount={invoice.total}
-                    currency={invoice.currency}
-                />
+                <Money amount={invoice.total} currency={invoice.currency} />
             ),
         },
         {

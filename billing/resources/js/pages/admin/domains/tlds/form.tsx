@@ -318,6 +318,7 @@ export default function TldForm(props: Props) {
                         tld={tld}
                         prices={props.prices}
                         currencies={props.currencies}
+                        defaultCurrency={props.defaultCurrency}
                         groups={props.groups}
                         canManage={props.canManage}
                     />

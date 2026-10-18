@@ -1,4 +1,6 @@
+import { Lock, LockOpen } from 'lucide-react';
 import InputError from '@/components/input-error';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { fromMinor, parseMoneyInput } from '@/lib/money';
@@ -10,6 +12,8 @@ export type PriceCell = {
     enabled: boolean;
     amount: string;
     setup_fee: string;
+    /** Set manually: price conversion from the default currency leaves this cell alone. */
+    manual?: boolean;
 };
 
 export type PriceMatrixValue = Record<string, PriceCell>;
@@ -29,13 +33,19 @@ export type SubmittedPriceRow = {
     enabled: boolean;
     amount: number | string | null;
     setup_fee: number | string;
+    manual: boolean;
 };
 
 const cellKey = (currency: string, cycle: string) => `${currency}|${cycle}`;
 
 const toDecimal = (minor: number) => fromMinor(minor).toFixed(2);
 
-const EMPTY_CELL: PriceCell = { enabled: false, amount: '', setup_fee: '' };
+const EMPTY_CELL: PriceCell = {
+    enabled: false,
+    amount: '',
+    setup_fee: '',
+    manual: false,
+};
 
 /** Build the editable matrix from stored rows (missing cells start off and empty). */
 export function matrixFromRows(
@@ -59,6 +69,7 @@ export function matrixFromRows(
                       amount: toDecimal(row.amount),
                       setup_fee:
                           row.setup_fee === 0 ? '' : toDecimal(row.setup_fee),
+                      manual: row.manual ?? false,
                   }
                 : { ...EMPTY_CELL };
         }
@@ -105,6 +116,7 @@ export function rowsFromMatrix(
                     setupText === ''
                         ? 0
                         : (parseMoneyInput(setupText) ?? setupText),
+                manual: cell.manual ?? false,
             },
         ];
     });
@@ -165,9 +177,22 @@ export function PricingMatrix({
     showSetupFee = true,
     idPrefix = 'price',
 }: PricingMatrixProps) {
-    const update = (key: string, patch: Partial<PriceCell>) => {
+    const update = (
+        key: string,
+        patch: Partial<PriceCell>,
+        isDefaultCurrency = true,
+    ) => {
         const current = value[key] ?? EMPTY_CELL;
         const next = { ...current, ...patch };
+
+        // Typing a price in another currency means staff chose it: keep it out of auto-conversion.
+        if (
+            !isDefaultCurrency &&
+            patch.manual === undefined &&
+            (patch.amount !== undefined || patch.setup_fee !== undefined)
+        ) {
+            next.manual = true;
+        }
 
         if (
             patch.amount !== undefined &&
@@ -260,7 +285,11 @@ export function PricingMatrix({
                                                 disabled={disabled}
                                                 error={error.amount}
                                                 onChange={(amount) =>
-                                                    update(key, { amount })
+                                                    update(
+                                                        key,
+                                                        { amount },
+                                                        currency.is_default,
+                                                    )
                                                 }
                                                 className="min-w-24 flex-[3]"
                                             />
@@ -274,12 +303,43 @@ export function PricingMatrix({
                                                     disabled={disabled}
                                                     error={error.setup_fee}
                                                     onChange={(setup_fee) =>
-                                                        update(key, {
-                                                            setup_fee,
-                                                        })
+                                                        update(
+                                                            key,
+                                                            { setup_fee },
+                                                            currency.is_default,
+                                                        )
                                                     }
                                                     className="min-w-20 flex-[2]"
                                                 />
+                                            )}
+                                            {!currency.is_default && (
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-8 shrink-0 text-muted-foreground aria-pressed:text-foreground"
+                                                    disabled={disabled}
+                                                    aria-pressed={
+                                                        cell.manual ?? false
+                                                    }
+                                                    aria-label={`Set ${name} manually (don't auto-convert)`}
+                                                    title={
+                                                        cell.manual
+                                                            ? "Set manually: price conversion won't change it"
+                                                            : 'Converted from the default currency when prices are converted'
+                                                    }
+                                                    onClick={() =>
+                                                        update(key, {
+                                                            manual: !cell.manual,
+                                                        })
+                                                    }
+                                                >
+                                                    {cell.manual ? (
+                                                        <Lock />
+                                                    ) : (
+                                                        <LockOpen />
+                                                    )}
+                                                </Button>
                                             )}
                                         </div>
                                         {(error.amount || error.setup_fee) && (

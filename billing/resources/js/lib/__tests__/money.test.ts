@@ -51,8 +51,20 @@ describe('toMinor', () => {
 
 const SEEDED: CurrencyFormat[] = [
     { code: 'USD', prefix: '$', suffix: '', decimals: 2, format: '1,234.56' },
-    { code: 'INR', prefix: '₹', suffix: '', decimals: 2, format: '1,23,456.78' },
-    { code: 'NPR', prefix: 'Rs ', suffix: '', decimals: 2, format: '1,23,456.78' },
+    {
+        code: 'INR',
+        prefix: '₹',
+        suffix: '',
+        decimals: 2,
+        format: '1,23,456.78',
+    },
+    {
+        code: 'NPR',
+        prefix: 'Rs ',
+        suffix: '',
+        decimals: 2,
+        format: '1,23,456.78',
+    },
 ];
 
 describe('formatMoney', () => {
@@ -88,9 +100,27 @@ describe('formatMoney', () => {
 
     it('follows a customised prefix, suffix and separators', () => {
         configureCurrencies([
-            { code: 'NPR', prefix: 'रू ', suffix: '', decimals: 2, format: '1,23,456.78' },
-            { code: 'EUR', prefix: '', suffix: ' €', decimals: 2, format: '1.234,56' },
-            { code: 'CHF', prefix: 'CHF ', suffix: '', decimals: 2, format: '1234.56' },
+            {
+                code: 'NPR',
+                prefix: 'रू ',
+                suffix: '',
+                decimals: 2,
+                format: '1,23,456.78',
+            },
+            {
+                code: 'EUR',
+                prefix: '',
+                suffix: ' €',
+                decimals: 2,
+                format: '1.234,56',
+            },
+            {
+                code: 'CHF',
+                prefix: 'CHF ',
+                suffix: '',
+                decimals: 2,
+                format: '1234.56',
+            },
         ]);
 
         expect(formatMoney(12345600, 'NPR')).toBe('रू 1,23,456.00');

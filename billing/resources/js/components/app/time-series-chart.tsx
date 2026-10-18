@@ -35,6 +35,8 @@ type TimeSeriesChartProps = {
     formatX?: (x: string) => string;
     /** Stack bars / areas instead of overlaying them. */
     stacked?: boolean;
+    /** "zero" starts the y axis at 0 (totals); "fit" zooms to the data range (rates, prices). */
+    yScale?: 'zero' | 'fit';
     showLegend?: boolean;
     className?: string;
     /** Accessible name, e.g. "Income, last 12 months". */
@@ -81,6 +83,7 @@ export function TimeSeriesChart({
     locale,
     formatX: customFormatX,
     stacked = false,
+    yScale = 'zero',
     showLegend = series.length > 1,
     className,
     label,
@@ -107,11 +110,16 @@ export function TimeSeriesChart({
     const formatValue = (value: number) =>
         currency
             ? formatMoney(value, currency, locale)
-            : value.toLocaleString(locale);
+            : value.toLocaleString(locale, { maximumFractionDigits: 6 });
     const formatAxis = (value: number) =>
         currency
             ? formatMoneyCompact(value, currency, locale)
-            : Intl.NumberFormat(locale, { notation: 'compact' }).format(value);
+            : Intl.NumberFormat(
+                  locale,
+                  yScale === 'fit'
+                      ? { maximumFractionDigits: 2 }
+                      : { notation: 'compact' },
+              ).format(value);
 
     const common = (
         <>
@@ -134,7 +142,15 @@ export function TimeSeriesChart({
                 tickMargin={8}
                 width={56}
                 tickCount={4}
-                allowDecimals={Boolean(currency)}
+                allowDecimals={Boolean(currency) || yScale === 'fit'}
+                domain={
+                    yScale === 'fit'
+                        ? [
+                              (min: number) => min - Math.abs(min) * 0.02,
+                              (max: number) => max + Math.abs(max) * 0.02,
+                          ]
+                        : undefined
+                }
                 tickFormatter={formatAxis}
             />
             <ChartTooltip
