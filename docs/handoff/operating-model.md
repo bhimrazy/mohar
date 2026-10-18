@@ -20,6 +20,7 @@ Definitions live in `.claude/agents/`. Pass the role's file name as `subagent_ty
 | Re-reviewer          | `re-reviewer`        | opus    | no          | verifies every round-1 blocking/medium item after fixes          |
 | AI-slop reviewer     | `slop-reviewer`      | opus    | no          | docs/infra PRs and handoff docs (folded into the board for code) |
 | Product reviewer     | `product-reviewer`   | opus    | small fixes | the owner's eyes: product standards, directions, WHMCS parity    |
+| Database reviewer    | `database-reviewer`  | opus    | small fixes | schema, indexes, queries, locking, migrations, PostgreSQL parity |
 
 Reviewers are read-only. All agents run as the same GitHub account, so reviews are posted with
 `gh pr review <n> --comment` (approval is not possible); the verdict line in the comment is the gate.
@@ -31,7 +32,8 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 3. **Build.** Launch `module-engineer` with the brief template in the `run-workstream` skill. The
    engineer commits in small steps, pushes, and opens a draft PR into `develop` with gates green.
 4. **Round 1 review, in parallel:** `review-board` + `qa-design-reviewer` + `product-reviewer`
-   (every user-facing PR), plus `security-reviewer`
+   (every user-facing PR), `database-reviewer` (every PR with migrations, models or
+   non-trivial queries), plus `security-reviewer`
    when the module handles auth, money, files, webhooks or third-party input.
 5. **Fix.** Resume the same engineer (SendMessage to its agent id) with the review comments.
 6. **Re-review.** `re-reviewer` checks each blocking and medium item against the new head.

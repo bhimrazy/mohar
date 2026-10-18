@@ -20,7 +20,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-Planned merge order: #26 → #43 → #41 → #28 → #38. Each later PR adopts the kernel money formatter from #43.
+Merged: #26 (Nepal payments). Planned order: #38 → #43 → #41 → #28. #43 slots into the shared formatting helper from #38; later PRs adopt the money formatter from #43; #28 adopts the date-format allowlist from #38. A whole-database audit runs on `feature/db-hardening`, and a `database-reviewer` gate now applies to PRs with migrations or queries.
 
 | PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
 | --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

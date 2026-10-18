@@ -1,0 +1,175 @@
+<!doctype html>
+<!-- Generic webmail reading pane used only to screenshot emails in context (light mode, ~860px message
+     column, like Gmail's default split). Not a copy of any product's UI. Loaded by shoot.mjs via window.load(html, baseHref) -->
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>Webmail pane</title>
+        <style>
+            body {
+                margin: 0;
+                font-family: Roboto, Arial, sans-serif;
+                background: #f6f8fc;
+                color: #1f1f1f;
+            }
+            .app {
+                display: grid;
+                grid-template-columns: 232px 1fr;
+                min-height: 100vh;
+            }
+            .rail {
+                padding: 16px 12px;
+            }
+            .compose {
+                display: inline-block;
+                padding: 16px 24px;
+                border-radius: 16px;
+                background: #c2e7ff;
+                font-weight: 500;
+                margin-bottom: 16px;
+            }
+            .nav div {
+                padding: 6px 12px;
+                border-radius: 16px;
+                font-size: 14px;
+                color: #444;
+            }
+            .nav .on {
+                background: #d3e3fd;
+                font-weight: 700;
+                color: #1f1f1f;
+            }
+            .main {
+                background: #fff;
+                border-radius: 16px;
+                margin: 8px 16px 16px 0;
+                padding: 0 0 24px;
+            }
+            .toolbar {
+                height: 48px;
+                border-bottom: 1px solid #eee;
+            }
+            .head {
+                padding: 20px 24px 8px 72px;
+            }
+            .subject {
+                font-size: 22px;
+                font-weight: 400;
+                margin: 0 0 16px;
+            }
+            .chip {
+                font-size: 12px;
+                background: #eee;
+                border-radius: 4px;
+                padding: 2px 6px;
+                margin-left: 8px;
+                vertical-align: middle;
+            }
+            .from {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-left: -56px;
+            }
+            .avatar {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: #4f4bc4;
+                color: #fff;
+                display: grid;
+                place-items: center;
+                font-weight: 700;
+            }
+            .meta {
+                font-size: 14px;
+            }
+            .meta b {
+                font-weight: 700;
+            }
+            .meta span {
+                color: #5e5e5e;
+                font-size: 12px;
+            }
+            iframe {
+                display: block;
+                border: 0;
+                width: 100%;
+                margin-top: 8px;
+            }
+            .msg {
+                padding: 0 24px 0 72px;
+            }
+            .att {
+                display: inline-flex;
+                align-items: center;
+                gap: 10px;
+                margin: 16px 0 0;
+                padding: 10px 14px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                font-size: 13px;
+            }
+            .att b {
+                background: #d93025;
+                color: #fff;
+                font-size: 10px;
+                padding: 2px 4px;
+                border-radius: 2px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app">
+            <div class="rail">
+                <div class="compose">Compose</div>
+                <div class="nav">
+                    <div class="on">Inbox</div>
+                    <div>Starred</div>
+                    <div>Sent</div>
+                    <div>Drafts</div>
+                    <div>All mail</div>
+                </div>
+            </div>
+            <div class="main">
+                <div class="toolbar"></div>
+                <div class="head">
+                    <h1 class="subject" id="subject">…</h1>
+                    <div class="from">
+                        <div class="avatar">M</div>
+                        <div class="meta">
+                            <b>Mohar Cloud Pvt. Ltd.</b>
+                            <span>&lt;billing@example.com&gt;</span><br /><span
+                                >to me · 18 Oct 2026, 9:02 am</span
+                            >
+                        </div>
+                    </div>
+                </div>
+                <div class="msg">
+                    <iframe id="f" title="Email"></iframe>
+                    <div id="att"></div>
+                </div>
+            </div>
+        </div>
+        <script>
+            // The screenshot script calls load(html, baseHref); srcdoc keeps the frame same-origin so it can be measured.
+            const f = document.getElementById('f');
+            f.onload = () => {
+                const d = f.contentDocument;
+                document.getElementById('subject').innerHTML =
+                    d.title + '<span class="chip">Inbox</span>';
+                f.style.height = d.documentElement.scrollHeight + 'px';
+                window.__ready = true;
+            };
+            window.load = (html, base, attachment) => {
+                if (attachment)
+                    document.getElementById('att').innerHTML =
+                        `<span class="att"><b>PDF</b>${attachment}</span>`;
+                f.srcdoc = html.replace(
+                    '<head>',
+                    `<head><base href="${base}">`,
+                );
+            };
+        </script>
+    </body>
+</html>

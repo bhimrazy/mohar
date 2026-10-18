@@ -37,6 +37,8 @@ When the draft PR is up, launch in parallel (background):
 
 - `review-board`: PR number, worktree, the domain expertise needed, focus areas from the spec.
 - `qa-design-reviewer`: PR number, worktree, the main flows to drive, a free port.
+- `database-reviewer`: PR number, worktree, tables and queries in scope, a free PostgreSQL port.
+  Required when the PR adds or changes migrations, models or non-trivial queries.
 - `product-reviewer`: PR number, worktree, pages in scope, a free port. Required for every
   user-facing PR; its owner-blocking findings block the merge like any other blocking item.
 - `security-reviewer`: when the PR touches auth, permissions, money, files, webhooks or third-party

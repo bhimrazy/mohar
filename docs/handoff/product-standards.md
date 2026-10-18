@@ -43,6 +43,13 @@ every item.
 - Anything that depends on a changing value has proper settings: for example, exchange rates have
   sources, a schedule, safety limits, history and a preview before prices change. (2026-10-18)
 
+## Security
+
+- Mail that carries a secret (reset links, verification, invitations, 2FA) is never copied (no CC, BCC
+  or manual copies), and settings that redirect mail are in the sensitive permission tier. (2026-10-18)
+- Account-recovery endpoints give the same response for known and unknown accounts and are rate
+  limited. (2026-10-18)
+
 ## Payments
 
 - A payment that has started but isn't confirmed stays visible on the invoice (not only a toast), and

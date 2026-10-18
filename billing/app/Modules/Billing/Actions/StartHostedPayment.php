@@ -12,12 +12,11 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
-use App\Modules\Billing\Services\CurrencyConverter;
 use App\Modules\Billing\Services\GatewayCharger;
 use App\Modules\Billing\Services\GatewayLogger;
-use App\Support\Currencies\MoneyFormatter;
-use App\Support\Money;
+use App\Modules\Billing\Support\PaymentInProgress;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Begin a hosted payment: store an attempt with our reference and the exact amount the provider must collect,
@@ -28,9 +27,9 @@ class StartHostedPayment
     public function __construct(
         private GatewayManager $gateways,
         private GatewayCharger $charger,
-        private CurrencyConverter $converter,
         private GatewayLogger $log,
         private PaymentGuard $guard,
+        private PaymentInProgress $inProgress,
     ) {}
 
     /**
@@ -51,29 +50,18 @@ class StartHostedPayment
         }
 
         $balance = $invoice->balanceMoney();
-        $rate = null;
+        $charge = $this->charger->hostedCharge($gateway, $driver, $balance)
+            ?? throw new BillingException(__(':gateway can\'t take payments in :currency.', ['gateway' => $gateway->display_name, 'currency' => $balance->currency]));
+        [$amount, $rate] = $charge;
 
-        if (in_array($balance->currency, $driver->currencies(), true)) {
-            $amount = $balance;
-        } elseif ($gateway->convert_to_currency !== null && in_array(strtoupper($gateway->convert_to_currency), $driver->currencies(), true)) {
-            $rate = $this->converter->rate($balance->currency, $gateway->convert_to_currency);
-            $amount = Money::of($this->converter->convert($balance->amount, $rate), $gateway->convert_to_currency);
-        } else {
-            throw new BillingException(__(':gateway can\'t take payments in :currency.', ['gateway' => $gateway->display_name, 'currency' => $balance->currency]));
-        }
-
-        $limits = $driver->limits($config);
-
-        if (! $limits->allows($amount->amount)) {
-            throw new BillingException(__(':gateway accepts payments between :min and :max.', [
-                'gateway' => $gateway->display_name,
-                'min' => app(MoneyFormatter::class)->format(Money::of($limits->min, $amount->currency)),
-                'max' => $limits->max !== null ? app(MoneyFormatter::class)->format(Money::of($limits->max, $amount->currency)) : '∞',
-            ]));
+        if (($reason = $this->charger->limitReason($gateway, $driver, $amount)) !== null) {
+            throw new BillingException($reason.' '.__('Choose another way to pay.'));
         }
 
         $attempt = DB::transaction(function () use ($invoice, $gatewayKey, $amount, $balance, $rate, $driver, $config): PaymentAttempt {
             Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
+            // Under the invoice lock, so two tabs can't both open a payment the customer could complete twice.
+            $this->inProgress->assertCanStart($invoice);
 
             return PaymentAttempt::query()->create([
                 'reference' => PaymentAttempt::newReference(),
@@ -91,18 +79,32 @@ class StartHostedPayment
         });
 
         $snapshot = $invoice->client_snapshot ?? [];
-        $instruction = $driver->initiate($config, new PaymentIntent(
-            reference: $attempt->reference,
-            amount: $amount,
-            description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
-            returnUrl: route('billing.gateways.return', $gatewayKey),
-            cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
-            customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
-            customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
-            invoiceId: $invoice->id,
-        ));
 
-        $attempt->update(['provider_ref' => $instruction->providerRef]);
+        try {
+            $instruction = $driver->initiate($config, new PaymentIntent(
+                reference: $attempt->reference,
+                amount: $amount,
+                description: __('Invoice :number', ['number' => $invoice->displayNumber()]),
+                returnUrl: route('billing.gateways.return', $gatewayKey),
+                cancelUrl: route('billing.gateways.return', [$gatewayKey, 'ref' => $attempt->reference, 'cancelled' => 1]),
+                customerName: is_string($snapshot['name'] ?? null) ? $snapshot['name'] : null,
+                customerEmail: is_string($snapshot['email'] ?? null) ? $snapshot['email'] : null,
+                invoiceId: $invoice->id,
+            ));
+        } catch (Throwable $exception) {
+            // Nothing was handed to the customer, so the attempt can never be paid: close it and say so plainly.
+            $attempt->update(['status' => AttemptStatus::Failed, 'review_reason' => 'Provider refused to start the payment']);
+            $this->log->log($gatewayKey, 'response', 'hosted payment start failed', ['reference' => $attempt->reference, 'error' => mb_substr($exception->getMessage(), 0, 500)], $invoice->id);
+            report($exception);
+
+            throw new BillingException(__(':gateway couldn\'t start the payment. Try again in a few minutes or use another method.', ['gateway' => $gateway->display_name]));
+        }
+
+        // The provider's own session expiry, when it states one, decides how long the invoice stays locked.
+        $attempt->update(array_filter([
+            'provider_ref' => $instruction->providerRef,
+            'expires_at' => $instruction->expiresAt,
+        ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 
         return [$attempt, $instruction];

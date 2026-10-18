@@ -1,5 +1,5 @@
 import { router, usePage } from '@inertiajs/react';
-import { CreditCard, Landmark } from 'lucide-react';
+import { CreditCard, Landmark, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { Money } from '@/components/app/money';
 import { StatusBadge } from '@/components/app/status-badge';
@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { RouteAction } from '@/types/app';
 import { CardFields, tokenizeCard, useCardForm } from './card-form';
+import { GatewayLogo } from './gateway-logo';
 import type { PaymentOptions } from './types';
 
 type PayPanelProps = {
@@ -28,20 +29,28 @@ function Choice({
     checked,
     onChange,
     children,
+    disabledReason,
 }: {
     name: string;
     value: string;
     checked: boolean;
     onChange: (value: string) => void;
     children: React.ReactNode;
+    /** The option can't be chosen; the reason is shown under it. */
+    disabledReason?: string | null;
 }) {
     const id = `${name}-${value}`;
+    const hintId = `${id}-hint`;
+    const disabled = !!disabledReason;
 
     return (
         <label
             htmlFor={id}
             className={cn(
-                'flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/40',
+                'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-3 text-sm transition-colors',
+                disabled
+                    ? 'cursor-not-allowed bg-muted/20'
+                    : 'cursor-pointer hover:bg-muted/40',
                 checked && 'border-foreground/40 bg-muted/40',
             )}
         >
@@ -51,10 +60,27 @@ function Choice({
                 name={name}
                 value={value}
                 checked={checked}
+                disabled={disabled}
+                aria-describedby={disabled ? hintId : undefined}
                 onChange={() => onChange(value)}
                 className="size-4 accent-primary"
             />
-            {children}
+            <span
+                className={cn(
+                    'flex flex-1 items-center gap-3',
+                    disabled && 'opacity-60',
+                )}
+            >
+                {children}
+            </span>
+            {disabled && (
+                <span
+                    id={hintId}
+                    className="basis-full pl-7 text-xs text-muted-foreground"
+                >
+                    {disabledReason}
+                </span>
+            )}
         </label>
     );
 }
@@ -97,9 +123,13 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
         setProcessing(true);
 
         if (selected.kind === 'redirect') {
+            // Success leaves the site; on an error the page reloads with the same method still chosen, so the
+            // message appears next to it.
             router.visit(action.url, {
                 method: action.method,
                 data: { gateway },
+                preserveState: true,
+                preserveScroll: true,
                 onFinish: () => setProcessing(false),
             });
 
@@ -159,19 +189,38 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                             value={option.key}
                             checked={gateway === option.key}
                             onChange={setGateway}
+                            disabledReason={option.unavailable_reason}
                         >
-                            {option.kind !== 'offline' ? (
-                                <CreditCard
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden="true"
-                                />
+                            {option.logo ? (
+                                <>
+                                    <GatewayLogo
+                                        name={option.name}
+                                        logo={option.logo}
+                                        decorative={option.show_name}
+                                    />
+                                    {option.show_name && option.name}
+                                </>
                             ) : (
-                                <Landmark
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden="true"
-                                />
+                                <>
+                                    {option.kind === 'redirect' ? (
+                                        <Wallet
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    ) : option.kind === 'card' ? (
+                                        <CreditCard
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    ) : (
+                                        <Landmark
+                                            className="size-4 text-muted-foreground"
+                                            aria-hidden="true"
+                                        />
+                                    )}
+                                    {option.name}
+                                </>
                             )}
-                            {option.name}
                             {option.sandbox && (
                                 <StatusBadge
                                     status="sandbox"
@@ -194,14 +243,42 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
 
             {selected?.kind === 'redirect' && (
                 <>
-                    <p className="text-sm text-muted-foreground">
-                        You’ll be taken to {selected.name} to complete the
-                        payment, then brought back here.
-                    </p>
+                    {options.gateways.length === 1 && (
+                        <div className="flex items-center gap-3">
+                            <GatewayLogo
+                                name={selected.name}
+                                logo={selected.logo}
+                                className="font-medium"
+                            />
+                            {selected.sandbox && (
+                                <StatusBadge
+                                    status="sandbox"
+                                    tone="warning"
+                                    label="Sandbox"
+                                />
+                            )}
+                        </div>
+                    )}
+                    {selected.unavailable_reason ? (
+                        <p className="text-sm text-muted-foreground">
+                            {selected.unavailable_reason} Choose another way to
+                            pay.
+                        </p>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">
+                            You’ll be taken to {selected.name} to complete the
+                            payment, then brought back here.
+                        </p>
+                    )}
+                    {selected.conversion && (
+                        <p className="rounded-lg border bg-muted/40 p-3 text-sm">
+                            {selected.conversion.label}
+                        </p>
+                    )}
                     <InputError message={errors.payment ?? errors.billing} />
                     <Button
                         type="submit"
-                        disabled={processing}
+                        disabled={processing || !!selected.unavailable_reason}
                         className="w-full sm:w-auto sm:justify-self-end"
                     >
                         {processing && <Spinner />}
