@@ -31,10 +31,10 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Design and research in progress
 
-| Workstream                | Branch                         | State                                                                                                                                                                 |
-| ------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home page directions      | `design/home-page`             | Three directions pushed (1a18d98), on the design review page as a draft; designer recommends A (Storefront). One revision after the marketing spec, then owner picks. |
-| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                             |
+| Workstream                | Branch                         | State                                                                                                                     |
+| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                 |
+| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it. |
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
@@ -55,7 +55,6 @@ is a switch blocker in the parity studies.
 ## Decisions pending from the owner
 
 - Email template direction: A, B or C (design review page, Emails section).
-- Home page direction A, B or C (design review page, Home page section; draft until the marketing research revision).
 - Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
 - Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
 - Repository settings: branch protection and required checks on `develop` and `main`.
