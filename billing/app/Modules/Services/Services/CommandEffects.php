@@ -131,6 +131,6 @@ class CommandEffects
                 ->update(['status' => CancellationStatus::Failed->value]);
         }
 
-        $this->activity->log("{$command->label()} failed for {$service->label()}: {$error}", $service, $service->client_id);
+        $this->activity->log("{$command->noun()} failed for {$service->label()}: {$error}", $service, $service->client_id);
     }
 }

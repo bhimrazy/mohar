@@ -299,7 +299,7 @@ class ExecuteModuleCommand
 
             if ($conflict !== null) {
                 $this->openQueueItem($service, $command, $args, $conflict, 1, ModuleQueueItem::KIND_RECONCILE);
-                $this->activity->log("{$command->label()} for {$service->label()} needs reconciling", $service, $service->client_id, ['reason' => $conflict]);
+                $this->activity->log("{$command->noun()} for {$service->label()} needs reconciling", $service, $service->client_id, ['reason' => $conflict]);
 
                 return ['conflict' => $conflict, 'events' => [], 'client_id' => $service->client_id];
             }
