@@ -121,7 +121,7 @@ export default function AutomationIndex({
             header: 'Task',
             primary: true,
             cell: (task) => (
-                <span className="flex flex-col gap-0.5">
+                <span className="flex max-w-xl min-w-56 flex-col gap-0.5 whitespace-normal">
                     <span className="font-medium">{task.label}</span>
                     {task.description && (
                         <span className="text-xs text-muted-foreground">

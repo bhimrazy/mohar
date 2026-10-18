@@ -109,12 +109,14 @@ class PlatformServiceProvider extends ModuleServiceProvider
             'count' => ExchangeRateReview::query()->pending()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
+            'icon' => 'Coins',
         ], 'core.currencies.rates', 30);
         $dashboard->todo('admin', 'platform.exchange_rates.stale', fn (): array => [
             'label' => 'Exchange rates out of date',
             'count' => $this->app->make(ExchangeRateStatus::class)->staleQuery()->count(),
             'href' => route('admin.platform.currencies.index'),
             'tone' => 'warning',
+            'icon' => 'Coins',
         ], 'core.currencies.manage', 31);
     }
 
