@@ -227,7 +227,19 @@ Email preferences per user/contact (categories), "email history" list of message
 19. Given a 302 response, Then it is treated as failure (not followed).
 20. Given preview with sample data for `invoice.created`, Then it renders without warnings for every seeded template (seed fixtures cover all fields).
 
-## 15. Out of scope for v1
+## 15. Implementation notes (v1, accepted by the CTO 2026-10-18)
+
+- Settings keys are namespaced under `notifications.*` so they never fall back to Laravel's own config:
+  `mail.disabled` → `notifications.mail_disabled`, `mail.bcc` → `notifications.mail_bcc`,
+  `mail.signature` → `notifications.signature`, `webhooks.max_attempts` → `notifications.webhooks_max_attempts`,
+  `webhooks.disable_after_consecutive_failures` → `notifications.webhooks_disable_after_consecutive_failures`,
+  `webhooks.delivery_retention_days` → `notifications.webhooks_delivery_retention_days`,
+  `webhooks.allow_private_targets` → config-only `notifications.webhooks_allow_private_targets` (ignored in production).
+- Passwords are never emailed (supersedes the welcome-email password in §4/§5 and criterion 9): welcome mail links
+  to the client-area service page. The log still redacts one-time links (reset, verify, invite).
+- Dedupe keys use a per-occurrence event id (`App\Support\Events\IdentifiesOccurrence`), not the payload.
+
+## 16. Out of scope for v1
 
 Mass mail/marketing campaigns, SMS/Slack/push channels and conditional staff notification rules, open/click tracking, bounce/complaint webhooks from mail providers,
 inbound webhooks that trigger actions, per-template attachments uploaded by staff, WYSIWYG HTML editor, scheduled digest emails other than the automation summary.
