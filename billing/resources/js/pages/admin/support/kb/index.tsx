@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { BookOpen, EyeOff, Lock, Plus, ThumbsUp, X } from 'lucide-react';
 import KbArticleController from '@/actions/App/Modules/Support/Http/Controllers/Admin/KbArticleController';
 import KbCategoryController from '@/actions/App/Modules/Support/Http/Controllers/Admin/KbCategoryController';

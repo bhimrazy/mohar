@@ -1,4 +1,5 @@
-import { Form, Head, Link, router } from '@inertiajs/react';
+import { Form, Link, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { LifeBuoy, PenLine, Pin, Plus, X } from 'lucide-react';
 import { useState } from 'react';
 import TicketController from '@/actions/App/Modules/Support/Http/Controllers/Admin/TicketController';

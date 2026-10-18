@@ -85,6 +85,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Real UI for the admin dashboard, clients index/show/form, client dashboard and account details.
 - Permission catalog: `core.clients.create|update` replace `core.clients.manage`.
 
+- Product polish (sweep 1): breadcrumbs on every admin and client page; the Date format setting now applies to
+  every screen and the invoice PDF (allowed formats in `Core\Support\DateFormats`; default "Oct 24, 2026", and
+  values off the list fall back to it). Installs where Company settings were saved before have `Y-m-d` stored,
+  so their dates switch to `2026-10-24` until an admin picks another format. Knowledge base, announcements and
+  network status stay inside the client area for signed-in customers; the home page links to the store, domain
+  search and support; registrar names and readable activity entries replace internal keys.
+
 ### Catalog
 
 - Product groups and products with currency × billing-cycle pricing and setup fees (minor units), configurable options

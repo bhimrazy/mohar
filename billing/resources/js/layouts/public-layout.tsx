@@ -1,6 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { ShoppingCart } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { PageWidthContext } from '@/components/app/page';
 import AppLogoIcon from '@/components/app-logo-icon';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,6 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import { dashboard, home, login, register } from '@/routes';
 import store from '@/routes/store';
+import { index as kb } from '@/routes/support/kb';
 
 /**
  * Optional props a public page may send to enrich the header (store pages
@@ -26,7 +28,20 @@ type PublicPageProps = {
     support_email?: string | null;
 };
 
-type NavLink = { label: string; href: string; active: boolean };
+type NavLink = {
+    label: string;
+    href: string;
+    active: boolean;
+    /** Hidden on phones to keep the header on one line (the footer links to it). */
+    wide?: boolean;
+};
+
+const SUPPORT_PATHS = [
+    '/knowledgebase',
+    '/announcements',
+    '/network-status',
+    '/support/',
+];
 
 function useNavLinks(): NavLink[] {
     const { url } = usePage();
@@ -43,7 +58,15 @@ function useNavLinks(): NavLink[] {
         {
             label: 'Domains',
             href: store.domains.url(),
-            active: path.startsWith(store.domains.url()),
+            active:
+                path.startsWith(store.domains.url()) ||
+                path.startsWith('/domains/'),
+        },
+        {
+            label: 'Support',
+            href: kb.url(),
+            active: SUPPORT_PATHS.some((prefix) => path.startsWith(prefix)),
+            wide: true,
         },
     ];
 }
@@ -122,6 +145,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 className={cn(
                                     'rounded-md px-2 py-2 font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none sm:px-3',
                                     link.active && 'text-foreground',
+                                    link.wide && 'hidden sm:inline',
                                 )}
                             >
                                 {link.label}
@@ -164,7 +188,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
 
                         {auth.user ? (
                             <Button asChild size="sm" variant="outline">
-                                <Link href={dashboard()}>Dashboard</Link>
+                                <Link href={dashboard()}>Client area</Link>
                             </Button>
                         ) : (
                             <>
@@ -177,7 +201,9 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                     <Link href={login()}>Log in</Link>
                                 </Button>
                                 <Button asChild size="sm">
-                                    <Link href={register()}>Sign up</Link>
+                                    <Link href={register()}>
+                                        Create account
+                                    </Link>
                                 </Button>
                             </>
                         )}
@@ -185,7 +211,11 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 </div>
             </header>
 
-            <main className="flex-1">{children}</main>
+            <main className="flex-1">
+                <PageWidthContext.Provider value="max-w-6xl">
+                    {children}
+                </PageWidthContext.Provider>
+            </main>
 
             <footer className="border-t bg-muted/30">
                 <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between md:px-6">
@@ -229,6 +259,12 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 className="hover:text-foreground"
                             >
                                 Domains
+                            </Link>
+                            <Link
+                                href={kb.url()}
+                                className="hover:text-foreground"
+                            >
+                                Support
                             </Link>
                             <Link
                                 href={auth.user ? dashboard() : login()}

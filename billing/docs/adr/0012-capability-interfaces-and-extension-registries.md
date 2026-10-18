@@ -1,0 +1,79 @@
+# ADR 0012 — Capability interfaces vs flags, and one extension-registry pattern
+
+- Status: Proposed · 2026-10-18 · Owner: Principal architect
+
+## Context
+
+**Capabilities are declared two ways at once.** `GatewayDriver` has eleven capability constants. Billing checks
+`supports()` for `CAPTURE`, `TOKENIZE`, `REMOTE_INPUT`, `REFUND`, `PARTIAL_REFUND` and `WEBHOOK`, but detects hosted
+checkout with `instanceof HostedPaymentDriver` (`GatewayManager.php:47`). Five constants are never read anywhere:
+`REDIRECT`, `LOOKUP`, `QR`, `STORED_METHODS` and `PENDING_SETTLEMENT`. Khalti and eSewa still declare
+`REDIRECT`/`LOOKUP`, so a flag and an interface can disagree. `ConnectionTester` and `ProvidesLogo` (#26) are
+interfaces. Provisioning and registrar drivers use only flags, and registrar methods outside the flags throw.
+
+**Registries have five registration shapes:**
+
+| Registry                        | Where                      | Registration                                 | Resolution                                   |
+| ------------------------------- | -------------------------- | -------------------------------------------- | -------------------------------------------- |
+| `GatewayRegistry`               | contract, bound by Billing | `register(GatewayDriver $instance)`          | eager instances                              |
+| `DriverRegistry` (provisioning) | Services module class      | `register(string $key, class-string)`        | lazy                                         |
+| `RegistrarManager`              | Domains module class       | `extend(string $key, class-string\|Closure)` | lazy, then mutated by `configure()`          |
+| `ExchangeRateSources` (#43)     | `app/Support`              | `register(class-string)`                     | eager: `app($class)` at boot to read the key |
+| `PriceConverters` (#43)         | `app/Support`              | `register(class-string)`, keyed by class     | lazy, but `get($key)` resolves all           |
+
+Because `GatewayRegistry` is bound by Billing, a package that calls `register()` directly while Billing is absent
+gets a binding error. PaymentsNepal avoids this with `callAfterResolving()`, but the convention is not written down
+anywhere.
+
+## Decision
+
+### Capabilities
+
+1. If a capability adds methods, it is an interface, and consumers detect it with `instanceof`. Examples:
+   `HostedPaymentDriver`, `ConnectionTester`, `ProvidesLogo`, and the ADR 0009 interfaces.
+2. A flag is allowed only for whether a capability the driver has is enabled under a given configuration, for
+   example `PARTIAL_REFUND` when `payments_nepal.khalti.partial_refunds` is off. A flag is never a second declaration
+   of something an interface already declares.
+3. A string list for the UI (badges, props) is computed by the registry from the interfaces and enabled flags, never
+   declared by hand.
+4. For gateways, deprecate `REDIRECT`, `LOOKUP`, `QR`, `STORED_METHODS` and `PENDING_SETTLEMENT` (ADR 0010). Keep
+   `CAPTURE`/`REFUND`/`TOKENIZE`/`WEBHOOK`/`REMOTE_INPUT` as flags for now: their methods sit on the base interface
+   with `AbstractGatewayDriver` defaults. Moving them to interfaces is a 2.0 change. Until the deprecated flags are
+   removed, a test asserts that `supports(REDIRECT)` holds exactly when the driver is an `instanceof
+HostedPaymentDriver`, for every registered driver.
+
+### Registries
+
+Every registry that extensions write to follows one shape:
+
+- It is a concrete class in `app/Support/<Area>/`, bound as a singleton in `AppServiceProvider`, never by a feature
+  module. It exists whatever `MODULES=` contains, so registration cannot fail because the consuming module is absent.
+- `register(string $key, class-string<T>|Closure(Container): T $item, bool $replace = false): void`. Keys match
+  `[a-z0-9_]{1,50}`. A duplicate key throws unless `$replace` is set, and a replacement is logged.
+- Resolution is lazy, through the container. `register()` does no I/O and resolves nothing. Listing metadata may
+  instantiate items, so constructors must be cheap: no HTTP, no queries, no decryption.
+- Reads are `has(key)`, `get(key): T` (throws for an unknown key), `keys()`, and a typed `all()` or `metadata()`.
+- The registry checks on first resolve that the item's own `key()` equals the registered key.
+- A registry holds no request or account state. Per-account configuration is passed per call (`GatewayConfig`,
+  `RegistrarConfig`).
+
+UI-contribution registries (`Navigation`, `Dashboard`, `SettingsRegistry`, `PermissionRegistry`, `GlobalSearch`,
+`ThemeRegistry`) keep their own methods. They are already kernel-owned, and the "Registries" rules apply to new
+methods: options with defaults come after the third parameter and are documented with named arguments, and payload
+shapes are documented next to the method (ADR 0010).
+
+### Alignment of existing registries
+
+- `ExchangeRateSources` and `PriceConverters` (#43): change to `register(key, class)`. Not blocking for #43. Once
+  merged, the change is compatible: the old one-argument form keeps working, deprecated.
+- `GatewayRegistry`: add a kernel `App\Support\Billing\GatewayDriverRegistry` with the shape above. Billing's
+  `GatewayManager` reads it. `GatewayRegistry::register(instance)` stays as a deprecated adapter, so packages stop
+  needing `callAfterResolving()`.
+- Provisioning and registrar: ADR 0009.
+
+## Consequences
+
+- One way to declare a capability, and one way to register an extension. Packages register in `boot()` without
+  knowing which modules are installed.
+- Five dead gateway constants are deprecated rather than deleted. Removal waits for 2.0, or happens sooner within the
+  pre-1.0 window if no external gateway exists by then.

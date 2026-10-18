@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Megaphone, Rss } from 'lucide-react';
 import AnnouncementController from '@/actions/App/Modules/Support/Http/Controllers/Public/AnnouncementController';
 import { DateTime } from '@/components/app/date';

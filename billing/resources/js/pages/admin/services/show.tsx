@@ -1,4 +1,5 @@
-import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { Link, router, useForm, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import {
     CalendarClock,
     Eye,

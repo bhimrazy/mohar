@@ -3,9 +3,11 @@
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Database\Seeders\DomainsSeeder;
+use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
 
@@ -40,6 +42,7 @@ test('staff list TLDs with their base prices', function () {
         ->assertInertia(fn (Assert $page) => $page->component('admin/domains/tlds/index')
             ->where('tlds.0.extension', '.com')
             ->where('tlds.0.price.register', 1200)
+            ->where('registrarNames.log', 'Log (demo)')
             ->where('canManage', false));
 });
 
@@ -149,4 +152,13 @@ test('the seeder prices every TLD in every configured currency', function () {
     expect(TldPrice::query()->distinct()->orderBy('currency')->pluck('currency')->all())->toBe(['INR', 'NPR', 'USD'])
         ->and(TldPrice::query()->whereHas('tld', fn ($query) => $query->where('extension', '.com'))->where('currency', 'INR')->where('years', 1)->value('register'))->toBe(109900)
         ->and(TldPrice::query()->whereIn('currency', ['INR', 'NPR', 'USD'])->where('years', 1)->whereNull('renew')->exists())->toBeFalse();
+});
+
+test('registrar names come from driver metadata without loading accounts', function () {
+    DB::enableQueryLog();
+
+    $names = app(RegistrarManager::class)->names();
+
+    expect($names)->toMatchArray(['log' => 'Log (demo)'])
+        ->and(collect(DB::getQueryLog())->pluck('query')->filter(fn (string $sql) => str_contains($sql, 'registrar_accounts')))->toBeEmpty();
 });

@@ -1,4 +1,4 @@
-import { Head } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import GuestTicketController from '@/actions/App/Modules/Support/Http/Controllers/Public/GuestTicketController';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';

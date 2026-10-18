@@ -4,6 +4,7 @@ use App\Actions\Fortify\CreateNewUser;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Support\Navigation\Navigation;
 use Inertia\Testing\AssertableInertia as Assert;
 
 test('dashboard redirects customers to the client area and staff to admin', function () {
@@ -24,6 +25,14 @@ test('client dashboard shows the current account and navigation', function () {
             ->where('client.id', $client->id)
             ->where('area', 'client')
             ->has('navigation'));
+});
+
+test('client navigation lists what the customer owns before billing and ordering', function () {
+    [$user] = actingAsClient();
+
+    $groups = collect(app(Navigation::class)->forUser('client', $user))->pluck('title')->all();
+
+    expect($groups)->toBe(['General', 'Services', 'Domains', 'Billing', 'Orders', 'Support', 'Setup']);
 });
 
 test('a login without a client account cannot use the client area', function () {

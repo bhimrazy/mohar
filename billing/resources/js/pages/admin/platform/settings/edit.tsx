@@ -1,4 +1,5 @@
-import { Head, Link, router, usePage } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import { useState } from 'react';
 import SettingsController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/SettingsController';

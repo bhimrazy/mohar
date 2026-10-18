@@ -1,4 +1,5 @@
-import { Form, Head, Link } from '@inertiajs/react';
+import { Form, Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Mail, X } from 'lucide-react';
 import SpamRuleController from '@/actions/App/Modules/Support/Http/Controllers/Admin/SpamRuleController';
 import TicketController from '@/actions/App/Modules/Support/Http/Controllers/Admin/TicketController';

@@ -20,7 +20,7 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-Planned merge order: #26 → #43 → #41 → #38 → #28. Later PRs adopt the kernel money formatter from #43; #28 adopts the date-format allowlist from #38.
+Merged: #26 (Nepal payments), #38 (product polish), #40 (image optimisation), #46 (CI draft race). Planned order: #53 (DB hardening) → #43 → #41 → #28. `database-reviewer` and `principal-architect` gates apply (see operating-model.md). Architecture review and ADRs 0009–0014 (Proposed) in `billing/docs/architecture/` and `billing/docs/adr/`.
 
 | PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
 | --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -1,4 +1,5 @@
-import { Form, Head, router } from '@inertiajs/react';
+import { Form, router } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { CheckCircle2 } from 'lucide-react';
 import NetworkIncidentController from '@/actions/App/Modules/Support/Http/Controllers/Admin/NetworkIncidentController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';

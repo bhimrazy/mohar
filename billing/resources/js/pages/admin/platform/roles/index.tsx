@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { Lock, Pencil, Plus, Shield, Trash2 } from 'lucide-react';
 import RoleController from '@/actions/App/Modules/Platform/Http/Controllers/Admin/RoleController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';

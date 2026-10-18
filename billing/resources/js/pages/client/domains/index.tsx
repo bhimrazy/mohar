@@ -1,4 +1,5 @@
-import { Head, Link } from '@inertiajs/react';
+import { Link } from '@inertiajs/react';
+import { Head } from '@/components/app/head';
 import { AlertTriangle, Globe, Search } from 'lucide-react';
 import DomainController from '@/actions/App/Modules/Domains/Http/Controllers/Client/DomainController';
 import { DataTable } from '@/components/app/data-table';
