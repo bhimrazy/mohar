@@ -45,6 +45,21 @@ import {
 import { navIcon } from '@/lib/nav-icons';
 import type { ClientRecord } from '@/types';
 
+/** "en" -> "English"; falls back to the stored code. */
+function languageName(code: string): string {
+    if (!code) {
+        return code;
+    }
+
+    try {
+        return (
+            new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+        );
+    } catch {
+        return code;
+    }
+}
+
 type Props = {
     client: ClientRecord;
     contacts: ClientContact[];
@@ -487,7 +502,7 @@ export default function ClientShow({
                                     },
                                     {
                                         label: 'Language',
-                                        value: client.language,
+                                        value: languageName(client.language),
                                     },
                                     ...(client.closed_at
                                         ? [
@@ -623,7 +638,7 @@ export default function ClientShow({
                                     },
                                     {
                                         label: 'Language',
-                                        value: client.language,
+                                        value: languageName(client.language),
                                     },
                                     ...(client.closed_at
                                         ? [

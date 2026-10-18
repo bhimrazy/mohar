@@ -223,7 +223,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
             ->get()
             ->map(fn (Order $order): array => [
                 'title' => "Order #{$order->number}",
-                'subtitle' => $order->client->display_name.' · '.$order->status->value,
+                'subtitle' => $order->client->display_name.' · '.ucfirst(str_replace('_', ' ', $order->status->value)),
                 'href' => route('admin.orders.show', $order),
             ])
             ->all()), 'orders.orders.view');
