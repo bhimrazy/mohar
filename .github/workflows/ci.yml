@@ -1,7 +1,7 @@
 # Single CI source of truth for the billing app (the Laravel project lives in billing/).
 # Design (billing/docs/devops/ci.md): ONE job to keep billable minutes low — every job is rounded up to a
 # whole minute and pays its own setup, so policy, lint, types, static analysis, both test suites and the
-# build share one runner, cheapest steps first. Docs/image-only PRs run only the formatter (in-job fast
+# build share one runner, cheapest steps first. Docs/image-only PRs and pushes run only the formatter (in-job fast
 # path, so the required check always reports). Draft PRs run only when labelled `ci`; feature-branch pushes do not run. Policy
 # checks (lockfile sync, audits, cooldown) run before any dependency is installed or executed.
 #
@@ -94,6 +94,10 @@ jobs:
                   elif [ "$EVENT" = push ] && [ -n "$BEFORE" ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] \
                       && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
                       base=$BEFORE
+                      files=$(git diff --name-only "$BEFORE" HEAD)
+                      if [ -n "$files" ] && [ -z "$(grep -vE '(\.md$|\.png$|^billing/docs/)' <<< "$files")" ]; then
+                          code=false
+                      fi
                   fi
                   {
                       echo "code=$code"
