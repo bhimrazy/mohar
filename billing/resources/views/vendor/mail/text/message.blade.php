@@ -1,28 +1,25 @@
-@php($brand = app(\App\Contracts\Branding\BrandProvider::class)->brand())
-<x-mail::layout>
-    {{-- Header --}}
-    <x-slot:header>
-        <x-mail::header :url="config('app.url')">
-            {{ $brand->name }}
-        </x-mail::header>
-    </x-slot:header>
+@props(['preheader' => null, 'preferencesUrl' => null])
+@php
+    $brand = app(\App\Contracts\Branding\BrandProvider::class)->brand();
+    $settings = app(\App\Modules\Core\Support\Settings::class);
+    $footerAddress = trim((string) ($settings->get('notifications.footer_address') ?: $settings->get('billing.seller.address', '')));
+    $supportUrl = (string) ($settings->get('notifications.support_url') ?: (\Illuminate\Support\Facades\Route::has('client.support.tickets.index') ? route('client.support.tickets.index') : ''));
+@endphp
+{!! $slot !!}
+@isset($subcopy)
 
-    {{-- Body --}}
-    {{ $slot }}
+{!! $subcopy !!}
+@endisset
 
-    {{-- Subcopy --}}
-    @isset($subcopy)
-        <x-slot:subcopy>
-            <x-mail::subcopy>
-                {{ $subcopy }}
-            </x-mail::subcopy>
-        </x-slot:subcopy>
-    @endisset
+--
+{{ $brand->name }}@if ($brand->tagline !== '') · {{ $brand->tagline }}@endif
 
-    {{-- Footer --}}
-    <x-slot:footer>
-        <x-mail::footer>
-            © {{ date('Y') }} {{ $brand->name }}@if ($brand->tagline !== '') · {{ $brand->tagline }}@endif
-        </x-mail::footer>
-    </x-slot:footer>
-</x-mail::layout>
+@if ($footerAddress !== '')
+{{ $footerAddress }}
+@endif
+@if ($supportUrl !== '')
+{{ __('Get help') }}: {{ $supportUrl }}
+@endif
+@if (filled($preferencesUrl))
+{{ __('Email preferences') }}: {{ $preferencesUrl }}
+@endif
