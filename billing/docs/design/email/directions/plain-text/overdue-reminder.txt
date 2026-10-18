@@ -1,0 +1,38 @@
+Mohar · Overdue by 3 days
+
+Amount due: $248.00
+Was due 15 Oct 2026
+
+Hi Daniel,
+
+We haven’t received payment for invoice INV-2026-0098, which was due on 15 Oct 2026.
+
+Please pay by 25 Oct 2026. If the invoice is still unpaid on that date, we’ll pause the services below. Your files and data stay safe for 30 days.
+
+Pay $248.00: https://billing.example.com/invoices/INV-2026-0098/pay
+Download invoice: https://billing.example.com/invoices/INV-2026-0098.pdf
+Update payment method: https://billing.example.com/account/payment-methods
+Attached: Invoice-INV-2026-0098.pdf
+
+Invoice       INV-2026-0098
+Issued        1 Oct 2026
+Was due       15 Oct 2026
+Last attempt  VISA •••• 4242 on 15 Oct, didn’t go through
+
+Services on this invoice
+- Cloud VPS 8 GB (vps.okafor.dev · Oct 2026): $192.00
+- Managed backups (vps.okafor.dev · Oct 2026): $24.00
+- Domain renewal (okafor.dev · 1 year): $32.00
+  Amount due: $248.00
+
+Already paid? Bank transfers can take up to two working days to reach us. Reply with your payment reference and we’ll check.
+
+Need more time, or having trouble paying? Reply to this email and we’ll work it out with you.
+
+--
+Mohar · Web hosting billing, sealed and settled.
+Mohar Cloud Pvt. Ltd., Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India
+Questions? Reply to this email or write to support@example.com
+Help centre: https://billing.example.com/support
+Email preferences: https://billing.example.com/account/email-preferences
+You’re receiving this because you are the billing contact for this account.

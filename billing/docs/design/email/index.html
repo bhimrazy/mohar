@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email directions</title>
+<style>
+  :root { --bg:#F3F4F8; --card:#FFFFFF; --fg:#1A2133; --muted:#5B6478; --border:#E4E7EE; --accent:#4F4BC4; --on-accent:#FFFFFF; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#0F121A; --card:#181C26; --fg:#EEF0F5; --muted:#9AA3B5; --border:#2A3040; --accent:#8B8FEA; --on-accent:#12142A; } }
+  :root[data-theme="dark"] { --bg:#0F121A; --card:#181C26; --fg:#EEF0F5; --muted:#9AA3B5; --border:#2A3040; --accent:#8B8FEA; --on-accent:#12142A; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; }
+  header { padding: 24px 16px 8px; max-width: 1400px; margin: 0 auto; }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p { margin: 0; color: var(--muted); }
+  .bar { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; max-width: 1400px; margin: 0 auto; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); }
+  .seg button { border: 0; background: none; color: var(--fg); padding: 8px 12px; min-height: 40px; font: inherit; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+  figure { margin: 0; background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  figcaption { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  figcaption b { display: block; }
+  figcaption a { color: var(--accent); font-size: 14px; }
+  .shot { max-height: 1400px; overflow: auto; background: var(--bg); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .narrow .shot img { max-width: 375px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Email directions</h1>
+  <p>Three directions, the same five emails and the same wording. Choose one; details and the recommendation are in email-design.md.</p>
+</header>
+<div class="bar"><div class="controls">
+  <div class="seg" role="group" aria-label="Email" id="email"></div>
+  <div class="seg" role="group" aria-label="Screen" id="view"></div>
+  <div class="seg" role="group" aria-label="Mode" id="mode"></div>
+</div></div>
+<main id="grid"></main>
+<script>
+  const EMAILS = [['invoice-issued', 'Invoice (INR)'], ['payment-receipt', 'Receipt (NPR)'], ['overdue-reminder', 'Overdue (USD)'], ['password-reset', 'Password reset'], ['ticket-reply', 'Ticket reply']];
+  const VIEWS = [['desktop', 'Desktop'], ['mobile', '375'], ['320', '320']];
+  const MODES = [['light', 'Light'], ['dark', 'Dark'], ['inverted', 'Forced invert']];
+  const DIRS = [['current', 'Current (before)'], ['a', 'A · Two-card receipt (recommended)'], ['b', 'B · Branded band'], ['c', 'C · Status rail']];
+  const state = { email: 'invoice-issued', view: 'desktop', mode: 'light' };
+  try { Object.assign(state, JSON.parse(localStorage.getItem('email-review') || '{}')); } catch (e) {}
+  function seg(id, items, key) {
+    const el = document.getElementById(id); el.innerHTML = '';
+    for (const [v, label] of items) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-pressed', String(state[key] === v));
+      b.onclick = () => { state[key] = v; try { localStorage.setItem('email-review', JSON.stringify(state)); } catch (e) {} render(); };
+      el.append(b);
+    }
+  }
+  function file(d) {
+    if (d === 'current') {
+      const v = state.view === '320' ? 'mobile' : state.view; const m = state.mode === 'inverted' ? 'light' : state.mode;
+      return `screenshots/current-${state.email}-${v}-${m}.png`;
+    }
+    if (state.view === '320') return `screenshots/${d}-${state.email}-320-light.png`;
+    return `screenshots/${d}-${state.email}-${state.view}-${state.mode}.png`;
+  }
+  function render() {
+    seg('email', EMAILS, 'email'); seg('view', VIEWS, 'view'); seg('mode', MODES, 'mode');
+    const grid = document.getElementById('grid'); grid.className = state.view === 'desktop' ? '' : 'narrow'; grid.innerHTML = '';
+    for (const [d, label] of DIRS) {
+      const f = document.createElement('figure');
+      const note = d === 'current' && state.mode === 'inverted' ? ' (light shown; not captured inverted)' : state.view === '320' && state.mode !== 'light' ? ' (320 captured in light only)' : '';
+      f.innerHTML = `<figcaption><b>${label}</b>${d === 'current' ? '<span>Notifications work in progress</span>' : `<a href="directions/${d}/${state.email}.html">Open the HTML email</a>`}${note ? `<p>${note}</p>` : ''}</figcaption><div class="shot"><img loading="lazy" alt="${label}, ${state.email}, ${state.view} ${state.mode}" src="${file(d)}"></div>`;
+      grid.append(f);
+    }
+  }
+  render();
+</script>
+</body>
+</html>
