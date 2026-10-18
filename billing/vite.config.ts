@@ -68,6 +68,8 @@ export default defineConfig({
             'resources/js/components/ui/*',
             'resources/js/routes/**',
             'resources/js/wayfinder/**',
+            // One-off design tooling (screenshots, reference email builds), not app code.
+            'docs/design/email/tools/**',
         ],
         options: {
             denyWarnings: true,
@@ -92,6 +94,9 @@ export default defineConfig({
             'composer.json',
             'resources/js/components/ui/*',
             'resources/views/mail/*',
+            // Reference email HTML: Outlook conditional comments and inline styles must stay as written.
+            'docs/design/email/directions/**',
+            'docs/design/email/index.html',
         ],
         sortTailwindcss: {
             functions: ['clsx', 'cn', 'cva'],
