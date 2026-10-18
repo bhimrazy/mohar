@@ -36,8 +36,8 @@ function optOutOwner(Client $client, array $categories): void
 it('subscribes to the domain events it maps', function () {
     Event::fake();
 
-    Event::assertListening(InvoiceCreated::class, [SendEventEmails::class, 'invoiceCreated']);
-    Event::assertListening(TicketReplied::class, [SendEventEmails::class, 'ticketReplied']);
+    Event::assertListening(InvoiceCreated::class, [SendEventEmails::class, 'handle']);
+    Event::assertListening(TicketReplied::class, [SendEventEmails::class, 'handle']);
 });
 
 it('sends invoice mail only to recipients who opted in (criterion 1)', function () {
@@ -71,7 +71,7 @@ it('always sends password resets, whatever the preferences (criterion 3)', funct
     $user = User::factory()->create(['email' => 'owner@example.test']);
     $this->client->users()->attach($user, ['is_owner' => true]);
 
-    event(new PasswordResetRequested($user->id, 'https://billing.test/reset-password/secret-token', '2026-10-18 12:00'));
+    event(new PasswordResetRequested($user->id, url('/reset-password/secret-token'), '2026-10-18 12:00'));
 
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->hasTo('owner@example.test') && str_contains((string) $mail->htmlBody, 'secret-token'));
     $logged = EmailMessage::query()->where('template_key', 'auth.password_reset')->sole();

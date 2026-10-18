@@ -18,13 +18,16 @@ use Throwable;
 
 /**
  * Hands one logged message to the transport (spec §7): 3 attempts (1, 5, 30 minutes), then failed.
- * The payload is encrypted because it may carry the unredacted body (reset links, service passwords).
+ * The payload is encrypted because it may carry the unredacted body (reset, verification and invitation links).
  */
 class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;
 
     public int $tries;
+
+    /** Below the queue connection's retry_after (90 s), so a slow send is never run twice in parallel. */
+    public int $timeout = 60;
 
     /**
      * @param  array{subject: string, html: string|null, text: string}|null  $content  unredacted content; null = the stored copy
@@ -90,6 +93,21 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
             'provider_message_id' => $sent?->getMessageId(),
         ]);
         EmailSent::dispatch($message->id, $message->template_key, $message->client_id);
+    }
+
+    /**
+     * The job died outside handle() (timeout, worker killed, attempts exhausted): never leave the row queued.
+     */
+    public function failed(?Throwable $exception = null): void
+    {
+        $message = EmailMessage::query()->find($this->messageId);
+
+        if ($message === null || $message->status !== EmailStatus::Queued) {
+            return;
+        }
+
+        $message->update(['status' => EmailStatus::Failed, 'failure_reason' => Str::limit($exception?->getMessage() ?? 'The send job did not finish.', 1000)]);
+        EmailFailed::dispatch($message->id, $message->template_key, $message->client_id);
     }
 
     /**

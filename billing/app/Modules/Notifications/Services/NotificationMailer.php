@@ -36,7 +36,7 @@ class NotificationMailer
     ) {}
 
     /**
-     * @return list<EmailMessage> the messages created by this call (existing duplicates are skipped)
+     * @return list<EmailMessage> one per recipient (new, or already logged for this occurrence)
      */
     public function send(EmailRequest $request): array
     {
@@ -48,7 +48,8 @@ class NotificationMailer
     /**
      * Sends a stored template, or an unsaved one (ad-hoc staff message: logged with template_key null).
      *
-     * @return list<EmailMessage>
+     * @return list<EmailMessage> one per recipient: the new message, or the one an earlier handling of the
+     *                            same occurrence already logged
      */
     public function sendTemplate(EmailTemplate $template, EmailRequest $request): array
     {
@@ -56,12 +57,10 @@ class NotificationMailer
 
         foreach ($this->recipients->unique($request->recipients) as $recipient) {
             $dedupeKey = sha1($request->eventKey.'|'.$template->key.'|'.$recipient->key());
+            $existing = EmailMessage::query()->where('dedupe_key', $dedupeKey)->first();
 
-            if (EmailMessage::query()->where('dedupe_key', $dedupeKey)->exists()) {
-                continue;
-            }
-
-            $created[] = $this->sendTo($template, $recipient, $request, $dedupeKey);
+            // A re-handled occurrence reports the message it already produced instead of sending again.
+            $created[] = $existing ?? $this->sendTo($template, $recipient, $request, $dedupeKey);
         }
 
         return $created;
@@ -108,9 +107,14 @@ class NotificationMailer
         ];
 
         try {
-            $composed = $this->composer->compose($template, $locale, $context);
+            $composed = $this->composer->compose($template, $locale, $context, $request->carriesSecret);
         } catch (TemplateSyntaxError $error) {
-            $message = EmailMessage::query()->create([...$attributes, 'subject' => Str::limit($template->name, 250, ''), 'status' => EmailStatus::Failed, 'failure_reason' => $error->getMessage()]);
+            $message = EmailMessage::query()->createOrFirst(['dedupe_key' => $dedupeKey], [...$attributes, 'subject' => Str::limit($template->name, 250, ''), 'status' => EmailStatus::Failed, 'failure_reason' => $error->getMessage()]);
+
+            if (! $message->wasRecentlyCreated) {
+                return $message;
+            }
+
             EmailFailed::dispatch($message->id, $template->key, $message->client_id);
             $this->alertRenderFailure($template, $error, $request->eventKey);
 
@@ -129,7 +133,8 @@ class NotificationMailer
             default => null,
         };
 
-        $message = EmailMessage::query()->create([
+        // createOrFirst: a concurrent handler of the same occurrence loses the race quietly (unique dedupe_key).
+        $message = EmailMessage::query()->createOrFirst(['dedupe_key' => $dedupeKey], [
             ...$attributes,
             'subject' => $composed->storedSubject ?? $composed->subject,
             'body_html' => $composed->storedHtml,
@@ -138,6 +143,10 @@ class NotificationMailer
             'status' => $suppressedReason === null ? EmailStatus::Queued : EmailStatus::Suppressed,
             'suppressed_reason' => $suppressedReason,
         ]);
+
+        if (! $message->wasRecentlyCreated) {
+            return $message;
+        }
 
         if ($suppressedReason !== null) {
             EmailSuppressed::dispatch($message->id, $template->key, $message->client_id, $suppressedReason);

@@ -50,6 +50,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Data\Recipient;
 use App\Modules\Notifications\Enums\EmailCategory;
+use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Enums\StaffCategory;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
@@ -80,7 +81,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     ) {}
 
     /**
-     * Event => handler method. Registered by the provider without instantiating this class at boot.
+     * Event => handler method. The provider registers handle() for each, without instantiating this class at boot.
      *
      * @var array<class-string, string>
      */
@@ -128,6 +129,62 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         WebhookEndpointDisabled::class => 'webhookEndpointDisabled',
     ];
 
+    /**
+     * Single entry point for every mapped event: whatever a handler does (resolving merge fields included),
+     * an exception is reported and never reaches the request or automation run that raised the event.
+     */
+    public function handle(object $event): void
+    {
+        try {
+            match (true) {
+                $event instanceof PasswordResetRequested => $this->passwordReset($event),
+                $event instanceof EmailVerificationRequested => $this->emailVerification($event),
+                $event instanceof ClientRegistered => $this->clientRegistered($event),
+                $event instanceof ClientUpdated => $this->clientUpdated($event),
+                $event instanceof OrderPlaced => $this->orderPlaced($event),
+                $event instanceof OrderMarkedFraud => $this->orderFraud($event),
+                $event instanceof ServiceActivated => $this->serviceActivated($event),
+                $event instanceof ProvisioningFailed => $this->provisioningFailed($event),
+                $event instanceof ServiceSuspended => $this->serviceSuspended($event),
+                $event instanceof ServiceUnsuspended => $this->serviceUnsuspended($event),
+                $event instanceof ServiceCancellationRequested => $this->cancellationRequested($event),
+                $event instanceof ServiceUpgraded => $this->serviceUpgraded($event),
+                $event instanceof ServiceTerminated => $this->serviceTerminated($event),
+                $event instanceof InvoiceCreated => $this->invoiceCreated($event),
+                $event instanceof InvoicePaymentReminder => $this->invoiceReminder($event),
+                $event instanceof PaymentReceived => $this->paymentReceived($event),
+                $event instanceof PaymentFailed => $this->paymentFailed($event),
+                $event instanceof InvoiceRefunded => $this->invoiceRefunded($event),
+                $event instanceof InvoiceModified => $this->invoiceModified($event),
+                $event instanceof QuoteSent => $this->quoteSent($event),
+                $event instanceof DomainRegistered => $this->domainRegistered($event),
+                $event instanceof DomainTransferInitiated => $this->domainTransferInitiated($event),
+                $event instanceof DomainTransferred => $this->domainTransferred($event),
+                $event instanceof DomainTransferFailed => $this->domainTransferFailed($event),
+                $event instanceof DomainRenewed => $this->domainRenewed($event),
+                $event instanceof DomainExpiryDigest => $this->domainExpiryDigest($event),
+                $event instanceof RegistrarActionFailed => $this->registrarActionFailed($event),
+                $event instanceof FreeDomainRenewalBlocked => $this->freeDomainRenewalBlocked($event),
+                $event instanceof DomainSyncReport => $this->domainSyncReport($event),
+                $event instanceof TicketOpened => $this->ticketOpened($event),
+                $event instanceof TicketReplied => $this->ticketReplied($event),
+                $event instanceof TicketAssigned => $this->ticketAssigned($event),
+                $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
+                $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
+                $event instanceof TicketClosed => $this->ticketClosed($event),
+                $event instanceof InboundEmailBounced => $this->inboundBounced($event),
+                $event instanceof AffiliateActivated => $this->affiliateActivated($event),
+                $event instanceof AffiliateWithdrawalRequested => $this->affiliateWithdrawalRequested($event),
+                $event instanceof StaffLoginFailuresThreshold => $this->staffLoginFailures($event),
+                $event instanceof AutomationRunCompleted => $this->automationCompleted($event),
+                $event instanceof WebhookEndpointDisabled => $this->webhookEndpointDisabled($event),
+                default => null,
+            };
+        } catch (Throwable $exception) {
+            report($exception);
+        }
+    }
+
     // ── Auth (always sent, ignores preferences) ─────────────────────────────────────────────────
 
     /**
@@ -152,7 +209,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
         });
 
-        if ($sent === [] && $event->token !== '') {
+        if (! $this->handled($sent) && $event->token !== '') {
             $user->notify(new ResetPassword($event->token));
         }
     }
@@ -176,7 +233,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
             ], $event, $client?->id, 'user', $user->id, carriesSecret: true);
         });
 
-        if ($sent === []) {
+        if (! $this->handled($sent)) {
             $user->notify(new VerifyEmail);
         }
     }
@@ -274,21 +331,19 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     }
 
     /**
-     * Billing's reminder stages: before_due, overdue_1, overdue_2, overdue_3+ (one per invoice and day).
+     * Billing's reminder stages: before_due (automation), due (manual "Send reminder"), overdue_1, overdue_2, overdue_3+.
      */
     public function invoiceReminder(InvoicePaymentReminder $event): void
     {
+        // Any stage that isn't an overdue notice (before_due, Billing's manual "due", ...) is the payment reminder.
         $templateKey = match (true) {
-            $event->stage === 'before_due' => 'invoice.payment_reminder',
             $event->stage === 'overdue_1' => 'invoice.overdue_first',
             $event->stage === 'overdue_2' => 'invoice.overdue_second',
             str_starts_with($event->stage, 'overdue_') => 'invoice.overdue_third',
-            default => null,
+            default => 'invoice.payment_reminder',
         };
 
-        if ($templateKey !== null) {
-            $this->clientMail($templateKey, $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId);
-        }
+        $this->safely(fn () => $this->clientMail($templateKey, $event->clientId, EmailCategory::Invoice, $this->invoiceContext($event->invoiceId), $event, 'invoice', $event->invoiceId));
     }
 
     public function paymentReceived(PaymentReceived $event): void
@@ -685,6 +740,23 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         }
 
         return 'service.welcome.'.($product !== null && in_array($product->type, ['shared_hosting', 'reseller_hosting', 'server'], true) ? $product->type : 'other');
+    }
+
+    /**
+     * Auth mail counts as handled once a message is queued, sent or deliberately suppressed; nothing at all
+     * (no template) or only failed rows (unrenderable template) means Laravel's notification must go out.
+     *
+     * @param  list<EmailMessage>  $messages
+     */
+    private function handled(array $messages): bool
+    {
+        foreach ($messages as $message) {
+            if ($message->status !== EmailStatus::Failed) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

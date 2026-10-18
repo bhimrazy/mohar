@@ -65,14 +65,21 @@ class EmailTemplate extends Model
         return $this->hasMany(EmailTemplateTranslation::class);
     }
 
+    /** The language every seeded template is written in. */
+    public const BASE_LOCALE = 'en';
+
     /**
-     * The translation for the locale, else the default locale (spec §3 locale fallback).
+     * The translation for the locale, else the default locale, else the base locale, else any row —
+     * a missing translation never stops an email (spec §3 locale fallback).
      */
     public function translationFor(string $locale, string $defaultLocale): ?EmailTemplateTranslation
     {
         $translations = $this->relationLoaded('translations') ? $this->translations : $this->translations()->get();
 
-        return $translations->firstWhere('locale', $locale) ?? $translations->firstWhere('locale', $defaultLocale);
+        return $translations->firstWhere('locale', $locale)
+            ?? $translations->firstWhere('locale', $defaultLocale)
+            ?? $translations->firstWhere('locale', self::BASE_LOCALE)
+            ?? $translations->sortBy('id')->first();
     }
 
     /**

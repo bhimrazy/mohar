@@ -62,8 +62,8 @@ class NotificationsServiceProvider extends ModuleServiceProvider
         // company sender name and the support Reply-To too; templated mail sets its own per category.
         Event::listen(MessageSending::class, [BrandOutgoingMail::class, 'handle']);
 
-        foreach (SendEventEmails::EVENTS as $event => $method) {
-            Event::listen($event, [SendEventEmails::class, $method]);
+        foreach (array_keys(SendEventEmails::EVENTS) as $event) {
+            Event::listen($event, [SendEventEmails::class, 'handle']);
         }
 
         foreach (array_keys(WebhookEventTypes::MAP) as $event) {
@@ -149,7 +149,7 @@ class NotificationsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('notifications.from.default', 'Send email from', 'email', 'Sender for client and staff email; empty = MAIL_FROM_ADDRESS. The sender name is always the company name. Use an address on a domain your mail provider is authorised to send for (SPF/DKIM), so DMARC passes.', rules: ['nullable', 'email', 'max:255']),
             new SettingDefinition('notifications.from.billing', 'Send billing email from', 'email', 'Sender for invoices, receipts and reminders, e.g. billing@ your domain. Must be on the same authorised sending domain (DMARC alignment).', rules: ['nullable', 'email', 'max:255']),
             new SettingDefinition('notifications.support_email', 'Support email address', 'email', 'Reply-To for general email and the address named in every footer. Defaults to the billing email address. Never a no-reply mailbox.', rules: ['nullable', 'email', 'max:255']),
-            new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses. Never applied to mail carrying a reset, verification or invitation link.', rules: ['max:500']),
+            new SettingDefinition('notifications.mail_bcc', 'BCC every client email to', help: 'Comma-separated addresses. Never applied to mail carrying a reset, verification or invitation link.', rules: ['max:500', 'regex:/^\s*$|^\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+(\s*,\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+)*\s*$/']),
         ], 'notifications.delivery.manage');
     }
 }
