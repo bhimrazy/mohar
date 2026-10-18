@@ -88,7 +88,10 @@ PostgreSQL runs in CI on every non-draft PR. To run it locally, start a private 
 - `scripts/heavy.sh` allows 3 heavy commands machine-wide (`HEAVY_SLOTS`), at low CPU/IO priority.
 - `scripts/resource-monitor.sh <log>` logs load, memory, disk and top processes every 30 s. Start it in
   the background at the start of each session; slow down (fewer agents) when load stays above 4.
-- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). Remove worktrees once merged.
+- Disk: each worktree costs about 1 GB (`vendor` + `node_modules`). `scripts/storage-cleanup.sh` (dry run by
+  default, `--apply` to act) removes worktrees whose PR is merged and that are clean and pushed, clears stale
+  Laravel caches, prunes stopped containers and dangling images, and clears the npm cache only when free
+  space is low. Run it in a background loop every 30 minutes during long sessions.
 - Dev servers: give each agent its own port range (8100–8299) and stop servers by port PID
   (`ss -ltnp | grep :<port>`). Never `pkill -f`; it can match the calling shell.
 - `/tmp` scratch space is wiped when the session restarts. Keep anything reusable in the repo or in
