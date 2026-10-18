@@ -29,8 +29,7 @@ class ProcessCancellations
                 ->with('service')
                 ->where('status', CancellationStatus::Open->value)
                 ->whereDate('process_after', '<=', $today)
-                ->orderBy('id')
-                ->each(function (CancellationRequest $request) use (&$count): void {
+                ->eachById(function (CancellationRequest $request) use (&$count): void {
                     if ($this->process($request)) {
                         $count++;
                     }
@@ -43,8 +42,7 @@ class ProcessCancellations
             ->whereNotNull('next_due_date')
             ->whereDate('next_due_date', '<=', $today)
             ->whereDoesntHave('cancellationRequests', fn ($query) => $query->where('status', CancellationStatus::Open->value))
-            ->orderBy('id')
-            ->each(function (Service $service) use (&$count): void {
+            ->eachById(function (Service $service) use (&$count): void {
                 $this->commands->queue($service, ModuleCommandName::Terminate, ['final_status' => ServiceStatus::Cancelled->value]);
                 $count++;
             });
