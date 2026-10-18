@@ -54,6 +54,8 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - Added `App\Events\Services\ServiceImported` (`serviceId`, `clientId`, `serverId`, `driver`, `source`; cPanel K8).
 - `App\Data\Integrations\ConnectionCheck` gains trailing `steps` (`list<ConnectionCheckStep>`, with
   `App\Enums\CheckStatus`) and `details` (compatible).
+- `App\Data\Services\ProvisionResult` gains a trailing `pending` flag (compatible): the create runs on the queue, so
+  callers show "queued", never "failed".
 - `ProvisioningDriver` docblock: any exception a driver throws during a call, other than
   `RetryableProvisioningException`, is an unknown outcome.
 - `DriverRegistry::capabilities()` (PR A surface) is now public, so tests can check that every capability is

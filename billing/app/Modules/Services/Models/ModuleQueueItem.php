@@ -41,6 +41,25 @@ class ModuleQueueItem extends Model
     /** The driver call succeeded but the service changed meanwhile; local state was not updated. */
     public const KIND_RECONCILE = 'reconcile';
 
+    /**
+     * An unknown outcome is sticky (ADR 0009 §4): while a "verify" item is open, no later failure (job failure,
+     * abandon, timeout, a failed retry) may turn it into another kind, because that would let a further create call
+     * the driver again. Only resolving or dismissing the item ends it.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (ModuleQueueItem $item): void {
+            $wasOpenVerify = $item->exists
+                && $item->getOriginal('kind') === self::KIND_VERIFY
+                && $item->getOriginal('status') === QueueStatus::Open;
+
+            if ($wasOpenVerify && $item->status === QueueStatus::Open && $item->kind !== self::KIND_VERIFY) {
+                $item->kind = self::KIND_VERIFY;
+                $item->last_error = $item->getOriginal('last_error');
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [

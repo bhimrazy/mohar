@@ -101,7 +101,11 @@ class EloquentServiceRegistry implements ServiceRegistry
             return new ProvisionResult(false, $exception->getMessage());
         }
 
-        return new ProvisionResult($outcome->succeededNow(), $outcome->message ?? ($outcome->status === CommandOutcome::RETRY ? 'Provisioning will be retried.' : null));
+        return match ($outcome->status) {
+            CommandOutcome::QUEUED => new ProvisionResult(false, $outcome->message ?? 'Provisioning queued.', pending: true),
+            CommandOutcome::RETRY => new ProvisionResult(false, 'Provisioning will be retried.', pending: true),
+            default => new ProvisionResult($outcome->succeededNow(), $outcome->message),
+        };
     }
 
     public function cancelPending(int $serviceId, string $status = 'cancelled'): void

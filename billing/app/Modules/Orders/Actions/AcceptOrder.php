@@ -45,7 +45,8 @@ class AcceptOrder
 
     /**
      * @param  list<int>|null  $runCreate  order item ids to provision; null = default selection
-     * @return list<string> provisioning failures
+     * @return array{failures: list<string>, queued: list<string>} provisioning failures, and items whose provisioning
+     *                                                             runs on the queue (not failures)
      */
     public function handle(Order $order, ?array $runCreate = null, ?string $invoiceStatus = null): array
     {
@@ -56,6 +57,7 @@ class AcceptOrder
         $runCreate ??= $this->defaultSelection($order->load('items'), $invoiceStatus);
 
         $failures = [];
+        $queued = [];
 
         foreach ($order->items()->whereIn('id', $runCreate)->where('status', OrderItemStatus::Pending)->orderBy('id')->get() as $item) {
             try {
@@ -67,14 +69,16 @@ class AcceptOrder
                 continue;
             }
 
-            if ($result !== null && ! $result->success) {
+            if ($result !== null && $result->pending) {
+                $queued[] = (string) $item->description;
+            } elseif ($result !== null && ! $result->success) {
                 $failures[] = "{$item->description}: ".($result->message ?? __('provisioning failed.'));
             }
         }
 
-        $this->activity->log("Order {$order->number} accepted", $order, $order->client_id, $failures === [] ? [] : ['failures' => $failures]);
+        $this->activity->log("Order {$order->number} accepted", $order, $order->client_id, array_filter(['failures' => $failures, 'queued' => $queued]));
         OrderAccepted::dispatch($order->id, $order->client_id);
 
-        return $failures;
+        return ['failures' => $failures, 'queued' => $queued];
     }
 }
