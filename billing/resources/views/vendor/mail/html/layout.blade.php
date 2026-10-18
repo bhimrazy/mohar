@@ -58,6 +58,8 @@ body, .wrapper, .body, .header-cell, .footer { background-color: #0f1115 !import
 <td class="content-cell">
 {!! Illuminate\Mail\Markdown::parse($slot) !!}
 
+{!! $action ?? '' !!}
+
 {!! $subcopy ?? '' !!}
 </td>
 </tr>

@@ -74,6 +74,7 @@ export default function TemplateEditor({
     canManage,
     canManageDelivery,
     secretAction,
+    systemAction,
 }: {
     template: Template | null;
     translation: Translation;
@@ -84,6 +85,8 @@ export default function TemplateEditor({
     canManageDelivery: boolean;
     /** Secret-bearing email: the merge field its single action link must use. */
     secretAction: string | null;
+    /** Client ticket email: the system adds the ticket button; only its label is editable. */
+    systemAction: boolean;
 }) {
     const form = useForm({
         key: 'custom.',
@@ -294,6 +297,21 @@ export default function TemplateEditor({
                                         </AlertDescription>
                                     </Alert>
                                 )}
+                                {systemAction && (
+                                    <Alert>
+                                        <ShieldCheck />
+                                        <AlertTitle>
+                                            The system adds the ticket button
+                                        </AlertTitle>
+                                        <AlertDescription>
+                                            A guest's ticket link carries the
+                                            ticket's access key, so it can't be
+                                            used in the text. The email ends
+                                            with a button to the ticket; you can
+                                            change its label below.
+                                        </AlertDescription>
+                                    </Alert>
+                                )}
                                 {!translation.exists && template && (
                                     <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                                         No {translation.locale.toUpperCase()}{' '}
@@ -451,10 +469,15 @@ export default function TemplateEditor({
                                         required
                                     />
                                 </Field>
-                                {secretAction && (
+                                {(secretAction || systemAction) && (
                                     <Field
                                         htmlFor="action_label"
                                         label="Button label"
+                                        hint={
+                                            systemAction
+                                                ? 'Plain text. Leave empty for "View your ticket".'
+                                                : undefined
+                                        }
                                         error={errors.action_label}
                                     >
                                         <Input
@@ -467,7 +490,7 @@ export default function TemplateEditor({
                                                 )
                                             }
                                             disabled={readOnly}
-                                            required
+                                            required={!!secretAction}
                                         />
                                     </Field>
                                 )}

@@ -61,8 +61,6 @@ test('merge fields resolve tickets and replies', function () {
     expect($fields)->number->toBe($ticket->number)->client_id->toBeNull()->is_guest->toBeTrue()
         ->and($fields['url'])->toBeInstanceOf(SensitiveValue::class)   // the guest link carries the access key
         ->and($fields['url']->value)->toContain('key='.$ticket->access_key)
-        ->and($fields['url']->allowedIn('ticket.reply'))->toBeTrue()
-        ->and($fields['url']->allowedIn('custom.copy'))->toBeFalse()
         ->and($fields['email_subject'])->toBe("[#{$ticket->number}] {$ticket->subject}")
         ->and($reply)->ticket_id->toBe($ticket->id)->message_id->toStartWith('<');
     expect(Client::query()->count())->toBe(0);

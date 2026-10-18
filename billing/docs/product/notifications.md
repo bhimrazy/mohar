@@ -243,10 +243,13 @@ Email preferences per user/contact (categories), "email history" list of message
   Laravel's notifications; Notifications: its templates), not through events, so no event carries a token or signed
   URL (ADR 0011). `PasswordResetRequested` / `EmailVerificationRequested` in §6 are therefore not events.
 - Access links (security review B1): merge fields that grant access by themselves are `App\Data\Notifications\SensitiveValue`
-  (account links; the guest ticket link, allowed only in `ticket.*` mail). The system places them: in reset,
-  verification and invitation mail as the action button and a "Label: url" text line; in other templates only as
-  the entire `href` of a link in the rendered HTML and on a line of its own in the text part. They are masked
-  everywhere else and in the log. Reset, verification and invitation text is plain and may use only `company.name`,
+  (account links; the guest ticket link). Staff-editable text can never use one, in any template: it is rejected on
+  save and removed at render. The system places them as its own button: in reset, verification and invitation mail,
+  and in the client ticket mail (`SecretTemplatePolicy::SYSTEM_ACTIONS`: "View your ticket", label editable as plain
+  text), where the button is added to a system slot of the layout after the mail is built. Staff content in mail
+  that carries a guest link is reduced to an element allow-list, and the finished HTML must hold the link exactly
+  once, as the button's href, to both the HTML5 parser and libxml, or nothing is sent. The text part gets a system
+  "Label: url" line. Reset, verification and invitation text is plain and may use only `company.name`,
   `user.first_name` / `staff.first_name` (URL-like text removed), `auth.expires_at`, `support.email` and `system.today`.
 - Account links are built from `APP_URL` and refused on any other origin (except `notifications.auth_link_host`):
   the email is then not sent at all, and the security log, the dashboard health card and the install pre-flight say

@@ -38,6 +38,13 @@
 {{-- Body --}}
 {!! $slot !!}
 
+{{-- System action (a button the system adds after the body is built; never Markdown-parsed) --}}
+@isset($action)
+<x-slot:action>
+{!! $action !!}
+</x-slot:action>
+@endisset
+
 {{-- Subcopy --}}
 @isset($subcopy)
 <x-slot:subcopy>

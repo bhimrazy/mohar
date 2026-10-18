@@ -18,6 +18,12 @@
 $client = static fn (string $key, string $type, string $name, string $subject, string $body): array => [
     'key' => $key, 'type' => $type, 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $body,
 ];
+// Client ticket mail: the system adds the "View your ticket" button (SecretTemplatePolicy::SYSTEM_ACTIONS); the
+// ticket link is never in the text, because a guest's link carries the ticket's access key.
+$ticket = static fn (string $key, string $name, string $subject, string $body, string $actionLabel): array => [
+    'key' => $key, 'type' => 'support', 'audience' => 'client', 'name' => $name, 'subject' => $subject, 'body' => $body,
+    'action_label' => $actionLabel,
+];
 $staff = static fn (string $key, string $name, string $subject, string $body): array => [
     'key' => $key, 'type' => 'admin', 'audience' => 'staff', 'name' => $name, 'subject' => $subject, 'body' => $body,
 ];
@@ -465,7 +471,7 @@ These domains have expired and may stop working. Renew them soon to avoid losing
 MD.$signOff),
 
     // ── Support (client) — subjects are fixed to the ticket thread format ───────────────────────
-    $client('ticket.autoresponse', 'support', 'Ticket received', $supportSubject, <<<'MD'
+    $ticket('ticket.autoresponse', 'Ticket received', $supportSubject, <<<'MD'
 # We got your request
 
 Ticket #{{ ticket.number }} is open with {{ ticket.department }}. We'll reply as soon as we can.
@@ -474,36 +480,28 @@ Ticket #{{ ticket.number }} is open with {{ ticket.department }}. We'll reply as
 |---|---|
 | Subject | {{ ticket.subject }} |
 | Priority | {{ ticket.priority }} |
-
-[View ticket]({{ ticket.url }})
-MD.$signOff),
-    $client('ticket.opened_by_staff', 'support', 'Ticket opened by staff', $supportSubject, <<<'MD'
+MD.$signOff, 'View your ticket'),
+    $ticket('ticket.opened_by_staff', 'Ticket opened by staff', $supportSubject, <<<'MD'
 # We opened a ticket for you
 
 {{ ticket.department }} opened ticket #{{ ticket.number }}: {{ ticket.subject }}.
 
 {{ reply.body_html | raw }}
-
-[View and reply]({{ ticket.url }})
-MD.$signOff),
-    $client('ticket.reply', 'support', 'Ticket reply', $supportSubject, <<<'MD'
+MD.$signOff, 'View and reply'),
+    $ticket('ticket.reply', 'Ticket reply', $supportSubject, <<<'MD'
 # New reply on ticket #{{ ticket.number }}
 
 {{ reply.author_name }} from {{ ticket.department }} replied to "{{ ticket.subject }}".
 
 {{ reply.body_html | raw }}
 
-[View ticket]({{ ticket.url }})
-
 You can also reply to this email.
-MD),
-    $client('ticket.auto_closed', 'support', 'Ticket closed automatically', $supportSubject, <<<'MD'
+MD, 'View your ticket'),
+    $ticket('ticket.auto_closed', 'Ticket closed automatically', $supportSubject, <<<'MD'
 # Ticket #{{ ticket.number }} closed
 
 We closed this ticket because we haven't heard back for a while. Reply to this email if you still need help and it will reopen.
-
-[View ticket]({{ ticket.url }})
-MD.$signOff),
+MD.$signOff, 'View your ticket'),
     $client('ticket.closed_bounce', 'support', 'Reply to a closed ticket', 'Your email was not added to a ticket', <<<'MD'
 # Your email wasn't added
 

@@ -262,6 +262,8 @@ class EmailTemplateController extends Controller
             'canManage' => request()->user()?->hasPermission('notifications.templates.manage') ?? false,
             'canManageDelivery' => request()->user()?->hasPermission('notifications.delivery.manage') ?? false,
             'secretAction' => $template !== null && $template->carriesSecret() ? (SecretTemplatePolicy::ACTION_LINKS[$template->key] ?? null) : null,
+            // Client ticket mail: the system adds the ticket button; only its label is editable (plain text).
+            'systemAction' => $template !== null && SecretTemplatePolicy::systemActionPath($template->key) !== null,
         ];
     }
 
@@ -288,7 +290,7 @@ class EmailTemplateController extends Controller
             'subject' => $template->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : $request->string('subject')->toString(),
             'heading' => $template->carriesSecret() ? $request->string('heading')->toString() : null,
             'body' => $request->string('body')->toString(),
-            'action_label' => $template->carriesSecret() ? $request->string('action_label')->toString() : null,
+            'action_label' => $template->carriesSecret() || SecretTemplatePolicy::systemActionPath($template->key) !== null ? $request->string('action_label')->toString() : null,
             'updated_by' => $request->user()?->id,
         ]);
     }

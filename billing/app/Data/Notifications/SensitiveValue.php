@@ -10,37 +10,16 @@ use Stringable;
  * guest ticket link with its access key. Merge-field resolvers wrap such values instead of returning strings, so
  * sensitivity is declared by type, not guessed from field names (security review PR #28).
  *
- * Notifications removes a SensitiveValue from every template's context, except templates matching $allowedIn
- * (system template keys, `*` wildcards; custom templates never match), where it may only be the whole target of a
- * link — anywhere else it is masked. It is never put in webhook payloads and never printed by accident: it has no
- * string form beyond a mask.
+ * Staff-editable template text can never use one: Notifications removes every SensitiveValue from the context that
+ * template text renders against, rejects templates that reference one, and only the system places the link, as its
+ * own action button added after the mail is built. It is never put in webhook payloads and never printed by
+ * accident: it has no string form beyond a mask.
  *
- *   'url' => $ticket->isGuest() ? new SensitiveValue($url, allowedIn: ['ticket.*']) : $url,
+ *   'url' => $ticket->isGuest() ? new SensitiveValue($url) : $url,
  */
 final readonly class SensitiveValue implements JsonSerializable, Stringable
 {
-    /**
-     * @param  list<string>  $allowedIn  template keys (e.g. "ticket.*") that may link to this value
-     */
-    public function __construct(
-        #[\SensitiveParameter] public string $value,
-        public array $allowedIn = [],
-    ) {}
-
-    public function allowedIn(string $templateKey): bool
-    {
-        if (str_starts_with($templateKey, 'custom.') || $templateKey === 'adhoc') {
-            return false;
-        }
-
-        foreach ($this->allowedIn as $pattern) {
-            if ($pattern === $templateKey || (str_ends_with($pattern, '.*') && str_starts_with($templateKey, substr($pattern, 0, -1)))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
+    public function __construct(#[\SensitiveParameter] public string $value) {}
 
     public function __toString(): string
     {
