@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
+  `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
+
 - **Server ports.** A cPanel server cannot be saved with a plain-HTTP port (2082, 2086, 2095) or any port below 1024
   other than 443; WHM is reached on 2087, or 443 behind a proxy. A trusted certificate pin must be a base64 SHA-256.
 
@@ -113,6 +116,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   sign-in, token permissions and expiry, root or reseller, packages and name servers, and is limited to 6 runs a
   minute per staff member. `php artisan provisioning:cpanel-smoke` checks a real server (read-only unless
   `--lifecycle --confirm-lifecycle`).
+- **Test connection opens the server form with a checklist** (#1b): each step passes, warns or fails in a plain
+  sentence, with the WHM version, root or reseller access, token expiry and name servers. When a server presents a
+  certificate that is not trusted, staff see its subject, issuer, expiry and SPKI fingerprint and can trust exactly
+  that fingerprint ("Trust this certificate": the sensitive server permission and a recent password, audited).
+- **Unknown outcomes settle themselves.** `services:verify-unknown` runs every five minutes and asks the server whether
+  a command whose outcome was unknown ran, for the first hour after the attempt; staff can press "Check now" later.
+  A command that ran completes as if it had answered; a conflict or an account still in progress stays on the
+  failed-actions queue with what the check found. For a create, "Create again" is offered only once the check finds
+  no account. Works for any driver that can check its server (cPanel and the demo driver today).
 - Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
   in URLs.
 

@@ -1,0 +1,74 @@
+<?php
+
+use App\Data\Integrations\ResolvedAddress;
+use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
+use App\Modules\Services\Models\Server;
+use Illuminate\Support\Facades\Http;
+use Tests\Support\Cpanel\Whm;
+
+const PRESENTED_PIN = 'k3Q1nF0VdR6pX2mYb8sT4wZc7hL9eJ5aG0uI3oN1qE8=';
+
+beforeEach(function () {
+    $this->server = Server::factory()->create(['driver' => 'cpanel', 'name' => 'Shared 1', 'hostname' => Whm::HOST, 'username' => 'root', 'api_token' => Whm::TOKEN, 'port' => null]);
+    Whm::fake(['version' => Http::failedConnection('cURL error 60: SSL certificate problem: self-signed certificate')]);
+    app()->instance(CertificateInspector::class, new class extends CertificateInspector
+    {
+        public function inspect(ResolvedAddress $address, string $serverName, int $timeoutSeconds = 10): ?array
+        {
+            return ['subject' => 'CN=whm.example.test', 'issuer' => 'CN=whm.example.test', 'expires_at' => '2027-01-01T00:00:00Z', 'spki_sha256' => PRESENTED_PIN];
+        }
+    });
+});
+
+test('test connection shows the checklist and the untrusted certificate on the server form', function () {
+    actingAsStaff();
+    confirmPassword();
+
+    $this->post(route('admin.services.servers.test', $this->server))
+        ->assertRedirect(route('admin.services.servers.edit', $this->server))
+        ->assertSessionHasErrors('server')
+        ->assertSessionHas('inertia.flash_data.connectionCheck.ok', false)
+        ->assertSessionHas('inertia.flash_data.connectionCheck.steps.0.status', 'fail')
+        ->assertSessionHas('inertia.flash_data.connectionCheck.details.certificate_spki_sha256', PRESENTED_PIN)
+        ->assertSessionHas('inertia.flash_data.connectionCheck.can_trust', true);
+});
+
+test('staff trust exactly the fingerprint they were shown, once, and the change is audited', function () {
+    actingAsStaff();
+    confirmPassword();
+    $this->post(route('admin.services.servers.test', $this->server));
+
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])
+        ->assertSessionHasNoErrors()
+        ->assertRedirect(route('admin.services.servers.edit', $this->server));
+
+    expect($this->server->refresh()->settings['spki_pin'])->toBe(PRESENTED_PIN)
+        ->and(ActivityLog::query()->where('subject_id', $this->server->id)->latest('id')->first()?->properties['reason'] ?? null)->toBe('Trusted the certificate shown by Test connection');
+
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertSessionHasErrors('fingerprint');
+});
+
+test('a fingerprint the check did not show cannot be trusted', function () {
+    actingAsStaff();
+    confirmPassword();
+
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertSessionHasErrors('fingerprint');
+
+    $this->post(route('admin.services.servers.test', $this->server));
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => str_repeat('B', 43).'='])->assertSessionHasErrors('fingerprint');
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => 'not-a-fingerprint'])->assertSessionHasErrors('fingerprint');
+
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull();
+});
+
+test('trusting a certificate needs a recent password and the sensitive server permission held explicitly', function () {
+    actingAsStaff();
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertRedirect();
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull();
+
+    actingAsStaff(['services.*']);
+    confirmPassword();
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertForbidden();
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull();
+});

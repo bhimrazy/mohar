@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Contracts\Services\Provisioning\TestsServerConnection;
+use App\Data\Integrations\ConnectionCheckStep;
 use App\Data\Integrations\SettingField;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Currency;
@@ -13,9 +14,11 @@ use App\Modules\Services\Http\Resources\ServerResource;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Modules\Services\Support\ServerSettings;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -90,10 +93,16 @@ class ServerController extends Controller
         return to_route('admin.services.servers.index');
     }
 
-    public function test(Server $server, ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor): RedirectResponse
+    /**
+     * Run the driver's connection check and show its checklist on the server form. A certificate the server presents
+     * but that is not trusted is remembered for this session only, so "Trust this certificate" can pin exactly the
+     * fingerprint staff were shown.
+     */
+    public function test(Request $request, Server $server, ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor, ServerSettings $settings): RedirectResponse
     {
         $this->authorize('services.servers.manage');
         $connection = null;
+        $request->session()->forget(self::offeredPinKey($server));
 
         try {
             $connection = $snapshots->connection($server);
@@ -111,15 +120,69 @@ class ServerController extends Controller
             $check = null;
         }
 
-        if ($check === null || ! $check->ok) {
-            $error = $redactor->maskValues($check->message ?? __('unexpected error'), $connection?->secrets() ?? []);
+        $mask = fn (string $value): string => $redactor->maskValues($value, $connection?->secrets() ?? []);
+        $redirect = to_route('admin.services.servers.edit', $server);
 
-            throw ValidationException::withMessages(['server' => __('Connection to :host failed: :error', ['host' => $server->hostname, 'error' => $error])]);
+        if ($check !== null) {
+            $offered = $check->details['certificate_spki_sha256'] ?? null;
+
+            if (is_string($offered) && $settings->declares($server->driver, ServerSettings::CERTIFICATE_PIN)) {
+                $request->session()->put(self::offeredPinKey($server), $offered);
+            }
+
+            Inertia::flash('connectionCheck', [
+                'ok' => $check->ok,
+                'message' => $mask($check->message),
+                'steps' => array_map(fn (ConnectionCheckStep $step): array => [
+                    'label' => $step->label,
+                    'status' => $step->status->value,
+                    'detail' => $step->detail === null ? null : $mask($step->detail),
+                ], $check->steps),
+                'details' => array_map($mask, $check->details),
+                'can_trust' => $request->session()->has(self::offeredPinKey($server)),
+                'checked_at' => now()->toIso8601String(),
+            ]);
         }
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => $redactor->maskValues($check->message, $connection->secrets())]);
+        if ($check === null || ! $check->ok) {
+            return $redirect->withErrors(['server' => __('Connection to :host failed: :error', ['host' => $server->hostname, 'error' => $mask($check->message ?? __('unexpected error'))])]);
+        }
 
-        return back();
+        Inertia::flash('toast', ['type' => 'success', 'message' => $mask($check->message)]);
+
+        return $redirect;
+    }
+
+    /**
+     * "Trust this certificate": pin the fingerprint Test connection showed (spec §9.3). Only that fingerprint, from
+     * this session's last check of this server, can be pinned, and only once; the change is audited.
+     */
+    public function trustCertificate(Request $request, Server $server, ServerSettings $settings): RedirectResponse
+    {
+        $this->authorize('services.servers.manage');
+
+        $fingerprint = (string) $request->validate([
+            'fingerprint' => ['required', 'string', 'regex:#^[A-Za-z0-9+/]{43}=$#'],
+        ])['fingerprint'];
+        $offered = $request->session()->pull(self::offeredPinKey($server));
+
+        if (! $settings->declares($server->driver, ServerSettings::CERTIFICATE_PIN)) {
+            throw ValidationException::withMessages(['fingerprint' => __('This server\'s driver does not support trusted certificates.')]);
+        }
+
+        if (! is_string($offered) || ! hash_equals($offered, $fingerprint)) {
+            throw ValidationException::withMessages(['fingerprint' => __('Run Test connection again and trust the certificate it shows.')]);
+        }
+
+        $settings->put($server, ServerSettings::CERTIFICATE_PIN, $fingerprint, __('Trusted the certificate shown by Test connection'));
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Certificate trusted for :name. Test the connection again to confirm.', ['name' => $server->name])]);
+
+        return to_route('admin.services.servers.edit', $server);
+    }
+
+    private static function offeredPinKey(Server $server): string
+    {
+        return "services.servers.{$server->id}.offered_pin";
     }
 
     /**

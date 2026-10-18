@@ -1,4 +1,4 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, router, useForm } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import { Field } from '@/components/app/field';
@@ -7,6 +7,7 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { SettingFieldInput } from '@/components/app/setting-field';
+import { ConnectionCheck } from '@/components/services/connection-check';
 import type { SettingFieldData } from '@/components/app/setting-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -120,7 +121,30 @@ export default function ServerForm({
                 <PageHeader
                     back={{ href: ServerController.index(), label: 'Servers' }}
                     title={server ? `Edit ${server.name}` : 'New server'}
+                    actions={
+                        server && (
+                            <Button
+                                variant="outline"
+                                onClick={() =>
+                                    router.post(
+                                        ServerController.test(server.id).url,
+                                        {},
+                                        { preserveScroll: true },
+                                    )
+                                }
+                            >
+                                Test connection
+                            </Button>
+                        )
+                    }
                 />
+
+                {server && (
+                    <ConnectionCheck
+                        serverId={server.id}
+                        serverName={server.name}
+                    />
+                )}
 
                 <form onSubmit={submit} className="flex flex-col gap-6">
                     <SectionCard title="Server">

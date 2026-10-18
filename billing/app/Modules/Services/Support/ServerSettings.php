@@ -21,7 +21,8 @@ class ServerSettings
 {
     /**
      * The server setting a driver declares when it can pin the server's certificate: an SPKI SHA-256, base64
-     * (optionally prefixed `sha256//`). Its format is checked on save.
+     * (optionally prefixed `sha256//`). Its format is checked on save. Test connection's "Trust this certificate"
+     * writes it from ConnectionCheck::$details['certificate_spki_sha256'].
      */
     public const CERTIFICATE_PIN = 'spki_pin';
 
@@ -33,6 +34,11 @@ class ServerSettings
     public function fields(string $driverKey): array
     {
         return $this->drivers->has($driverKey) ? $this->drivers->metadata($driverKey)->serverFields : [];
+    }
+
+    public function declares(string $driverKey, string $key): bool
+    {
+        return collect($this->fields($driverKey))->contains(fn (SettingField $field): bool => $field->key === $key);
     }
 
     /**
