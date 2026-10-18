@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -74,6 +75,17 @@ class AppServiceProvider extends ServiceProvider
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);
+
+        // Every generated URL (password reset, email verification, signed links, queued mail) uses APP_URL, never the
+        // request's Host header, so a forged Host can't redirect a one-time link. Local development keeps the request
+        // host so forwarded dev URLs work.
+        if (! app()->environment('local') && filled(config('app.url'))) {
+            URL::forceRootUrl((string) config('app.url'));
+
+            if (str_starts_with((string) config('app.url'), 'https://')) {
+                URL::forceScheme('https');
+            }
+        }
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),
