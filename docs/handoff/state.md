@@ -1,115 +1,80 @@
 # Current state
 
-Last updated: 2026-10-18 by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-18 08:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
-- Wave 1 is merged into `develop`: Core, Platform admin, Catalog, Domains, Support, Services &
-  Provisioning, Orders, Billing, Themes + Mohar brand, DevOps (Postgres CI, dependency policy). Billing
-  follow-ups (PR #22) merged after it.
-- Full suite: 1469 tests passing on SQLite and PostgreSQL in CI at the PR #22 head, now merged into `develop`.
-- Last progress estimate given to the owner: about 68/100, before Orders merged. Remaining weight is
-  wave 2–3 modules, E2E, observability and an integration and security pass.
+- `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
+  image optimisation (#40), CI race fix (#46) and database hardening (#53).
+- Progress toward "a product a host would switch to": about 50/100 (independent Fable review, 2026-10-18). Core
+  logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
+  registrars, no international gateway, no production install, and nothing has run outside the codespace.
+- The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
+  account created from an order, paid through Stripe, on a server the owner provides.
 
 ## Repository
 
-- GitHub: `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
-- App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Setup:
-  `billing/docs/devops/local-setup.md`.
+- GitHub `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
+- App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
+  Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests
+## Open pull requests (merge order: #43 → #41 → #28)
 
-Merged: #26 (Nepal payments), #38 (product polish), #40 (image optimisation), #46 (CI draft race). Planned order: #53 (DB hardening) → #43 → #41 → #28. `database-reviewer` and `principal-architect` gates apply (see operating-model.md). Architecture review and ADRs 0009–0014 (Proposed) in `billing/docs/architecture/` and `billing/docs/adr/`.
-
-| PR  | Workstream             | Status (2026-10-18 06:05 UTC)                                                                                                                      |
-| --- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #26 | Nepal payments         | Board, security and re-review passed. Combined QA, design and product review running; merges after it.                                             |
-| #43 | Currencies             | Gates green on SQLite and PostgreSQL. Engineer applying CTO decisions (NRB rate type, market-rate seeds, manual-rate stale warning). Reviews next. |
-| #41 | Dashboard v2           | Gates green. Designer fixing NPR to "Rs", historical-rate "All" total, Slate chart colours, duplicate counters. Reviews next.                      |
-| #28 | Notifications          | Engineer applying CTO decisions (auth mail via events, no passwords, dedup by event id, Reply-To, From name, subject style). Reviews next.         |
-| #38 | Product polish sweep 1 | Review board running.                                                                                                                              |
-
-Merged since the last update: #40 (doc images optimised with sharp, 50 MB → 18 MB, CI image size check).
+| PR  | Workstream    | Size          | Status                                                                                                                                                                             |
+| --- | ------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #43 | Currencies    | +6.7k / −0.5k | Board, architecture and re-review passed; rebased on #53; 1703 tests on SQLite and PostgreSQL. Product review running. Merges next.                                                |
+| #41 | Dashboard v2  | +5.1k / −0.6k | Board fixes and DB-audit fixes done; architecture approved. Rebases on #53 and #43 after #43 merges, then re-review.                                                               |
+| #28 | Notifications | +12.8k        | Too large (split future work). Engineer is redesigning secret-link emails as structure-only (B1). Needs a security sign-off on B1 and a PostgreSQL run before merge. Rebases last. |
 
 ## In progress
 
-| Workstream            | Lead               | Branch / worktree                                     | Spec                                     | State on 2026-10-18 04:55 UTC                                                                                                                                                   |
-| --------------------- | ------------------ | ----------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Notifications         | module engineer    | `feature/notifications`, `.worktrees/notifications`   | `product/notifications.md`               | Uncommitted work only (untracked files); no commits, branch not pushed, no PR.                                                                                                  |
-| Nepal payment drivers | module engineer    | `feature/payments-nepal`, `.worktrees/payments-nepal` | `product/payments-nepal.md`              | Commits on the branch (hosted-checkout hardening, Khalti, eSewa), only part of them pushed; no PR. ConnectIPS later.                                                            |
-| Dashboard v2          | principal designer | `feature/dashboard-v2`, `.worktrees/dashboard-v2`     | `design/dashboard-v2.md` (to be written) | Started; no commits yet. Owner request.                                                                                                                                         |
-| Currencies            | module engineer    | `feature/currencies`, `.worktrees/currencies`         | `product/platform-admin.md` §6           | Started 05:10 UTC. Symbols instead of codes next to amounts ($, ₹, Rs; lakh grouping) and exchange-rate sources, schedule, safety limit, history, price preview. Owner request. |
-| WHMCS parity study    | three researchers  | none (docs only)                                      | `billing/docs/parity/*.md`               | Started 05:15 UTC. Matrices of every WHMCS feature, setting, API, hook and module contract with our status and priority. Owner request.                                         |
+| Workstream                    | Branch / worktree                                 | State                                                                 |
+| ----------------------------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| Production install path (#47) | `feature/install-path`, `.worktrees/install-path` | Module engineer building `mohar:install`; must commit and push early. |
 
-Notifications reuses the Themes mail layout (`resources/views/vendor/mail`). Dashboard v2 brings the real admin
-dashboard up to the Calm Fintech direction: charts and sparklines, 12-month income against the previous year,
-orders by type, income by currency, automation health. Every user-facing PR now also gets a `product-reviewer` review, and develop gets a product sweep before
-progress is reported to the owner (`product-standards.md`). Engineers commit and push after each milestone and open a
-draft PR into `develop` when their gates pass.
+## Next (in order, from the Fable review and the parity roadmap)
 
-## Next
+1. Merge #43, then #41, then #28 (each with PostgreSQL CI green).
+2. CI runs on drafts carrying a `ci` label; every review verdict states "PostgreSQL run: yes/no".
+3. Finish #47 plus `billing/docs/devops/production.md` and `.env.production.example`; a CI smoke job installs on fresh
+   PostgreSQL without demo data.
+4. ADR 0009 (kernel extension contracts), only PRs A and B, minimal, built together with the first real consumer.
+5. cPanel/WHM driver: short spec, then build against ADR 0009 PR B; test against a real WHM server from the owner,
+   or recorded fixtures until one is available.
+6. Stripe gateway on the existing gateway contracts (no kernel change), in parallel.
+7. ADR 0013 steps 1–2 (company clock: `core.timezone`, automation in company time), with a Kathmandu test.
+8. Then: registrars (ADR 0009 PR C, `.np` manual, ResellerClub), Razorpay/PayPal, WHMCS importer.
 
-Next build after #43, #41 and #28 merge: ADR 0009, the kernel extension contracts (roadmap 3.1), before any
-control-panel or registrar driver. ADRs 0009–0012 are accepted; 0013 (company clock) and 0014 (observability)
-are proposed. Started now, because it doesn't overlap the open PRs: issue #47, the production install path (go-live
-blocker).
-
-Queued until load allows (the codespace has been at load 5–7 with five agents): PR #38 review, social sign-in,
-client dashboard and client profile (#31, #32, after Dashboard v2), Affiliates, Registrars, then wave 3 from the roadmap.
-
-The full plan after wave 2 is in `billing/docs/parity/roadmap.md` (waves 3 and 4, from the WHMCS parity
-studies). The items below are the near-term queue.
-
-1. Wave 2, when a build slot frees (at most two engineers at a time):
-   - **Social sign-in** (owner request 2026-10-18; raised from P2 in the parity study). Admin → Settings →
-     Sign-in integrations: per-provider enable, client ID and secret (write-only, encrypted), callback URL
-     to copy. Google first, then GitHub, Facebook, X and LinkedIn, all via first-party `laravel/socialite`
-     (to be added at a version at least 7 days old). Microsoft and Apple later via a provider registry.
-     Client sign-up and login, link and unlink from the profile. Accounts are matched only by a verified
-     email, with confirmation, to prevent takeover. Staff SSO optional, restricted by domain, with 2FA
-     still enforced.
-   - Affiliates (`product/affiliates.md`), worktree `.worktrees/affiliates` exists.
-   - Registrars (`product/registrars.md`): prerequisites PR first (C1 remote ids, C2 `findSubmission`
-     reconcile, C3 stale-claim sweep = issue #12, C5 redaction gaps), then the `.np` manual driver,
-     ResellerClub (needs C4 `registrar_refs`), Namecheap. Worktree `.worktrees/registrars` exists.
-2. Wave 3: Reports, AI module (`laravel/ai` 1.0.1; check current Claude API constraints with the
-   `claude-api` skill first), WHMCS importer (API-only connector, `import:whmcs`).
-3. After wave 2: integration build with screenshots of every area; security architecture pass.
-
-## Tracked gaps (no plan yet)
-
-- Observability: no OpenTelemetry package, config or spec (named in `billing/docs/product-vision.md`).
-- Browser E2E: Pest browser plugin chosen but `pestphp/pest-plugin-browser` is not installed.
-- Billing invoice and quote PDFs do not read `BrandProvider` for name and logo.
-- Branch protection and required checks on `develop`/`main` are unverified (the API returns 403; owner action).
-
-## Scheduled
-
-- On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11,
-  security fixes; held back by the 7-day cooldown).
-
-## Open issues
-
-#11 framework bump · #12 Domains stuck-pending recovery · #13 Domains needs_review after sync ·
-#14 Domains shared overlap guard · #15 Domains small hardening · #16 Catalog follow-ups ·
-#18 Support guest key rotation on merge ·
-#21 test-suite memory growth (phpunit `memory_limit` raised to 1G as a stopgap) ·
-#23 PR #22 review follow-ups · #24 CI job time grew to 3.5–5.5 min.
+Deferred, pending owner approval: social sign-in, Affiliates, client dashboard and profile (#31, #32). None
+is a switch blocker in the parity studies.
 
 ## Decisions pending from the owner
 
-None open.
+- Email template direction: A, B or C (design review page, Emails section).
+- Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
+- Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
+- Repository settings: branch protection and required checks on `develop` and `main`.
+- Business: licence and price model, support model, published security policy, trademark search for "Mohar".
+
+## Scheduled
+
+- On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11).
+
+## Open issues worth knowing
+
+Go-live blockers: #47 (install path), #25 (key rotation). Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
+#27 (Nepal follow-ups), #29 (PDF attachments), #30 (Support contract), #44 (credential reveal), #45 (historical
+rates), #55 (TLD race). Tests and CI: #21, #24, #54. Full list: `gh issue list`.
 
 ## Local-only state on the current codespace
 
-These are not in git and do not exist on a new device:
+Not in git; does not exist on a new device:
 
-- Worktrees in `.worktrees/` (re-create with `scripts/new-worktree.sh <slug>` or
-  `git worktree add .worktrees/<slug> feature/<slug>` for an existing branch).
+- Worktrees in `.worktrees/` (recreate with `scripts/new-worktree.sh <slug>`, or `git worktree add .worktrees/<slug>
+feature/<slug>` for an existing branch).
 - `.worktrees/_review/`: screenshot and preview helpers (Playwright scripts, theme artifact builder).
 - `rea/`: reverse-engineering tool checkout used at the start; not needed for the build.
-- Agent transcripts under `~/.claude/projects/-workspaces-whmcs/` (needed to resume agents in place).
-- Published design pages, private to the owner's account: "Theme Directions"
-  https://claude.ai/artifact/DqKtfBu3KVCoNVJdFoBTSs and the Dashboard v2 comparison
-  https://claude.ai/artifact/9zNAXTVDgoF8juYYZ6wnZM.
+- Agent transcripts under `~/.claude/projects/-workspaces-whmcs/` (needed to resume agents in place; on a new device,
+  relaunch from `.claude/agents/` with the brief template in the `run-workstream` skill).
+- Published design review page: https://claude.ai/artifact/9zNAXTVDgoF8juYYZ6wnZM (private to the owner).
