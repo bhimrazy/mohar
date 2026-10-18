@@ -60,6 +60,18 @@ describe('index', function () {
                 ->where('client.id', $this->client->id));
     });
 
+    it('includes both whole days of the date range and nothing after it', function () {
+        actingAsStaff(['orders.orders.view']);
+        $first = Order::factory()->create(['created_at' => '2026-10-01 00:00:00']);
+        $last = Order::factory()->create(['created_at' => '2026-10-31 23:59:59']);
+        Order::factory()->create(['created_at' => '2026-11-01 00:00:00']);
+        Order::factory()->create(['created_at' => '2026-09-30 23:59:59']);
+
+        $this->get(route('admin.orders.index', ['from' => '2026-10-01', 'to' => '2026-10-31']))
+            ->assertInertia(fn (Assert $page) => $page->has('orders.data', 2)
+                ->where('orders.data.0.id', $last->id)->where('orders.data.1.id', $first->id));
+    });
+
     it('finds an order by number', function () {
         actingAsStaff(['orders.orders.view']);
         $order = Order::factory()->create(['number' => '4815162342']);
