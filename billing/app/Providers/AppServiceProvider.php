@@ -13,6 +13,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Security\PasswordPolicy;
+use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
 use Carbon\CarbonImmutable;
@@ -45,6 +46,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ReferenceDataRegistry::class);
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
+        $this->app->singleton(ProvisioningDriverRegistry::class);
     }
 
     /**
