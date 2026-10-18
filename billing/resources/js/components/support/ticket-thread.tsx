@@ -51,8 +51,17 @@ export function TicketThread({
                         className={cn(
                             'rounded-xl border shadow-xs',
                             isNote &&
-                                cn('border-dashed', toneSurface('warning')),
-                            !isNote && isStaff && toneSurface('info'),
+                                cn(
+                                    'border-dashed',
+                                    toneSurface('warning'),
+                                    'text-foreground dark:text-foreground',
+                                ),
+                            !isNote &&
+                                isStaff &&
+                                cn(
+                                    toneSurface('info'),
+                                    'text-foreground dark:text-foreground',
+                                ),
                             !isNote && !isStaff && !isSystem && 'bg-card',
                             isSystem && !isNote && 'bg-background',
                             isStaff && !isNote && 'sm:ml-8',

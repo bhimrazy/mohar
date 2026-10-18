@@ -205,7 +205,10 @@ test('bulk block sender adds sender rules and closes the tickets', function () {
     $spam = guestTicket($department, 'Spammer@Example.com');
     $again = guestTicket($department, 'spammer@example.com');
     supportStaff([$department]);
+    $this->post(route('admin.support.tickets.bulk'), ['action' => 'block_sender', 'tickets' => [$spam->id]])->assertForbidden();
+    expect(SpamRule::query()->count())->toBe(0);
 
+    supportStaff([$department], ['support.tickets.view', 'support.tickets.manage', 'support.inbound.manage']);
     $this->post(route('admin.support.tickets.bulk'), ['action' => 'block_sender', 'tickets' => [$spam->id, $again->id]])->assertRedirect();
 
     expect(SpamRule::query()->where('field', 'sender')->pluck('value')->all())->toBe(['spammer@example.com'])

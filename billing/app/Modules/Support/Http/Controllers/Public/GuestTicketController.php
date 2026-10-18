@@ -107,11 +107,16 @@ class GuestTicketController extends Controller
 
     public function show(Request $request, string $number): Response
     {
-        $ticket = $this->ticket($request, $number);
+        $merged = Ticket::query()->where('number', $number)->whereNotNull('merged_into_id')->first();
+        $key = (string) $request->query('key', '');
 
-        if ($ticket->merged_into_id !== null) {
-            return Inertia::render('public/support/tickets/merged', ['number' => $ticket->number]);
+        if ($merged !== null && $key !== '' && ($merged->merged_access_key_hash !== null && hash_equals($merged->merged_access_key_hash, hash('sha256', $key))
+            || hash_equals($merged->access_key, $key))) {
+            return Inertia::render('public/support/tickets/merged', ['number' => $merged->number]);
         }
+
+        $ticket = $this->ticket($request, $number);
+        abort_if($ticket->merged_into_id !== null, 404);
 
         $ticket->load(['department', 'messages' => fn ($query) => $query->public(), 'messages.attachments']);
 

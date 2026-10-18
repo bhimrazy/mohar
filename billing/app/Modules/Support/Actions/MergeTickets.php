@@ -13,6 +13,7 @@ use App\Modules\Support\Models\TicketMessage;
 use App\Modules\Support\Services\TicketRecorder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -81,6 +82,9 @@ class MergeTickets
 
             foreach ($sources as $source) {
                 $source->forceFill([
+                    // Rotate the key: the old guest link only resolves to the "merged" page from now on.
+                    'merged_access_key_hash' => hash('sha256', $source->access_key),
+                    'access_key' => Str::random(32),
                     'merged_into_id' => $target->id,
                     'status' => TicketStatus::Closed,
                     'closed_at' => $source->closed_at ?? now(),

@@ -97,6 +97,7 @@ class TicketController extends Controller
                 'open' => $user->hasPermission('support.tickets.open'),
                 'manage' => $user->hasPermission('support.tickets.manage'),
                 'delete' => $user->hasPermission('support.tickets.delete'),
+                'blockSenders' => $user->hasPermission('support.tickets.manage') && $user->hasPermission('support.inbound.manage'),
             ],
         ]);
     }

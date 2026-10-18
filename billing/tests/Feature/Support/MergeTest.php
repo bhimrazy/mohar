@@ -84,7 +84,10 @@ test('a merged guest link never reveals or grants access to the target ticket', 
         ->and($victim->fresh()->cc)->not->toContain('attacker@example.com');
 
     $this->post(route('support.tickets.reply', ['number' => $attacker->number, 'key' => $attacker->access_key]), ['body' => 'injected'])->assertNotFound();
-    expect(TicketMessage::query()->where('body', 'injected')->exists())->toBeFalse();
+    $this->get(route('support.tickets.show', ['number' => $attacker->number, 'key' => 'wrong-key']))->assertNotFound();
+    expect(TicketMessage::query()->where('body', 'injected')->exists())->toBeFalse()
+        ->and($attacker->fresh()->access_key)->not->toBe($attacker->access_key)
+        ->and($victim->fresh()->access_key)->toBe($victim->access_key);
 });
 
 test('after a cross-client merge the source client cannot post into the target ticket', function () {

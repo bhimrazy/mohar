@@ -12,9 +12,14 @@ class BulkTicketRequest extends FormRequest
 
     public function authorize(): bool
     {
-        $permission = $this->input('action') === 'delete' ? 'support.tickets.delete' : 'support.tickets.manage';
+        $user = $this->user();
 
-        return $this->user()?->hasPermission($permission) ?? false;
+        return match ($this->input('action')) {
+            'delete' => $user?->hasPermission('support.tickets.delete') ?? false,
+            // Blocking a sender writes spam rules, which belong to the inbound email settings.
+            'block_sender' => ($user?->hasPermission('support.tickets.manage') ?? false) && $user->hasPermission('support.inbound.manage'),
+            default => $user?->hasPermission('support.tickets.manage') ?? false,
+        };
     }
 
     /**

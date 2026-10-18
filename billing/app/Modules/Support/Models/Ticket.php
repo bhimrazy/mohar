@@ -43,6 +43,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property bool $prevent_client_close
  * @property bool $is_unverified_requester guest whose email matched a client account; not yet verified
  * @property int|null $merged_into_id
+ * @property string|null $merged_access_key_hash
  * @property int $version
  * @property CarbonImmutable|null $first_staff_reply_at
  * @property CarbonImmutable|null $last_reply_at
@@ -72,7 +73,7 @@ class Ticket extends Model
     /** Changes to these attributes bump `version` (collision detection, spec §4.2). */
     public const VERSIONED = ['status', 'priority', 'department_id', 'assigned_to', 'subject', 'cc', 'last_reply_at', 'client_id', 'merged_into_id'];
 
-    protected $hidden = ['access_key'];
+    protected $hidden = ['access_key', 'merged_access_key_hash'];
 
     /**
      * @var array<string, mixed>

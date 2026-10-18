@@ -54,7 +54,12 @@ type Props = {
     departments: SelectOption[];
     staff: SelectOption[];
     signature: string | null;
-    can: { open: boolean; manage: boolean; delete: boolean };
+    can: {
+        open: boolean;
+        manage: boolean;
+        delete: boolean;
+        blockSenders: boolean;
+    };
 };
 
 const VIEWS = [
@@ -365,7 +370,8 @@ export default function TicketsIndex({
                         >
                             Close tickets
                         </Button>
-                        <ConfirmDialog
+                        {can.blockSenders && (
+<ConfirmDialog
                             trigger={
                                 <Button size="sm" variant="outline">
                                     Block sender
@@ -376,6 +382,7 @@ export default function TicketsIndex({
                             confirmLabel="Block senders"
                             onConfirm={() => bulk('block_sender')}
                         />
+)}
                         {can.delete && (
                             <ConfirmDialog
                                 trigger={
