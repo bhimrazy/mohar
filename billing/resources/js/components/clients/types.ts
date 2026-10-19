@@ -14,6 +14,8 @@ export type ClientLogin = {
     is_owner: boolean;
     permissions: string[];
     last_login_at: string | null;
+    /** An invitation not accepted yet. */
+    invitation: { state: 'pending' | 'expired'; expires_at: string } | null;
 };
 
 export const AREA_LABELS: Record<string, string> = {
