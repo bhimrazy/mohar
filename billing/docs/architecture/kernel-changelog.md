@@ -20,6 +20,10 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - Added `App\Support\Seo\SitemapRegistry` (`add(key, Closure)`, `entries()`), bound as a singleton; Orders,
   Support and Storefront register their public URLs.
 - Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`.
+- `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
+  `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
+- Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
+  `core.company_*` and `billing.seller.*` through Core `Settings`.
 
 ### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
 

@@ -51,6 +51,8 @@ it('shows a neutral headline on a fresh install, never the product tagline', fun
         ->assertInertia(fn (Assert $page) => $page
             ->component('public/storefront/home')
             ->where('hero.headline', 'Hosting and domains from Acme Hosting')
+            ->where('brand.hasUploadedLogo', false)
+            ->where('brand.hasUploadedMark', false)
             ->where('preview', false));
 });
 
@@ -71,15 +73,15 @@ it('renders the title, description, canonical and Organization data in the first
         ->toContain('"address":"Jhamsikhel Road, Lalitpur"');
 });
 
-it('lists up to four product groups as header links and more in one menu, without hidden groups', function (): void {
-    foreach (['Shared', 'VPS', 'SSL', 'Email'] as $name) {
+it('lists up to three product groups as header links and more in one menu, without hidden groups', function (): void {
+    foreach (['Shared', 'VPS', 'SSL'] as $name) {
         storefrontPlan($name);
     }
     ProductGroup::factory()->hidden()->create(['name' => 'Legacy']);
 
     $this->get('/')->assertInertia(fn (Assert $page) => $page
         ->where('site.products.mode', 'links')
-        ->where('site.products.groups', fn ($groups) => collect($groups)->pluck('name')->all() === ['Shared', 'VPS', 'SSL', 'Email']));
+        ->where('site.products.groups', fn ($groups) => collect($groups)->pluck('name')->all() === ['Shared', 'VPS', 'SSL']));
 
     storefrontPlan('Dedicated', amount: 9000);
     $this->withSession([CartManager::SESSION_CURRENCY => 'NPR']);
@@ -87,7 +89,7 @@ it('lists up to four product groups as header links and more in one menu, withou
     $this->get('/store')->assertInertia(fn (Assert $page) => $page
         ->where('site.products.mode', 'menu')
         ->where('site.currency', 'NPR')
-        ->where('site.products.groups.4', fn ($group) => $group['name'] === 'Dedicated'
+        ->where('site.products.groups.3', fn ($group) => $group['name'] === 'Dedicated'
             && $group['tagline'] === 'Dedicated for everyone'
             && $group['from'] === ['amount' => 900_000, 'cycle' => 'monthly', 'per_month' => true]));
 });

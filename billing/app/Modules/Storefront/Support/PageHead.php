@@ -20,7 +20,7 @@ final class PageHead
         $brand = app(BrandProvider::class)->brand();
         $canonical = url($path);
         // The shipped default logo is the product's own mark; only a host's upload speaks for the host.
-        $logo = $brand->customised ? $brand->logoLight : null;
+        $logo = $brand->hasUploadedLogo ? $brand->logoLight : null;
         $jsonLd = [];
 
         if ($company !== null) {

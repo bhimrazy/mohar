@@ -20,8 +20,8 @@ use Illuminate\Support\Facades\Route;
  */
 class SiteData
 {
-    /** Header shows a link per group up to this many groups, then one menu (owner brief, 2026-10-19). */
-    public const MAX_GROUP_LINKS = 4;
+    /** Header shows a link per group up to this many groups, then one menu (storefront spec §4). */
+    public const MAX_GROUP_LINKS = 3;
 
     public function __construct(
         private ContentStore $store,
