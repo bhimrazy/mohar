@@ -21,8 +21,10 @@ Route::adminArea(function (): void {
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
             Route::post('servers/{server}/trust-certificate', [ServerController::class, 'trustCertificate'])->name('servers.trust-certificate');
             Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
+            // Group membership decides where new accounts are provisioned, so it is guarded like the servers.
+            Route::resource('server-groups', ServerGroupController::class)->only(['store', 'update', 'destroy']);
         });
-        Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
+        Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);
 
         Route::get('cancellations', [CancellationRequestController::class, 'index'])->name('cancellations.index');
         Route::post('cancellations/{cancellationRequest}/approve', [CancellationRequestController::class, 'approve'])->name('cancellations.approve');
