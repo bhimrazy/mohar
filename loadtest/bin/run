@@ -230,6 +230,7 @@ start=$(date +%s)
     php /loadtest/seed/run.php --volume="$volume" > "$results/seed.json" 2> "$results/seed.log" \
     || { cat "$results/seed.log" >&2; exit 1; }
 cat "$results/seed.log"
+python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "$results/seed.json" 2>/dev/null || { echo "the seeder wrote no summary" >&2; exit 1; }
 note "seeded in $(( $(date +%s) - start ))s"
 pg "VACUUM ANALYZE" >/dev/null
 pg "SELECT json_build_object('database_bytes', pg_database_size(current_database()), 'tables', (SELECT json_agg(t) FROM (

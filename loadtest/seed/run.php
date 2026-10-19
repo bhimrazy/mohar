@@ -95,7 +95,13 @@ if (! isset($options['verify'])) {
     );
     $log("seeding volume {$volume->name}: {$volume->clients} clients, {$volume->services} services ({$summary['database']})");
     $seeder = new LoadTestSeeder($volume, $password, (int) ($options['seed'] ?? 2026), max(0, min(100, (int) ($options['peak'] ?? 25))), $log);
-    $summary = [...$summary, 'volume' => $volume->name, ...$seeder->run()];
+
+    try {
+        $summary = [...$summary, 'volume' => $volume->name, ...$seeder->run()];
+    } catch (Throwable $exception) {
+        fwrite(STDERR, 'Seeding failed: '.$exception->getMessage().' ('.basename($exception->getFile()).':'.$exception->getLine().")\n");
+        exit(1);
+    }
 }
 
 $log('verifying invariants');

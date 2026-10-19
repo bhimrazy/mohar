@@ -169,7 +169,8 @@ final class LoadTestSeeder
             throw new RuntimeException('Load-test data never goes into a production install (APP_ENV=production).');
         }
 
-        if (DB::table('users')->where('email', 'like', '%@'.self::EMAIL_DOMAIN)->exists()) {
+        // The seeded logins (client<n>@, staff<n>@); the install's own administrator may share the domain.
+        if (DB::table('users')->whereIn('email', ['client1@'.self::EMAIL_DOMAIN, 'staff1@'.self::EMAIL_DOMAIN])->exists()) {
             throw new RuntimeException('This database already has load-test data; start from a fresh database (migrate:fresh).');
         }
 
