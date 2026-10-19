@@ -271,3 +271,10 @@ whether to adopt Octane after the cooldown and a static-state review.
    script and Dependabot extensions.
 5. `deploy/compose.dev.yaml` and a `docs/devops/production.md` runbook (ADR 0014 expects it): install, update,
    backup, restore, rollback, and the cPanel cron-mode page if the owner chooses to support it.
+
+## Owner decisions (2026-10-19)
+
+- Edge proxy: Caddy. Traefik stays documented as the alternative.
+- Build workflow output: always a downloadable OCI artifact; pushing to GHCR is an optional input of the manual run.
+- cPanel shared hosting: supported in the degraded "cron mode" described above, documented and tested, with its
+  limits stated to the operator.
