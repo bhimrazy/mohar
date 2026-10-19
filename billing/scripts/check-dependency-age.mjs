@@ -213,7 +213,10 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
  * image cannot be hidden behind a variable by accident.
  */
 function isOwnImage(image, comment) {
-    return /^\$\{[A-Z0-9_]+(:-[^}]*)?\}$/.test(image) && /^#\s*own image\b/.test(comment);
+    return (
+        /^\$\{[A-Z0-9_]+(:-[^}]*)?\}$/.test(image) &&
+        /^#\s*own image\b/.test(comment)
+    );
 }
 
 const key = (item) =>
