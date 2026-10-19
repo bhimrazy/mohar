@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
   wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
   who bring existing accounts in. Fetches run on the `provisioning` queue.
+  A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
+  without the owner check until fetched again.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -128,8 +130,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   server or here; the request and its result are recorded in the activity log.
 - Import accounts page (Admin → Servers → server menu → Import accounts): summary cards, tabs with counts, search and
   pages over the stored match. The rows shown are re-checked against today (a service created since links the account,
-  a client closed since is dropped). "Match again" re-matches against today's clients, products and services without
-  asking the server. Unmatched accounts link to creating a product for their package; live services missing on the
+  a client closed since is dropped, as is a product that no longer provisions there). "Match again" re-matches on the
+  queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
+  asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.

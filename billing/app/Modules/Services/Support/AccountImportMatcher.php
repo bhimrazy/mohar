@@ -13,7 +13,6 @@ use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
-use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -42,7 +41,7 @@ class AccountImportMatcher
 
     public const RESELLER = 'reseller';
 
-    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers, private ProvisioningSnapshots $snapshots) {}
+    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
 
     /**
      * Each account with category, client_id, product_id, service_id, note and differences, ready to store; and the ids
@@ -80,7 +79,7 @@ class AccountImportMatcher
             $notes = array_filter([
                 $otherOwner && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
                 $otherOwner && $owner !== null ? ($connectionUser === 'root'
-                    ? self::text('Owned by the reseller :owner; import the reseller first, then its accounts from a connection signed in as :owner.', ['owner' => $owner])
+                    ? self::text('Owned by the reseller :owner.', ['owner' => $owner])
                     : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
                     $email === null => self::text('The server reports no valid contact email.'),
@@ -147,23 +146,26 @@ class AccountImportMatcher
             'linked_count' => $counts[self::LINKED] ?? 0,
             'missing' => $matched['missing'],
             'fetched_at' => $import->fetched_at ?? now(),
+            'connection_user' => $connectionUser,
         ]);
 
         return count($matched['rows']);
     }
 
     /**
-     * "Match again": the stored accounts matched against today's clients, products and services, without asking the
-     * server again.
+     * "Match again": the stored accounts matched against today's clients, products and services, with the owner
+     * compared to the user the fetch signed in as. Nothing is sent to the server.
      */
     public function rematch(ServerAccountImport $import): void
     {
-        $server = $import->server;
-        $driver = $this->drivers->get($server->driver);
-        $keys = array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences']);
-        $accounts = array_map(fn (array $row): array => array_diff_key($row, $keys), $import->accounts ?? []);
+        $accounts = $import->accounts ?? [];
 
-        $this->store($import, $accounts, self::connectionUser($driver, $this->snapshots->connection($server)));
+        foreach ($accounts as &$row) {
+            unset($row['category'], $row['client_id'], $row['product_id'], $row['service_id'], $row['note'], $row['differences']);
+        }
+
+        unset($row);
+        $this->store($import, $accounts, $import->connection_user);
     }
 
     /**

@@ -68,7 +68,7 @@ type Props = {
     server: { id: number; name: string; hostname: string };
     supported: boolean;
     import: {
-        status: 'fetching' | 'ready' | 'failed';
+        status: 'fetching' | 'matching' | 'ready' | 'failed';
         error: string | null;
         account_count: number;
         requested_by: string | null;
@@ -108,6 +108,11 @@ const CATEGORY_TONES = {
 
 const plural = (count: number, noun: string) =>
     `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+/** A card hint that wraps on narrow screens instead of being cut off. */
+function Wrap({ children }: { children: React.ReactNode }) {
+    return <span className="whitespace-normal">{children}</span>;
+}
 
 function Muted({ children }: { children: React.ReactNode }) {
     return (
@@ -284,7 +289,8 @@ export default function ServerImport({
     const { errors } = usePage().props as { errors: Record<string, string> };
     const { apply } = useQueryParams();
     const running = fetched?.running ?? false;
-    const stalled = fetched?.status === 'fetching' && !running;
+    const matching = fetched?.status === 'matching';
+    const stalled = (fetched?.status === 'fetching' || matching) && !running;
     const ready = fetched?.status === 'ready' && counts !== null;
 
     setLayoutProps({
@@ -388,7 +394,8 @@ export default function ServerImport({
                     <Alert>
                         <Spinner />
                         <AlertTitle>
-                            Reading the accounts on {server.name}
+                            {matching ? 'Matching' : 'Reading'} the accounts on{' '}
+                            {server.name}
                         </AlertTitle>
                         <AlertDescription>
                             Large servers take a minute or two. This page
@@ -400,7 +407,10 @@ export default function ServerImport({
                 {stalled && (
                     <Alert variant="destructive">
                         <ServerCrash />
-                        <AlertTitle>The last fetch did not finish</AlertTitle>
+                        <AlertTitle>
+                            The last {matching ? 'match' : 'fetch'} did not
+                            finish
+                        </AlertTitle>
                         <AlertDescription>
                             <span>
                                 Started{' '}
@@ -457,13 +467,13 @@ export default function ServerImport({
                             <StatCard
                                 label="Proposed"
                                 value={counts.proposed}
-                                hint="One client, one product"
+                                hint={<Wrap>One client, one product</Wrap>}
                                 icon={Sparkles}
                             />
                             <StatCard
                                 label="Unmatched"
                                 value={counts.unmatched}
-                                hint="Needs a choice"
+                                hint={<Wrap>Needs a choice</Wrap>}
                                 icon={UserRoundSearch}
                                 tone={
                                     counts.unmatched > 0 ? 'warning' : 'default'
@@ -472,19 +482,19 @@ export default function ServerImport({
                             <StatCard
                                 label="Reseller-owned"
                                 value={counts.reseller}
-                                hint="Other WHM owner"
+                                hint={<Wrap>Other WHM owner</Wrap>}
                                 icon={Users}
                             />
                             <StatCard
                                 label="Already linked"
                                 value={counts.linked}
-                                hint="Not imported again"
+                                hint={<Wrap>Not imported again</Wrap>}
                                 icon={Link2}
                             />
                             <StatCard
                                 label="Missing on server"
                                 value={counts.missing}
-                                hint="Only in billing"
+                                hint={<Wrap>Only in billing</Wrap>}
                                 icon={ServerCrash}
                                 tone={
                                     counts.missing > 0 ? 'warning' : 'default'
@@ -501,7 +511,8 @@ export default function ServerImport({
                                 })
                             }
                         >
-                            <TabsList className="max-w-full justify-start overflow-x-auto">
+                            {/* The tabs scroll on phones; the fade shows there are more. */}
+                            <TabsList className="max-w-full justify-start overflow-x-auto [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:[mask-image:none]">
                                 {TABS.map((tab) => (
                                     <TabsTrigger
                                         key={tab.value}

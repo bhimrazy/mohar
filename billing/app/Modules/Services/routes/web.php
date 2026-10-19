@@ -18,13 +18,13 @@ Route::adminArea(function (): void {
         // Server credentials are sensitive: changing them needs a recent password confirmation.
         Route::resource('servers', ServerController::class)->only(['index', 'create', 'edit']);
         Route::get('servers/{server}/import', [ServerImportController::class, 'show'])->name('servers.import.show');
-        Route::post('servers/{server}/import/match', [ServerImportController::class, 'rematch'])->middleware('throttle:6,1')->name('servers.import.rematch');
         Route::middleware('password.recent')->group(function (): void {
             Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
             Route::post('servers/{server}/trust-certificate', [ServerController::class, 'trustCertificate'])->name('servers.trust-certificate');
             Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
             Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
+            Route::post('servers/{server}/import/match', [ServerImportController::class, 'rematch'])->middleware('throttle:6,1')->name('servers.import.rematch');
         });
         Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
 
