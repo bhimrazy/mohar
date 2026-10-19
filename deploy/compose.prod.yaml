@@ -61,9 +61,15 @@ x-php: &php
 
 x-worker: &worker
     <<: *php
-    # The image's HEALTHCHECK probes the web server, which workers do not run.
-    healthcheck:
-        disable: true
+    # The image's HEALTHCHECK probes the web server, which workers do not run. Each worker instead checks that
+    # its own command is still running (the [:] keeps the check from matching itself). A disabled health check
+    # would make `docker compose up --wait` fail on Compose 2.38.
+    healthcheck: &process-alive
+        test: ['CMD-SHELL', 'grep -qsa "queue[:]work" /proc/[0-9]*/cmdline']
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 30s
 
 services:
     caddy:
@@ -176,6 +182,9 @@ services:
     scheduler:
         <<: *worker
         command: ['php', 'artisan', 'schedule:work']
+        healthcheck:
+            <<: *process-alive
+            test: ['CMD-SHELL', 'grep -qsa "schedule[:]work" /proc/[0-9]*/cmdline']
         stop_grace_period: 60s
         deploy:
             resources:
@@ -192,6 +201,9 @@ services:
             - -c
             - php artisan migrate --force --no-interaction && php artisan objects:ensure-bucket --no-interaction && php artisan app:install --no-interaction
         restart: 'no'
+        # A one-shot: nothing to probe while it runs.
+        healthcheck:
+            test: ['CMD', 'true']
         depends_on:
             postgres:
                 condition: service_healthy
