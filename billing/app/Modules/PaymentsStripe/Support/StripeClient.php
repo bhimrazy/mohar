@@ -3,8 +3,10 @@
 namespace App\Modules\PaymentsStripe\Support;
 
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\Endpoint;
 use App\Modules\Core\Support\Settings;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -17,6 +19,9 @@ use Throwable;
  * secret key checked against the gateway's mode, TLS verification on (the Http client default), a short connect
  * timeout, the billing.gateways.http_timeout_seconds total timeout, an Idempotency-Key on every POST, and retries
  * on background lookups only.
+ *
+ * The base URL and its request options come from Endpoints (`stripe.api`), in one call per request: the configured
+ * host unchanged, or an override from the environment in development, verified and pinned through the outbound guard.
  */
 final class StripeClient
 {
@@ -84,7 +89,9 @@ final class StripeClient
             default => $this->request($gateway),
         };
 
-        return $request->get($this->url($path).($query !== '' ? '?'.$query : ''));
+        $endpoint = $this->endpoint();
+
+        return $request->withOptions($endpoint->options)->get($endpoint->url($path).($query !== '' ? '?'.$query : ''));
     }
 
     /**
@@ -94,10 +101,13 @@ final class StripeClient
      */
     public function post(GatewayConfig $gateway, string $path, array $parameters, string $idempotencyKey): Response
     {
+        $endpoint = $this->endpoint();
+
         return $this->request($gateway)
+            ->withOptions($endpoint->options)
             ->asForm()
             ->withHeaders(['Idempotency-Key' => mb_substr($idempotencyKey, 0, 255)])
-            ->post($this->url($path), $parameters);
+            ->post($endpoint->url($path), $parameters);
     }
 
     /**
@@ -168,7 +178,7 @@ final class StripeClient
             ->timeout(max(2, $timeout));
     }
 
-    private function url(string $path): string
+    private function endpoint(): Endpoint
     {
         $base = config('payments_stripe.api');
 
@@ -176,7 +186,7 @@ final class StripeClient
             throw new StripeException('payments_stripe.api is not configured.');
         }
 
-        return $base.ltrim($path, '/');
+        return Endpoints::for('stripe.api', $base);
     }
 
     private static function intConfig(string $key, int $default): int
