@@ -105,11 +105,15 @@ class AccountImportMatcher
         }, $accounts);
 
         $reported = array_flip(array_column($accounts, 'username'));
+        $missing = [];
 
-        return [
-            'rows' => $rows,
-            'missing' => $services->reject(fn (stdClass $service, string $username): bool => isset($reported[$username]))->map(fn (stdClass $service): int => (int) $service->id)->values()->all(),
-        ];
+        foreach ($services as $username => $service) {
+            if (! isset($reported[$username])) {
+                $missing[] = (int) $service->id;
+            }
+        }
+
+        return ['rows' => $rows, 'missing' => $missing];
     }
 
     /**
