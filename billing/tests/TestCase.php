@@ -2,9 +2,20 @@
 
 namespace Tests;
 
+use Closure;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionCommitted;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\DatabaseTruncation;
+use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Fortify\Features;
+use LogicException;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -15,6 +26,12 @@ abstract class TestCase extends BaseTestCase
      * migrate a database the other tests share.
      */
     public static ?string $onlyModules = null;
+
+    /** @var list<string> Databases useSeededDatabase() has created and seeded in this process. */
+    private static array $seededDatabases = [];
+
+    /** @var array{0: string, 1: string}|null The seeded connection this test uses and the default it replaced. */
+    private ?array $seededConnection = null;
 
     public function createApplication()
     {
@@ -52,6 +69,86 @@ abstract class TestCase extends BaseTestCase
         $this->withoutVite();
 
         $this->releaseCommittedSavepoints();
+        $this->refuseDatabaseInDatabaseFreeSuites();
+    }
+
+    /**
+     * tests/Unit and tests/Arch run only in the SQLite step of CI, not again on PostgreSQL (docs/devops/ci.md), so a
+     * test there must never touch the database. This fails one that does; move it to tests/Feature instead.
+     */
+    private function refuseDatabaseInDatabaseFreeSuites(): void
+    {
+        if (preg_match('/(^|\\\\)Tests\\\\(Unit|Arch)\\\\/', static::class) !== 1) {
+            return;
+        }
+
+        $message = static::class.' is in a database-free suite (tests/Unit, tests/Arch), which CI does not run on PostgreSQL; move it to tests/Feature.';
+        $databaseTraits = [RefreshDatabase::class, LazilyRefreshDatabase::class, DatabaseMigrations::class, DatabaseTransactions::class, DatabaseTruncation::class];
+
+        if (array_intersect($databaseTraits, class_uses_recursive($this)) !== []) {
+            throw new LogicException($message);
+        }
+
+        $this->app['events']->listen(QueryExecuted::class, function (QueryExecuted $query) use ($message): void {
+            throw new LogicException($message.' Query: '.$query->sql);
+        });
+    }
+
+    /**
+     * Run this test on a database that $seed fills once per worker process, instead of seeding inside every test:
+     * for seeds that take tens of seconds, such as the demo billing history. The database is created and migrated
+     * fresh the first time a process asks for it (<database>_<name> on PostgreSQL, a temporary file on SQLite), and
+     * each test runs inside a transaction on it that is rolled back afterwards, so tests stay isolated. The test's
+     * default connection points at it until tearDown().
+     */
+    protected function useSeededDatabase(string $name, Closure $seed): void
+    {
+        $default = (string) config('database.default');
+        /** @var array<string, mixed> $config */
+        $config = config("database.connections.{$default}");
+        $database = $config['driver'] === 'sqlite'
+            ? sys_get_temp_dir().DIRECTORY_SEPARATOR."mohar-test-{$name}-".getmypid().'.sqlite'
+            : $config['database'].'_'.$name;
+        $connection = "seeded_{$name}";
+
+        config([
+            "database.connections.{$connection}" => ['database' => $database] + $config,
+            // A connection outside the test's transaction: PostgreSQL refuses CREATE DATABASE inside one.
+            "database.connections.{$connection}_admin" => $config,
+        ]);
+
+        if (! in_array($name, self::$seededDatabases, true)) {
+            $admin = Schema::connection("{$connection}_admin");
+            $admin->dropDatabaseIfExists($database);
+            $admin->createDatabase($database);
+
+            if ($config['driver'] === 'sqlite') {
+                register_shutdown_function(fn () => @unlink($database));
+            }
+
+            config(['database.default' => $connection]);
+            Artisan::call('migrate', ['--database' => $connection, '--force' => true]);
+            $seed();
+            self::$seededDatabases[] = $name;
+        }
+
+        config(['database.default' => $connection]);
+        DB::connection($connection)->beginTransaction();
+        $this->seededConnection = [$connection, $default];
+    }
+
+    protected function tearDown(): void
+    {
+        // Before the application is destroyed: RefreshDatabase then rolls back the default connection, which must be
+        // the test database again, not the seeded one.
+        if ($this->seededConnection !== null) {
+            [$connection, $default] = $this->seededConnection;
+            $this->seededConnection = null;
+            DB::connection($connection)->rollBack();
+            config(['database.default' => $default]);
+        }
+
+        parent::tearDown();
     }
 
     /**
