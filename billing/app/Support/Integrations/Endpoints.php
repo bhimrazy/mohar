@@ -96,6 +96,19 @@ final class Endpoints
     }
 
     /**
+     * Every key set in INTEGRATION_ENDPOINTS, usable or not, in any environment: what the install checks report when the
+     * app is not a development environment.
+     *
+     * @return list<string>
+     */
+    public function configuredKeys(): array
+    {
+        ['valid' => $valid, 'ignored' => $ignored] = $this->parsed();
+
+        return [...array_keys($valid), ...$ignored];
+    }
+
+    /**
      * Log the overrides once per boot, keys only, never URLs: a warning for active ones in development and tests,
      * critical for any set elsewhere (they are ignored there), and a warning for each malformed one.
      */

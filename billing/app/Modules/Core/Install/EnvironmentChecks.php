@@ -4,6 +4,7 @@ namespace App\Modules\Core\Install;
 
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
+use App\Support\Integrations\Endpoints;
 use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
@@ -41,6 +42,7 @@ final class EnvironmentChecks
                 ? new EnvironmentCheck('Scheduler', CheckStatus::Skipped, 'Needs a migrated database.')
                 : $this->scheduler(),
             $this->objectStorage(),
+            ...$this->integrationOverrides(),
             ...$this->production(databaseReady: $migrations->status === CheckStatus::Ok),
         ];
     }
@@ -146,6 +148,23 @@ final class EnvironmentChecks
         } catch (Throwable $exception) {
             return new EnvironmentCheck('Object storage', CheckStatus::Warning, 'The objects disk is not writable: '.self::firstLine($exception).' Run `php artisan objects:ensure-bucket` and check the OBJECTS_* settings.');
         }
+    }
+
+    /**
+     * Simulator endpoint overrides (ADR 0016) belong to development and tests only; anywhere else they are ignored, and
+     * their presence means the environment was copied from a development machine.
+     *
+     * @return list<EnvironmentCheck>
+     */
+    private function integrationOverrides(): array
+    {
+        $keys = app(Endpoints::class)->configuredKeys();
+
+        if ($keys === [] || Endpoints::developmentEnvironment(app())) {
+            return [];
+        }
+
+        return [new EnvironmentCheck('Integration endpoints', CheckStatus::Failed, 'INTEGRATION_ENDPOINTS is set ('.implode(', ', $keys).') outside a development environment. It is ignored here; remove it and INTEGRATION_CA_BUNDLE from the environment.')];
     }
 
     /**

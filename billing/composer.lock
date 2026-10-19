@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "01fe65ce3ddc91698d7e3ccfe705acae",
+    "content-hash": "0e681ab5a3988b3aef37d12df8e9c10b",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -9694,6 +9694,41 @@
             "time": "2026-08-19T19:37:52+00:00"
         },
         {
+            "name": "mohar/simulators",
+            "version": "dev-feature/simulators-s1",
+            "dist": {
+                "type": "path",
+                "url": "tools/simulators",
+                "reference": "45c8b82cc09860e0f432f6976384f02614d4de66"
+            },
+            "require": {
+                "ext-openssl": "*",
+                "ext-pdo_sqlite": "*",
+                "php": "^8.4"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Mohar\\Simulators\\SimulatorsServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Mohar\\Simulators\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Local simulators of the providers Mohar integrates with, for development and tests only (ADR 0016).",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "myclabs/deep-copy",
             "version": "1.14.0",
             "source": {
@@ -12403,7 +12438,9 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {},
+    "stability-flags": {
+        "mohar/simulators": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

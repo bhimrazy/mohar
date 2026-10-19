@@ -79,7 +79,10 @@ function sourcesUnder(array $directories): array
         }
 
         foreach (new RegexIterator(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS)), '/\.php$/') as $file) {
-            $sources[$file->getPathname()] = (string) file_get_contents($file->getPathname());
+            // bootstrap/cache is generated on each install (package discovery lists dev providers there) and not committed.
+            if (! str_contains($file->getPathname(), '/bootstrap/cache/')) {
+                $sources[$file->getPathname()] = (string) file_get_contents($file->getPathname());
+            }
         }
     }
 

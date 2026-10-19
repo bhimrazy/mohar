@@ -67,7 +67,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
   They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
   fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
-  logged as critical at boot. No integration uses them yet.
+  logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
+  a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
+  uses them yet.
+- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+  package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
+  CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
+  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
+  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+--no-dev` build contains neither the commands nor the package (checked in CI).
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.

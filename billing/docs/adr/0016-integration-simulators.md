@@ -156,7 +156,7 @@ Fault cases:
 
 | #   | Guarantee                     | Enforced by                                                                                                                                                                                                                                                                   | Tested by                                                                                                                                                                                                                 |
 | --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Zero production footprint     | The code is outside `app/` in a `require-dev` path package. Its provider is registered only by package discovery and returns early when `isProduction()`. Each command re-checks in `handle()`.                                                                               | An Arch test checks that `App\` never uses `Mohar\Simulators`. A CI step installs with `composer install --no-dev`, boots `artisan list`, and asserts there are no `simulate:*` commands and no class from the namespace. |
+| 1   | Zero production footprint     | The code is outside `app/` in a `require-dev` path package. Its provider is registered only by package discovery and does nothing unless the app runs as `local` or `testing`. Each command re-checks in `handle()`.                                                          | An Arch test checks that `App\` never uses `Mohar\Simulators`. A CI step installs with `composer install --no-dev`, boots `artisan list`, and asserts there are no `simulate:*` commands and no class from the namespace. |
 | 2   | No weakened security paths    | There is no override for host policy, pinning or signatures. Only `Endpoints` exists, and it adds the guard. cPanel uses the trust flow.                                                                                                                                      | E2E fault cases for a forged webhook, a rotated certificate and a refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false`. An Arch test checks that no driver mentions `simulat`.                                           |
 | 3   | Narrow, fail-closed overrides | Overrides come from the environment only. They are ignored in production, with a critical log and a health error, and logged at boot elsewhere.                                                                                                                               | Unit tests on `Endpoints`: in production the override is ignored; the key is logged; no settings key exists.                                                                                                              |
 | 4   | Isolation                     | The state store is in the temp dir. Ports are ephemeral, and 8000 is refused. The E2E database is `billing_e2e_*`, and the harness refuses `database/preview.sqlite` and the dev database name. A `finally` block cleans up, and `simulate:clean` reaps leftovers by pidfile. | A harness test with the forbidden port and database names. A teardown test checks that no process or temp dir is left.                                                                                                    |
@@ -182,6 +182,21 @@ conformance tests. That is a data file, not running code, but it still goes thro
 | S4  | E2E: `Simulators` suite, `simulate:e2e`, CI job (≈ 1,800)                                                                                                              | S2, S3; SSO step in cPanel PR 2 |
 | S5  | `khalti` and `esewa`; PaymentsNepal adopts `Endpoints`; NPR scenario (≈ 2,200)                                                                                         | S4                              |
 | S6+ | `inbound-mail` and `webhook-receiver`, then `resellerclub`, `razorpay`, `paypal`, `whmcs-api`, each with its driver                                                    | S1                              |
+
+### S1 as delivered
+
+- `tools/simulators/src/`: `Contracts` (`Simulator`, plus the optional `SignsCallbacks`, `HasControlActions`,
+  `RecordsLive`), `Http` (request, response, route, the API kernel that applies faults and logs each call, the
+  token-gated control plane), `Kernel` (TlsFront, ScenarioCa, StateStore, RequestLog, FaultPlan, CallbackDispatcher,
+  Recorder, Scenario, Processes), the registry and the `simulate:list|start|stop|clean|record` commands. The guide for
+  adding a provider is `tools/simulators/README.md`.
+- Transport faults (`reset_before_commit`, `truncate`, `slow_body`) are carried from the API backend to the TLS front
+  in `X-Sim-*` response headers, which the front strips. A fault without an nth call fires on every call; one with an
+  nth fires once.
+- The `simulate:e2e` command, the `Simulators` testsuite and the harness refusing the preview and dev databases come
+  with S4; the pre-commit scan over `recordings/` comes with the first provider that ships recordings (S2).
+- Health: `app:install` fails and the dashboard health check is red when `INTEGRATION_ENDPOINTS` is set outside
+  `local`/`testing`; in development the health check is amber and names the active keys.
 
 ## Limits: what simulators cannot prove
 

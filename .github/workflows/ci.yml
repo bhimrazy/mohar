@@ -215,3 +215,14 @@ jobs:
             - name: Build
               if: steps.changes.outputs.code == 'true'
               run: npm run build
+
+            # Last, because it removes the dev dependencies from this job's vendor directory (ADR 0016 §5, guarantee 1).
+            - name: The app runs without the dev-only simulators package
+              if: steps.changes.outputs.code == 'true'
+              run: |
+                  composer install --no-dev --no-interaction --no-progress
+                  if php artisan list --raw | grep -q '^simulate:'; then
+                      echo '::error::simulate:* commands are available without the dev dependencies'
+                      exit 1
+                  fi
+                  php -r 'require "vendor/autoload.php"; exit(class_exists("Mohar\\Simulators\\SimulatorRegistry") ? 1 : 0);'
