@@ -25,7 +25,7 @@ export type CompanyDetails = {
     address: string | null;
     email: string | null;
     phone: string | null;
-    ids: { label: string; value: string }[];
+    ids: { kind: string; label: string; value: string }[];
 };
 
 /** The shared `site` prop on public pages (public layout header and footer). */
@@ -68,6 +68,8 @@ export type Plan = {
     tagline: string | null;
     features: string[];
     featured: boolean;
+    /** Checkout taxes this plan; untaxed plans show their price as charged. */
+    taxable: boolean;
     in_stock: boolean;
     url: string;
     pricing: PlanPrice[];

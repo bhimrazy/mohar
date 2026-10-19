@@ -35,6 +35,8 @@ import {
     SheetTrigger,
 } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { dashboard, login, register } from '@/routes';
+import store from '@/routes/store';
 import type { Site, SiteLink } from '@/types/storefront';
 
 /**
@@ -42,8 +44,54 @@ import type { Site, SiteLink } from '@/types/storefront';
  * cart, checkout and the 404 page. It speaks for the host: the brand comes from the host's settings, the header lists
  * what the host sells, and the footer carries the host's company details. Data is the shared `site` prop.
  */
+/**
+ * Without the Storefront module there is no `site` prop: store pages still send their cart badge and currency
+ * switcher, so the header keeps them.
+ */
+function useSite(): Site | undefined {
+    const props = usePage().props;
+    const page = props as unknown as {
+        cart_count?: number;
+        currency?: string;
+        currencies?: string[];
+        can_switch_currency?: boolean;
+    };
+
+    if (props.site || page.cart_count === undefined) {
+        return props.site;
+    }
+
+    return {
+        products: { mode: 'links', label: '', groups: [], compare_url: null },
+        domains: [],
+        support: [],
+        company: {
+            name: props.brand.name,
+            legal_name: null,
+            address: null,
+            email: null,
+            phone: null,
+            ids: [],
+        },
+        payments: [],
+        tax_note: null,
+        legal: [],
+        currency: page.currency ?? '',
+        currencies: page.can_switch_currency ? (page.currencies ?? []) : [],
+        currency_url: store.currency.url(),
+        cart: { count: page.cart_count, url: store.cart.url() },
+        account: {
+            signed_in: Boolean(props.auth.user),
+            client_area_url: dashboard.url(),
+            login_url: login.url(),
+            register_url: register.url(),
+            reset_url: null,
+        },
+    };
+}
+
 export default function PublicLayout({ children }: { children: ReactNode }) {
-    const { site } = usePage().props;
+    const site = useSite();
 
     return (
         <div className="flex min-h-svh flex-col bg-background text-foreground">
@@ -237,6 +285,17 @@ function MenuOfLinks({ label, links }: { label: string; links: SiteLink[] }) {
     );
 }
 
+/** "NPR · Rs": the ISO code identifies the currency, the symbol is what prices show (spec §4). */
+function currencyLabel(
+    code: string,
+    formats: { code: string; prefix: string; suffix: string }[],
+): string {
+    const format = formats.find((candidate) => candidate.code === code);
+    const symbol = (format?.prefix || format?.suffix || '').trim();
+
+    return symbol && symbol !== code ? `${code} · ${symbol}` : code;
+}
+
 function CurrencySwitcher({
     site,
     className,
@@ -244,6 +303,8 @@ function CurrencySwitcher({
     site: Site;
     className?: string;
 }) {
+    const { currencyFormats } = usePage().props;
+
     if (!site.currency_url || site.currencies.length < 2) {
         return null;
     }
@@ -262,14 +323,14 @@ function CurrencySwitcher({
             <SelectTrigger
                 aria-label="Currency"
                 size="sm"
-                className={cn('h-10 w-[5.5rem]', className)}
+                className={cn('h-10 w-auto min-w-[5.5rem]', className)}
             >
                 <SelectValue />
             </SelectTrigger>
             <SelectContent align="end">
                 {site.currencies.map((code) => (
                     <SelectItem key={code} value={code}>
-                        {code}
+                        {currencyLabel(code, currencyFormats)}
                     </SelectItem>
                 ))}
             </SelectContent>

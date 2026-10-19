@@ -57,7 +57,7 @@ interface PriceBook
      * no orderable product are left out. The optional keys are marketing copy (Catalog always sends them; consumers
      * must treat a missing key as null or false).
      *
-     * @return list<array{id: int, name: string, slug: string, description: ?string, headline?: ?string, tagline?: ?string, products: list<array{id: int, name: string, description: ?string, tagline?: ?string, is_featured?: bool, type: string, requires_domain: bool, in_stock: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}>}>
+     * @return list<array{id: int, name: string, slug: string, description: ?string, headline?: ?string, tagline?: ?string, products: list<array{id: int, name: string, description: ?string, tagline?: ?string, is_featured?: bool, is_taxable?: bool, type: string, requires_domain: bool, in_stock: bool, pricing: list<array{cycle: string, recurring: int, setup: int}>}>}>
      */
     public function storefront(string $currency): array;
 

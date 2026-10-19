@@ -66,10 +66,12 @@ class StorefrontServiceProvider extends ModuleServiceProvider
             $this->app->make(StorefrontCache::class)->flush();
         });
 
-        $this->app->make(SitemapRegistry::class)->add('storefront', fn (): array => [
-            ...($this->app->make(ContentStore::class)->published()['seo']['noindex'] ? [] : [['loc' => route('home'), 'lastmod' => $this->app->make(ContentStore::class)->publishedRevision()?->published_at?->toIso8601String()]]),
-            ['loc' => route('storefront.domain-pricing'), 'lastmod' => null],
-        ]);
+        $this->app->make(SitemapRegistry::class)->register('storefront', function (): array {
+            $store = $this->app->make(ContentStore::class);
+            $home = $store->published()['seo']['noindex'] ? [] : [['loc' => route('home'), 'lastmod' => $store->publishedRevision()?->published_at?->toIso8601String()]];
+
+            return [...$home, ['loc' => route('storefront.domain-pricing'), 'lastmod' => null]];
+        });
 
         // A 404 thrown inside a public route (unknown product, article or announcement) renders the public 404 page.
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {

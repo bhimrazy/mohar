@@ -73,7 +73,8 @@ class SiteData
 
         return [
             'products' => [
-                'mode' => $mode === 'auto' ? (count($groups) <= self::MAX_GROUP_LINKS ? 'links' : 'menu') : $mode,
+                // Links only while they fit (product standard: up to three); "always links" falls back to the menu.
+                'mode' => $mode !== 'menu' && count($groups) <= self::MAX_GROUP_LINKS ? 'links' : 'menu',
                 'label' => $content['header']['menu_label'],
                 'groups' => $groups,
                 'compare_url' => $this->url('store.index'),
@@ -106,16 +107,18 @@ class SiteData
      * Company details for the footer and the Organization markup. Read from Settings → Company and the invoice
      * seller details until the company profile (spec K1) replaces both.
      *
-     * @return array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, ids: list<array{label: string, value: string}>}
+     * @return array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, ids: list<array{kind: string, label: string, value: string}>}
      */
     public function company(): array
     {
         $text = fn (string $key): ?string => is_string($value = $this->settings->get($key)) && trim($value) !== '' ? trim($value) : null;
-        $ids = array_filter([
-            'PAN' => $text('billing.seller.pan'),
-            'VAT no.' => $text('billing.seller.vat_number'),
-            'GSTIN' => $text('billing.seller.gstin'),
-        ]);
+        $ids = [];
+
+        foreach (['pan' => ['PAN', 'billing.seller.pan'], 'vat' => ['VAT no.', 'billing.seller.vat_number'], 'gstin' => ['GSTIN', 'billing.seller.gstin']] as $kind => [$label, $key]) {
+            if (($value = $text($key)) !== null) {
+                $ids[] = ['kind' => $kind, 'label' => $label, 'value' => $value];
+            }
+        }
 
         return [
             'name' => app(BrandProvider::class)->brand()->name,
@@ -123,7 +126,7 @@ class SiteData
             'address' => $text('billing.seller.address'),
             'email' => $text('billing.seller.email') ?? $text('core.company_email'),
             'phone' => $text('billing.seller.phone'),
-            'ids' => array_map(fn (string $label, string $value): array => ['label' => $label, 'value' => $value], array_keys($ids), $ids),
+            'ids' => $ids,
         ];
     }
 

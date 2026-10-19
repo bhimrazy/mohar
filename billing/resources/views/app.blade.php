@@ -64,7 +64,7 @@
                 <meta property="og:image" content="{{ $seo['image'] }}" data-inertia="og:image">
             @endif
             @foreach ($seo['json_ld'] as $document)
-                <script type="application/ld+json" nonce="{{ Vite::cspNonce() }}">{!! json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) !!}</script>
+                <script type="application/ld+json" nonce="{{ Vite::cspNonce() }}">{!! json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) !!}</script>
             @endforeach
         @endisset
     </head>

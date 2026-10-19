@@ -90,10 +90,11 @@ it('lists up to three product groups as header links and more in one menu, witho
         ->where('site.currency', 'NPR')
         ->where('site.products.groups.3', fn ($group) => $group['name'] === 'Dedicated'
             && $group['tagline'] === 'Dedicated for everyone'
-            && $group['from'] === ['amount' => 900_000, 'cycle' => 'monthly', 'per_month' => true]));
+            && $group['from'] === ['amount' => 900_000, 'cycle' => 'monthly', 'per_month' => false]));
 });
 
 it('prices plan cards per month with the billed total and renewal for the selected cycle', function (): void {
+    app(Settings::class)->set('catalog.show_monthly_breakdown', true);
     storefrontPlan(cycle: BillingCycle::Biennially, amount: 7699, product: ['is_featured' => true, 'description' => '10 websites, 50 GB SSD']);
 
     $this->get('/')->assertInertia(fn (Assert $page) => $page

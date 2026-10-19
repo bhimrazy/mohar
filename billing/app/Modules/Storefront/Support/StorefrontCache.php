@@ -28,6 +28,10 @@ class StorefrontCache
 
     public function flush(): void
     {
-        Cache::forever(self::GENERATION, (int) Cache::get(self::GENERATION, 0) + 1);
+        if (Cache::add(self::GENERATION, 1)) {
+            return;
+        }
+
+        Cache::increment(self::GENERATION);
     }
 }

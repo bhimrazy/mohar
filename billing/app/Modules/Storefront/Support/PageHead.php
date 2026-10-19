@@ -12,7 +12,7 @@ use App\Contracts\Branding\BrandProvider;
 final class PageHead
 {
     /**
-     * @param  array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, ids: list<array{label: string, value: string}>}|null  $company  adds Organization and WebSite JSON-LD
+     * @param  array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, ids: list<array{kind: string, label: string, value: string}>}|null  $company  adds Organization and WebSite JSON-LD
      * @return array{title: string, description: string, canonical: string, robots: string, image: string|null, json_ld: list<array<string, mixed>>}
      */
     public static function make(string $title, string $description, string $path, bool $noindex = false, ?array $company = null): array
@@ -24,7 +24,7 @@ final class PageHead
         $jsonLd = [];
 
         if ($company !== null) {
-            $vat = collect($company['ids'])->firstWhere('label', 'VAT no.') ?? collect($company['ids'])->first();
+            $vat = collect($company['ids'])->firstWhere('kind', 'vat') ?? collect($company['ids'])->firstWhere('kind', 'gstin');
             $jsonLd[] = array_filter([
                 '@context' => 'https://schema.org',
                 '@type' => 'Organization',

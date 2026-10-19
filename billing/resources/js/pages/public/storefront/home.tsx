@@ -33,6 +33,8 @@ type FeaturedGroup = {
     tagline: string | null;
     url: string;
     default_cycle: string | null;
+    /** Some plan in the group is taxed at checkout, so the tax statement applies. */
+    taxable: boolean;
     plans: Plan[];
 };
 
@@ -163,7 +165,13 @@ export default function Home(props: Props) {
                                 highlighted
                                 eyebrow={hero.plan.group}
                             />
-                            <TaxNote note={props.tax_note} />
+                            <TaxNote
+                                note={
+                                    hero.plan.plan.taxable
+                                        ? props.tax_note
+                                        : null
+                                }
+                            />
                             <Link
                                 href={hero.plan.compare_url}
                                 className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
@@ -381,7 +389,7 @@ function PlanGroup({
                 description={
                     <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         {group.tagline}
-                        <TaxNote note={taxNote} />
+                        <TaxNote note={group.taxable ? taxNote : null} />
                     </span>
                 }
             >
