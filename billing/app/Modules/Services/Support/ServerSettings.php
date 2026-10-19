@@ -36,6 +36,36 @@ class ServerSettings
         return $this->drivers->has($driverKey) ? $this->drivers->metadata($driverKey)->serverFields : [];
     }
 
+    /**
+     * The server-row credentials (`password`, `api_token`, `access_hash`) a driver reads with these settings, from
+     * DriverMetadata::$connectionFields; a setting left unset counts as its default. Null when the driver declares no
+     * connection fields (it may read any of them).
+     *
+     * @param  array<string, mixed>  $settings
+     * @return list<string>|null
+     */
+    public function usedCredentials(string $driverKey, array $settings): ?array
+    {
+        $metadata = $this->drivers->has($driverKey) ? $this->drivers->metadata($driverKey) : null;
+        $fields = $metadata?->connectionFields;
+
+        if ($metadata === null || $fields === null) {
+            return null;
+        }
+
+        foreach ($metadata->serverFields as $field) {
+            if ((! array_key_exists($field->key, $settings) || $settings[$field->key] === null || $settings[$field->key] === '') && $field->default !== null) {
+                $settings[$field->key] = is_bool($field->default) ? ($field->default ? '1' : '0') : (string) $field->default;
+            }
+        }
+
+        return array_values(array_filter(['password', 'api_token', 'access_hash'], function (string $credential) use ($fields, $settings): bool {
+            $conditions = $fields[$credential] ?? null;
+
+            return $conditions !== null && array_filter($conditions, fn (string $value, string $setting): bool => (string) ($settings[$setting] ?? '') !== $value, ARRAY_FILTER_USE_BOTH) === [];
+        }));
+    }
+
     public function declares(string $driverKey, string $key): bool
     {
         return collect($this->fields($driverKey))->contains(fn (SettingField $field): bool => $field->key === $key);

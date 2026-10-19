@@ -32,6 +32,7 @@ use App\Enums\ReconcileStatus;
 use App\Support\Integrations\OutboundAddressGuard;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Support\Facades\Log;
 
 /**
  * cPanel & WHM through WHM API 1 (docs/product/provisioning-cpanel.md). Stateless: every call builds a WhmClient for
@@ -621,15 +622,16 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     private function createdData(ProvisioningContext $context, ?array $account): array
     {
         $created = isset($account['unix_startdate']) && is_numeric($account['unix_startdate']) ? CarbonImmutable::createFromTimestamp((int) $account['unix_startdate'])->toIso8601String() : null;
+        $ip = $this->checked('ip', $account['ip'] ?? null);
         $data = ['driver_data' => array_filter([
-            'owner' => $account['owner'] ?? null,
-            'plan' => $account['plan'] ?? null,
-            'ip' => $account['ip'] ?? null,
+            'owner' => $this->checked('owner', $account['owner'] ?? null),
+            'plan' => $this->checked('plan', $account['plan'] ?? null),
+            'ip' => $ip,
             'created_at' => $created,
         ], fn (mixed $value): bool => $value !== null && $value !== '')];
 
-        if ($this->wantsDedicatedIp($context) && is_string($account['ip'] ?? null) && $account['ip'] !== '') {
-            $data['dedicated_ip'] = $account['ip'];
+        if ($this->wantsDedicatedIp($context) && $ip !== null) {
+            $data['dedicated_ip'] = $ip;
         }
 
         return $data;
@@ -1089,17 +1091,43 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         return new RemoteAccount(
             username: (string) ($row['user'] ?? ''),
-            domain: isset($row['domain']) ? strtolower((string) $row['domain']) : null,
-            plan: isset($row['plan']) ? (string) $row['plan'] : null,
-            owner: isset($row['owner']) ? (string) $row['owner'] : null,
+            domain: $this->checked('domain', isset($row['domain']) ? strtolower((string) $row['domain']) : null),
+            plan: $this->checked('plan', $row['plan'] ?? null),
+            owner: $this->checked('owner', $row['owner'] ?? null),
             email: isset($row['email']) && str_contains((string) $row['email'], '@') ? strtolower((string) $row['email']) : null,
-            ip: isset($row['ip']) ? (string) $row['ip'] : null,
+            ip: $this->checked('ip', $row['ip'] ?? null),
             suspended: (int) ($row['suspended'] ?? 0) === 1,
             suspendReason: $reason !== '' && strtolower($reason) !== 'not suspended' ? $reason : null,
             createdAt: is_numeric($row['unix_startdate'] ?? null) ? CarbonImmutable::createFromTimestamp((int) $row['unix_startdate']) : null,
             diskUsedMb: $this->megabytes($row['diskused'] ?? null),
             diskLimitMb: $this->megabytes($row['disklimit'] ?? null, limit: true),
         );
+    }
+
+    /**
+     * A value WHM reported, checked before anything stores it: an IP must be an IP, a domain a host name, a plan or
+     * owner a short name. An invalid value is dropped (null) and logged; the panel's answer is never trusted blindly.
+     */
+    private function checked(string $field, mixed $value): ?string
+    {
+        if ($value === null || $value === '' || ! is_scalar($value)) {
+            return null;
+        }
+
+        $value = (string) $value;
+        $valid = match ($field) {
+            'ip' => filter_var($value, FILTER_VALIDATE_IP) !== false,
+            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i', $value) === 1,
+            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*$/', $value) === 1,
+        };
+
+        if (! $valid) {
+            Log::warning('WHM reported an invalid account value; it was not stored.', ['field' => $field, 'length' => strlen($value)]);
+
+            return null;
+        }
+
+        return $value;
     }
 
     private function domain(ProvisioningContext $context): string

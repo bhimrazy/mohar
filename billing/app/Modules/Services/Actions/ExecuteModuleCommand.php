@@ -178,6 +178,11 @@ class ExecuteModuleCommand
         // "Create again" after a server check answers for exactly the attempt that was checked. Re-checked here, under
         // the lock and just before the driver runs: a newer attempt that is unfinished or of unknown outcome means the
         // answer no longer holds, so nothing is sent and the entry waits for a new check.
+        if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && ! $this->awaitingVerification($service->id)) {
+            // Staff ignored or closed the entry after clicking: the Create again it allowed is cancelled.
+            return CommandOutcome::skipped('Not sent: the entry was closed after Create again was requested.');
+        }
+
         if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && $this->newerAttemptSince($service->id, (int) $args['checked_attempt'])) {
             $error = 'Not sent: a newer create attempt has an unknown outcome since the server was checked. Check the server again.';
             $this->openQueueItem($service, $command, array_diff_key($args, ['verified' => true, 'checked_attempt' => true]), $error, 0, ModuleQueueItem::KIND_VERIFY);

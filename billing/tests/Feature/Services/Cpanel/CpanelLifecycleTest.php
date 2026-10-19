@@ -17,6 +17,7 @@ use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Support\UsernameGenerator;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
 
@@ -309,4 +310,16 @@ test('the driver works to the deadline the host sets, and sends nothing once it 
 
     expect(Whm::sent('createacct'))->toBeEmpty()
         ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toContain('ran out of time');
+});
+
+test('values WHM reports are checked before they are stored; invalid ones are dropped and logged', function () {
+    Whm::fake(['accountsummary' => Whm::fixture('accountsummary', ['data' => ['acct' => [0 => ['ip' => 'not-an-ip', 'plan' => '<b>root_basic</b>', 'owner' => str_repeat('o', 80)]]]])]);
+    Log::spy();
+
+    $result = $this->driver->create(Whm::context(['package' => 'root_basic', 'dedicated_ip' => true]));
+
+    expect($result->success)->toBeTrue()
+        ->and($result->data['driver_data'])->not->toHaveKeys(['ip', 'plan', 'owner'])
+        ->and($result->data)->not->toHaveKey('dedicated_ip');
+    Log::shouldHaveReceived('warning')->with('WHM reported an invalid account value; it was not stored.', Mockery::any())->times(3);
 });

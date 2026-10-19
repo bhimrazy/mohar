@@ -5,7 +5,6 @@ namespace App\Modules\Services\Actions;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
-use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -17,7 +16,7 @@ class SaveServer
     /** Credentials on the server row that a driver may leave unused (DriverMetadata::$connectionFields). */
     private const CREDENTIALS = ['password', 'api_token', 'access_hash'];
 
-    public function __construct(private ServerSettings $settings, private ActivityLogger $activity, private ProvisioningDriverRegistry $drivers) {}
+    public function __construct(private ServerSettings $settings, private ActivityLogger $activity) {}
 
     /**
      * @param  array<string, mixed>  $data  `settings` holds the submitted driver settings
@@ -55,29 +54,16 @@ class SaveServer
      */
     private function clearUnusedCredentials(Server $server): array
     {
-        $metadata = $this->drivers->has($server->driver) ? $this->drivers->metadata($server->driver) : null;
-        $fields = $metadata?->connectionFields;
+        $used = $this->settings->usedCredentials($server->driver, $server->settings ?? []);
 
-        if ($metadata === null || $fields === null) {
+        if ($used === null) {
             return [];
-        }
-
-        // A setting left unset counts as its default, as the driver reads it.
-        $settings = $server->settings ?? [];
-
-        foreach ($metadata->serverFields as $field) {
-            if (! array_key_exists($field->key, $settings) && $field->default !== null) {
-                $settings[$field->key] = is_bool($field->default) ? ($field->default ? '1' : '0') : (string) $field->default;
-            }
         }
 
         $removed = [];
 
         foreach (self::CREDENTIALS as $credential) {
-            $conditions = $fields[$credential] ?? null;
-            $used = $conditions !== null && array_filter($conditions, fn (string $value, string $setting): bool => (string) ($settings[$setting] ?? '') !== $value, ARRAY_FILTER_USE_BOTH) === [];
-
-            if (! $used && (string) $server->getAttribute($credential) !== '') {
+            if (! in_array($credential, $used, true) && (string) $server->getAttribute($credential) !== '') {
                 $server->setAttribute($credential, null);
                 $removed[] = $credential;
             }

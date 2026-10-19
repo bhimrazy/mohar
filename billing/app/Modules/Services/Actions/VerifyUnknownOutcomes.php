@@ -40,6 +40,12 @@ class VerifyUnknownOutcomes
     /** How long after the unknown attempt the sweep keeps checking on its own. */
     public const SWEEP_WINDOW_MINUTES = 60;
 
+    /**
+     * What a settled command may store from the driver's answer: the account's data, never the service's username or
+     * password (those are the recorded target the attempt sent, already on the service).
+     */
+    private const SETTLE_DATA_KEYS = ['driver_data' => true, 'dedicated_ip' => true];
+
     /** A not-executed answer older than this no longer opens "Create again": check again first. */
     public const FRESH_CHECK_MINUTES = 15;
 
@@ -199,7 +205,7 @@ class VerifyUnknownOutcomes
 
         if ($lookup->status === ReconcileStatus::Executed) {
             try {
-                $outcome = $this->commands->settle($service->id, $command, $item->args ?? [], DriverResult::ok($message ?? __('Confirmed on the server.'), array_intersect_key($lookup->data, array_flip(DriverResult::DATA_KEYS))), $item->id, $attempt?->id, $initiator);
+                $outcome = $this->commands->settle($service->id, $command, $item->args ?? [], DriverResult::ok($message ?? __('Confirmed on the server.'), array_intersect_key($lookup->data, self::SETTLE_DATA_KEYS)), $item->id, $attempt?->id, $initiator);
             } catch (LockTimeoutException) {
                 $this->record($item, ReconcileStatus::InProgress, __('Busy: another action is running for this service. Try again in a moment; the sweep also checks it again.'), $attempt);
 

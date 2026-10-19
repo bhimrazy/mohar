@@ -150,7 +150,7 @@ test('the server form never sets or changes a pin', function () {
     $this->put(route('admin.services.servers.update', $this->server), [...$form, 'settings' => ['login_method' => 'token', 'spki_pin' => str_repeat('B', 43).'=']])->assertSessionHasNoErrors();
     expect($this->server->refresh()->settings['spki_pin'])->toBe(PRESENTED_PIN);
 
-    $this->post(route('admin.services.servers.store'), [...$form, 'name' => 'New', 'settings' => ['spki_pin' => str_repeat('B', 43).'=']])->assertSessionHasNoErrors();
+    $this->post(route('admin.services.servers.store'), [...$form, 'name' => 'New', 'api_token' => Whm::TOKEN, 'settings' => ['spki_pin' => str_repeat('B', 43).'=']])->assertSessionHasNoErrors();
     expect(Server::query()->where('name', 'New')->sole()->settings['spki_pin'] ?? null)->toBeNull();
 });
 
@@ -169,4 +169,19 @@ test('switching the sign-in method removes the credential no longer used, and au
     expect($this->server->refresh()->api_token)->toBeNull()
         ->and($this->server->password)->toBe('New-Root-Password')
         ->and(ActivityLog::query()->where('subject_id', $this->server->id)->latest('id')->first()?->properties['changes']['api_token'] ?? null)->toBe('removed');
+});
+
+test('switching to password sign-in without a password is refused, and the token stays', function () {
+    actingAsStaff();
+    confirmPassword();
+    $this->server->update(['password' => null]);
+    $currency = Currency::factory()->create()->code;
+    $form = ['name' => 'Shared 1', 'hostname' => Whm::HOST, 'driver' => 'cpanel', 'username' => 'root', 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
+
+    $this->put(route('admin.services.servers.update', $this->server), [...$form, 'settings' => ['login_method' => 'password']])
+        ->assertSessionHasErrors(['password' => 'Enter the password, or keep signing in with the API token.']);
+    expect($this->server->refresh()->api_token)->toBe(Whm::TOKEN);
+
+    $this->post(route('admin.services.servers.store'), [...$form, 'name' => 'No credential'])
+        ->assertSessionHasErrors(['api_token' => 'Enter the API token, or keep signing in with the password.']);
 });

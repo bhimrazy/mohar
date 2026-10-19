@@ -140,7 +140,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   password, audited); trusting one shows the fingerprint to compare and a copyable command, and an offer is dropped
   when the server's address is edited. Errors from Test connection and from trusting now show on the form. The form
   never sets a pin. Switching "Sign in with" removes the credential no longer used (audited), and the form says so
-  before saving.
+  before saving; it cannot be switched to a method whose credential is neither entered nor stored. Values WHM reports
+  (IP, plan, owner, domain) are checked before they are stored, and a settled create never changes the service's
+  username or password. Ignoring an entry cancels a Create again already requested for it.
 - Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
   in URLs.
 

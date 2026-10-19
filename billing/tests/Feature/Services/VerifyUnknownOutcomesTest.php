@@ -1,11 +1,15 @@
 <?php
 
+use App\Data\Services\Provisioning\CommandLookup;
+use App\Data\Services\Provisioning\ProvisioningContext;
 use App\Enums\ReconcileStatus;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Services\ServiceActivated;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Actions\VerifyUnknownOutcomes;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Enums\ServiceStatus;
@@ -14,6 +18,8 @@ use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
+use App\Support\Services\ProvisioningDriverRegistry;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
@@ -283,4 +289,40 @@ test('a create settled by the check stores what a completed create stores', func
 
     expect($service->refresh()->status)->toBe(ServiceStatus::Active)
         ->and($service->driver_data)->toMatchArray(['ip' => '203.0.113.77', 'plan' => 'root_basic', 'owner' => 'root']);
+});
+
+test('ignoring the entry cancels a Create again that was already requested', function () {
+    actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
+    $service = unknownCpanelCreate();
+    $item = verifyItem($service);
+    $this->travel(11)->minutes();
+    Whm::fake(['listaccts' => 'listaccts_empty']);
+    app(VerifyUnknownOutcomes::class)->check($item);
+    $checked = app(VerifyUnknownOutcomes::class)->consumeRunAgain($item->refresh());
+
+    $this->post(route('admin.services.module-log.dismiss', $item));
+    $outcome = app(ExecuteModuleCommand::class)->handle($service->id, ModuleCommandName::Create, ['verified' => true, 'checked_attempt' => $checked]);
+
+    expect($outcome->message)->toContain('entry was closed')
+        ->and(Whm::sent('createacct'))->toBeEmpty()
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Pending);
+});
+
+test('settling stores the account data but never the username or password a driver reports', function () {
+    $service = unknownCpanelCreate();
+    $driver = new class(app(CertificateInspector::class)) extends CpanelDriver
+    {
+        public function reconcile(ProvisioningContext $context, string $command, CarbonImmutable $attemptedAt): CommandLookup
+        {
+            return new CommandLookup(ReconcileStatus::Executed, data: ['username' => 'hijack1', 'password' => 'Other-Pass-1', 'driver_data' => ['plan' => 'root_basic']]);
+        }
+    };
+    app(ProvisioningDriverRegistry::class)->register('cpanel', fn () => $driver, replace: true);
+
+    $this->artisan('services:verify-unknown')->assertSuccessful();
+
+    expect($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and($service->username)->toBe('example')
+        ->and($service->password)->toBe(Whm::PASSWORD)
+        ->and($service->driver_data['plan'])->toBe('root_basic');
 });
