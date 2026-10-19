@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
 use Laravel\Fortify\Features;
 
@@ -49,6 +50,27 @@ abstract class TestCase extends BaseTestCase
 
         // Page components are asserted via inertia.testing.ensure_pages_exist; no built assets needed.
         $this->withoutVite();
+
+        $this->releaseCommittedSavepoints();
+    }
+
+    /**
+     * Release each nested transaction's savepoint when it commits. Laravel only decrements its counter, so inside the
+     * test's outer transaction (RefreshDatabase) every DB::transaction() leaves a savepoint open. PostgreSQL keeps all
+     * of them on its subtransaction stack and checks the whole stack for every row the test has written, so a test
+     * that commits thousands of nested transactions (the demo seeders) slows down quadratically: BillingSeederTest
+     * took about 4x longer on PostgreSQL than on SQLite (docs/devops/ci.md). Rollback behaviour is unchanged: only
+     * committed savepoints are released. The statement goes straight to PDO so query listeners and counts miss it.
+     */
+    private function releaseCommittedSavepoints(): void
+    {
+        $this->app['events']->listen(TransactionCommitted::class, function (TransactionCommitted $event): void {
+            $level = $event->connection->transactionLevel();
+
+            if ($level > 0) {
+                $event->connection->getPdo()->exec('RELEASE SAVEPOINT trans'.($level + 1));
+            }
+        });
     }
 
     protected function skipUnlessFortifyHas(string $feature, ?string $message = null): void
