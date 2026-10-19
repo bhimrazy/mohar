@@ -84,3 +84,17 @@ check (green via the in-job fast path) and branch protection never waits for a c
   (`dependency-policy.md`).
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.
+
+## Manual workflows
+
+Two more workflows build and run the production stack on a runner. Neither is part of CI. Each runs only when
+started by hand, through Actions → Run workflow or by adding a label to a pull request. In `load-test.yml`, adding
+any other label never cancels a running test.
+
+| Workflow                              | Label          | Runs                                                                                     | Minutes                     |
+| ------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- | --------------------------- |
+| `deploy-smoke.yml`                    | `deploy-smoke` | install on fresh PostgreSQL and RustFS, check `/up`, sign-in and a queued job            | see `production.md`         |
+| `load-test.yml` (`loadtest/README.md`) | `load-test`    | small profile, large volume; any profile or volume from Actions; results as an artifact | see `docs/devops/sizing.md` |
+
+Both use a standard Linux runner, which has 2 CPUs and 8 GB in a private repository. `load-test.yml` skips the
+medium and large profiles there unless asked, because the runner is smaller than they are.
