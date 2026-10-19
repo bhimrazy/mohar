@@ -29,6 +29,8 @@ Rules:
 - When a reviewer pushes probes to `review/pr-<n>-probes`, adopt them as regression tests in your fix push.
 - Size caps: about 3,000 changed lines; 1,500 hard cap for drivers, money and security-sensitive work. Propose
   a split before you reach it.
+- The codespace reboots without warning (three times on 2026-10-19). Commit and push work in progress to your
+  branch at least every 30 minutes (a `wip:` commit is fine; squash before review), so nothing is lost.
 - Money in integer minor units (`App\Support\Money`). Follow the PostgreSQL portability rules.
 - Secrets encrypted at rest, never in Inertia props or logs. Authorize every route through
   PermissionRegistry permissions; client-area data scoped through `ClientContext`.
