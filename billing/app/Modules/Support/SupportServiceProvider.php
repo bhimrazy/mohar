@@ -3,6 +3,7 @@
 namespace App\Modules\Support;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Support\PublicHelpDirectory;
 use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -16,6 +17,7 @@ use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
+use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
@@ -25,6 +27,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -46,6 +49,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(SupportSettings::class);
         $this->app->scoped(TicketAccess::class);
+        $this->app->bind(PublicHelpDirectory::class, SupportPublicHelp::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -55,6 +59,11 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(SitemapRegistry::class)->add('support', fn (): iterable => [
+            ['loc' => route('support.kb.index'), 'lastmod' => null],
+            ['loc' => route('support.announcements.index'), 'lastmod' => null],
+            ...$this->app->make(SupportPublicHelp::class)->sitemapEntries(),
+        ]);
         $this->registerRateLimits();
         $this->registerNavigation();
         $this->registerDashboard();

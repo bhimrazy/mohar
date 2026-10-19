@@ -84,6 +84,32 @@ class DomainPricingService implements DomainPricing
         return $action === 'transfer' ? array_slice($terms, 0, 1) : $terms;
     }
 
+    public function catalog(string $currency, ?int $clientId = null): array
+    {
+        $group = $this->groupOf($clientId);
+        $rows = [];
+
+        foreach (Tld::query()->active()->ordered()->get() as $tld) {
+            $register = $this->priceForGroup($tld->extension, 'register', 1, $currency, $group);
+            $transfer = $this->priceForGroup($tld->extension, 'transfer', 1, $currency, $group);
+
+            if ($register === null && $transfer === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'tld' => $tld->extension,
+                'featured' => $tld->is_spotlight,
+                'badge' => $tld->badge,
+                'register' => $register,
+                'renew' => $this->priceForGroup($tld->extension, 'renew', 1, $currency, $group),
+                'transfer' => $transfer,
+            ];
+        }
+
+        return $rows;
+    }
+
     /**
      * Renewal terms a client may order for an existing domain at current prices (spec §4.1):
      * expiry + N years must stay within today + 10 years − 1 day, and the renew window must be open.

@@ -7,6 +7,7 @@ use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
+use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRegistered;
@@ -26,6 +27,7 @@ use App\Modules\Orders\Listeners\MergeCartOnLogin;
 use App\Modules\Orders\Listeners\TrackItemActivation;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
+use App\Modules\Orders\Services\CartShopperSession;
 use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
@@ -40,6 +42,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -62,6 +65,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(FraudScreening::class);
         $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
+        $this->app->bind(ShopperSession::class, CartShopperSession::class);
     }
 
     protected function bootModule(): void
@@ -81,6 +85,11 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->registerPermissionsAndSettings();
         $this->registerSearchAndMergeFields();
         $this->registerAutomation();
+
+        $this->app->make(SitemapRegistry::class)->add('orders', fn (): array => [
+            ['loc' => route('store.index'), 'lastmod' => null],
+            ['loc' => route('store.domains'), 'lastmod' => null],
+        ]);
     }
 
     /**

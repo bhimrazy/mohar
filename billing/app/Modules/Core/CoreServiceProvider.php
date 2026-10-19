@@ -11,9 +11,11 @@ use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Notifications\SystemMailer;
 use App\Contracts\Orders\PaymentGuard;
+use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
+use App\Contracts\Support\PublicHelpDirectory;
 use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
@@ -34,6 +36,8 @@ use App\Modules\Core\Support\NullGatewayDirectory;
 use App\Modules\Core\Support\NullInvoiceQueries;
 use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
+use App\Modules\Core\Support\NullPublicHelpDirectory;
+use App\Modules\Core\Support\NullShopperSession;
 use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
@@ -76,6 +80,8 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
         $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
         $this->app->bindIf(SystemMailer::class, NullSystemMailer::class);
+        $this->app->bindIf(ShopperSession::class, NullShopperSession::class);
+        $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
     }
 
     protected function schedule(Schedule $schedule): void
