@@ -15,7 +15,7 @@ final class RecordCommand extends SimulatorCommand
 {
     protected function perform(): int
     {
-        $key = (string) $this->argument('provider');
+        $key = $this->stringArgument('provider');
         $simulator = new ($this->laravel->make(SimulatorRegistry::class)->get($key));
 
         if (! $simulator instanceof RecordsLive) {
