@@ -1,6 +1,6 @@
 # Social sign-in — Product Spec (v1)
 
-Status: draft for architecture review · Owner: social sign-in workstream · Approved by the owner 2026-10-19
+Status: revised after the architect check on #102 · Owner: social sign-in workstream · Approved by the owner 2026-10-19
 (`docs/handoff/requirements.md`, "Social sign-in"). Clean-room: behaviour comes from the providers' public OAuth 2.0 and
 OpenID Connect references and from how hosting billing products present "Sign in with …"; naming, schemas and wording
 are ours.
@@ -29,17 +29,26 @@ public API.
 - **SS-1 (MUST)** Each provider is off until an administrator enables it and enters a client ID and secret.
 - **SS-2 (MUST)** The identity key is the provider's stable subject, never the email. An email change at the provider
   does not break the link; a recycled email never inherits a link.
-- **SS-3 (MUST)** Microsoft has a tenant setting: `common` (default), `organizations`, `consumers` or one tenant ID.
-- Socialite ships Google and GitHub. Microsoft is not in Socialite core, so we write a small provider on Socialite's
-  `AbstractProvider` (no community package). All three are thin subclasses that take their URLs from `Endpoints`
-  (§7).
+- **SS-3 (MUST)** Microsoft has a tenant setting: `common` (default), `organizations`, `consumers`, a tenant GUID or a
+  verified domain name. The value goes into the URL path, so anything else (`../`, slashes, spaces, a query) is refused
+  when the setting is saved and again when a flow starts.
+- **SS-3a (MUST)** Microsoft identities come from the ID token returned by the token endpoint over TLS (OpenID Connect
+  Core §3.1.3.7, so no JWT library and no signature check). The provider reads `oid`, `tid` and `xms_edov` and refuses
+  the token unless `aud` is our client ID, `iss` is the issuer for that `tid`, and `exp` is in the future. It never
+  requests `offline_access`.
+- Socialite ships Google and GitHub. Microsoft is not in Socialite core, so we write our own provider on Socialite's
+  `AbstractProvider` (about 100 lines, no community package; architect decision). All three are thin subclasses that
+  take their URLs from `Endpoints` and make their HTTP calls through Laravel's `Http` (§7).
 
 ## 3. Admin settings
 
-A settings section "Social sign-in", guarded by the new sensitive permission `core.social_sign_in.manage`. Wildcards never
+A settings section "Social sign-in", registered by the module and guarded by the new sensitive permission `core.social_sign_in.manage`. Wildcards never
 grant it, every save needs a recent password (§2 of `docs/security/standards.md`), and the #89 structural tests cover it
 without changes: `SecretSettingsTest` sees the `client_secret` keys, and `SensitiveRouteStepUpTest` sees the section on
-the settings route.
+the settings route. PR 1 is rebased on #89 and its tests confirm both.
+
+`security.client_signup_enabled` is defined in **Core** (ADR 0018 §6), not in Platform's security block, because
+Fortify's `/register` and the module both read it with Platform absent.
 
 | Setting                           | Control             | Default | Notes                                                                          |
 | --------------------------------- | ------------------- | ------- | ------------------------------------------------------------------------------ |
@@ -49,7 +58,7 @@ the settings route.
 | `social.<provider>.staff_enabled` | toggle              | off     | Staff may sign in with this provider                                           |
 | `social.<provider>.staff_domains` | list (one per line) | empty   | Required when staff sign-in is on: the provider email must be in one of them   |
 | `social.microsoft.tenant`         | select or tenant ID | common  |                                                                                |
-| `security.client_signup_enabled`  | toggle (Security)   | on      | Closes `/register` and social sign-up together (§5)                            |
+| `security.client_signup_enabled`  | toggle (Core)       | on      | Closes `/register` and social sign-up together (§5)                            |
 
 - **SS-4 (MUST)** The section shows each provider's exact redirect URI, read-only and copyable, built from `APP_URL`
   (§8).
@@ -72,20 +81,23 @@ the settings route.
   to enrolment, as after a password login.
 - **SS-11 (MUST)** A provider sign-in never counts as a password confirmation. Step-up (`password.recent`,
   `password.confirm`) still asks for the password.
-- **SS-12 (MUST)** Staff: provider sign-in works only when that provider's `staff_enabled` is on, the provider email's
-  domain is in `staff_domains`, and the identity is already linked to that staff login (§6). It never creates a staff
+- **SS-12 (MUST)** Staff: provider sign-in works only when that provider's `staff_enabled` is on, the provider email is
+  **verified** (§2) and its domain is in `staff_domains`, and the identity is already linked to that staff login (§6). It never creates a staff
   login and never links one by email.
 - **SS-13 (MUST)** The session is regenerated on sign-in, and "remember me" is off for provider sign-in.
 
 ## 5. Sign-up
 
 - **SS-14 (MUST)** An identity that is not linked, with an email no login uses, creates a client account (login,
-  client, owner link, `ClientRegistered`) only when all hold: `security.client_signup_enabled` is on, the provider is
+  client, owner link, `ClientRegistered`, through Core's `RegisterClientAccount`) only when all hold:
+  `security.client_signup_enabled` is on, the provider is
   enabled, and the provider reports the email as verified (§2). Otherwise the user sees why and, when sign-up is open,
   is offered the normal sign-up form.
 - **SS-15 (MUST)** The new login has no password. It is marked email-verified, because the provider verified it.
-- **SS-16 (MUST)** `security.client_signup_enabled` off also closes `/register` (the page says sign-up is closed).
-  Today registration is always open; this setting is the single switch.
+- **SS-16 (MUST)** `security.client_signup_enabled` off also closes `/register`: the page says sign-up is closed, and
+  `POST /register` is refused in `CreateNewUser`, not only hidden. Today registration is always open; this setting is the
+  single switch. It does **not** cover the account created at checkout (Orders), so a closed sign-up still lets a buyer
+  create an account by ordering; the owner can widen it later.
 
 ## 6. Account linking
 
@@ -93,13 +105,17 @@ the settings route.
 
 - **SS-17 (MUST)** Never link silently, even when the provider says the email is verified. Show "An account already
   uses this address" with two ways to prove ownership:
-    1. **Log in with your password.** After the password and, when the login has it, the 2FA challenge, the identity is
-       linked to that login. The pending identity is kept in the session for 10 minutes and linked only to the login that
-       then signs in.
-    2. **Email me a link.** A single-use link, valid for 30 minutes, goes to the login's address (template
-       `account.sign_in_method_confirm`). Opening it links the identity and then signs in through SS-10, so 2FA still
-       applies. The token is stored hashed (standards §6). The mail follows the secret-link rules: no CC or BCC, masked
-       in the stored copy, never resent.
+    1. **Log in with your password.** The pending identity is kept in the session for 10 minutes. After the password and,
+       when the login has it, the 2FA challenge, it is offered only if the login that signed in is the one whose email
+       matched, and linked only after an explicit "Connect Google (ann@example.com)?" confirmation. Any other login
+       discards it.
+    2. **Email me a link**, offered only when the provider reports the email as verified (§2). A single-use link, valid
+       for 30 minutes, goes to the login's address (template `account.sign_in_method_confirm`). The mail names the
+       provider and the provider account (its email) being connected. The link is bound to the browser that started the
+       flow: a random nonce in a cookie, stored hashed with the token, must match when the link is opened, so a link
+       forwarded to or opened in another browser is refused. Opening it links the identity and then signs in through
+       SS-10, so 2FA still applies. The token is stored hashed (standards §6). The mail follows the secret-link rules: no
+       CC or BCC, masked in the stored copy, never resent.
 - **SS-18 (MUST)** Staff logins get only option 1.
 - **SS-19 (MUST)** Both answers are the same whether the address belongs to a client or a staff login, so the page does
   not reveal which.
@@ -108,11 +124,13 @@ the settings route.
 
 - **SS-20 (MUST)** Profile → "Connected accounts" lists each enabled provider: connected (with the provider email and
   the date), or a "Connect" button.
-- **SS-21 (MUST)** Connecting or disconnecting from the profile needs a recent password confirmation. A login without a
-  password confirms with an emailed link instead. Connecting adds lasting access to the account, so a stolen session
-  must not be able to do it.
-- **SS-22 (MUST)** "Disconnect" is disabled, with the reason, when it would leave the login with no way to sign in.
-  Ways to sign in are: a password, another connected provider that is enabled, or a passkey.
+- **SS-21 (MUST)** Connecting or disconnecting from the profile needs a recent password confirmation (`password.recent`),
+  the one step-up mechanism. Connecting adds lasting access to the account, so a stolen session must not be able to do
+  it. A login without a password sets one first (SS-25).
+- **SS-22 (MUST)** "Disconnect" is disabled, with the reason, when it would leave the login with no way to sign in
+  (ADR 0018 §8). The kernel `SignInMethodCounter` counts a password and passkeys; this module decorates it with the
+  login's identities whose provider is enabled now (and, for a staff login, whose staff sign-in is on). A password
+  reset is recovery, not a sign-in method, so it is not counted.
 - **SS-23 (MUST)** An identity connected to another login is refused ("This Google account is connected to a different
   login"). One identity per provider per login.
 - **SS-24 (SHOULD)** Staff with `core.users.manage` see a client login's connected providers and can disconnect one
@@ -120,17 +138,27 @@ the settings route.
 
 ### 6.3 Logins without a password
 
-- **SS-25 (MUST)** The profile offers "Set a password", which sends the password-reset link. Enabling 2FA and other
-  password-confirmed actions ask the user to set a password first.
+- **SS-25 (MUST)** The profile offers "Set a password", which sends the password-reset link. Every surface with a
+  confirm-password dialog (connect, disconnect, enabling 2FA, every `password.recent` action) and the settings password
+  form (which requires the current password) show "Set a password" instead when `User::hasPassword()` is false.
+- **SS-25a (MUST)** Staff logins always have a password, because step-up depends on it. Promoting a passwordless login
+  to staff, or accepting a staff invitation with a passwordless login, is refused with the reason.
 
 ## 7. Outbound calls
 
-- **SS-26 (MUST)** Every call to a provider (token, userinfo, user emails) uses `Endpoints::for('social.<provider>.<api>',
-<default>)` and is resolved and pinned through `OutboundAddressGuard` (connect-to, no proxy, no redirects), with a
-  5 s connect and 10 s total timeout. The browser redirect to the authorize URL uses the same `Endpoints` base, so a
-  simulator replaces the whole provider in `local` and `testing` only (ADR 0016 §3).
-- **SS-27 (MUST)** Socialite gets its Guzzle client from Laravel's HTTP client (`Http::withOptions(...)->buildClient()`),
-  so the pinning applies and `Http::fake` works in tests.
+- **SS-26 (MUST)** Every call to a provider (token, userinfo, user emails) goes through
+  `Endpoints::for('social.<provider>.<api>', <default>)`, as the payment drivers do. The guarantee is the `Endpoints` one
+  (ADR 0016 §3): the provider hosts are fixed defaults, not staff-entered, so with no override the request goes to that
+  host with TLS verification on; an override, honoured only in `local` and `testing`, keeps TLS verification on against
+  the scenario CA and is resolved and pinned through `OutboundAddressGuard`. There is no extra production guard call
+  for fixed hosts. Every call also has a 5 s connect and 10 s total timeout and follows no redirects. The browser
+  redirect to the authorize URL uses the same `Endpoints` base, so a simulator replaces the whole provider.
+- **SS-27 (MUST)** Socialite's own HTTP client is raw Guzzle (`AbstractProvider::getHttpClient()`), which would skip the
+  endpoint options. Our provider classes override `getAccessTokenResponse()` and `getUserByToken()` (which covers
+  GitHub's `/user/emails`) and call
+  `Http::withOptions($endpoint->options)->connectTimeout(5)->timeout(10)->withoutRedirecting()`. An arch test fails if
+  anything in the module calls `getHttpClient()`, and a feature test fails if a provider call is sent without the
+  endpoint options, the timeouts or `allow_redirects: false`.
 - Endpoint keys and defaults: `social.google.auth` `https://accounts.google.com/o/oauth2/v2/auth`,
   `social.google.token` `https://oauth2.googleapis.com/token`, `social.google.userinfo`
   `https://openidconnect.googleapis.com/v1/userinfo`; `social.github.auth` `https://github.com/login/oauth/authorize`,
@@ -170,11 +198,13 @@ the settings route.
 
 - **SS-38 (MUST)** Feature tests with `Http::fake` for each provider: sign-in, sign-up, every refusal in §4 and §5, both
   linking paths, unlinking and the last-method rule, 2FA after sign-in, staff rules, throttles, notices and audit.
-- **SS-39 (MUST)** A dev-only `oauth` simulator in `billing/tools/simulators` (ADR 0016) speaks the three providers'
-  authorize, token and profile endpoints over TLS. It checks the client secret, the redirect URI, PKCE (S256) and
+- **SS-39 (MUST)** Dev-only simulators in `billing/tools/simulators` (ADR 0016): one shared OAuth core in
+  `src/Kernel` with three registered keys, `google-oauth`, `github-oauth` and `microsoft-identity`, each with its own
+  `reference()`. They speak each provider's authorize, token and profile endpoints over TLS; the Microsoft one issues
+  ID tokens with `iss`, `aud`, `tid`, `oid` and `xms_edov` (unsigned, as the app does not check signatures). It checks the client secret, the redirect URI, PKCE (S256) and
   single-use codes. Control actions pick the identity (subject, email, verified flag), deny consent, return an error,
   or replay a code. A test in the `Simulators` suite runs sign-up, sign-in with 2FA and linking against it, through
-  `Endpoints` and the address guard.
+  `Endpoints` and the address guard. The three rows are added to ADR 0016 §2.
 - **SS-40 (MUST)** Screenshots in `docs/screenshots/social-sign-in/` (optimised with `npm run images:optimize`): login
   with providers, sign-up, "an account already uses this address", Connected accounts, and the admin settings, in light
   and dark.
@@ -182,32 +212,56 @@ the settings route.
 ## 11. Data
 
 - `social_identities`: `id`, `user_id` (FK, cascade on delete), `provider` (string 32), `provider_user_id`
-  (string 191), `email` (string 255, nullable), `linked_at`, `last_used_at` (nullable), timestamps. Unique
+  (string 255, the OIDC maximum for `sub`), `email` (string 255, nullable), `linked_at`, `last_used_at` (nullable), timestamps. Unique
   `(provider, provider_user_id)` and `(user_id, provider)`.
 - `social_link_confirmations`: `id`, `user_id` (FK, cascade), `provider`, `provider_user_id`, `email`, `token_hash`
-  (unique), `expires_at`, `consumed_at` (nullable), `created_at`. Pruned by housekeeping after expiry.
-- `users.password` becomes nullable (SS-15). A null password never matches at login.
+  (unique), `browser_nonce_hash`, `expires_at`, `consumed_at` (nullable), `created_at`. Pruned by housekeeping after expiry.
+- `users.password` becomes nullable for clients (SS-15), with `User::hasPassword()` and `@property ?string $password`
+  (kernel, PR 0). A null password never matches: `EloquentUserProvider::validateCredentials`, the `current_password`
+  rule and `confirm-password` all refuse it, and `SessionGuard`/`AuthenticateSession` skip it.
 
 ## 12. Architecture
 
-- A new module `app/Modules/SocialSignIn`. It reads users through the `User` model and Core's client creation, and
-  sends mail through `App\Contracts\Notifications\SystemMailer`. It must work when Notifications is absent.
-- Kernel touch points, kept minimal and listed in the PR: the Fortify login view props (enabled providers), the
-  two-factor handoff (Fortify's session keys `login.id` and `login.remember`), and the `security.client_signup_enabled`
-  check on `/register`.
+- A new module `app/Modules/SocialSignIn` (architect decision). Not Core, the always-loaded base, which should not carry
+  a vendor OAuth dependency or provider tables; not Platform, which is already large. It must work when Notifications
+  and Platform are absent.
+- It depends only on kernel pieces, added first in **PR 0** and specified by
+  [ADR 0018](../adr/0018-sign-in-methods-and-step-up.md) ("Sign-in methods and step-up"):
+    - `App\Support\Auth\SignInMethods`, a registry of `App\Data\Auth\SignInMethod` (key, label, start URL, whether it
+      is offered to staff). Fortify's login and register views read it; the module registers its providers. Login view
+      props never name a provider. Passkeys can use it later.
+    - `App\Contracts\Auth\SignInGate::refusal(User, string $ip): ?string`. Platform implements it (disabled login,
+      closed client, lockout) and Core binds an allow-all null. Plus one kernel `CompleteSignIn` helper: it sends a 2FA
+      login to the challenge (`login.id`, `login.remember=false`) or logs in, regenerates the session and redirects to
+      the intended URL. Only this helper writes Fortify's session keys; a test fails if Fortify's challenge stops reading
+      `login.id`.
+    - The `password.recent` middleware moves to the kernel (`app/Http/Middleware`), so there is one implementation, and
+      Billing's fallback copy goes (issue #81). A test boots each module alone and checks its routes resolve.
+    - A Core `RegisterClientAccount` action (login, client, owner link, `ClientRegistered` after commit), replacing the
+      copies in `CreateNewUser` and Orders' `RegisterCheckoutClient`.
+    - `SecurityNotice` moves to Core, as the `SystemMailer` Unavailable fallback.
+    - `users.password` nullable and `User::hasPassword()`, the staff-always-have-a-password invariant (SS-25a), and the
+      `security.client_signup_enabled` definition with the `/register` refusal (SS-16).
+    - `App\Contracts\Auth\SignInMethodCounter` (SS-22), counting passwords and passkeys in Core.
+- Mail goes through `App\Contracts\Notifications\SystemMailer`; the templates are added to the Notifications catalogue
+  as always sent.
+- Rules from ADR 0018: a provider is never a second factor and never a step-up; `password.recent` is the only step-up,
+  and passkeys do not count for it yet; only `CompleteSignIn` completes a sign-in outside Fortify.
 - Dependency: `laravel/socialite`, an exact version at least 7 days old that supports Laravel 13, with
   `composer deps:check` passing (ADR 0007). Its dependency `league/oauth1-client` comes with it; we use no OAuth 1
   provider.
 
 ## 13. Delivery
 
-Two PRs, each under 1,500 changed lines:
+Three PRs, each under 1,500 changed lines:
 
-1. **Core:** Socialite pin, module, settings and permission, migrations, the three providers through `Endpoints` and
-   the guard, sign-in, sign-up, linking (both paths), unlinking, 2FA handoff, throttles, audit, notice templates, and
-   the SS-38 tests.
-2. **UI and simulator:** login and sign-up buttons, Connected accounts, admin settings polish (redirect URIs), the `oauth`
-   simulator with conformance and `Simulators` suite tests, and screenshots.
+0. **Kernel (PR 0):** everything in §12's list, with its tests. No provider code.
+1. **Module (PR 1, rebased on #89):** Socialite pin, module, settings and permission, migrations, the three providers
+   through `Endpoints` and `Http`, sign-in, sign-up, linking (both paths), unlinking, throttles, audit, notice templates,
+   and the SS-38 tests.
+2. **UI and simulators (PR 2):** login and sign-up buttons, Connected accounts, "Set a password" surfaces, admin
+   settings polish (redirect URIs), the three simulator keys with conformance and `Simulators` suite tests, the ADR 0016
+   rows, and screenshots.
 
 ## 14. Acceptance criteria
 
@@ -218,18 +272,24 @@ Two PRs, each under 1,500 changed lines:
    password and a verified email, and "Account created with a sign-in provider" is logged.
 4. Given the same with `email_verified` false, or sign-up closed, Then no account is created and the reason is shown.
 5. Given a provider email equal to an existing client login, Then nothing is linked until the user logs in with the
-   password (and 2FA) or opens the emailed link; afterwards the identity is linked to that login and a "connected"
-   notice is sent.
-6. Given the emailed link opened twice, or after 30 minutes, Then the second or late use is refused.
-7. Given a callback with a state that does not match the session, Then it is refused and nothing is created or linked.
-8. Given a staff login with a linked GitHub identity, `staff_enabled` off, Then provider sign-in is refused; with it on
-   and the domain allowed, the staff member signs in and still passes 2FA.
-9. Given a staff email that matches a provider email but no linked identity, Then nothing is linked and no email link is
-   offered.
-10. Given a login whose only sign-in method is one provider, Then "Disconnect" is disabled with the reason.
-11. Given a profile connect without a recent password confirmation, Then the password is asked first.
-12. Given any provider call, Then it goes to the address the guard resolved, with no proxy, and an `Endpoints` override
-    is honoured only in `local` and `testing`.
-13. Given a staff member with only `core.settings.update`, Then the Social sign-in section is read-only to them, and
+   password (and 2FA) as that login and confirms "Connect Google (…)?", or opens the emailed link; afterwards the
+   identity is linked to that login and a "connected" notice is sent.
+6. Given the emailed link opened twice, after 30 minutes, or in a browser other than the one that started the flow,
+   Then it is refused and nothing is linked.
+7. Given a provider that reports the email as unverified, Then no emailed link is offered.
+8. Given the password path completed by a different login than the one whose email matched, Then the pending identity
+   is discarded.
+9. Given a callback with a state that does not match the session, Then it is refused and nothing is created or linked.
+10. Given a staff login with a linked GitHub identity, `staff_enabled` off, Then provider sign-in is refused; with it on
+    and the domain allowed, the staff member signs in and still passes 2FA.
+11. Given a staff email that matches a provider email but no linked identity, Then nothing is linked and no email link is
+    offered.
+12. Given a login whose only sign-in method is one provider, Then "Disconnect" is disabled with the reason.
+13. Given a profile connect without a recent password confirmation, Then the password is asked first.
+14. Given any provider call, Then it goes through `Endpoints` with its options, a 5 s connect and 10 s total timeout and
+    no redirects; an override is honoured only in `local` and `testing`, where it is pinned through the guard.
+15. Given a staff member with only `core.settings.update`, Then the Social sign-in section is read-only to them, and
     saving it needs `core.social_sign_in.manage` and a recent password.
-14. Given the settings page, Then no client secret is in the props, and the audit diff masks it.
+16. Given the settings page, Then no client secret is in the props, and the audit diff masks it.
+17. Given a passwordless login, When it is promoted to staff or accepts a staff invitation, Then it is refused.
+18. Given sign-up closed, When `POST /register` is sent directly, Then it is refused and no account is created.
