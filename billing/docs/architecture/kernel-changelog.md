@@ -6,6 +6,21 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Storefront (public site, PR feature/storefront-home)
+
+- Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
+  Orders; Core binds `NullShopperSession` (default currency, empty cart).
+- Added `App\Contracts\Support\PublicHelpDirectory` (`recentAnnouncements()`, `popularArticles()`,
+  `networkStatus()`), implemented by Support; Core binds `NullPublicHelpDirectory`. Spec K9, without the sitemap part.
+- Added `DomainPricing::catalog(string $currency, ?int $clientId = null)`: active TLDs with 1-year register, renew and
+  transfer prices, spotlight flag and badge (spec K4, without `category` and the `TldPricingChanged` event). Service
+  contract: `FakeDomains` is updated.
+- Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
+  `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
+- Added `App\Support\Seo\SitemapRegistry` (`add(key, Closure)`, `entries()`), bound as a singleton; Orders,
+  Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`.
+
 ### Integrations area (ADR 0009 §1, PR A)
 
 - Added `App\Enums\FieldType` and `App\Data\Integrations\SettingField`, the one settings-field schema. A secret is a

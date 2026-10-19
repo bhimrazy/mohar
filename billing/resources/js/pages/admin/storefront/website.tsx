@@ -1,4 +1,4 @@
-import { useForm } from '@inertiajs/react';
+import { useForm, usePage } from '@inertiajs/react';
 import {
     ArrowDown,
     ArrowUp,
@@ -104,6 +104,7 @@ export default function Website({
     home_url,
     options,
 }: Props) {
+    const { brand } = usePage().props;
     const form = useForm<Content>(content);
     const { data, errors } = form;
     const error = (key: string) =>
@@ -879,7 +880,7 @@ export default function Website({
                                 max={60}
                                 value={data.seo.title}
                                 error={error('seo.title')}
-                                placeholder={`Your brand | ${data.hero.headline || placeholder_headline}`}
+                                placeholder={`${brand.name} | ${data.hero.headline || placeholder_headline}`}
                                 hint="Shown in the browser tab and search results."
                                 onChange={(title) => set('seo', { title })}
                             />

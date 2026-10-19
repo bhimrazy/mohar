@@ -23,7 +23,7 @@ import { SiteHead, WHY_US_ICONS } from '@/components/storefront/site-head';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { cycleLabel } from '@/lib/billing-cycles';
+import { cycleLabel, cycleMonths } from '@/lib/billing-cycles';
 import { cn } from '@/lib/utils';
 import type { DomainPrice, FromPrice, PageSeo, Plan } from '@/types/storefront';
 
@@ -383,7 +383,7 @@ function PlanGroup({
         new Set(
             group.plans.flatMap((plan) => plan.pricing.map((row) => row.cycle)),
         ),
-    );
+    ).sort((a, b) => (cycleMonths(a) ?? 0) - (cycleMonths(b) ?? 0));
     const [cycle, setCycle] = useState(group.default_cycle);
 
     return (
@@ -535,7 +535,7 @@ function Help() {
                     title="How can we help?"
                     description="Answers, news and a way to reach us."
                 />
-                <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+                <ul className="grid grid-cols-2 gap-3 md:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
                     {[
                         ...site.support.map((link) => ({
                             ...link,
@@ -624,7 +624,12 @@ function NewsCard({
 function News({ news }: { news: NonNullable<Props['news']> }) {
     return (
         <section className="pb-14">
-            <div className={cn(shell, 'grid gap-4 lg:grid-cols-3')}>
+            <div
+                className={cn(
+                    shell,
+                    'grid gap-4 md:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]',
+                )}
+            >
                 {news.announcements.length > 0 && (
                     <NewsCard
                         title="Announcements"

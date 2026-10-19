@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Public website (Storefront module).** A migration adds `storefront_revisions`. Two new permissions,
+  `storefront.content.manage` (edit and preview the website draft) and `storefront.publish` (make it live); grant
+  them to staff who maintain the site (wildcards `storefront.*` cover both). Until a version is published, the home
+  page shows the placeholder headline "Hosting and domains from {company name}" and Admin → Website marks it "Needs
+  your text". The `/` route moved from `routes/web.php` to the Storefront module, and unknown public URLs now return
+  the public 404 page (still HTTP 404). Footer company details read Settings → Company and the invoice seller
+  details (legal name, address, phone, PAN, VAT number, GSTIN).
+
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -58,6 +66,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
   uploaded; re-upload an existing WebP mark for it to appear in mail.
 - Invitations and account security notices are always sent: their templates can't be switched off.
+
+### Storefront
+
+- New home page (direction A): the host's own headline and text, domain search with featured extensions and their
+  first-year and renewal prices, the most popular plan (the catalog's Featured flag), and sections the host turns on
+  and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
+  network status, ways to pay. The product's own name and tagline never appear.
+- One public layout for home, store, cart, checkout, domains, knowledge base, announcements, network status and the
+  404 page. The header lists the catalog's visible product groups live (a link each up to four groups, otherwise one
+  menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
+  (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
+  area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
+  visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
+- Price cards show the per-month price, the amount billed, "Renews at" and any setup fee; the tax statement comes
+  from Billing's tax rules for the company's default country ("+13% VAT at checkout"). Showing prices with tax
+  included is a per-currency choice in Admin → Website, off by default; the note can be reworded per currency.
+- Admin → Website: headline, text, sections on/off and order, why-us points, featured groups and first billing
+  cycle, news counts, header product menu, legal links, page title and description, and price display. Changes are
+  saved as a draft, previewed at a signed staff-only link (60 minutes, not indexed) and published after a dialog that
+  lists the changes; publishing is audit-logged and fires `StorefrontPublished`.
+- `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
+  "Transfer a domain" opens the domain search with transfer preselected.
+- Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
+  in the first HTML response, plus `Organization` and `WebSite` JSON-LD on the home page. `/sitemap.xml` lists the
+  home page, store, domain prices, public knowledge-base articles and live announcements.
 
 ### Platform foundation
 

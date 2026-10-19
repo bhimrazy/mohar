@@ -1,5 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import { Mail, MapPin, Menu, Phone, ShoppingCart } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageWidthContext } from '@/components/app/page';
 import {
@@ -340,8 +341,13 @@ function MobileNav({ site }: { site: Site }) {
     const item =
         'flex min-h-10 items-center justify-between gap-3 rounded-md px-2 text-sm hover:bg-muted';
 
+    const [open, setOpen] = useState(false);
+
+    // The layout persists across visits, so close the sheet once a link in it navigates.
+    useEffect(() => router.on('navigate', () => setOpen(false)), []);
+
     return (
-        <Sheet>
+        <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
                 <Button
                     variant="ghost"
@@ -460,7 +466,7 @@ function SiteFooter({ site }: { site: Site }) {
 
     return (
         <footer className="border-t bg-muted/40 text-sm">
-            <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 md:px-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)]">
+            <div className="mx-auto grid w-full max-w-6xl gap-10 px-4 py-12 md:px-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)]">
                 <address className="space-y-3 not-italic">
                     <p className="font-display text-lg font-semibold">
                         {company.name}
@@ -528,7 +534,7 @@ function SiteFooter({ site }: { site: Site }) {
                 </address>
                 <nav
                     aria-label="Footer"
-                    className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-5"
+                    className="grid grid-cols-2 gap-8 sm:grid-cols-[repeat(auto-fit,minmax(7rem,1fr))]"
                 >
                     {columns.map((column) => {
                         const links = column.links.filter(
