@@ -158,8 +158,8 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts-descriptions": {
-        "ci": "Run every CI gate locally, including migrate:fresh --seed + tests on PostgreSQL (needs `docker compose up -d`).",
-        "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing).",
+        "ci": "Run every CI gate locally, including the test suite on PostgreSQL (needs `docker compose up -d`).",
+        "test:pgsql": "The test suite on PostgreSQL; each parallel worker migrates its own copy of the database (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; the database must exist; PEST_PROCESSES sets the worker count).",
         "deps:check": "Lockfiles in sync, composer/npm audits, and the ≥7-day dependency cooldown for changes since develop (needs network)."
     },
     "repositories": [
