@@ -64,6 +64,8 @@ type Props = {
         saved_by: string | null;
         changes: string[];
         preview_url: string;
+        /** Fingerprint of the draft shown here; publishing refuses a draft saved again since. */
+        review_token: string;
     } | null;
     published_at: string | null;
     needs_text: boolean;
@@ -247,6 +249,7 @@ export default function Website({
                                     confirmLabel="Publish"
                                     destructive={false}
                                     method="post"
+                                    data={{ reviewed: draft.review_token }}
                                     action={WebsiteController.publish()}
                                 />
                             </>

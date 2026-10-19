@@ -5,6 +5,7 @@ use App\Modules\Catalog\Models\ProductGroup;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Storefront\Models\Revision;
+use App\Modules\Storefront\Services\ContentStore;
 use App\Modules\Storefront\Support\SiteContent;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\URL;
@@ -49,8 +50,15 @@ it('keeps the live page until the draft is published, then lists the changes and
     $this->get('/')->assertInertia(fn (Assert $page) => $page->where('hero.headline', fn (string $headline) => str_starts_with($headline, 'Hosting and domains from ')));
     $this->get(route('admin.storefront.website.edit'))->assertInertia(fn (Assert $page) => $page
         ->where('draft.changes', ['Headline changed', 'Page title changed']));
+    expect(ActivityLog::query()->where('event', 'storefront.draft_saved')->sole()->properties['sections'])->toBe(['hero', 'seo']);
 
-    $this->post(route('admin.storefront.website.publish'))->assertRedirect();
+    // Publishing is sensitive: without a recently confirmed password nothing goes live.
+    $this->post(route('admin.storefront.website.publish'), ['reviewed' => app(ContentStore::class)->reviewToken(app(ContentStore::class)->draft())])
+        ->assertSessionHasErrors('password_confirmation');
+    expect(Revision::query()->where('status', Revision::PUBLISHED)->exists())->toBeFalse();
+
+    confirmPassword();
+    $this->post(route('admin.storefront.website.publish'), ['reviewed' => app(ContentStore::class)->reviewToken(app(ContentStore::class)->draft())])->assertRedirect();
 
     $this->get('/')->assertInertia(fn (Assert $page) => $page->where('hero.headline', 'Reliable hosting for your website'));
     expect(Revision::query()->where('status', Revision::DRAFT)->exists())->toBeFalse();
@@ -62,7 +70,8 @@ it('lets only staff with the publish permission make the draft live', function (
     actingAsStaff(['storefront.content.manage']);
     $this->put(route('admin.storefront.website.update'), websiteForm());
 
-    $this->post(route('admin.storefront.website.publish'))->assertForbidden();
+    confirmPassword();
+    $this->post(route('admin.storefront.website.publish'), ['reviewed' => str_repeat('a', 64)])->assertForbidden();
     expect(Revision::query()->where('status', Revision::PUBLISHED)->exists())->toBeFalse();
 });
 
@@ -83,14 +92,14 @@ it('accepts plain text only, visible groups, known currencies and https legal li
 it('previews the draft only at a signed, unexpired link for staff who may edit it', function (): void {
     actingAsStaff(['storefront.content.manage']);
     $this->put(route('admin.storefront.website.update'), websiteForm(['hero' => ['headline' => 'Draft headline']]));
-    $signed = URL::temporarySignedRoute('storefront.preview', now()->addHour());
+    $signed = URL::temporarySignedRoute('admin.storefront.website.preview', now()->addHour());
 
     $this->get($signed)->assertOk()->assertHeader('X-Robots-Tag', 'noindex, nofollow')->assertInertia(fn (Assert $page) => $page
         ->where('preview', true)
         ->where('hero.headline', 'Draft headline')
         ->where('seo.robots', 'noindex, nofollow'));
 
-    $this->get(route('storefront.preview'))->assertForbidden();
+    $this->get(route('admin.storefront.website.preview'))->assertForbidden();
     $this->travel(61)->minutes();
     $this->get($signed)->assertForbidden();
 

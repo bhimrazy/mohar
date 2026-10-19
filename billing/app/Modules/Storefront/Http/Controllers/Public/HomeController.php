@@ -43,11 +43,15 @@ class HomeController extends Controller
      */
     public function preview(Request $request): HttpResponse
     {
+        $this->authorize('storefront.content.manage');
         $content = $this->store->draft()->content ?? $this->store->published();
         Inertia::share('site', fn (): array => $this->site->forRequest($request, $content));
 
         $response = $this->render($request, $content, preview: true)->toResponse($request);
+        // The signed URL is a credential: never sent as a Referer, never stored by a cache (security standards §6).
         $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+        $response->headers->set('Cache-Control', 'no-store, private');
 
         return $response;
     }

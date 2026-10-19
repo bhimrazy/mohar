@@ -6,6 +6,7 @@ use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Currencies\CurrencyDirectory;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Storefront\Exceptions\DraftChanged;
 use App\Modules\Storefront\Http\Requests\WebsiteContentRequest;
 use App\Modules\Storefront\Services\ContentStore;
 use App\Modules\Storefront\Services\HomePage;
@@ -46,7 +47,8 @@ class WebsiteController extends Controller
                 'saved_at' => $draft->updated_at?->toIso8601String(),
                 'saved_by' => $draft->author?->name,
                 'changes' => SiteContent::changes($published, $draft->content),
-                'preview_url' => URL::temporarySignedRoute('storefront.preview', now()->addMinutes((int) config('storefront.preview_minutes', 60))),
+                'preview_url' => URL::temporarySignedRoute('admin.storefront.website.preview', now()->addMinutes((int) config('storefront.preview_minutes', 60))),
+                'review_token' => $this->store->reviewToken($draft),
             ],
             'published_at' => $live?->published_at?->toIso8601String(),
             'needs_text' => trim((string) $published['hero']['headline']) === '',
@@ -82,9 +84,18 @@ class WebsiteController extends Controller
     {
         $this->authorize('storefront.publish');
 
+        $reviewed = (string) $request->validate(['reviewed' => ['required', 'string', 'size:64']])['reviewed'];
+
         /** @var User $user */
         $user = $request->user();
-        $published = $this->store->publish($user);
+
+        try {
+            $published = $this->store->publish($user, $reviewed);
+        } catch (DraftChanged $exception) {
+            Inertia::flash('toast', ['type' => 'error', 'message' => $exception->getMessage()]);
+
+            return to_route('admin.storefront.website.edit');
+        }
 
         Inertia::flash('toast', $published === null
             ? ['type' => 'error', 'message' => __('There is no draft to publish. Save your changes first.')]

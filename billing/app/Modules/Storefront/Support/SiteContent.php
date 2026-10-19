@@ -91,6 +91,21 @@ final class SiteContent
     }
 
     /**
+     * Top-level content keys that differ (for StorefrontPublished and the audit log).
+     *
+     * @param  array<string, mixed>  $from
+     * @param  array<string, mixed>  $to
+     * @return list<string>
+     */
+    public static function changedSections(array $from, array $to): array
+    {
+        $from = self::normalise($from);
+        $to = self::normalise($to);
+
+        return array_values(array_filter(array_keys(self::defaults()), fn (string $key): bool => $from[$key] !== $to[$key]));
+    }
+
+    /**
      * Plain-language list of what differs between two versions, for the publish confirmation and the audit log.
      *
      * @param  array<string, mixed>  $from

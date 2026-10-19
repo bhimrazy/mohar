@@ -90,6 +90,6 @@ class StorefrontServiceProvider extends ModuleServiceProvider
         $this->app->make(PermissionRegistry::class)->register('Website', [
             'storefront.content.manage' => 'Edit and preview the website draft',
             'storefront.publish' => 'Publish the website',
-        ]);
+        ], sensitive: ['storefront.publish']);
     }
 }
