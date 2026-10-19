@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
+  server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
+  housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
+  wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
+  who bring existing accounts in. Fetches run on the `provisioning` queue.
+- **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
+  unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
+  reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -58,8 +66,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
   uploaded; re-upload an existing WebP mark for it to appear in mail.
 - Invitations and account security notices are always sent: their templates can't be switched off.
+- **Email templates follow new defaults.** Run `php artisan migrate` (adds `default_hash` and `previous_text` to
+  `email_template_translations`); the upgrade's `app:install` then replaces the text of templates nobody edited with
+  the new shipped wording, with an activity-log entry each. Edited templates are left as they are.
+- **Client-login invitations have their own link.** A new `client_invitations` table holds a single-use invitation
+  token (stored hashed) instead of a password-reset token. Links work for "Invitation links work for (days)"
+  (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
+  before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
+  use the new "Send a password reset" action for them instead of "Send a new invitation".
 
 ### Platform foundation
+
+- `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
+  They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
+  fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
+  logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
+  a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
+  uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
+- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+  package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
+  CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
+  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
+  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+--no-dev` build contains neither the commands nor the package (checked in CI).
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -89,6 +118,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
+  on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
+  finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
+  that server; unmatched with the reason otherwise; listed apart when another WHM user owns it (a reseller's customer
+  on a root connection, which signs in as root when no username is set); linked when a live service already holds it,
+  with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
+  recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
+  server or here; the request and its result are recorded in the activity log.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
@@ -362,6 +399,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Partly paid invoices show a "Paid" row between the total and the balance; refunds and credit notes state their
   amount; the text part drops links that the HTML drops. Staff-written ticket replies are not marked automatic.
 - Email wording uses "Log in" and "Forgot your password?" throughout.
+- The template editor shows "New default available" when a release changes the wording of a template you edited,
+  with your text and the new default side by side and "Use new default", which keeps your text as the previous text.
+- A new client login's invitation opens its own page to choose a password. The link works once, for the configured
+  number of days; the email says how long and until when. Sending a new invitation (client page → login actions →
+  "Send a new invitation", shown with an "Invited" or "Invitation expired" badge) or removing the login revokes the
+  old link. Expired, used and unknown links get a clear message. Staff invitations state their expiry the same way.
+  An invitation only ever activates a never-used login: its link stops working once the login changes its email
+  address, gets a password another way (for example "Forgot your password?"), turns on two-factor authentication,
+  signs in, or loses access to the account, and such a login can't be invited again ("Send a password reset" instead).
+  Accepting never signs in past two-factor authentication. A client merge moves open invitations with their logins.
 
 ### Currencies
 
@@ -470,6 +517,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   batches (`ChunkedDelete`, which keeps rows that stopped matching after selection).
 - Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
   with a known password); production reference data comes from the install path in #47.
+
+### Payments — Stripe
+
+- Not yet verified against a live Stripe account: tested with recorded Stripe API fixtures and, once ADR 0016 S3
+  lands, the Stripe simulator. The live sandbox smoke run (`docs/devops/install.md` go-live checklist) is required
+  before a host takes real card payments.
+- Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
+  invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
+  PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
+  `Stripe-Version` and an idempotency key on every POST; no SDK.
+- Signed webhooks (constant-time `Stripe-Signature` check, 5-minute tolerance, mode check) trigger a retrieve and
+  never trust the posted body: payments, Dashboard refunds (`refund.created`/`refund.updated`) and disputes
+  (`charge.dispute.created`, recorded as chargebacks). Duplicates and races with the return route and the poller
+  record one transaction.
+- Full and partial refunds through the Refunds API; exact amounts for zero-decimal currencies; test mode refused
+  in production; connection test; Stripe's official wordmark; `php artisan payments:stripe-smoke` for a real
+  sandbox run.
 
 ### DevOps
 

@@ -146,7 +146,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             ],
             usernamePolicy: new UsernamePolicy(
                 maxLength: 8,
-                pattern: '/^[a-z][a-z0-9]*$/',
+                pattern: '/^[a-z][a-z0-9]*\z/',
                 reservedPrefixes: ['test'],
                 reservedSuffixes: ['assword'],
                 reservedNames: self::RESERVED_NAMES,
@@ -380,7 +380,12 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      */
     public function listAccounts(ServerConnection $server): array
     {
-        return array_map($this->remoteAccount(...), $this->allAccounts($this->client($server, self::BACKGROUND_SECONDS), $server));
+        // An account whose username is not a valid cPanel username is left out (and logged by checked()): the username
+        // is what a service is keyed on.
+        return array_values(array_filter(
+            array_map($this->remoteAccount(...), $this->allAccounts($this->client($server, self::BACKGROUND_SECONDS), $server)),
+            fn (RemoteAccount $account): bool => $account->username !== '',
+        ));
     }
 
     /**
@@ -1087,14 +1092,15 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      */
     private function remoteAccount(array $row): RemoteAccount
     {
-        $reason = trim((string) ($row['suspendreason'] ?? ''));
+        $reason = mb_substr(trim((string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', (string) ($row['suspendreason'] ?? ''))), 0, 255);
+        $email = strtolower(trim((string) ($row['email'] ?? '')));
 
         return new RemoteAccount(
-            username: (string) ($row['user'] ?? ''),
+            username: $this->checked('username', $row['user'] ?? null) ?? '',
             domain: $this->checked('domain', isset($row['domain']) ? strtolower((string) $row['domain']) : null),
             plan: $this->checked('plan', $row['plan'] ?? null),
             owner: $this->checked('owner', $row['owner'] ?? null),
-            email: isset($row['email']) && str_contains((string) $row['email'], '@') ? strtolower((string) $row['email']) : null,
+            email: strlen($email) <= 254 && filter_var($email, FILTER_VALIDATE_EMAIL) !== false ? $email : null,
             ip: $this->checked('ip', $row['ip'] ?? null),
             suspended: (int) ($row['suspended'] ?? 0) === 1,
             suspendReason: $reason !== '' && strtolower($reason) !== 'not suspended' ? $reason : null,
@@ -1117,8 +1123,9 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         $value = (string) $value;
         $valid = match ($field) {
             'ip' => filter_var($value, FILTER_VALIDATE_IP) !== false,
-            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i', $value) === 1,
-            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*$/', $value) === 1,
+            'username' => preg_match('/^[a-z0-9][a-z0-9_.-]{0,31}\z/', $value) === 1,
+            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/i', $value) === 1,
+            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*\z/', $value) === 1,
         };
 
         if (! $valid) {

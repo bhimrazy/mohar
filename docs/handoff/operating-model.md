@@ -63,18 +63,28 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 | Shared kernel or ADR               | `principal-architect` + `review-board`                                                                                                 |
 | Driver (gateway, panel, registrar) | `review-board` + `security-reviewer` + contract-test dataset + a recorded real sandbox run in the PR body                              |
 
-- `qa-design-reviewer` and `product-reviewer` overlap. Use `product-reviewer` (it includes QA) for user-facing
-  PRs, and sweep `develop` once per wave rather than every PR.
+- `qa-design-reviewer` is retired; `product-reviewer` (it includes QA) covers user-facing PRs, and sweeps
+  `develop` once per wave.
+- Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
+  secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
+  finding.
+- Reviewer probes become committed regression tests: reviewers push them to `review/pr-<n>-probes` and the
+  engineer adopts them in the fix push, so a re-review is mostly a CI check.
+- CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
+  for queries or migrations, PostgreSQL); the full suite runs locally only to diagnose a CI failure.
+- Scale engineers by location: at most two building locally; further engineers run as remote agents with CI
+  as the gate. Pilot result (2026-10-19): `isolation: "remote"` was not available here and the storefront home
+  page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
 - The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
 - Specs are written before the build starts, and briefs cite `product-standards.md`.
-- PR size cap is about 3,000 changed lines; split larger work before review.
+- PR size cap is about 3,000 changed lines; split larger work before review. Drivers (gateway, panel,
+  registrar), money and security-sensitive PRs have a hard cap of 1,500 changed lines (tests and fixtures
+  count), with no overrides (CTO review, 2026-10-19).
 - Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
   `ci` label so PostgreSQL CI runs before review.
   The label takes effect on the next push (adding the label from the codespace token does not start a run), and
   GitHub runs no PR workflow while a PR has merge conflicts with its base: merge `develop` first.
 - Batch handoff and standards doc edits per session instead of one commit per line.
-
-## Gates
 
 ## Gates
 
@@ -139,7 +149,28 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
 - Tests: Pest feature tests per capability, reasonable not exhaustive. Browser E2E will use the Pest
   browser plugin (Playwright) for critical flows only.
 
+## Periodic reviews (owner request, 2026-10-19)
+
+Every 12 hours, and after a restart if the last round is older than that, the CTO session runs one review
+round in parallel, read-only, each writing to `docs/reviews/<date>-<kind>.md`:
+
+| Kind         | Agent                 | Model | Scope                                                                              |
+| ------------ | --------------------- | ----- | ---------------------------------------------------------------------------------- |
+| CEO          | `ceo-advisor`         | Fable | progress score, priorities, business risks, first-week experience of a host        |
+| CTO          | `cto-advisor`         | Fable | velocity, recurring defects, gates, CTO decisions, debt                            |
+| Security     | `security-reviewer`   | Opus  | whole `develop`: auth, permissions, money, secrets, outbound calls, webhooks, mail |
+| Architecture | `principal-architect` | Opus  | kernel surface, module boundaries, ADR drift, scalability                          |
+
+Rules: reviewers do not modify product code; the CTO merges the review files (docs-only PR), turns findings
+into issues or workstream briefs, records owner-relevant items in `state.md`, and reports a short summary to
+the owner. Skip a kind when nothing relevant changed since its last review. Heavy test runs go through
+`scripts/heavy.sh`; when the machine is loaded, security runs targeted tests only. The schedule lives in the
+session (CronCreate, every 12 hours) and is recreated by the `resume-session` skill after a restart.
+
 ## Session restarts
+
+The codespace reboots without warning (three times on 2026-10-19). Engineers commit and push work in progress at
+least every 30 minutes; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
 
 Background agents and shell jobs stop when the Claude Code process exits, but agent transcripts survive
 on the same machine. On restart: audit worktrees (commits ahead, dirty files), check open PRs and CI,

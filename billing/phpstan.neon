@@ -9,6 +9,7 @@ parameters:
         - config/
         - database/
         - routes/
+        - tools/simulators/src/
 
     level: 7
 

@@ -3,6 +3,7 @@
 namespace App\Modules\Notifications\Services;
 
 use App\Data\Notifications\SensitiveValue;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\TemplateType;
 use App\Modules\Notifications\Support\MailClock;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
@@ -24,6 +25,7 @@ class SampleContext
     public function build(bool $forStaff = false, ?string $templateKey = null): array
     {
         $today = MailClock::today();
+        $inviteDays = min(30, max(1, (int) app(Settings::class)->get('platform.invitation_expiry_days', 7)));
         // Overdue notices preview an invoice that is overdue, everything else one due in two weeks.
         $due = CarbonImmutable::parse($today)->addDays(str_starts_with((string) $templateKey, 'invoice.overdue') ? -7 : 14)->toDateString();
         $period = [CarbonImmutable::parse($today)->addDays(14)->toDateString(), CarbonImmutable::parse($today)->addDays(14)->addYear()->subDay()->toDateString()];
@@ -45,7 +47,9 @@ class SampleContext
                 'reset_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/reset-password/SAMPLE-LINK-NOT-VALID'),
                 'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
                 'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
-                'expires_at' => MailClock::dateTime(now()->addHour()),
+                // Account links last an hour; invitations the configured number of days (the invitation templates).
+                'expires_at' => MailClock::dateTime(str_contains((string) $templateKey, 'invitation') ? now()->addDays($inviteDays) : now()->addHour()),
+                'expires_in' => trans_choice(':count day|:count days', $inviteDays, ['count' => $inviteDays]),
                 'ip' => '203.0.113.24',
             ],
             'order' => [

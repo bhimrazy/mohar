@@ -11,6 +11,10 @@ import { SectionCard } from '@/components/app/section-card';
 import { SelectField } from '@/components/app/select-field';
 import { SwitchField } from '@/components/app/switch-field';
 import { EmailFrame } from '@/components/notifications/email-frame';
+import {
+    TemplateDefaultCompare,
+    type TemplateText,
+} from '@/components/notifications/template-default-compare';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -49,6 +53,7 @@ type Translation = {
     body: string;
     action_label: string;
     updated_at: string | null;
+    previous_text: (TemplateText & { replaced_at: string }) | null;
 };
 
 type Preview = {
@@ -78,6 +83,7 @@ export default function TemplateEditor({
     canManageDelivery,
     secretAction,
     systemAction,
+    newDefault,
 }: {
     template: Template | null;
     translation: Translation;
@@ -90,6 +96,11 @@ export default function TemplateEditor({
     secretAction: string | null;
     /** Client ticket email: the system adds the ticket button; only its label is editable. */
     systemAction: boolean;
+    /** Edited system text whose shipped default changed since: the new default, for the compare view. */
+    newDefault: {
+        status: 'changed' | 'untracked';
+        text: TemplateText;
+    } | null;
 }) {
     const form = useForm({
         key: 'custom.',
@@ -288,6 +299,15 @@ export default function TemplateEditor({
                             }
                         >
                             <div className="grid gap-4">
+                                {template && (
+                                    <TemplateDefaultCompare
+                                        templateId={template.id}
+                                        current={translation}
+                                        newDefault={newDefault}
+                                        previous={translation.previous_text}
+                                        canManage={canManage}
+                                    />
+                                )}
                                 {secretAction && (
                                     <Alert>
                                         <ShieldCheck />
