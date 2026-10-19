@@ -124,7 +124,7 @@ function Account({
 
 function ServiceLink({ service }: { service: LinkedService }) {
     return (
-        <span className="flex flex-col">
+        <span className="flex min-w-0 flex-col whitespace-normal">
             <Link
                 href={ServiceController.show(service.id)}
                 className="hover:underline"
@@ -176,7 +176,7 @@ const accountColumns: DataTableColumn<AccountRow>[] = [
             }
 
             return (
-                <span className="flex flex-col">
+                <span className="flex min-w-0 flex-col whitespace-normal">
                     {row.client ? (
                         <Link
                             href={showClient(row.client.id)}
@@ -196,7 +196,7 @@ const accountColumns: DataTableColumn<AccountRow>[] = [
         key: 'result',
         header: 'Result',
         cell: (row) => (
-            <span className="flex max-w-sm flex-col items-start gap-1 whitespace-normal">
+            <span className="flex flex-col items-start gap-1 break-words whitespace-normal sm:max-w-xs sm:min-w-56">
                 <StatusBadge
                     status={row.category}
                     label={CATEGORY_LABELS[row.category]}
@@ -364,17 +364,17 @@ export default function ServerImport({
                             .
                         </p>
 
-                        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                             <StatCard
                                 label="Proposed"
                                 value={counts.proposed}
-                                hint="One client and one product match"
+                                hint="One client, one product"
                                 icon={Sparkles}
                             />
                             <StatCard
                                 label="Unmatched"
                                 value={counts.unmatched}
-                                hint="Need a client or product chosen"
+                                hint="Needs a choice"
                                 icon={UserRoundSearch}
                                 tone={
                                     counts.unmatched > 0 ? 'warning' : 'default'
@@ -383,14 +383,20 @@ export default function ServerImport({
                             <StatCard
                                 label="Reseller-owned"
                                 value={counts.reseller}
-                                hint="Owned by another WHM user"
+                                hint="Other WHM owner"
                                 icon={Users}
                             />
                             <StatCard
                                 label="Already linked"
                                 value={counts.linked}
-                                hint={`${counts.missing} services here missing on the server`}
+                                hint="Not imported again"
                                 icon={Link2}
+                            />
+                            <StatCard
+                                label="Missing on server"
+                                value={counts.missing}
+                                hint="Only in billing"
+                                icon={ServerCrash}
                                 tone={
                                     counts.missing > 0 ? 'warning' : 'default'
                                 }
@@ -406,7 +412,7 @@ export default function ServerImport({
                                 })
                             }
                         >
-                            <TabsList className="h-auto flex-wrap">
+                            <TabsList className="max-w-full justify-start overflow-x-auto">
                                 {TABS.map((tab) => (
                                     <TabsTrigger
                                         key={tab.value}
