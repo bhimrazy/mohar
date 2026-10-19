@@ -82,7 +82,7 @@ final class Endpoints
             ...$guard->pinOptions($guard->resolve((string) parse_url($override, PHP_URL_HOST), $port)),
             // Verification stays on; a scenario's own CA replaces the system store for this destination only.
             'verify' => is_string($bundle) && $bundle !== '' ? $bundle : true,
-        ], overridden: true);
+        ]);
     }
 
     /**

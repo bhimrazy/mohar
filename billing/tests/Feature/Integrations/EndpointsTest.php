@@ -37,12 +37,11 @@ test('an override points the driver at it, verified against the scenario CA and 
     $endpoint = endpoints(['stripe.api' => 'https://sim.example.test:8443/'], '/tmp/scenario-ca.pem')->endpoint('stripe.api', 'https://api.stripe.com');
 
     expect($endpoint->baseUrl)->toBe('https://sim.example.test:8443')
-        ->and($endpoint->overridden)->toBeTrue()
         ->and($endpoint->options['verify'])->toBe('/tmp/scenario-ca.pem')
         ->and($endpoint->options['curl'][CURLOPT_CONNECT_TO])->toBe(['::93.184.216.34:8443'])
         ->and($endpoint->options['proxy'])->toBe('')
         ->and($endpoint->options['allow_redirects'])->toBeFalse()
-        ->and(endpoints(['stripe.api' => 'https://sim.example.test:8443'])->endpoint('khalti.api', 'https://khalti.com/api/v2/')->overridden)->toBeFalse();
+        ->and(endpoints(['stripe.api' => 'https://sim.example.test:8443'])->endpoint('khalti.api', 'https://khalti.com/api/v2/'))->toEqual(new Endpoint('https://khalti.com/api/v2/'));
 });
 
 test('the real Nepal defaults give the same path with and without an override', function (string $default, string $override, string $path) {
@@ -70,12 +69,19 @@ test('an override to loopback is refused unless the install policy allows loopba
     expect(endpoints(['stripe.api' => 'https://127.0.0.1:8443'])->endpoint('stripe.api', 'https://api.stripe.com')->options['curl'][CURLOPT_CONNECT_TO])->toBe(['::127.0.0.1:8443']);
 });
 
+test('an Endpoint tells a driver where and how to connect, never whether it was overridden', function () {
+    $class = new ReflectionClass(Endpoint::class);
+
+    expect(array_map(fn (ReflectionProperty $property): string => $property->getName(), $class->getProperties()))->toBe(['baseUrl', 'options'])
+        ->and(array_map(fn (ReflectionMethod $method): string => $method->getName(), $class->getMethods()))->toBe(['__construct', 'url']);
+});
+
 test('only https base URLs without credentials, query or fragment are honoured; the rest are logged once', function (array|string $overrides, string $loggedKey) {
     Log::spy();
     $endpoints = endpoints($overrides);
 
     expect($endpoints->activeKeys())->toBe([])
-        ->and($endpoints->endpoint('stripe.api', 'https://api.stripe.com')->overridden)->toBeFalse();
+        ->and($endpoints->endpoint('stripe.api', 'https://api.stripe.com'))->toEqual(new Endpoint('https://api.stripe.com'));
     $endpoints->endpoint('stripe.api', 'https://api.stripe.com');
 
     Log::shouldHaveReceived('warning')->once()->with(Mockery::pattern('/^Malformed integration endpoint overrides/'), ['keys' => [$loggedKey]]);

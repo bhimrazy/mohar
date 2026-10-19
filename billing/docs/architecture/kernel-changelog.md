@@ -9,7 +9,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 ### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
 
 - Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
-  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `overridden`, `url(path)`). Drivers of fixed-host providers
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a driver has nothing to branch on). Drivers of fixed-host providers
   make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
   overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
   JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every
@@ -22,7 +22,10 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - `OutboundAddressGuard` reaches loopback only in `local` and `testing`, whatever `integrations.outbound.allow_loopback`
   says elsewhere, and gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
 - Arch rules: nothing in `app/`, `bootstrap/`, `config/` or `routes/` names `Mohar\Simulators` (any case, group
-  imports included), and no provider driver mentions "simulat" (the demo drivers excepted).
+  imports included), and no driver code mentions "simulat" or asks `Endpoints` whether an override is active
+  (`activeKeys`, `developmentEnvironment`, `configuredKeys`). Driver code is every file under a module's `Drivers/`
+  plus the module classes those files import (such as `PaymentsNepal\Support\ProviderHttp`); the three demo drivers
+  (`Services/.../LogDriver`, `Domains/.../LogRegistrar`, `Billing/.../SandboxCardDriver`) are exempt by full path.
 
 ### Integrations area (ADR 0009 §1, PR A)
 
