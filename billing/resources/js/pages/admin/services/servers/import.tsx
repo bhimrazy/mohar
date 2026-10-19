@@ -7,6 +7,7 @@ import {
     UserRoundSearch,
     Users,
 } from 'lucide-react';
+import { useEffect } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -246,11 +247,20 @@ export default function ServerImport({
     const { apply } = useQueryParams();
     const running = fetched?.running ?? false;
 
-    usePoll(
+    // Poll only while a fetch runs; stop as soon as the list (or the failure) arrives.
+    const { start, stop } = usePoll(
         3000,
         { only: ['import', 'counts', 'rows'] },
-        { autoStart: running },
+        { autoStart: false },
     );
+
+    useEffect(() => {
+        if (running) {
+            start();
+        } else {
+            stop();
+        }
+    }, [running, start, stop]);
 
     const fetchAccounts = () =>
         router.post(
