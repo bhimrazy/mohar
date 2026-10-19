@@ -4,6 +4,7 @@ use App\Modules\Services\Http\Controllers\Admin\CancellationRequestController;
 use App\Modules\Services\Http\Controllers\Admin\ModuleLogController;
 use App\Modules\Services\Http\Controllers\Admin\ServerController;
 use App\Modules\Services\Http\Controllers\Admin\ServerGroupController;
+use App\Modules\Services\Http\Controllers\Admin\ServerImportController;
 use App\Modules\Services\Http\Controllers\Admin\ServiceActionController;
 use App\Modules\Services\Http\Controllers\Admin\ServiceController;
 use App\Modules\Services\Http\Controllers\Client\ServiceActionController as ClientServiceActionController;
@@ -23,6 +24,7 @@ Route::adminArea(function (): void {
             Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
             // Group membership decides where new accounts are provisioned, so it is guarded like the servers.
             Route::resource('server-groups', ServerGroupController::class)->only(['store', 'update', 'destroy']);
+            Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
         });
         Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);
 

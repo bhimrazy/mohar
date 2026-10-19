@@ -17,6 +17,9 @@
         <testsuite name="Extensions">
             <directory>tests/Extensions</directory>
         </testsuite>
+        <testsuite name="Simulator framework">
+            <directory>tools/simulators/tests</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>
@@ -40,6 +43,7 @@
         <env name="STAFF_2FA_REQUIRED" value="false"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="TRUSTED_PROXIES" value=""/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
     </php>
 </phpunit>

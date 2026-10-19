@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-19 14:15 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 15:05 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
@@ -23,9 +23,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests (merge order: #77 S0, then S1; email follow-up after its review; deploy and #58 independent)
 
-| PR  | Workstream     | Status                                                                                                                                              |
-| --- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge. |
+| PR  | Workstream | Status |
+| --- | ---------- | ------ |
 
 ## Design and research in progress
 
@@ -37,14 +36,14 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Running now (2026-10-19 14:15 UTC)
 
-- Builds: email follow-up #78 fixes; security fixes #89; cPanel import step 1 #87 (in review) and step 2; deployment
+- Builds: security fixes #89; cPanel import step 1 #87 (in review) and step 2; deployment
   D1 #79 and D2 #80; CI speed-up #91 (urgent: CI exceeds 15 min, stopgap #93); simulators S1 #92 and S2; storefront home
   page (`feature/storefront-home`).
 - Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
-- Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe #58 waits only for CI.
+- Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe (#58, fixture-tested, not live-verified), deployment D1 (#79) and invitations/template defaults (#78) merged; CI limit 25 min (#93).
 - Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews"). Round 1 ran 2026-10-19 13:20 UTC
-  (`docs/reviews/2026-10-19-*.md`); the 14:20 round was skipped because only S0 (#77, already reviewed) and docs had
-  merged since. Next round at the 02:17 slot.
+  (`docs/reviews/2026-10-19-*.md`); the 14:20 and 14:47 rounds were skipped: everything merged since round 1 (S0 #77, Stripe #58,
+  deployment D1 #79, CI timeout #93, docs) had its own security and architecture or board review before merging. Next round at the 02:17 slot.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 

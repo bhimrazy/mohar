@@ -1,0 +1,18 @@
+{
+    "id": "pi_3MoharIntent0001",
+    "object": "payment_intent",
+    "amount": 2500,
+    "amount_received": 2500,
+    "currency": "usd",
+    "latest_charge": "ch_3MoharCharge0001",
+    "livemode": false,
+    "metadata": {
+        "mohar_reference": "reference",
+        "mohar_invoice_id": "1",
+        "mohar_amount": "2500",
+        "mohar_currency": "usd",
+        "mohar_flow": "checkout"
+    },
+    "payment_method": "pm_1MoharMethod0001",
+    "status": "succeeded"
+}

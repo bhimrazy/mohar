@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "01fe65ce3ddc91698d7e3ccfe705acae",
+    "content-hash": "3f9c5e1f59f926eccdd6b0cbb16f325d",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -9692,6 +9692,42 @@
                 "source": "https://github.com/mockery/mockery"
             },
             "time": "2026-08-19T19:37:52+00:00"
+        },
+        {
+            "name": "mohar/simulators",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "tools/simulators",
+                "reference": "e54c2bb94ee30657645204864ecd3a09e63693ef"
+            },
+            "require": {
+                "ext-openssl": "*",
+                "ext-pdo_sqlite": "*",
+                "ext-posix": "*",
+                "php": "^8.4"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Mohar\\Simulators\\SimulatorsServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Mohar\\Simulators\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "Local simulators of the providers Mohar integrates with, for development and tests only (ADR 0016).",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "myclabs/deep-copy",

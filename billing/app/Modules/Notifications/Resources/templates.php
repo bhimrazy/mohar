@@ -69,7 +69,7 @@ MD),
     $secret('auth.user_invitation', 'client', 'general', 'Account invitation', 'You\'re invited to a {{ company.name }} client account', 'You\'re invited', 'Accept invitation', <<<'MD'
 Hello {{ user.first_name }}, you've been given access to a {{ company.name }} client account. Accept the invitation to choose your password and log in.
 
-The link works until {{ auth.expires_at }}. After that, use "Forgot your password?" on the login page to get a new one.
+This invitation works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If it runs out, ask the account owner or our team to send a new one.
 
 If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
@@ -732,7 +732,7 @@ MD),
     $secret('staff.invitation', 'staff', 'admin', 'Staff invitation', 'You are invited to the {{ company.name }} admin area', 'Join the {{ company.name }} team', 'Accept invitation', <<<'MD'
 Hello, you've been invited to join the {{ company.name }} team in the admin area. Accept the invitation to choose your password.
 
-The invitation works until {{ auth.expires_at }}. If you weren't expecting it, you can ignore this email.
+This invitation works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If it runs out, ask an administrator to send a new one. If you weren't expecting it, you can ignore this email.
 MD),
     $staff('staff.two_factor_reset', 'Staff two-factor authentication reset', 'Two-factor authentication was reset on your staff account', <<<'MD'
 # Two-factor authentication was reset
@@ -809,7 +809,7 @@ $preheaders = [
     'auth.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email and your password stays the same.',
     'auth.password_changed' => 'Changed on {{ system.today | date }}. If this wasn\'t you, reset your password now.',
     'auth.email_verification' => 'One click confirms this address, so your invoices and service details reach you.',
-    'auth.user_invitation' => 'Accept to choose your password and see this account\'s invoices, services and tickets.',
+    'auth.user_invitation' => 'Accept within {{ auth.expires_in }} to choose your password and see this account\'s invoices, services and tickets.',
     'auth.new_login_alert' => 'From {{ auth.ip }} on {{ system.today | date }}. Not you? Change your password now.',
     'auth.login_added' => '{{ notice.email }} can now log in to {{ notice.account }}. Not expected? Remove the login.',
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
@@ -856,7 +856,7 @@ $preheaders = [
     'ticket.unregistered_bounce' => 'This address only takes email from customers with an account.',
     'ticket.replies_only_bounce' => 'This address only accepts replies to existing tickets.',
     'staff.password_reset' => 'This link works until {{ auth.expires_at }}. If you didn\'t ask for it, ignore this email.',
-    'staff.invitation' => 'Accept to set your password. The invitation works until {{ auth.expires_at }}.',
+    'staff.invitation' => 'Accept within {{ auth.expires_in }} to set your password. The invitation works until {{ auth.expires_at }}.',
 ];
 
 return array_map(fn (array $template): array => [...$template, 'preheader' => $preheaders[$template['key']] ?? null], $templates);

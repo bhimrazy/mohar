@@ -1,0 +1,8 @@
+{
+    "id": "acct_1MoharAccount01",
+    "object": "account",
+    "business_profile": { "name": "Example Hosting" },
+    "charges_enabled": true,
+    "country": "US",
+    "default_currency": "usd"
+}

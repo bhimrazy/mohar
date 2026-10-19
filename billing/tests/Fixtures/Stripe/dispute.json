@@ -1,0 +1,23 @@
+{
+    "id": "du_1MoharDispute0001",
+    "object": "dispute",
+    "amount": 2500,
+    "charge": "ch_3MoharCharge0001",
+    "created": 1792300200,
+    "currency": "usd",
+    "livemode": false,
+    "metadata": {},
+    "payment_intent": {
+        "id": "pi_3MoharIntent0001",
+        "object": "payment_intent",
+        "amount": 2500,
+        "currency": "usd",
+        "metadata": {
+            "mohar_reference": "reference",
+            "mohar_invoice_id": "1"
+        },
+        "status": "succeeded"
+    },
+    "reason": "fraudulent",
+    "status": "needs_response"
+}
