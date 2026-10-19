@@ -1,0 +1,36 @@
+# Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container.
+# Certificates are automatic (Let's Encrypt, ZeroSSL fallback) for a public APP_DOMAIN; `localhost` and
+# *.internal names get a certificate from Caddy's internal CA, which the deploy smoke test uses.
+# Security headers (CSP, HSTS, ...) come from the app, so none are added here.
+{
+	# The admin API listens inside this container only; it is what a graceful `caddy reload` talks to.
+	admin localhost:2019
+	# Optional global options from deploy/.env, e.g. CADDY_GLOBAL_OPTIONS="email ops@example.com" for ACME notices.
+	{$CADDY_GLOBAL_OPTIONS:}
+	servers {
+		# HTTP/3 needs 443/udp published (compose.prod.yaml does).
+		protocols h1 h2 h3
+	}
+}
+
+{$APP_DOMAIN} {
+	# Empty by default; `tls internal` forces the internal CA for a non-public test name.
+	{$CADDY_TLS:}
+
+	reverse_proxy app:8080 {
+		# Caddy ignores X-Forwarded-* sent by clients and sets its own: the app trusts only this proxy's network
+		# (TRUSTED_PROXIES), so a client cannot spoof its IP or scheme.
+		health_uri /up
+		health_interval 10s
+		health_headers {
+			Host {$APP_DOMAIN}
+		}
+		# A restarting app container is retried for a few seconds instead of answering 502 at once.
+		lb_try_duration 5s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
