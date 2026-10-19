@@ -72,3 +72,69 @@ test('trusting a certificate needs a recent password and the sensitive server pe
     $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertForbidden();
     expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull();
 });
+
+test('a refused trust shows its reason on the server form after the redirect', function () {
+    actingAsStaff();
+    confirmPassword();
+
+    $this->from(route('admin.services.servers.edit', $this->server))
+        ->followingRedirects()
+        ->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])
+        ->assertInertia(fn ($page) => $page->component('admin/services/servers/form')->where('errors.fingerprint', fn (string $error) => str_contains($error, 'run Test connection again')));
+});
+
+test('a test connection that throws shows its error on the server form', function () {
+    actingAsStaff();
+    confirmPassword();
+    app()->instance(CertificateInspector::class, new class extends CertificateInspector
+    {
+        public function inspect(ResolvedAddress $address, string $serverName, int $timeoutSeconds = 10): ?array
+        {
+            throw new RuntimeException('inspector exploded');
+        }
+    });
+
+    $this->followingRedirects()
+        ->post(route('admin.services.servers.test', $this->server))
+        ->assertInertia(fn ($page) => $page->component('admin/services/servers/form')->where('errors.server', fn (string $error) => str_contains($error, 'Connection to '.Whm::HOST.' failed')));
+});
+
+test('an offered certificate is dropped when the server address is edited', function () {
+    actingAsStaff();
+    confirmPassword();
+    $this->post(route('admin.services.servers.test', $this->server));
+    $this->server->update(['hostname' => 'whm2.example.test']);
+
+    $this->post(route('admin.services.servers.trust-certificate', $this->server), ['fingerprint' => PRESENTED_PIN])->assertSessionHasErrors('fingerprint');
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull();
+});
+
+test('a trusted certificate is removed with a recent password and the explicit permission, and audited', function () {
+    $this->server->update(['settings' => ['spki_pin' => PRESENTED_PIN]]);
+
+    actingAsStaff();
+    $this->delete(route('admin.services.servers.forget-certificate', $this->server))->assertRedirect();
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBe(PRESENTED_PIN);
+
+    actingAsStaff(['services.*']);
+    confirmPassword();
+    $this->delete(route('admin.services.servers.forget-certificate', $this->server))->assertForbidden();
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBe(PRESENTED_PIN);
+
+    actingAsStaff();
+    $this->delete(route('admin.services.servers.forget-certificate', $this->server))->assertRedirect(route('admin.services.servers.edit', $this->server));
+    expect($this->server->refresh()->settings['spki_pin'] ?? null)->toBeNull()
+        ->and(ActivityLog::query()->where('subject_id', $this->server->id)->latest('id')->first()?->properties['reason'] ?? null)->toBe('Removed the trusted certificate');
+});
+
+test('the server form shows only the connection fields the driver reads', function () {
+    actingAsStaff();
+
+    $this->get(route('admin.services.servers.edit', $this->server))
+        ->assertInertia(fn ($page) => $page
+            ->where('driverConnectionFields.cpanel.api_token', ['login_method' => 'token'])
+            ->where('driverConnectionFields.cpanel.password', ['login_method' => 'password'])
+            ->missing('driverConnectionFields.cpanel.secure')
+            ->missing('driverConnectionFields.cpanel.access_hash')
+            ->where('driverConnectionFields.none', null));
+});

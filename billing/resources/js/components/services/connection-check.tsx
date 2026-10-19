@@ -1,7 +1,9 @@
 import { usePage } from '@inertiajs/react';
 import {
     AlertTriangle,
+    Check,
     CheckCircle2,
+    Copy,
     ShieldCheck,
     XCircle,
 } from 'lucide-react';
@@ -9,8 +11,8 @@ import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';
 import { SectionCard } from '@/components/app/section-card';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { useClipboard } from '@/hooks/use-clipboard';
 import { cn } from '@/lib/utils';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
 
@@ -41,6 +43,38 @@ const statusIcon = {
     fail: { icon: XCircle, className: 'text-danger-text', label: 'Failed' },
 } as const;
 
+const fingerprintCommand =
+    'openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | base64';
+
+/** A value staff compare or paste elsewhere: monospace, never wrapped mid-word, with a copy button. */
+export function CopyableCode({
+    value,
+    label,
+}: {
+    value: string;
+    label: string;
+}) {
+    const [copied, copy] = useClipboard();
+
+    return (
+        <div className="flex items-start gap-2 rounded-md border bg-muted/50 p-2">
+            <code className="min-w-0 flex-1 overflow-x-auto font-mono text-xs whitespace-pre">
+                {value}
+            </code>
+            <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                aria-label={`Copy ${label}`}
+                onClick={() => copy(value)}
+            >
+                {copied === value ? <Check /> : <Copy />}
+            </Button>
+        </div>
+    );
+}
+
 /** The checklist "Test connection" flashes, with "Trust this certificate" when the server offered one. */
 export function ConnectionCheck({
     serverId,
@@ -51,7 +85,6 @@ export function ConnectionCheck({
 }) {
     const page = usePage();
     const flash = page.flash as { connectionCheck?: ConnectionCheckFlash };
-    const errors = page.props.errors as Record<string, string>;
     const check = flash?.connectionCheck;
 
     if (!check) {
@@ -59,8 +92,9 @@ export function ConnectionCheck({
     }
 
     const fingerprint = check.details.certificate_spki_sha256;
+    // Name servers already appear in their own checklist step.
     const facts = [
-        { label: 'WHM version', value: check.details.version },
+        { label: 'Version', value: check.details.version },
         { label: 'Access', value: check.details.account_kind },
         {
             label: 'Token expires',
@@ -68,7 +102,6 @@ export function ConnectionCheck({
                 <DateTime value={check.details.token_expires_at} />
             ),
         },
-        { label: 'Name servers', value: check.details.nameservers },
     ].filter((item) => item.value);
 
     return (
@@ -148,33 +181,25 @@ export function ConnectionCheck({
                                     />
                                 ),
                             },
-                            {
-                                label: 'Public key fingerprint (SPKI SHA-256)',
-                                value: (
-                                    <code className="font-mono text-xs break-all">
-                                        {fingerprint}
-                                    </code>
-                                ),
-                                full: true,
-                            },
                         ]}
                     />
-                    <p className="text-sm text-muted-foreground">
-                        Compare the fingerprint with the server's own before
-                        trusting it, for example on the server:{' '}
-                        <code className="font-mono text-xs break-all">
-                            openssl x509 -in cert.pem -pubkey -noout | openssl
-                            pkey -pubin -outform der | openssl dgst -sha256
-                            -binary | base64
-                        </code>
-                    </p>
-                    {errors.fingerprint && (
-                        <Alert variant="destructive">
-                            <AlertDescription>
-                                {errors.fingerprint}
-                            </AlertDescription>
-                        </Alert>
-                    )}
+                    <div className="flex flex-col gap-1.5">
+                        <span className="text-sm font-medium">
+                            Public key fingerprint (SPKI SHA-256)
+                        </span>
+                        <CopyableCode value={fingerprint} label="fingerprint" />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <span className="text-sm text-muted-foreground">
+                            Compare it with the fingerprint on the server
+                            itself. On the server, run this against its
+                            certificate file:
+                        </span>
+                        <CopyableCode
+                            value={fingerprintCommand}
+                            label="command"
+                        />
+                    </div>
                     {check.can_trust ? (
                         <ConfirmDialog
                             trigger={
@@ -187,18 +212,26 @@ export function ConnectionCheck({
                             }
                             title={`Trust this certificate for ${serverName}?`}
                             description={
-                                <>
-                                    Calls to {serverName} will accept only the
-                                    key with fingerprint{' '}
-                                    <code className="font-mono text-xs break-all">
+                                <span className="flex flex-col gap-3">
+                                    <span>
+                                        Only trust this if it matches the
+                                        fingerprint on your server. A wrong key
+                                        lets someone intercept this server's
+                                        credentials.
+                                    </span>
+                                    <code className="block overflow-x-auto rounded-md border bg-muted/50 p-2 font-mono text-xs whitespace-pre">
                                         {fingerprint}
                                     </code>
-                                    , instead of checking the certificate
-                                    authority and hostname. If the server's key
-                                    changes, every call is refused until you
-                                    trust the new one. The change is recorded in
-                                    the activity log.
-                                </>
+                                    <span>
+                                        From then on, calls accept only this key
+                                        instead of checking the certificate
+                                        authority and hostname, and are refused
+                                        if the key changes. To undo it, use
+                                        Remove next to the trusted certificate
+                                        in the driver settings below. The change
+                                        is recorded in the activity log.
+                                    </span>
+                                </span>
                             }
                             confirmLabel="Trust certificate"
                             destructive={false}

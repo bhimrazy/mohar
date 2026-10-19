@@ -94,7 +94,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
     protected function schedule(Schedule $schedule): void
     {
         // Unknown outcomes (a create that timed out) settle themselves when the server shows the command ran.
-        $schedule->command('services:verify-unknown')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+        $schedule->command('services:verify-unknown')->everyFiveMinutes()->withoutOverlapping(15)->onOneServer();
     }
 
     private function registerAutomation(): void

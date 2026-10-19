@@ -1,4 +1,4 @@
-import { Link, router, useForm } from '@inertiajs/react';
+import { Link, router, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import type { FormEvent } from 'react';
 import { Field } from '@/components/app/field';
@@ -7,7 +7,13 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { SettingFieldInput } from '@/components/app/setting-field';
-import { ConnectionCheck } from '@/components/services/connection-check';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
+import { SwitchField } from '@/components/app/switch-field';
+import {
+    ConnectionCheck,
+    CopyableCode,
+} from '@/components/services/connection-check';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import type { SettingFieldData } from '@/components/app/setting-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,7 +25,6 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
-import { Switch } from '@/components/ui/switch';
 import { fromMinor, toMinor } from '@/lib/money';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
 import type { SelectOption } from '@/types/app';
@@ -30,10 +35,21 @@ type Props = {
     drivers: SelectOption[];
     /** Each driver's server settings beyond hostname and credentials. */
     driverFields: Record<string, SettingFieldData[]>;
+    /**
+     * The shared connection fields each driver reads, with the driver settings each depends on (setting => value);
+     * null: all of them.
+     */
+    driverConnectionFields: Record<
+        string,
+        Record<string, Record<string, string>> | null
+    >;
     currencies: string[];
 };
 
 /** Non-secret defaults of a driver's server settings, so the values the form shows are the values it submits. */
+/** The server setting that holds a trusted certificate; set only by "Trust this certificate", removed with Remove. */
+const PIN_SETTING = 'spki_pin';
+
 const defaultsFor = (fields: SettingFieldData[] = []): Record<string, string> =>
     Object.fromEntries(
         fields
@@ -52,6 +68,7 @@ export default function ServerForm({
     server,
     drivers,
     driverFields,
+    driverConnectionFields,
     currencies,
 }: Props) {
     const form = useForm({
@@ -111,6 +128,39 @@ export default function ServerForm({
         'aria-describedby': `${name}-description`,
     });
 
+    /** Whether the selected driver reads a shared connection field, given its current settings. */
+    const shows = (key: string): boolean => {
+        const fields = driverConnectionFields[data.driver];
+
+        if (!fields) {
+            return true;
+        }
+
+        const conditions = fields[key];
+
+        return (
+            conditions !== undefined &&
+            Object.entries(conditions).every(
+                ([setting, value]) => (data.settings[setting] ?? '') === value,
+            )
+        );
+    };
+    const errorsByKey = errors as Record<string, string>;
+    // Test connection and Trust redirect here with page errors (not this form's); the checklist, when flashed, already
+    // shows a failed test.
+    const page = usePage();
+    const pageErrors = page.props.errors as Record<string, string>;
+    const flashedCheck = Boolean(
+        (page.flash as { connectionCheck?: unknown }).connectionCheck,
+    );
+    const pageError =
+        pageErrors.fingerprint ??
+        (flashedCheck ? undefined : pageErrors.server);
+    const storedPin =
+        server?.driver === data.driver
+            ? server.settings.values[PIN_SETTING]
+            : undefined;
+
     const secretHint = (has: boolean | undefined) =>
         has ? 'Stored encrypted. Leave blank to keep it.' : undefined;
 
@@ -138,6 +188,12 @@ export default function ServerForm({
                         )
                     }
                 />
+
+                {pageError && (
+                    <Alert variant="destructive">
+                        <AlertDescription>{pageError}</AlertDescription>
+                    </Alert>
+                )}
 
                 {server && (
                     <ConnectionCheck
@@ -260,113 +316,112 @@ export default function ServerForm({
                                     </SelectContent>
                                 </Select>
                             </Field>
-                            <Field
-                                htmlFor="port"
-                                label="Port"
-                                optional
-                                hint="Blank uses the driver default."
-                                error={errors.port}
-                            >
-                                <Input
-                                    {...text('port')}
-                                    type="number"
-                                    min={1}
-                                    max={65535}
-                                />
-                            </Field>
-                            <Field
-                                htmlFor="username"
-                                label="Username"
-                                optional
-                                error={errors.username}
-                            >
-                                <Input
-                                    {...text('username')}
-                                    autoComplete="off"
-                                />
-                            </Field>
-                            <Field
-                                htmlFor="password"
-                                label="Password"
-                                optional
-                                hint={secretHint(server?.has_password)}
-                                error={errors.password}
-                            >
-                                <Input
-                                    {...text('password')}
-                                    type="password"
-                                    autoComplete="new-password"
-                                />
-                            </Field>
-                            <Field
-                                htmlFor="api_token"
-                                label="API token"
-                                optional
-                                hint={secretHint(server?.has_api_token)}
-                                error={errors.api_token}
-                            >
-                                <Input
-                                    {...text('api_token')}
-                                    type="password"
-                                    autoComplete="off"
-                                />
-                            </Field>
-                            <Field
-                                htmlFor="access_hash"
-                                label="Access hash"
-                                optional
-                                hint={secretHint(server?.has_access_hash)}
-                                error={errors.access_hash}
-                            >
-                                <Input
-                                    {...text('access_hash')}
-                                    type="password"
-                                    autoComplete="off"
-                                />
-                            </Field>
-                            {(
-                                [
-                                    [
-                                        'secure',
-                                        'Use TLS',
-                                        'Connect over HTTPS / TLS.',
-                                    ],
-                                    [
-                                        'is_active',
-                                        'Active',
-                                        'Inactive servers are never picked for new accounts.',
-                                    ],
-                                    [
-                                        'is_default',
-                                        'Default for this driver',
-                                        'Used by products without a server group.',
-                                    ],
-                                ] as const
-                            ).map(([key, title, description]) => (
-                                <div
-                                    key={key}
-                                    className="flex items-center justify-between gap-4 rounded-lg border p-3 sm:col-span-2"
+                            {shows('port') && (
+                                <Field
+                                    htmlFor="port"
+                                    label="Port"
+                                    optional
+                                    hint="Blank uses the driver default."
+                                    error={errors.port}
                                 >
-                                    <div className="space-y-0.5">
-                                        <label
-                                            htmlFor={key}
-                                            className="text-sm font-medium"
-                                        >
-                                            {title}
-                                        </label>
-                                        <p className="text-sm text-muted-foreground">
-                                            {description}
-                                        </p>
-                                    </div>
-                                    <Switch
-                                        id={key}
-                                        checked={data[key]}
-                                        onCheckedChange={(checked) =>
-                                            setData(key, checked)
-                                        }
+                                    <Input
+                                        {...text('port')}
+                                        type="number"
+                                        min={1}
+                                        max={65535}
                                     />
-                                </div>
-                            ))}
+                                </Field>
+                            )}
+                            {shows('username') && (
+                                <Field
+                                    htmlFor="username"
+                                    label="Username"
+                                    optional
+                                    error={errors.username}
+                                >
+                                    <Input
+                                        {...text('username')}
+                                        autoComplete="off"
+                                    />
+                                </Field>
+                            )}
+                            {shows('password') && (
+                                <Field
+                                    htmlFor="password"
+                                    label="Password"
+                                    optional
+                                    hint={secretHint(server?.has_password)}
+                                    error={errors.password}
+                                >
+                                    <Input
+                                        {...text('password')}
+                                        type="password"
+                                        autoComplete="new-password"
+                                    />
+                                </Field>
+                            )}
+                            {shows('api_token') && (
+                                <Field
+                                    htmlFor="api_token"
+                                    label="API token"
+                                    optional
+                                    hint={secretHint(server?.has_api_token)}
+                                    error={errors.api_token}
+                                >
+                                    <Input
+                                        {...text('api_token')}
+                                        type="password"
+                                        autoComplete="off"
+                                    />
+                                </Field>
+                            )}
+                            {shows('access_hash') && (
+                                <Field
+                                    htmlFor="access_hash"
+                                    label="Access hash"
+                                    optional
+                                    hint={secretHint(server?.has_access_hash)}
+                                    error={errors.access_hash}
+                                >
+                                    <Input
+                                        {...text('access_hash')}
+                                        type="password"
+                                        autoComplete="off"
+                                    />
+                                </Field>
+                            )}
+                            {shows('secure') && (
+                                <SwitchField
+                                    id="secure"
+                                    className="sm:col-span-2"
+                                    label="Use TLS"
+                                    description="Connect over HTTPS / TLS."
+                                    checked={data.secure}
+                                    onCheckedChange={(checked) =>
+                                        setData('secure', checked)
+                                    }
+                                />
+                            )}
+                            <SwitchField
+                                id="is_active"
+                                className="sm:col-span-2"
+                                label="Active"
+                                description="Inactive servers are never picked for new accounts."
+                                checked={data.is_active}
+                                onCheckedChange={(checked) =>
+                                    setData('is_active', checked)
+                                }
+                            />
+                            <SwitchField
+                                id="is_default"
+                                className="sm:col-span-2"
+                                label="Default for this driver"
+                                description="Used by products without a server group."
+                                checked={data.is_default}
+                                onCheckedChange={(checked) =>
+                                    setData('is_default', checked)
+                                }
+                            />
                         </div>
                     </SectionCard>
 
@@ -377,37 +432,75 @@ export default function ServerForm({
                         >
                             <div className="grid items-start gap-6 sm:grid-cols-2">
                                 {(driverFields[data.driver] ?? []).map(
-                                    (field) => (
-                                        <SettingFieldInput
-                                            key={field.key}
-                                            id={`settings-${field.key}`}
-                                            field={field}
-                                            value={
-                                                data.settings[field.key] ?? ''
-                                            }
-                                            onChange={(value) =>
-                                                setData('settings', {
-                                                    ...data.settings,
-                                                    [field.key]: value,
-                                                })
-                                            }
-                                            secretStored={
-                                                server?.driver ===
-                                                    data.driver &&
-                                                server.settings.secrets_set[
-                                                    field.key
-                                                ]
-                                            }
-                                            error={
-                                                (
-                                                    errors as Record<
-                                                        string,
-                                                        string
-                                                    >
-                                                )[`settings.${field.key}`]
-                                            }
-                                        />
-                                    ),
+                                    (field) => {
+                                        const setValue = (value: string) =>
+                                            setData('settings', {
+                                                ...data.settings,
+                                                [field.key]: value,
+                                            });
+
+                                        if (field.key === PIN_SETTING) {
+                                            return (
+                                                <TrustedCertificate
+                                                    key={field.key}
+                                                    serverId={server?.id}
+                                                    label={field.label}
+                                                    pin={storedPin}
+                                                />
+                                            );
+                                        }
+
+                                        if (field.type === 'boolean') {
+                                            return (
+                                                <SwitchField
+                                                    key={field.key}
+                                                    id={`settings-${field.key}`}
+                                                    className="sm:col-span-2"
+                                                    label={field.label}
+                                                    description={
+                                                        field.help ?? undefined
+                                                    }
+                                                    checked={
+                                                        (data.settings[
+                                                            field.key
+                                                        ] ?? '') === '1'
+                                                    }
+                                                    onCheckedChange={(
+                                                        checked,
+                                                    ) =>
+                                                        setValue(
+                                                            checked ? '1' : '0',
+                                                        )
+                                                    }
+                                                />
+                                            );
+                                        }
+
+                                        return (
+                                            <SettingFieldInput
+                                                key={field.key}
+                                                id={`settings-${field.key}`}
+                                                field={field}
+                                                value={
+                                                    data.settings[field.key] ??
+                                                    ''
+                                                }
+                                                onChange={setValue}
+                                                secretStored={
+                                                    server?.driver ===
+                                                        data.driver &&
+                                                    server.settings.secrets_set[
+                                                        field.key
+                                                    ]
+                                                }
+                                                error={
+                                                    errorsByKey[
+                                                        `settings.${field.key}`
+                                                    ]
+                                                }
+                                            />
+                                        );
+                                    },
                                 )}
                             </div>
                         </SectionCard>
@@ -485,5 +578,53 @@ export default function ServerForm({
                 </form>
             </Page>
         </>
+    );
+}
+
+/** A trusted certificate is never typed: it is shown read-only, set by "Trust this certificate" and removed here. */
+function TrustedCertificate({
+    serverId,
+    label,
+    pin,
+}: {
+    serverId?: number;
+    label: string;
+    pin?: string;
+}) {
+    return (
+        <div className="flex flex-col gap-2 sm:col-span-2">
+            <span className="text-sm font-medium">{label}</span>
+            {pin && serverId ? (
+                <>
+                    <CopyableCode value={pin} label="trusted fingerprint" />
+                    <p className="text-sm text-muted-foreground">
+                        Calls accept only this key instead of checking the
+                        certificate authority and hostname.
+                    </p>
+                    <ConfirmDialog
+                        trigger={
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="self-start"
+                            >
+                                Remove
+                            </Button>
+                        }
+                        title="Remove the trusted certificate?"
+                        description="Calls go back to checking the server's certificate against its authority and hostname. A self-signed server then fails until you trust its certificate again. The change is recorded in the activity log."
+                        confirmLabel="Remove trusted certificate"
+                        action={ServerController.forgetCertificate(serverId)}
+                    />
+                </>
+            ) : (
+                <p className="text-sm text-muted-foreground">
+                    None. The certificate is checked against its authority and
+                    the hostname. A self-signed server can be trusted from Test
+                    connection.
+                </p>
+            )}
+        </div>
     );
 }

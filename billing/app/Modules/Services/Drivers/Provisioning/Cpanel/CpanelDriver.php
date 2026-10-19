@@ -151,6 +151,13 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                 reservedNames: self::RESERVED_NAMES,
             ),
             refusedPorts: WhmClient::refusedPorts(),
+            // Always TLS, and no access hash (deprecated by cPanel): the form shows only what this driver reads.
+            connectionFields: [
+                'port' => [],
+                'username' => [],
+                'api_token' => ['login_method' => WhmClient::LOGIN_TOKEN],
+                'password' => ['login_method' => WhmClient::LOGIN_PASSWORD],
+            ],
         );
     }
 
@@ -490,7 +497,12 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                     $details["certificate_{$key}"] = $value;
                 }
 
-                $steps[] = new ConnectionCheckStep('Address and certificate', CheckStatus::Fail, $failure->getMessage().($certificate === null ? ' The certificate could not be read.' : ''));
+                $detail = match (true) {
+                    $certificate === null => $failure->getMessage().' The certificate could not be read.',
+                    $failure->kind === WhmFailure::PIN => 'The server\'s certificate changed: it no longer matches the trusted one. Check the new fingerprint below, then trust it.',
+                    default => "The certificate {$client->host()} presented is not trusted (self-signed, expired or issued for another name). Check the fingerprint below, then trust it.",
+                };
+                $steps[] = new ConnectionCheckStep('Address and certificate', CheckStatus::Fail, $detail);
 
                 return $this->check($steps, $details);
             }

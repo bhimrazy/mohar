@@ -20,6 +20,7 @@ Route::adminArea(function (): void {
             Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
             Route::post('servers/{server}/trust-certificate', [ServerController::class, 'trustCertificate'])->name('servers.trust-certificate');
+            Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
         });
         Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
 
@@ -31,7 +32,7 @@ Route::adminArea(function (): void {
         Route::post('module-log/queue/{item}/retry', [ModuleLogController::class, 'retry'])->name('module-log.retry');
         Route::post('module-log/queue/{item}/resolve', [ModuleLogController::class, 'resolve'])->name('module-log.resolve');
         Route::post('module-log/queue/{item}/dismiss', [ModuleLogController::class, 'dismiss'])->name('module-log.dismiss');
-        Route::post('module-log/queue/{item}/check', [ModuleLogController::class, 'check'])->name('module-log.check');
+        Route::post('module-log/queue/{item}/check', [ModuleLogController::class, 'check'])->middleware('throttle:6,1')->name('module-log.check');
 
         Route::prefix('{service}')->whereNumber('service')->name('services.')->group(function (): void {
             Route::get('/', [ServiceController::class, 'show'])->name('show');

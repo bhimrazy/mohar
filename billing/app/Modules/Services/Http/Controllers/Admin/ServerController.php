@@ -73,6 +73,8 @@ class ServerController extends Controller
     public function update(ServerRequest $request, Server $server, SaveServer $save): RedirectResponse
     {
         $save->handle($server, $request->serverData());
+        // A certificate offered by an earlier check belongs to the address that was checked, not to an edited one.
+        $request->session()->forget(self::offeredPinKey($server));
 
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Server :name updated.', ['name' => $server->name])]);
 
@@ -127,7 +129,7 @@ class ServerController extends Controller
             $offered = $check->details['certificate_spki_sha256'] ?? null;
 
             if (is_string($offered) && $settings->declares($server->driver, ServerSettings::CERTIFICATE_PIN)) {
-                $request->session()->put(self::offeredPinKey($server), $offered);
+                $request->session()->put(self::offeredPinKey($server), ['fingerprint' => $offered, 'address' => self::address($server)]);
             }
 
             Inertia::flash('connectionCheck', [
@@ -170,14 +172,39 @@ class ServerController extends Controller
             throw ValidationException::withMessages(['fingerprint' => __('This server\'s driver does not support trusted certificates.')]);
         }
 
-        if (! is_string($offered) || ! hash_equals($offered, $fingerprint)) {
-            throw ValidationException::withMessages(['fingerprint' => __('Run Test connection again and trust the certificate it shows.')]);
+        // Only the fingerprint this session's last check of this exact address showed, and only once.
+        if (! is_array($offered) || ! is_string($offered['fingerprint'] ?? null) || ($offered['address'] ?? null) !== self::address($server) || ! hash_equals($offered['fingerprint'], $fingerprint)) {
+            throw ValidationException::withMessages(['fingerprint' => __('The certificate could not be trusted: run Test connection again and trust the certificate it shows.')]);
         }
 
         $settings->put($server, ServerSettings::CERTIFICATE_PIN, $fingerprint, __('Trusted the certificate shown by Test connection'));
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Certificate trusted for :name. Test the connection again to confirm.', ['name' => $server->name])]);
 
         return to_route('admin.services.servers.edit', $server);
+    }
+
+    /**
+     * "Remove" on a trusted certificate: calls go back to checking the certificate authority and hostname. Audited.
+     */
+    public function forgetCertificate(Server $server, ServerSettings $settings): RedirectResponse
+    {
+        $this->authorize('services.servers.manage');
+
+        if ($settings->declares($server->driver, ServerSettings::CERTIFICATE_PIN)) {
+            $settings->put($server, ServerSettings::CERTIFICATE_PIN, null, __('Removed the trusted certificate'));
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Trusted certificate removed for :name; its certificate is checked against its authority again.', ['name' => $server->name])]);
+
+        return to_route('admin.services.servers.edit', $server);
+    }
+
+    /**
+     * The address a check ran against; an offered certificate is valid for this address only.
+     */
+    private static function address(Server $server): string
+    {
+        return strtolower($server->hostname).':'.($server->port ?? '').':'.($server->ip_address ?? '');
     }
 
     private static function offeredPinKey(Server $server): string
@@ -192,6 +219,10 @@ class ServerController extends Controller
     {
         return [
             'drivers' => $this->driverOptions($drivers),
+            'driverConnectionFields' => array_combine($drivers->keys(), array_map(
+                fn (string $key): ?array => $drivers->metadata($key)->connectionFields,
+                $drivers->keys(),
+            )),
             'driverFields' => array_combine($drivers->keys(), array_map(
                 fn (string $key): array => array_map(fn (SettingField $field): array => $field->toArray(), $drivers->metadata($key)->serverFields),
                 $drivers->keys(),

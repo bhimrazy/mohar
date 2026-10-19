@@ -136,7 +136,11 @@ test('a retried create after an unknown outcome adopts the account that attempt 
     $item = ModuleQueueItem::query()->where('subject_id', $service->id)->sole();
 
     // The server check found nothing, so staff may create again; meanwhile the slow attempt's account appeared.
-    $item->update(['lookup_status' => ReconcileStatus::NotExecuted]);
+    $item->update([
+        'lookup_status' => ReconcileStatus::NotExecuted,
+        'looked_up_at' => now(),
+        'lookup_command_id' => ModuleCommand::query()->where('service_id', $service->id)->where('status', ModuleCommand::UNKNOWN)->value('id'),
+    ]);
     Whm::fake(['verify_new_username' => 'verify_new_username_taken', 'listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
     actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
     $this->post(route('admin.services.module-log.retry', $item))->assertSessionHasNoErrors();

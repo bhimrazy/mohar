@@ -14,6 +14,7 @@ use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
 use App\Modules\Services\Support\CommandOutcome;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -48,7 +49,15 @@ class ModuleLogController extends Controller
                 ->paginate(25)
                 ->withQueryString()) : null,
             'queue' => $tab === 'queue' ? ModuleQueueItem::query()
-                ->with('service')
+                ->with('service.server')
+                // When the command was last tried (its latest module log row), not when the entry was last touched.
+                ->addSelect(['attempted_at' => ModuleCommand::query()
+                    ->select('created_at')
+                    ->whereColumn('service_id', 'module_queue.subject_id')
+                    ->whereColumn('command', 'module_queue.command')
+                    ->orderByDesc('id')
+                    ->limit(1),
+                ])
                 ->where('status', QueueStatus::Open->value)
                 ->orderByDesc('updated_at')
                 ->orderByDesc('id')
@@ -64,6 +73,7 @@ class ModuleLogController extends Controller
                     'attempts' => $item->attempts,
                     'status' => $item->status->value,
                     'updated_at' => $item->updated_at?->toIso8601String(),
+                    'attempted_at' => $item->getAttribute('attempted_at') !== null ? CarbonImmutable::parse((string) $item->getAttribute('attempted_at'))->toIso8601String() : $item->updated_at?->toIso8601String(),
                     'can_check' => $verify->canCheck($item),
                     'lookup_status' => $item->lookup_status?->value,
                     'lookup_message' => $item->lookup_message,
@@ -107,35 +117,34 @@ class ModuleLogController extends Controller
     /**
      * "Check now": ask the server whether the command with the unknown outcome ran.
      */
-    public function check(ModuleQueueItem $item, VerifyUnknownOutcomes $verify): RedirectResponse
+    public function check(Request $request, ModuleQueueItem $item, VerifyUnknownOutcomes $verify): RedirectResponse
     {
         $this->authorize('services.module_log.manage');
 
-        $status = $verify->check($item);
+        $status = $verify->check($item, 'staff:'.$request->user()?->id);
 
         if ($status === null) {
-            throw ValidationException::withMessages(['action' => __('This entry cannot be checked on the server.')]);
+            throw ValidationException::withMessages(['action' => $item->refresh()->status === QueueStatus::Open
+                ? __('This entry cannot be checked on the server.')
+                : __('This entry was already settled.')]);
         }
 
-        Inertia::flash('toast', ['type' => $status === ReconcileStatus::Executed ? 'success' : 'info', 'message' => match ($status) {
-            ReconcileStatus::Executed => __('Confirmed on the server; the action is complete.'),
-            ReconcileStatus::NotExecuted => __('Not on the server: you can run the action again.'),
-            ReconcileStatus::InProgress => __('The server may still be working on it; check again in a few minutes.'),
-            ReconcileStatus::Conflict => __('The server holds a conflicting account; see the entry.'),
-            ReconcileStatus::Unknown => __('The server could not be checked; see the entry.'),
-        }]);
+        // The entry shows what the check found; the toast says it in one line.
+        Inertia::flash('toast', ['type' => $status === ReconcileStatus::Executed ? 'success' : 'info', 'message' => $status === ReconcileStatus::Executed
+            ? __('Confirmed on the server; the action is complete.')
+            : ($item->refresh()->lookup_message ?? __('Checked; see the entry.'))]);
 
         return back();
     }
 
     public function resolve(Request $request, ModuleQueueItem $item): RedirectResponse
     {
-        return $this->close($request, $item, QueueStatus::Resolved, __('Marked as resolved.'));
+        return $this->close($request, $item, QueueStatus::Resolved, __('Marked fixed.'));
     }
 
     public function dismiss(Request $request, ModuleQueueItem $item): RedirectResponse
     {
-        return $this->close($request, $item, QueueStatus::Dismissed, __('Dismissed.'));
+        return $this->close($request, $item, QueueStatus::Dismissed, __('Ignored; the entry is closed.'));
     }
 
     private function close(Request $request, ModuleQueueItem $item, QueueStatus $status, string $message): RedirectResponse

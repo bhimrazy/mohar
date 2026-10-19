@@ -128,7 +128,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   a command whose outcome was unknown ran, for the first hour after the attempt; staff can press "Check now" later.
   A command that ran completes as if it had answered; a conflict or an account still in progress stays on the
   failed-actions queue with what the check found. For a create, "Create again" is offered only once the check finds
-  no account. Works for any driver that can check its server (cPanel and the demo driver today).
+  no account. Works for any driver that can check its server (cPanel and the demo driver today). Each check answers
+  for one attempt: a new attempt needs a new check, "Create again" needs a check from the last 15 minutes, and a
+  service moved to another server or edited since the attempt is a conflict for staff. A check never settles an entry
+  that was settled, dismissed or retried meanwhile, and a busy service is skipped with a message. Check now is limited
+  to 6 a minute; "Mark resolved" and "Dismiss" are now "Mark fixed" and "Ignore".
+- The server form shows only the connection fields the driver reads (cPanel: port, username, and an API token or a
+  password per "Sign in with"). A trusted certificate is shown read-only with a Remove action (sensitive, recent
+  password, audited); trusting one shows the fingerprint to compare and a copyable command, and an offer is dropped
+  when the server's address is edited. Errors from Test connection and from trusting now show on the form.
 - Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
   in URLs.
 
