@@ -17,6 +17,8 @@ final readonly class DriverMetadata
      * @param  int|null  $commandTimeoutSeconds  the longest one command may take, HTTP included, when it needs more than
      *                                           the host default (services.module.job_timeout_seconds). The host caps it
      *                                           (services.module.max_job_timeout_seconds).
+     * @param  list<int>  $refusedPorts  ports a server of this driver may not use, such as the panel's plain-HTTP
+     *                                   ports; the server form refuses them
      */
     public function __construct(
         public bool $requiresServer,
@@ -26,5 +28,6 @@ final readonly class DriverMetadata
         public array $serverFields = [],
         public ?UsernamePolicy $usernamePolicy = null,
         public ?int $commandTimeoutSeconds = null,
+        public array $refusedPorts = [],
     ) {}
 }

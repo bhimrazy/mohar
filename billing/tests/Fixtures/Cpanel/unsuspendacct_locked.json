@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "The administrator locked this suspension; it cannot be lifted from this login.",
+        "command": "unsuspendacct",
+        "version": 1
+    }
+}

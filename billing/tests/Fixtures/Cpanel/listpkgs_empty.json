@@ -1,0 +1,11 @@
+{
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "listpkgs",
+        "version": 1
+    },
+    "data": {
+        "pkg": []
+    }
+}

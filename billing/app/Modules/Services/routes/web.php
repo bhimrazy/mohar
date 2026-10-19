@@ -18,7 +18,7 @@ Route::adminArea(function (): void {
         Route::resource('servers', ServerController::class)->only(['index', 'create', 'edit']);
         Route::middleware('password.recent')->group(function (): void {
             Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
-            Route::post('servers/{server}/test', [ServerController::class, 'test'])->name('servers.test');
+            Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
         });
         Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
 

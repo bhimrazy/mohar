@@ -19,6 +19,12 @@ use InvalidArgumentException;
  */
 class ServerSettings
 {
+    /**
+     * The server setting a driver declares when it can pin the server's certificate: an SPKI SHA-256, base64
+     * (optionally prefixed `sha256//`). Its format is checked on save.
+     */
+    public const CERTIFICATE_PIN = 'spki_pin';
+
     public function __construct(private ProvisioningDriverRegistry $drivers, private ActivityLogger $activity) {}
 
     /**
@@ -70,6 +76,7 @@ class ServerSettings
                 FieldType::Text, FieldType::SecretText => ['string', 'max:20000'],
                 default => ['string', 'max:2000'],
             },
+            ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=$#'] : []),
         ];
     }
 

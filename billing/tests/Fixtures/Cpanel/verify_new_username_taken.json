@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "The username “examples” is not available: an account already uses that name.",
+        "command": "verify_new_username",
+        "version": 1
+    }
+}

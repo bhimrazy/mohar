@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "Sorry, the username “example” is already taken by another account.",
+        "command": "createacct",
+        "version": 1
+    }
+}

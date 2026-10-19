@@ -21,6 +21,7 @@ use App\Modules\Services\Actions\PruneModuleLog;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Drivers\Provisioning\NoneDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -72,6 +73,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers = $this->app->make(ProvisioningDriverRegistry::class);
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
+        $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
