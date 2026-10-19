@@ -6,6 +6,7 @@ use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Mohar\Simulators\Contracts\RecordsLive;
 use Mohar\Simulators\Kernel\Recorder;
+use Mohar\Simulators\Kernel\RecordingScanner;
 use Mohar\Simulators\SimulatorRegistry;
 use Throwable;
 
@@ -24,11 +25,31 @@ final class RecordCommand extends SimulatorCommand
             return self::FAILURE;
         }
 
+        $directory = dirname(__DIR__, 2).'/'.$key.'/recordings';
+
         try {
-            $simulator->recordLive(new Recorder(dirname(__DIR__, 2).'/'.$key.'/recordings'));
+            $simulator->recordLive(new Recorder($directory));
         } catch (Throwable $exception) {
             $this->components->error($exception->getMessage());
 
+            return self::FAILURE;
+        }
+
+        // A recording that fails the secret scan is deleted, never left for a commit.
+        $scanner = new RecordingScanner;
+        $deleted = 0;
+
+        foreach (glob($directory.'/*.json') ?: [] as $file) {
+            $findings = $scanner->scanFile($file);
+
+            if ($findings !== []) {
+                unlink($file);
+                $deleted++;
+                $this->components->error(basename($file).' was deleted: '.implode('; ', $findings).'.');
+            }
+        }
+
+        if ($deleted > 0) {
             return self::FAILURE;
         }
 
