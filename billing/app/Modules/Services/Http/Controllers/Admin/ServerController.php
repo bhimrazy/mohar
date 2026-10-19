@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Contracts\Services\Provisioning\TestsServerConnection;
 use App\Data\Integrations\ConnectionCheckStep;
 use App\Data\Integrations\SettingField;
@@ -41,6 +42,9 @@ class ServerController extends Controller
             ]),
             'drivers' => $this->driverOptions($drivers),
             'canManage' => request()->user()?->hasPermission('services.servers.manage') ?? false,
+            'importDrivers' => request()->user()?->hasPermission('services.servers.import')
+                ? array_values(array_filter($drivers->keys(), fn (string $key): bool => $drivers->get($key) instanceof ListsAccounts))
+                : [],
         ]);
     }
 

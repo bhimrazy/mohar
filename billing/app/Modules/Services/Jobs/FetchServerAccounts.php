@@ -5,8 +5,6 @@ namespace App\Modules\Services\Jobs;
 use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Data\Services\Provisioning\RemoteAccount;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
-use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Modules\Services\Support\AccountImportMatcher;
@@ -80,24 +78,8 @@ class FetchServerAccounts implements ShouldQueue
             return;
         }
 
-        // The panel user the connection signs in as, exactly as the driver decides it (a cPanel server without a
-        // username signs in as root).
-        $connectionUser = $driver instanceof CpanelDriver ? WhmClient::connectionUser($connection) : $connection->username;
-        $matched = $matcher->classify($server, $accounts, $connectionUser);
-        $counts = array_count_values(array_column($matched['rows'], 'category'));
-
-        $import->update([
-            'status' => ServerAccountImport::READY,
-            'accounts' => $matched['rows'],
-            'account_count' => count($matched['rows']),
-            'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0,
-            'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
-            'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0,
-            'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
-            'missing' => $matched['missing'],
-            'fetched_at' => now(),
-        ]);
-        $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => count($matched['rows'])], actor: $import->requester);
+        $count = $matcher->store($import, $accounts, AccountImportMatcher::connectionUser($driver, $connection));
+        $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => $count], actor: $import->requester);
     }
 
     /**

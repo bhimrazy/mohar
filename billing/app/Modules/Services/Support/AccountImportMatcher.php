@@ -2,13 +2,20 @@
 
 namespace App\Modules\Services\Support;
 
+use App\Contracts\Services\Provisioning\ProvisioningDriver;
 use App\Data\Catalog\ProductSummary;
 use App\Data\Integrations\SettingField;
+use App\Data\Services\Provisioning\ServerConnection;
 use App\Enums\FieldType;
 use App\Modules\Core\Models\Client;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
+use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Services\ProvisioningSnapshots;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use stdClass;
@@ -35,7 +42,7 @@ class AccountImportMatcher
 
     public const RESELLER = 'reseller';
 
-    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
+    public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers, private ProvisioningSnapshots $snapshots) {}
 
     /**
      * Each account with category, client_id, product_id, service_id, note and differences, ready to store; and the ids
@@ -43,9 +50,10 @@ class AccountImportMatcher
      *
      * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
      * @param  string|null  $connectionUser  the panel user the connection signs in as (null: owners are not compared)
+     * @param  CarbonImmutable|null  $listedAt  when the server listed the accounts; services created later are not missing
      * @return array{rows: list<array<string, mixed>>, missing: list<int>}
      */
-    public function classify(Server $server, array $accounts, ?string $connectionUser): array
+    public function classify(Server $server, array $accounts, ?string $connectionUser, ?CarbonImmutable $listedAt = null): array
     {
         $services = $this->liveServices($server);
         $clients = $this->clientsByEmail(array_values(array_unique(array_filter(array_map(fn (array $account): ?string => $account['email'] ?? null, $accounts)))));
@@ -70,7 +78,7 @@ class AccountImportMatcher
             $otherOwner = $connectionUser !== null && $owner !== null && $owner !== $connectionUser;
             $notes = array_filter([
                 $otherOwner ? ($connectionUser === 'root'
-                    ? self::text('Owned by the reseller :owner; import the reseller\'s accounts from a connection signed in as :owner.', ['owner' => $owner])
+                    ? self::text('Owned by the reseller :owner; import the reseller first, then its accounts from a connection signed in as :owner.', ['owner' => $owner])
                     : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
                     $email === null => self::text('The server reports no valid contact email.'),
@@ -108,12 +116,61 @@ class AccountImportMatcher
         $missing = [];
 
         foreach ($services as $username => $service) {
-            if (! isset($reported[$username])) {
+            if (! isset($reported[$username]) && ($listedAt === null || CarbonImmutable::parse((string) $service->created_at)->lessThanOrEqualTo($listedAt))) {
                 $missing[] = (int) $service->id;
             }
         }
 
         return ['rows' => $rows, 'missing' => $missing];
+    }
+
+    /**
+     * Match the accounts and store them, with the counts, on a fetched import.
+     *
+     * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
+     * @return int the number of accounts stored
+     */
+    public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): int
+    {
+        $matched = $this->classify($import->server, $accounts, $connectionUser, $import->fetched_at);
+        $counts = array_count_values(array_column($matched['rows'], 'category'));
+
+        $import->update([
+            'status' => ServerAccountImport::READY,
+            'accounts' => $matched['rows'],
+            'account_count' => count($matched['rows']),
+            'proposed_count' => $counts[self::PROPOSED] ?? 0,
+            'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
+            'reseller_count' => $counts[self::RESELLER] ?? 0,
+            'linked_count' => $counts[self::LINKED] ?? 0,
+            'missing' => $matched['missing'],
+            'fetched_at' => $import->fetched_at ?? now(),
+        ]);
+
+        return count($matched['rows']);
+    }
+
+    /**
+     * "Match again": the stored accounts matched against today's clients, products and services, without asking the
+     * server again.
+     */
+    public function rematch(ServerAccountImport $import): void
+    {
+        $server = $import->server;
+        $driver = $this->drivers->get($server->driver);
+        $keys = array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences']);
+        $accounts = array_map(fn (array $row): array => array_diff_key($row, $keys), $import->accounts ?? []);
+
+        $this->store($import, $accounts, self::connectionUser($driver, $this->snapshots->connection($server)));
+    }
+
+    /**
+     * The panel user the connection signs in as, exactly as the driver decides it: a cPanel server without a username
+     * signs in as root.
+     */
+    public static function connectionUser(ProvisioningDriver $driver, ServerConnection $connection): ?string
+    {
+        return $driver instanceof CpanelDriver ? WhmClient::connectionUser($connection) : $connection->username;
     }
 
     /**
@@ -157,7 +214,7 @@ class AccountImportMatcher
             ->whereNull('deleted_at')
             ->whereNotNull('username')
             ->orderBy('id')
-            ->get(['id', 'product_id', 'status', 'domain', 'username', 'driver_data'])
+            ->get(['id', 'product_id', 'status', 'domain', 'username', 'driver_data', 'created_at'])
             ->keyBy(fn (stdClass $service): string => strtolower((string) $service->username));
     }
 
