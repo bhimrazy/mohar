@@ -8,6 +8,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
+  by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
+  encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new
+  sensitive permission `support.inbound_webhook.manage`, and a change needs a recent password. `support.*` no longer
+  reaches it; grant the permission explicitly to staff who manage the mail relay. After upgrading, enter a new secret
+  of at least 32 characters and set it on the relay: mail signed with the old one stops being accepted.
+- **Changing where a server connects clears its stored credentials.** A new hostname, IP address, port, TLS setting
+  or driver needs the API token or password entered again in the same save; the stored ones and any trusted
+  certificate are removed, and the move is recorded in the activity log as "Server connection address changed".
+  Server audit entries now read "Server settings changed", with the server name in the properties.
+- **Registration and password reset are rate-limited.** `POST /register`: 10 an hour per IP and 5 an hour per email
+  address. `POST /reset-password`: 5 a minute per IP (no per-address limit, so failures from elsewhere cannot block
+  a valid link). Over the limit the answer is 429.
+- **More step-up confirmations.** Creating, editing and deleting server groups, capturing an authorised invoice
+  charge, and saving or testing a registrar now need a recent password. `domains.registrars.manage` is sensitive:
+  wildcards such as `domains.*` no longer grant it, so grant it explicitly. Registrar tests allow 6 a minute.
+  Sensitive settings sections ask for the password before they validate the form, like every other step-up route.
+- **Clients can change a hosting password 6 times a minute.**
+- **Webhook deliveries ignore `HTTPS_PROXY`.** They connect directly to the vetted address, and also refuse the
+  addresses the kernel outbound guard refuses (documentation, tunnelled and non-canonical forms). In local
+  development a loopback receiver needs `OUTBOUND_ALLOW_LOOPBACK=true` (the default when `APP_ENV=local`).
+- **New installs encrypt sessions** (`SESSION_ENCRYPT=true` in `.env.example`). Existing installs keep their
+  setting; turning it on signs everyone out once.
 - **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
   server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
@@ -496,6 +519,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- Security review 2026-10-19 fixes: the inbound email webhook secret is encrypted at rest, never sent to the browser,
+  masked in the audit log and behind a sensitive permission; stored server credentials are never sent to a host
+  other than the one they were saved for, and the server form warns before an address change removes them;
+  registration, password reset and client hosting-password changes are throttled; a failed password reset shows
+  the same message whether or not the address has an account; webhook deliveries are pinned through the kernel
+  outbound guard. Two tests now guard every future change: one fails when a route behind a sensitive permission
+  lacks step-up, the other when a credential-like setting is not a secret.
 - Password-reset and verification links no longer take their host from the request. Outside `local`, every generated
   URL, including queued mail, uses `APP_URL`, and production rejects requests for foreign hosts with 400.
 

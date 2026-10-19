@@ -22,9 +22,11 @@ Route::adminArea(function (): void {
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
             Route::post('servers/{server}/trust-certificate', [ServerController::class, 'trustCertificate'])->name('servers.trust-certificate');
             Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
+            // Group membership decides where new accounts are provisioned, so it is guarded like the servers.
+            Route::resource('server-groups', ServerGroupController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
         });
-        Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
+        Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);
 
         Route::get('cancellations', [CancellationRequestController::class, 'index'])->name('cancellations.index');
         Route::post('cancellations/{cancellationRequest}/approve', [CancellationRequestController::class, 'approve'])->name('cancellations.approve');
@@ -57,6 +59,7 @@ Route::clientArea(function (): void {
         Route::get('{service}', [ClientServiceController::class, 'show'])->whereNumber('service')->name('show');
         Route::post('{service}/cancel', [ClientServiceActionController::class, 'cancel'])->whereNumber('service')->name('cancel');
         Route::post('{service}/change', [ClientServiceActionController::class, 'change'])->whereNumber('service')->name('change');
-        Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->name('password');
+        // Each change is a synchronous call to the shared panel server (security review 2026-10-19, L3).
+        Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->middleware('throttle:6,1')->name('password');
     });
 });
