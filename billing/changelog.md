@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **One step-up window.** `password.recent` (sensitive actions) and the `password.confirm` pages now share
+  `auth.password_timeout` (`AUTH_PASSWORD_TIMEOUT`), default 900 seconds. The `password.confirm` pages (for example
+  two-factor settings) used to allow three hours. `platform.password_confirmation_seconds` is gone; set
+  `AUTH_PASSWORD_TIMEOUT` instead.
+- **`users.password` is nullable.** A migration allows client logins without a password, for sign-in providers. No
+  existing row changes. Staff logins always need a password. On SQLite the migration rebuilds `users` and recreates its
+  `lower(email)` index.
+- **New setting: Settings → Client sign-up → "Let visitors create a client account"** (`security.client_signup_enabled`,
+  default on). Off closes the sign-up page and refuses `POST /register`. Customers can still create an account when
+  they place an order.
+
 - **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
   server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
@@ -461,6 +472,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `db:seed --force` in production installs reference data and skips demo data. Guide: `docs/devops/install.md`.
 
 ### Shared kernel
+
+- Sign-in methods and step-up (ADR 0018, closes #81):
+    - `password.recent` is one kernel middleware (`App\Http\Middleware\RequireRecentPasswordConfirmation`), so
+      sensitive routes resolve whichever modules are installed. A login without a password gets a `password_setup`
+      error to offer "Set a password". A test boots each module alone and checks every route resolves.
+    - `SignInMethods` registry and `SignInMethod` data for the login and sign-up pages; `SignInGate` (Platform applies
+      the disabled-login, closed-account and lockout rules; Core allows all); `CompleteSignIn`, the one way to finish a
+      sign-in outside Fortify, which hands 2FA logins to Fortify's challenge; `SignInMethodCounter` for the
+      last-way-to-sign-in rule.
+    - `User::hasPassword()`. The shared `auth` props carry `has_password` and `signup_open`.
+    - Core's `RegisterClientAccount` opens a client account for sign-up and checkout, and dispatches
+      `ClientRegistered` and `Registered` after commit. Orders' `RegisterCheckoutClient` is removed.
+    - `SecurityNotice` and `MailText` move from Platform to Core.
 
 - Integrations area (ADR 0009, step 1): `IntegrationDriver` and an abstract `DriverRegistry` (keyed registration,
   lazy resolution, capabilities computed from the family's interfaces) for driver families to extend.

@@ -26,8 +26,7 @@ final class RegisterClientAccount
 
         [$user, $client] = DB::transaction(function () use ($account, $email): array {
             $user = new User(['name' => trim($account->firstName.' '.$account->lastName), 'email' => $email, 'password' => $account->password]);
-            $user->email_verified_at = $account->emailVerifiedAt;
-            $user->save();
+            $user->forceFill(['email_verified_at' => $account->emailVerifiedAt])->save();
 
             $client = Client::query()->create([
                 'first_name' => $account->firstName,
