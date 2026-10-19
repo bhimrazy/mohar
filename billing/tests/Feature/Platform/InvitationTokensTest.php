@@ -108,6 +108,7 @@ it('lets staff send a new invitation, which revokes the old link', function () {
     $this->withSession(['auth.password_confirmed_at' => time()])
         ->post(route('admin.platform.clients.users.invitation', [$this->client, $user]))->assertRedirect();
 
+    auth()->logout(); // the accept page is for guests
     $this->get(route('platform.client-invitations.show', $old))->assertInertia(fn (Assert $page) => $page->where('state', 'invalid'));
     expect(ClientInvitation::query()->sole()->isExpired())->toBeFalse()
         ->and(EmailMessage::query()->where('template_key', 'auth.user_invitation')->count())->toBe(2);
@@ -128,4 +129,32 @@ it('states the staff invitation expiry in days and as a date', function () {
     app(InviteStaff::class)->handle($admin, 'agent@example.test', 'Agent', Role::factory()->withPermissions(['support.tickets.view'])->create());
 
     expect(EmailMessage::query()->where('template_key', 'staff.invitation')->sole()->body_text)->toContain('for 7 days: until');
+});
+
+it('revokes a staff invitation link when it is sent again or cancelled', function () {
+    $admin = User::factory()->staff(['*'])->create();
+    $invite = app(InviteStaff::class);
+    $tokenOf = function (): string {
+        $token = '';
+        Mail::assertSent(TemplatedMail::class, function (TemplatedMail $mail) use (&$token): bool {
+            preg_match('#/staff-invitation/([A-Za-z0-9]+)#', $mail->plainText, $match);
+            $token = $match[1] ?? $token;
+
+            return true;
+        });
+
+        return $token;
+    };
+
+    $invitation = $invite->handle($admin, 'agent@example.test', 'Agent', Role::factory()->withPermissions(['support.tickets.view'])->create());
+    $first = $tokenOf();
+    $invite->resend($admin, $invitation->fresh());
+    $second = $tokenOf();
+
+    expect($second)->not->toBe($first);
+    $this->get(route('platform.invitations.show', $first))->assertInertia(fn (Assert $page) => $page->where('state', 'invalid'));
+    $this->get(route('platform.invitations.show', $second))->assertInertia(fn (Assert $page) => $page->where('state', 'valid'));
+
+    $invitation->delete();
+    $this->get(route('platform.invitations.show', $second))->assertInertia(fn (Assert $page) => $page->where('state', 'invalid'));
 });

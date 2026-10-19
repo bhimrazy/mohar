@@ -6,7 +6,8 @@ import PasswordInput from '@/components/password-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
-import { login, password } from '@/routes';
+import { login } from '@/routes';
+import { request } from '@/routes/password';
 
 type Props = {
     token: string;
@@ -43,7 +44,7 @@ export default function AcceptAccountInvitation({
                         </Button>
                         {state === 'used' && (
                             <Button variant="ghost" asChild>
-                                <Link href={password.request()}>
+                                <Link href={request()}>
                                     Forgot your password?
                                 </Link>
                             </Button>
