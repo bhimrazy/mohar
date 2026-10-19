@@ -16,8 +16,11 @@ return [
     | Illuminate\Http\Middleware\TrustProxies reads this key on every request, so it works with a cached config.
     | The trusted headers are set in bootstrap/app.php.
     |
+    | Unset is an empty list, never null: on null the framework trusts every proxy for *.on-forge.com and
+    | *.on-vapor.com hosts and on Laravel Cloud. Set TRUSTED_PROXIES explicitly on those platforms too.
+    |
     */
 
-    'proxies' => env('TRUSTED_PROXIES') ?: null,
+    'proxies' => env('TRUSTED_PROXIES') ?: [],
 
 ];
