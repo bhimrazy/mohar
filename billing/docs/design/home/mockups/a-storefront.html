@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Host-set SEO fields (spec §6.7, §7): title ≤60, description ≤160, canonical without query string. -->
+    <title>Acme Hosting | Reliable hosting for your website</title>
+    <meta name="description" content="Web hosting, domains and SSL in Nepal with clear prices in rupees, local support and payment by eSewa, Khalti or bank transfer.">
+    <link rel="canonical" href="https://www.example.com/">
+    <meta name="robots" content="index, follow">
+    <meta property="og:title" content="Acme Hosting | Reliable hosting for your website">
+    <meta property="og:description" content="Web hosting, domains and SSL in Nepal with clear prices in rupees, local support and payment by eSewa, Khalti or bank transfer.">
+    <meta property="og:image" content="https://www.example.com/brand/share.png">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@graph":[
+      {"@type":"Organization","name":"Acme Hosting","legalName":"Acme Hosting Pvt. Ltd.","url":"https://www.example.com/","logo":"https://www.example.com/brand/logo.png",
+       "vatID":"000000000","address":{"@type":"PostalAddress","streetAddress":"Jhamsikhel Road","addressLocality":"Lalitpur","postalCode":"44600","addressRegion":"Bagmati","addressCountry":"NP"},
+       "contactPoint":{"@type":"ContactPoint","contactType":"customer support","email":"support@example.com","telephone":"+977-1-5900000"}},
+      {"@type":"WebSite","name":"Acme Hosting","url":"https://www.example.com/"}]}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .tld-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .tld-tile.more { justify-content: center; align-items: flex-start; background: transparent; border-style: dashed; }
+        .tld-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }
+        .tld-tile .ext { font-weight: 650; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+        .tld-tile .reg { font-size: 14px; font-weight: 600; }
+        .tld-tile .reg small { font-weight: 400; color: var(--muted-foreground); font-size: 12px; }
+        .tld-tile .ren { font-size: 12px; color: var(--muted-foreground); white-space: normal; }
+        .hero-ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+        .facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 4px 0 0; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13.5px; }
+        .facts dt { color: var(--muted-foreground); font-size: 12px; }
+        .facts dd { margin: 0; font-weight: 600; }
+        .facts a { color: var(--primary); font-weight: 550; }
+        .tax-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--foreground); background: var(--secondary); border-radius: var(--badge-radius); padding: 2px 8px; margin-left: 4px; white-space: nowrap; }
+        .price-block { display: flex; flex-direction: column; gap: 2px; }
+        .price-block .badge { margin-left: 4px; }
+        .cta-band { background: var(--accent); border-radius: 16px; padding: 28px 32px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
+        .cta-band h2 { font-size: 22px; color: var(--accent-foreground); }
+        .cta-band p { color: var(--muted-foreground); }
+        
+        @media (max-width: 720px) { .tld-tiles { grid-template-columns: 1fr 1fr; } .cta-band { padding: 22px; } .cta-band .btn { width: 100%; } .tax-chip { margin: 6px 0 0; white-space: normal; } }
+        .hero-grid { display: grid; grid-template-columns: 1.45fr 1fr; gap: 40px; align-items: center; padding-top: 56px; padding-bottom: 56px; }
+        .hero-copy { display: flex; flex-direction: column; gap: 18px; }
+        .hero-plan { padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+        .hero-plan .top { display: flex; justify-content: space-between; align-items: center; }
+        .trust { padding: 28px 0; border-bottom: 1px solid var(--border); }
+        .news-grid { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 16px; }
+        .news-grid .card { padding: 4px 20px 8px; }
+        .news-grid .card-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 0 4px; }
+        .news-grid .card-head h3 { font-size: 16px; }
+        .kb-link { display: flex; gap: 10px; align-items: center; padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+        .kb-link:last-child { border-bottom: 0; }
+        .kb-link .icon { color: var(--muted-foreground); }
+        .pay { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+        @media (max-width: 1080px) { .hero-grid { grid-template-columns: 1fr; gap: 32px; } .news-grid { grid-template-columns: 1fr 1fr; } .news-grid > :first-child { grid-column: 1 / -1; } }
+        @media (max-width: 720px) { .hero-grid { padding-top: 32px; padding-bottom: 32px; } .news-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body data-currency="NPR" data-header="links" data-footer="r1">
+<div id="site-header"></div>
+
+<main>
+    <!-- 1. Hero: host's headline, domain search, spotlight TLD prices, featured plan -->
+    <section class="hero" data-section="hero" aria-labelledby="hero-title">
+        <div class="container hero-grid">
+            <div class="hero-copy">
+                <span class="eyebrow">Web hosting · Domains · SSL</span>
+                <h1 id="hero-title">Reliable hosting for your website</h1>
+                <p class="lede">Fast, secure hosting with clear prices and real people to help. Start with a domain, pick a plan, and you're online today.</p>
+                <form class="domain-search" role="search" aria-label="Domain search">
+                    <div class="input-wrap"><span data-icon="globe"></span>
+                        <input class="input" aria-label="Domain name" placeholder="Find your domain, e.g. mybusiness.com"></div>
+                    <button class="btn btn-primary btn-lg" type="submit"><span data-icon="search"></span>Search domains</button>
+                </form>
+                <div class="tld-tiles" id="tld-tiles" aria-label="Popular domains: first-year and renewal prices"></div>
+                <div class="hero-ctas">
+                    <a class="btn btn-outline" href="#">See hosting plans</a>
+                    <a class="btn btn-ghost" href="#">Transfer a domain</a>
+                </div>
+                <dl class="facts" aria-label="About us">
+                    <div><dt>Hosting since</dt><dd>2014</dd></div>
+                    <div><dt>Data centres</dt><dd>Kathmandu, Frankfurt</dd></div>
+                    <div><dt>Money-back</dt><dd>30 days · <a href="#">Refund policy</a></dd></div>
+                </dl>
+            </div>
+            <aside class="card hero-plan" aria-label="Most popular plan">
+                <div class="top"><span class="eyebrow">Shared Hosting</span><span class="badge badge-accent"><span data-icon="star"></span>Most popular</span></div>
+                <h2 style="font-size:22px">Pro</h2>
+                <div id="hero-plan-price"></div>
+                <ul class="features">
+                    <li><span data-icon="check"></span>10 websites</li>
+                    <li><span data-icon="check"></span>50 GB SSD storage</li>
+                    <li><span data-icon="check"></span>Free domain</li>
+                </ul>
+                <a class="btn btn-primary btn-lg btn-block" href="#">Configure and order</a>
+                <a class="link-arrow" style="justify-content:center" href="#">Compare all Shared Hosting plans <span data-icon="right"></span></a>
+            </aside>
+        </div>
+    </section>
+
+    <!-- 2. Why us: host-written points; money-back links to the published refund policy -->
+    <section class="trust" data-section="highlights" aria-label="Why choose us">
+        <div class="container grid g4">
+            <div class="highlight"><span class="hl-icon"><span data-icon="clock" class="icon-lg"></span></span><div><h3>Help every day</h3><p>Tickets answered around the clock, phone support Sunday to Friday.</p></div></div>
+            <div class="highlight"><span class="hl-icon"><span data-icon="shield" class="icon-lg"></span></span><div><h3>30-day money-back</h3><p>Not happy with shared hosting? Get a full refund in the first 30 days. <a class="link-arrow" style="font-size:13.5px" href="#">Refund policy</a></p></div></div>
+            <div class="highlight"><span class="hl-icon"><span data-icon="refresh" class="icon-lg"></span></span><div><h3>Free site transfer</h3><p>We move your website and email from your current host.</p></div></div>
+            <div class="highlight"><span class="hl-icon"><span data-icon="card" class="icon-lg"></span></span><div><h3>Pay your way</h3><p>eSewa, Khalti, card or bank transfer, in rupees or dollars.</p></div></div>
+        </div>
+    </section>
+
+    <!-- 3. Featured plans from the featured group, with a billing-cycle switch -->
+    <section class="section" data-section="plans" aria-labelledby="plans-title">
+        <div class="container">
+            <div class="section-head">
+                <div><h2 id="plans-title">Shared Hosting plans</h2><p>Fast, secure hosting for every website. <span class="tax-chip"><span data-icon="info"></span><span data-tax-statement></span></span></p></div>
+                <div class="segmented" role="group" aria-label="Billing cycle">
+                    <button type="button" aria-pressed="false">Monthly</button>
+                    <button type="button" aria-pressed="true">Annually <span class="badge badge-success" id="save-badge"></span></button>
+                    <button type="button" aria-pressed="false">2 years</button>
+                </div>
+            </div>
+            <div class="grid g3" id="plan-cards"></div>
+            <p class="muted" style="font-size:13px;margin-top:14px">Every plan can also be paid monthly or every 2 years. <a class="link-arrow" style="font-size:13px" href="#">Compare plans <span data-icon="right"></span></a></p>
+        </div>
+    </section>
+
+    <!-- 4. Other product groups -->
+    <section class="section section-muted" data-section="groups" aria-labelledby="groups-title">
+        <div class="container">
+            <div class="section-head"><div><h2 id="groups-title">More from Acme Hosting</h2><p>Everything else we sell, with the lowest price in each. <span data-tax-statement></span>.</p></div><a class="link-arrow" href="#">Browse the store <span data-icon="right"></span></a></div>
+            <div class="grid g3">
+                <a class="card group-card" href="#"><span class="gc-icon"><span data-icon="cpu" class="icon-lg"></span></span><div><h3>VPS</h3><p>Root access on dedicated resources</p><p class="gc-price" id="gc-vps"></p></div></a>
+                <a class="card group-card" href="#"><span class="gc-icon"><span data-icon="shield" class="icon-lg"></span></span><div><h3>SSL Certificates</h3><p>Encrypt traffic and earn the padlock</p><p class="gc-price" id="gc-ssl"></p></div></a>
+                <a class="card group-card" href="#"><span class="gc-icon"><span data-icon="globe" class="icon-lg"></span></span><div><h3>Domains</h3><p>Register or transfer .com, .net, .org, .io and .co.uk</p><p class="gc-price" id="gc-dom"></p></div></a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 5. How can we help -->
+    <section class="section" data-section="help" aria-labelledby="help-title">
+        <div class="container">
+            <div class="section-head"><div><h2 id="help-title">How can we help?</h2><p>Answers, news and a way to reach us.</p></div></div>
+            <div class="grid g5">
+                <a class="card help-tile" href="#"><span class="ht-icon"><span data-icon="book"></span></span><h3>Knowledge base</h3><p>Guides for email, DNS, billing and more.</p></a>
+                <a class="card help-tile" href="#"><span class="ht-icon"><span data-icon="megaphone"></span></span><h3>Announcements</h3><p>News, new features and planned work.</p></a>
+                <a class="card help-tile" href="#"><span class="ht-icon"><span data-icon="activity"></span></span><h3>Network status</h3><p><span class="badge badge-warning"><span class="dot dot-warning"></span>1 open issue</span></p></a>
+                <a class="card help-tile" href="#"><span class="ht-icon"><span data-icon="ticket"></span></span><h3>Open a ticket</h3><p>Ask our team about anything.</p></a>
+                <a class="card help-tile" href="#"><span class="ht-icon"><span data-icon="message"></span></span><h3>Contact us</h3><p>Questions before you buy.</p></a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 6. Announcements, popular articles and network status -->
+    <section class="section section-tight" data-section="news" aria-label="Latest news and status" style="padding-top:0">
+        <div class="container news-grid">
+            <div class="card">
+                <div class="card-head"><h3>Announcements</h3><a class="link-arrow" href="#">All news <span data-icon="right"></span></a></div>
+                <a class="news-item" href="#"><time datetime="2026-10-16">16 Oct 2026</time><h3>New datacenter in Frankfurt</h3><p>New VPS orders can now choose Frankfurt for lower latency across Europe.</p></a>
+                <a class="news-item" href="#"><time datetime="2026-10-06">6 Oct 2026</time><h3>PHP 8.4 now available</h3><p>Switch your site to PHP 8.4 from the hosting control panel.</p></a>
+            </div>
+            <div class="card">
+                <div class="card-head"><h3>Popular articles</h3><a class="link-arrow" href="#">Help <span data-icon="right"></span></a></div>
+                <a class="kb-link" href="#"><span data-icon="book"></span>Your first login</a>
+                <a class="kb-link" href="#"><span data-icon="book"></span>Point your domain to us</a>
+                <a class="kb-link" href="#"><span data-icon="book"></span>Create a mailbox</a>
+                <a class="kb-link" href="#"><span data-icon="book"></span>Uploading your website</a>
+            </div>
+            <div class="card">
+                <div class="card-head"><h3>Network status</h3><a class="link-arrow" href="#">Details <span data-icon="right"></span></a></div>
+                <div class="status-row"><span class="dot dot-warning"></span><div><strong>Degraded performance on web03</strong><br><span class="muted">Identified · since 10:27 today</span></div></div>
+                <div class="status-row"><span class="dot" style="background:var(--info)"></span><div><strong>Core router firmware upgrade</strong><br><span class="muted">Scheduled · 21 Oct, 12:27</span></div></div>
+                <div class="status-row"><span class="dot"></span><div>Outbound email delays<br><span class="muted">Resolved · 14 Oct</span></div></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 7. Call to action band (host-set headline and button) -->
+    <section class="section-tight" data-section="cta" aria-labelledby="cta-title" style="padding:8px 0 48px">
+        <div class="container">
+            <div class="cta-band">
+                <div><h2 id="cta-title">Ready to get online?</h2><p>Hosting from <span class="num" id="cta-from"></span>/mo, with help every day.</p></div>
+                <a class="btn btn-primary btn-lg" href="#">See all plans <span data-icon="right"></span></a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 8. Payment methods (enabled gateways, official logos) -->
+    <section class="section-tight section-muted" data-section="payments" aria-labelledby="pay-title" style="padding:28px 0">
+        <div class="container pay">
+            <div><h2 id="pay-title" style="font-size:16px">Ways to pay</h2><p class="muted" style="font-size:14px" id="pay-note"></p></div>
+            <div class="pay-strip" id="pay-strip"></div>
+        </div>
+    </section>
+</main>
+
+<div id="site-footer"></div>
+<script src="a-storefront.js"></script>
+<script src="shared.js"></script>
+</body>
+</html>
