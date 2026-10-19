@@ -70,7 +70,6 @@ jobs:
             LEVELS: ${{ inputs.levels }}
             LEVEL_DURATION: ${{ inputs.level_duration }}
             ALLOW_SMALLER: ${{ inputs.allow_smaller_runner && '1' || '' }}
-            LOADTEST_RESULTS_DIR: ${{ runner.temp }}/loadtest
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,6 +83,9 @@ jobs:
                   docker compose version
 
             - name: Load test
+              env:
+                  # The runner context exists in step env, not job env.
+                  LOADTEST_RESULTS_DIR: ${{ runner.temp }}/loadtest
               run: |
                   args=(--profile "$PROFILE" --volume "$VOLUME")
                   [ -n "$LEVELS" ] && args+=(--levels "$LEVELS")
