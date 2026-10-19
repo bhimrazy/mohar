@@ -3,6 +3,7 @@
 namespace Mohar\Simulators\Providers\Stripe;
 
 use Mohar\Simulators\Contracts\HasControlActions;
+use Mohar\Simulators\Contracts\RedactsPayments;
 use Mohar\Simulators\Contracts\SignsCallbacks;
 use Mohar\Simulators\Contracts\Simulator;
 use Mohar\Simulators\Http\Request;
@@ -19,9 +20,10 @@ use Mohar\Simulators\Kernel\Scenario;
  *   plane; the account;
  * - every change as an event, signed `t=…,v1=…` with HMAC-SHA256 and queued for the app's webhook endpoint.
  *
- * The keys below are for local scenarios only.
+ * Its request log and any recording apply the kernel payment redaction rule (RedactsPayments). The keys below are for
+ * local scenarios only.
  */
-final class StripeSimulator implements HasControlActions, SignsCallbacks, Simulator
+final class StripeSimulator implements HasControlActions, RedactsPayments, SignsCallbacks, Simulator
 {
     public const SECRET_KEY = 'sk_test_51SimulatorLocalScenarioKey0000';
 

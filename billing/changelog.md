@@ -89,6 +89,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
   including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
   comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
+- Developers get a `stripe` simulator (`php artisan simulate:start stripe`), Stripe in test mode: Checkout with a
+  hosted page (pay, a declined card, back), PaymentIntents, charges, refunds, disputes raised from its control plane,
+  idempotency keys and the API version header, and signed webhooks for the app's endpoint. With the printed
+  `INTEGRATION_ENDPOINTS` and the gateway's test keys set to the simulator's, the real Stripe gateway takes payments,
+  settles them from webhooks and lookups, refunds and records disputes against it.
+- The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
+  (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.

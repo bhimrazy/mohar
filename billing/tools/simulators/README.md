@@ -63,15 +63,36 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Add a cPanel server with host `127.0.0.1`, the scenario's port and a token. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only). Run Test connection, then "Trust this certificate".
 - **Recording.** `simulate:record whm` makes read-only calls against a real WHM:
     - credentials come from `WHM_RECORD_HOST` and `WHM_RECORD_TOKEN`, and optionally `WHM_RECORD_PORT`, `WHM_RECORD_USER`, `WHM_RECORD_ACCOUNT` and `WHM_RECORD_CA_BUNDLE`;
-    - anonymisation is deny-by-default: a string is kept only under a known-safe key (WHM's reason, versions, statuses, flags, sizes, ACL names, dates) or when it is a size or a number; every other string becomes a placeholder of its kind (IPv4, IPv6, email, URL, host name, `example`);
+    - anonymisation is deny-by-default:
+        - a string is kept only under a known-safe key (WHM's reason, versions, statuses, flags, sizes, ACL names, dates);
+        - in WHM's free text (the reason), any email, URL, address or host name is replaced;
+        - every other string becomes a placeholder of its kind (IPv4, IPv6, email, URL, host name, `0` for a numeric string, `example`);
+        - a key that could be data (a domain, an address, anything with a dot, @ or space) is renamed `key1`, `key2`, …;
+    - each recording notes which login made it (`context.login`: root or reseller), so its replay uses the same;
     - everything is written to a private staging directory and scanned, and the files move to `whm/recordings/` (`source: live`) only when the whole run completes and passes, so a failed or leaking run saves nothing;
     - each recording keeps the shape of the answer taken before masking, so masking never hides a change of type.
 - **Drift.** `tests/Whm/WhmDriftTest.php` replays every live recording against the simulator with the same call, and checks the shape and the refusal kind. It is skipped while no live recording exists.
 - **Docs-sourced shapes.** Until a live recording exists, `tests/Fixtures/Cpanel` (written from the reference) is the `source: docs` set the conformance tests check.
 
+### `stripe`: Stripe in test mode, for the PaymentsStripe driver
+
+- **API (`/v1`).** `account`, `checkout/sessions` (create, retrieve, expire), `payment_intents`, `charges`, `refunds` (create, retrieve) and `disputes`, with `expand[]` along dotted paths.
+    - Every call needs `Bearer StripeSimulator::SECRET_KEY`.
+    - A `Stripe-Version` must be one the simulator knows.
+    - A POST with an `Idempotency-Key` replays its first answer, and the same key with other parameters gets `idempotency_error`.
+    - Errors use Stripe's envelope (`resource_missing`, `charge_already_refunded`, `amount_too_small`, `api_key_invalid`).
+- **Hosted page.** `GET /c/pay/<session>` on the same TLS port, with three forms:
+    - **Pay** creates the PaymentIntent, charge and balance transaction (fee 2.9% + 30), completes the session, and redirects to `success_url`;
+    - **Decline** leaves the session open with `card_declined`;
+    - **Back** redirects to `cancel_url`.
+- **Webhooks.** Every change is an event (`checkout.session.completed` and `expired`, `payment_intent.succeeded` and `payment_failed`, `refund.created`, `charge.refunded`, `charge.dispute.created`). Each is queued for the URL set with the `webhook_url` action and signed `t=…,v1=…` with `WEBHOOK_SECRET` at delivery. The outbox gives replay, out of order, stale and wrong-secret variants.
+- **Control actions.** `webhook_url` and `dispute`.
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`stripe.api` and `stripe.checkout`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Turn on the Stripe gateway's test mode with the simulator's secret key and webhook secret.
+- **Redaction.** It is a `RedactsPayments` simulator. Live recording waits for a Stripe test account (go-live checklist). Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
+
 ## Recordings and the secret scan
 
-`simulate:scan` checks every `*/recordings/*.json` file in this package for:
+`simulate:scan` checks every `*/recordings/*.json` file in this package, keys as well as values, for:
 
 - credentials: WHM, Basic or Bearer authorization values, cPanel tokens and `cpsess` session paths, Stripe keys, private keys, JWTs, AWS keys, and unmasked values under sensitive keys;
 - personal data: emails and host names outside the example and test domains, and public IPv4 or IPv6 addresses.

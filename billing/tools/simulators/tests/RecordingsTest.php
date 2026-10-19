@@ -41,6 +41,7 @@ test('the scan finds credentials and personal data that redaction by key would m
     'a public address' => [['ip' => '8.8.8.8'], 'a public IP address under "ip"'],
     'a public IPv6 address' => [['ipv6' => ['2001:4860:4860::8888']], 'a public IPv6 address under "0"'],
     'a real host name' => [['child_nodes' => [['hostname' => 'mx1.alpha-books.com']]], 'a real-looking host name under "hostname"'],
+    'a domain used as a key' => [['data' => ['alpha-books.com' => ['diskused' => '12M']]], 'a real-looking host name a key'],
     'a cPanel session path' => [['url' => 'https://host.example.test:2083/cpsess1234567890/'], 'a cPanel session path'],
 ]);
 
@@ -62,6 +63,7 @@ test('a live recording keeps the shape and replaces what names a customer or the
     expect(Recorder::differences($answer, $anonymised))->toBe([])
         ->and((string) json_encode($anonymised))->not->toContain('anna')->not->toContain('alpha-books')->not->toContain('8.8.4.4')
         ->and($anonymised['data']['acct'][0])->toMatchArray(['ip' => '192.0.2.10', 'email' => 'owner@example.test', 'suspended' => 0, 'diskused' => '120M'])
+        ->and(LiveRecording::anonymise(['data' => ['phone' => '5551234567', 'limit' => '50']])['data'])->toBe(['phone' => '0', 'limit' => '50'])
         ->and((new RecordingScanner)->scan($this->directory))->toBe([]);
 });
 

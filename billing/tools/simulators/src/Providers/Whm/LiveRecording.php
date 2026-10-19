@@ -26,6 +26,9 @@ final class LiveRecording
         'outgoing_mail_hold', 'outgoing_mail_suspended', 'max_defer_fail_percentage', 'max_email_per_hour',
     ];
 
+    /** Safe keys whose values are WHM's free text, scrubbed of anything that could name a customer. */
+    private const FREE_TEXT_KEYS = ['reason', 'statusmsg'];
+
     /**
      * The read-only calls `simulate:record whm` makes, by recording name; the drift test replays the same ones.
      *
@@ -85,7 +88,7 @@ final class LiveRecording
                 throw new RuntimeException("{$function} answered HTTP {$response->status()} without a WHM API 1 body; nothing more was recorded.");
             }
 
-            $recorder->record($name, self::anonymise($decoded), 'live', [$token, $host, $user, $account]);
+            $recorder->record($name, self::anonymise($decoded), 'live', [$token, $host, $user, $account], ['login' => $user === 'root' ? 'root' : 'reseller']);
         }
     }
 
@@ -101,31 +104,64 @@ final class LiveRecording
     }
 
     /**
-     * Same structure and types, placeholder values: a string is kept only under a SAFE_KEYS key or when it is a size or
-     * a number ("14M", "unlimited", "0"); every other string becomes a placeholder of its kind (an IPv4 or IPv6
-     * address, an email, a URL, a host name, or "example"). Numbers and flags stay as they are.
+     * Same structure and types, placeholder values, deny by default:
+     *
+     * - a key is kept only when it looks like WHM's own (`basic-whm-functions`, `diskused`); a key that could be data (a
+     *   domain, an address, anything with a dot, @ or space) is replaced by `key1`, `key2`, ...;
+     * - a string is kept only under a SAFE_KEYS key; in free text (a reason) any email, URL, address or host name is
+     *   replaced, since WHM's reason may name a customer's domain;
+     * - every other string becomes a placeholder of its kind: an IPv4 or IPv6 address, an email, a URL, a host name,
+     *   `0` for a numeric string, or `example`. Numbers and flags stay as they are.
      *
      * @param  array<array-key, mixed>  $value
      * @return array<array-key, mixed>
      */
     public static function anonymise(array $value, ?string $parent = null): array
     {
-        foreach ($value as $key => $item) {
-            $context = is_string($key) ? strtolower($key) : $parent;
+        $result = [];
+        $renamed = 0;
 
-            $value[$key] = match (true) {
+        foreach ($value as $key => $item) {
+            $safeKey = is_int($key) || preg_match('/^[a-z][a-z0-9_-]{0,63}$/i', $key) === 1;
+            $context = is_string($key) && $safeKey ? strtolower($key) : $parent;
+            $name = $safeKey ? $key : 'key'.(++$renamed);
+
+            $result[$name] = match (true) {
                 is_array($item) => self::anonymise($item, $context),
                 ! is_string($item) || $item === '' => $item,
-                in_array($context, self::SAFE_KEYS, true), preg_match('/^(\d+(\.\d+)?[KMGT]?|unlimited)$/i', $item) === 1 => $item,
+                in_array($context, self::FREE_TEXT_KEYS, true) => self::scrub($item),
+                in_array($context, self::SAFE_KEYS, true) => $item,
                 filter_var($item, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false => '192.0.2.10',
                 filter_var($item, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false => '2001:db8::10',
                 str_contains($item, '@') => 'owner@example.test',
                 str_contains($item, '://') => 'https://example.test/',
                 preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i', $item) === 1 => 'host.example.test',
+                ctype_digit($item) => '0',
                 default => 'example',
             };
         }
 
-        return $value;
+        return $result;
+    }
+
+    /**
+     * WHM's free text (a reason) with what could name a customer replaced, in one pass: emails, URLs, IPv6 and IPv4
+     * addresses, host names.
+     */
+    private static function scrub(string $text): string
+    {
+        $pattern = '/(?<email>[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})'
+            .'|(?<url>[a-z][a-z0-9+.-]*:\/\/[^\s"\'<>]+)'
+            .'|(?<ipv6>\[?(?:[0-9a-f]{0,4}:){2,7}[0-9a-f.]{0,15}\]?)'
+            .'|(?<ipv4>\b\d{1,3}(?:\.\d{1,3}){3}\b)'
+            .'|(?<host>\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}\b)/i';
+
+        return (string) preg_replace_callback($pattern, fn (array $match): string => match (true) {
+            $match['email'] !== '' => 'owner@example.test',
+            $match['url'] !== '' => 'https://example.test/',
+            $match['ipv6'] !== '' => '2001:db8::10',
+            $match['ipv4'] !== '' => '192.0.2.10',
+            default => 'host.example.test',
+        }, $text);
     }
 }

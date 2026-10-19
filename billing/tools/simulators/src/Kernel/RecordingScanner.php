@@ -85,53 +85,75 @@ final class RecordingScanner
             }
         }
 
-        // The response only: the stored shape holds type names, under the same keys.
-        $response = (array) ($decoded['response'] ?? []);
-        array_walk_recursive($response, function (mixed $value, int|string $key) use (&$findings): void {
-            if (! is_string($value) || $value === '') {
-                return;
-            }
-
-            if ($this->redactor->isSensitiveKey($key) && $value !== Redactor::MASK) {
-                $findings[] = "an unmasked value under \"{$key}\"";
-            }
-
-            preg_match_all('/[A-Z0-9._%+-]+@([A-Z0-9-]+\.)+[A-Z]{2,}/i', $value, $emails);
-
-            foreach ($emails[0] as $email) {
-                if (preg_match('/@(.+\.)?(example|test|invalid|localhost)$|@example\.(com|org|net)$/i', $email) !== 1) {
-                    $findings[] = "a real-looking email address under \"{$key}\"";
-                }
-            }
-
-            // Version numbers look like addresses (WHM 11.124.0.12).
-            preg_match_all('/\b\d{1,3}(\.\d{1,3}){3}\b/', is_string($key) && stripos($key, 'version') !== false ? '' : $value, $addresses);
-
-            foreach ($addresses[0] as $address) {
-                if (self::isPublicIpv4($address)) {
-                    $findings[] = "a public IP address under \"{$key}\"";
-                }
-            }
-
-            preg_match_all('/(?<![0-9a-f:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![0-9a-f:])/i', $value, $ipv6);
-
-            foreach ($ipv6[0] as $address) {
-                // Global unicast (2000::/3) outside the documentation prefix 2001:db8::/32.
-                if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false && preg_match('/^[23][0-9a-f]{0,3}:/i', $address) === 1 && preg_match('/^2001:0?db8:/i', $address) !== 1) {
-                    $findings[] = "a public IPv6 address under \"{$key}\"";
-                }
-            }
-
-            preg_match_all('/(?<![@\w.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}(?![\w-])/i', $value, $hosts);
-
-            foreach ($hosts[0] as $host) {
-                if (preg_match('/(^|\.)(test|example|invalid|localhost)$|(^|\.)example\.(com|org|net)$/i', $host) !== 1) {
-                    $findings[] = "a real-looking host name under \"{$key}\"";
-                }
-            }
-        });
+        // The response only (the stored shape holds type names under the same keys): every key and every value.
+        $this->walk((array) ($decoded['response'] ?? []), $findings);
 
         return array_values(array_unique($findings));
+    }
+
+    /**
+     * Keys are checked like values: customer data can be a key too (`{"alpha-books.com": ...}`, metadata keys).
+     *
+     * @param  array<array-key, mixed>  $values
+     * @param  list<string>  $findings
+     */
+    private function walk(array $values, array &$findings): void
+    {
+        foreach ($values as $key => $value) {
+            if (is_string($key)) {
+                $this->personalData($key, 'a key', $findings);
+            }
+
+            if (is_array($value)) {
+                $this->walk($value, $findings);
+            } elseif (is_string($value) && $value !== '') {
+                if ($this->redactor->isSensitiveKey($key) && $value !== Redactor::MASK) {
+                    $findings[] = "an unmasked value under \"{$key}\"";
+                }
+
+                // Version numbers look like addresses (WHM 11.124.0.12).
+                $this->personalData(is_string($key) && stripos($key, 'version') !== false ? (string) preg_replace('/\b\d{1,3}(\.\d{1,3}){3}\b/', '', $value) : $value, "under \"{$key}\"", $findings);
+            }
+        }
+    }
+
+    /**
+     * @param  list<string>  $findings
+     */
+    private function personalData(string $text, string $where, array &$findings): void
+    {
+        preg_match_all('/[A-Z0-9._%+-]+@([A-Z0-9-]+\.)+[A-Z]{2,}/i', $text, $emails);
+
+        foreach ($emails[0] as $email) {
+            if (preg_match('/@(.+\.)?(example|test|invalid|localhost)$|@example\.(com|org|net)$/i', $email) !== 1) {
+                $findings[] = "a real-looking email address {$where}";
+            }
+        }
+
+        preg_match_all('/\b\d{1,3}(\.\d{1,3}){3}\b/', $text, $addresses);
+
+        foreach ($addresses[0] as $address) {
+            if (self::isPublicIpv4($address)) {
+                $findings[] = "a public IP address {$where}";
+            }
+        }
+
+        preg_match_all('/(?<![0-9a-f:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![0-9a-f:])/i', $text, $ipv6);
+
+        foreach ($ipv6[0] as $address) {
+            // Global unicast (2000::/3) outside the documentation prefix 2001:db8::/32.
+            if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false && preg_match('/^[23][0-9a-f]{0,3}:/i', $address) === 1 && preg_match('/^2001:0?db8:/i', $address) !== 1) {
+                $findings[] = "a public IPv6 address {$where}";
+            }
+        }
+
+        preg_match_all('/(?<![@\w.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}(?![\w-])/i', $text, $hosts);
+
+        foreach ($hosts[0] as $host) {
+            if (preg_match('/(^|\.)(test|example|invalid|localhost)$|(^|\.)example\.(com|org|net)$/i', $host) !== 1) {
+                $findings[] = "a real-looking host name {$where}";
+            }
+        }
     }
 
     /**
