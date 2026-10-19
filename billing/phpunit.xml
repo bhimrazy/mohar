@@ -17,6 +17,9 @@
         <testsuite name="Extensions">
             <directory>tests/Extensions</directory>
         </testsuite>
+        <testsuite name="Simulator framework">
+            <directory>tools/simulators/tests</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

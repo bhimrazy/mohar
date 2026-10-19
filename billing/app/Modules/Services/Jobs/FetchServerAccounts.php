@@ -30,7 +30,10 @@ class FetchServerAccounts implements ShouldQueue
 
     public bool $failOnTimeout = true;
 
-    public function __construct(public int $importId)
+    /**
+     * @param  bool  $rematch  "Match again": re-match the stored list instead of reading the server
+     */
+    public function __construct(public int $importId, public bool $rematch = false)
     {
         $this->onQueue('provisioning');
         $this->timeout = (int) config('services.module.max_job_timeout_seconds', 180);
@@ -39,6 +42,12 @@ class FetchServerAccounts implements ShouldQueue
     public function handle(ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor, AccountImportMatcher $matcher, ActivityLogger $activity): void
     {
         $import = ServerAccountImport::query()->with(['server', 'requester'])->find($this->importId);
+
+        if ($this->rematch && $import?->status === ServerAccountImport::MATCHING) {
+            $matcher->rematch($import);
+
+            return;
+        }
 
         if ($import === null || $import->status !== ServerAccountImport::FETCHING) {
             return;
@@ -91,6 +100,11 @@ class FetchServerAccounts implements ShouldQueue
 
         if ($import !== null && $import->status === ServerAccountImport::FETCHING) {
             $this->markFailed($import, __('Reading the accounts took too long or was interrupted. Fetch again.'));
+        }
+
+        // A match that died leaves the list as it was.
+        if ($import !== null && $import->status === ServerAccountImport::MATCHING) {
+            $import->update(['status' => ServerAccountImport::READY]);
         }
     }
 

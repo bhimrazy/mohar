@@ -63,15 +63,15 @@ test('the rows shown are re-checked: a service created since links the account, 
         ->and($rows['alpha']['note'])->toContain('The matched client was closed or removed since.');
 });
 
-test('Match again re-matches the stored list against today, without asking the server', function () {
-    Client::factory()->create(['email' => 'chef@bravo-cafe.com']);
-    $this->kit->priceBook->addProduct(23, 'Reseller starter', driver: 'cpanel', serverGroupId: ServerGroup::query()->value('id'), driverConfig: ['package' => 'reseller1_starter']);
+test('Match again re-matches the stored list against today, with the user the fetch signed in as', function () {
+    Client::factory()->create(['email' => 'anna@alpha-books.com']);
     $this->server->update(['username' => 'reseller1']);
     Whm::fake([]);
 
     $this->post(route('admin.services.servers.import.rematch', $this->server))->assertSessionHasNoErrors();
 
-    expect(pageRows($this->server)['bravo']['category'])->toBe('proposed');
+    expect(pageRows($this->server)['alpha'])->category->toBe('unmatched')->note->toBe('2 clients share this email.')
+        ->and(pageRows($this->server)['bravo']['category'])->toBe('reseller');
 });
 
 test('missing services link to the service, and one ended since drops out', function () {

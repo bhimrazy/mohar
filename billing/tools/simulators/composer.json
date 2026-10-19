@@ -1,0 +1,25 @@
+{
+    "name": "mohar/simulators",
+    "description": "Local simulators of the providers Mohar integrates with, for development and tests only (ADR 0016).",
+    "version": "0.1.0",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.4",
+        "ext-openssl": "*",
+        "ext-pdo_sqlite": "*",
+        "ext-posix": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Mohar\\Simulators\\": "src/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Mohar\\Simulators\\SimulatorsServiceProvider"
+            ]
+        }
+    }
+}

@@ -100,14 +100,14 @@ class ServerImportController extends Controller
     }
 
     /**
-     * "Match again": match the fetched list against today's clients, products and services, without asking the server.
+     * "Match again" on the queue (FetchAccountsForImport::rematch()); the page shows it running.
      */
-    public function rematch(Server $server, AccountImportMatcher $matcher): RedirectResponse
+    public function rematch(Server $server, FetchAccountsForImport $fetch): RedirectResponse
     {
         $this->authorize('services.servers.import');
 
-        $matcher->rematch($this->ready($server)->load('server'));
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('The accounts on :server were matched again.', ['server' => $server->name])]);
+        $fetch->rematch($server);
+        Inertia::flash('toast', ['type' => 'info', 'message' => __('Matching the accounts on :server again. The list updates when it is done.', ['server' => $server->name])]);
 
         return to_route('admin.services.servers.import.show', $server);
     }
@@ -274,6 +274,7 @@ class ServerImportController extends Controller
                 $service !== null && $row['category'] !== AccountImportMatcher::LINKED ? __('A service took this account after the list was fetched.') : null,
                 $service === null && $row['category'] === AccountImportMatcher::LINKED ? __('The service that held this account is no longer live. Match again.') : null,
                 $row['client_id'] !== null && $client === null ? __('The matched client was closed or removed since. Match again.') : null,
+                $row['product_id'] !== null && $product === null ? __('The matched product no longer provisions on this server. Match again.') : null,
             ]);
 
             return [...array_diff_key($row, array_flip(['client_id', 'product_id', 'service_id'])),

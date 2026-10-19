@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
   wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
   who bring existing accounts in. Fetches run on the `provisioning` queue.
+  A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
+  without the owner check until fetched again.
   A second migration adds `server_account_imports.selections` (staff choices; nullable). Importing needs a recent
   password.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
@@ -68,13 +70,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
   uploaded; re-upload an existing WebP mark for it to appear in mail.
 - Invitations and account security notices are always sent: their templates can't be switched off.
+- **Email templates follow new defaults.** Run `php artisan migrate` (adds `default_hash` and `previous_text` to
+  `email_template_translations`); the upgrade's `app:install` then replaces the text of templates nobody edited with
+  the new shipped wording, with an activity-log entry each. Edited templates are left as they are.
+- **Client-login invitations have their own link.** A new `client_invitations` table holds a single-use invitation
+  token (stored hashed) instead of a password-reset token. Links work for "Invitation links work for (days)"
+  (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
+  before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
+  use the new "Send a password reset" action for them instead of "Send a new invitation".
 
 ### Platform foundation
 
 - `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
   They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
   fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
-  logged as critical at boot. No integration uses them yet.
+  logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
+  a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
+  uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
+- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+  package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
+  CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
+  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
+  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+--no-dev` build contains neither the commands nor the package (checked in CI).
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -114,8 +132,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   server or here; the request and its result are recorded in the activity log.
 - Import accounts page (Admin → Servers → server menu → Import accounts): summary cards, tabs with counts, search and
   pages over the stored match. The rows shown are re-checked against today (a service created since links the account,
-  a client closed since is dropped). "Match again" re-matches against today's clients, products and services without
-  asking the server. Unmatched accounts link to creating a product for their package; live services missing on the
+  a client closed since is dropped, as is a product that no longer provisions there). "Match again" re-matches on the
+  queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
+  asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
 - Import accounts, step 2: staff tick the accounts to import (nothing is ticked by default; "Select all proposed" ticks
   the proposed ones and opens the review), choose the client, product, billing cycle and next due date per account
@@ -399,6 +418,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Partly paid invoices show a "Paid" row between the total and the balance; refunds and credit notes state their
   amount; the text part drops links that the HTML drops. Staff-written ticket replies are not marked automatic.
 - Email wording uses "Log in" and "Forgot your password?" throughout.
+- The template editor shows "New default available" when a release changes the wording of a template you edited,
+  with your text and the new default side by side and "Use new default", which keeps your text as the previous text.
+- A new client login's invitation opens its own page to choose a password. The link works once, for the configured
+  number of days; the email says how long and until when. Sending a new invitation (client page → login actions →
+  "Send a new invitation", shown with an "Invited" or "Invitation expired" badge) or removing the login revokes the
+  old link. Expired, used and unknown links get a clear message. Staff invitations state their expiry the same way.
+  An invitation only ever activates a never-used login: its link stops working once the login changes its email
+  address, gets a password another way (for example "Forgot your password?"), turns on two-factor authentication,
+  signs in, or loses access to the account, and such a login can't be invited again ("Send a password reset" instead).
+  Accepting never signs in past two-factor authentication. A client merge moves open invitations with their logins.
 
 ### Currencies
 

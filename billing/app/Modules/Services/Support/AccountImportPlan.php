@@ -8,8 +8,6 @@ use App\Enums\BillingCycle;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
-use App\Modules\Services\Services\ProvisioningSnapshots;
-use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 
 /**
@@ -30,12 +28,7 @@ class AccountImportPlan
     /** @var array<string, list<BillingCycle>> */
     private array $cycles = [];
 
-    public function __construct(
-        private AccountImportMatcher $matcher,
-        private Catalog $catalog,
-        private ProvisioningDriverRegistry $drivers,
-        private ProvisioningSnapshots $snapshots,
-    ) {}
+    public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog) {}
 
     /**
      * The ticked accounts, each with a `decision`: client, product, cycle, next_due_date, amount (minor units, in the
@@ -53,8 +46,8 @@ class AccountImportPlan
         }
 
         $keys = array_flip(['category', 'client_id', 'product_id', 'service_id', 'note', 'differences']);
-        $connectionUser = AccountImportMatcher::connectionUser($this->drivers->get($server->driver), $this->snapshots->connection($server));
-        $fresh = $this->matcher->classify($server, array_map(fn (array $row): array => array_diff_key($row, $keys), $accounts), $connectionUser)['rows'];
+        // Owners are compared with the user the fetch signed in as, not the server's current credentials.
+        $fresh = $this->matcher->classify($server, array_map(fn (array $row): array => array_diff_key($row, $keys), $accounts), $import->connection_user)['rows'];
         $products = $this->matcher->serverProducts($server);
         $clientIds = array_map(fn (array $row): int => (int) ($selections[$row['username']]['client_id'] ?? $row['client_id'] ?? 0), $fresh);
         $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status'])->keyBy('id');
