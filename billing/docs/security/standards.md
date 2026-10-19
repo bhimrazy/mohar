@@ -91,6 +91,13 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
   remote creation time at or after that attempt. A matching name, domain or owner alone is never proof; anything
   else is a conflict for staff. (Added 2026-10-18 from the #69 security review.)
 
+## Known limits
+
+- **Signup reveals whether an address has an account.** `POST /register` answers "The email has already been taken"
+  for a known address. The registration limiter (10 an hour per IP, 5 an hour per address) slows enumeration but
+  does not hide it; hiding it needs an email-first signup flow, where the form always says "check your email".
+  Forgot-password and reset-password answer the same for known and unknown addresses.
+
 ## Go-live checklist
 
 - [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
