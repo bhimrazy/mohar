@@ -30,7 +30,7 @@ public API.
 - **SS-2 (MUST)** The identity key is the provider's stable subject, never the email. An email change at the provider
   does not break the link; a recycled email never inherits a link.
 - **SS-3 (MUST)** Microsoft has a tenant setting: `common` (default), `organizations`, `consumers`, a tenant GUID or a
-  verified domain name. The value goes into the URL path, so anything else (`../`, slashes, spaces, a query) is refused
+  domain name. The value goes into the URL path, so anything else (`../`, slashes, spaces, a query) is refused
   when the setting is saved and again when a flow starts.
 - **SS-3a (MUST)** Microsoft identities come from the ID token returned by the token endpoint over TLS (OpenID Connect
   Core §3.1.3.7, so no JWT library and no signature check). The provider reads `oid`, `tid` and `xms_edov` and refuses
@@ -75,7 +75,8 @@ Fortify's `/register` and the module both read it with Platform absent.
   returns to the login page with a plain message ("Sign-in with Google was cancelled or expired. Try again."). Nothing
   is created or linked.
 - **SS-9 (MUST)** A known identity signs in its login, under the same rules as a password login: disabled logins,
-  closed clients and the login lockout refuse it with the same messages.
+  closed clients and the login lockout refuse it with the same messages (`SignInGate`). A failed provider sign-in for a
+  known login counts towards the same lockout as a failed password (ADR 0018 §2).
 - **SS-10 (MUST)** A login with 2FA goes through the existing two-factor challenge after the provider returns. The
   provider never counts as a second factor. A staff login without 2FA while `security.staff_2fa_required` is on is sent
   to enrolment, as after a password login.
