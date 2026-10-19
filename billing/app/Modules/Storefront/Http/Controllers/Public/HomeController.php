@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 
 /**
  * Public pages owned by the Storefront: home (and its staff preview), domain prices and the 404 page. Every one
@@ -69,6 +71,19 @@ class HomeController extends Controller
      */
     public function notFound(Request $request): HttpResponse
     {
+        // The GET fallback would otherwise hide routes that exist for other methods: keep their 405.
+        $allowed = array_values(array_filter(['POST', 'PUT', 'PATCH', 'DELETE'], function (string $method) use ($request): bool {
+            try {
+                return ! Route::getRoutes()->match(Request::create($request->getUri(), $method))->isFallback;
+            } catch (HttpExceptionInterface) {
+                return false;
+            }
+        }));
+
+        if ($allowed !== []) {
+            throw new MethodNotAllowedHttpException($allowed);
+        }
+
         abort_if(self::isStaffOrApiPath($request), 404);
 
         return self::notFoundResponse($request);

@@ -150,6 +150,8 @@ it('answers unknown public URLs with the public 404 page and noindex', function 
     $response->assertInertia(fn (Assert $page) => $page->component('public/storefront/not-found')->where('path', '/no-such-page')->has('site'));
     expect($response->getContent())->toContain('<meta name="robots" content="noindex, nofollow"');
 
+    $this->get(route('store.cart.domains.store'))->assertMethodNotAllowed();
+
     actingAsStaff();
     $this->get('/admin/no-such-page')->assertNotFound()->assertDontSee('public/storefront/not-found', false);
 });
