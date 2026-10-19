@@ -57,12 +57,11 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 7. ADR 0013 steps 1–2 (company clock: `core.timezone`, automation in company time), with a Kathmandu test.
 8. Then: registrars (ADR 0009 PR C, `.np` manual, ResellerClub), Razorpay/PayPal, WHMCS importer.
 
-Deferred, pending owner approval: social sign-in, Affiliates, client dashboard and profile (#31, #32). None
+Social sign-in: next free engineer (owner, 2026-10-19). Deferred: Affiliates, client dashboard and profile (#31, #32). None
 is a switch blocker in the parity studies.
 
 ## Decisions pending from the owner
 
-- Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
 - Test accounts: not available (owner, 2026-10-18). Integrations are verified against local simulators; real smoke runs wait for real accounts.
 - Repository settings: branch protection and required checks on `develop` and `main`.
 - Business: licence and price model, support model, published security policy, trademark search for "Mohar".
