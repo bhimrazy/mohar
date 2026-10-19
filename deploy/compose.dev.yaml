@@ -1,0 +1,46 @@
+# Containerised development: the `dev` target of deploy/Dockerfile with billing/ bind-mounted, and Vite for HMR.
+# For running the app on the host instead, see billing/docs/devops/local-setup.md (that remains the default).
+#
+#   HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deploy/compose.dev.yaml up --build     http://localhost:8080
+#
+# The app reads billing/.env (SQLite by default: run `php artisan migrate --seed` once through
+# `docker compose -f deploy/compose.dev.yaml exec app ...`). PostgreSQL and RustFS are the services of
+# billing/compose.yaml, included here so their pinned images are defined once; to use PostgreSQL set the DB_*
+# block in billing/.env (DB_HOST is overridden to the service name below).
+name: mohar-dev
+
+include:
+    - ../billing/compose.yaml
+
+x-dev-image: &dev-image
+    build:
+        context: ..
+        dockerfile: deploy/Dockerfile
+        target: dev
+    # Runs as the host user so files written to the bind mount (vendor, storage, public/hot) stay yours.
+    user: '${HOST_UID:-1000}:${HOST_GID:-1000}'
+    working_dir: /app
+    volumes:
+        - ../billing:/app
+    environment: &dev-environment
+        HOME: /tmp
+        APP_URL: 'http://localhost:${APP_PORT:-8080}'
+        DB_HOST: postgres
+        DB_PORT: '5432'
+    init: true
+
+services:
+    app:
+        <<: *dev-image
+        ports:
+            - '127.0.0.1:${APP_PORT:-8080}:8080'
+
+    vite:
+        <<: *dev-image
+        command: ['npm', 'run', 'dev']
+        environment:
+            <<: *dev-environment
+            # laravel-vite-plugin then writes http://localhost:5173 to public/hot instead of the container address.
+            LARAVEL_SAIL: '1'
+        ports:
+            - '127.0.0.1:5173:5173'

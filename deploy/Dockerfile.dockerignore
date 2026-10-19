@@ -1,0 +1,64 @@
+# Build context for deploy/Dockerfile is the repository root: docker build -f deploy/Dockerfile .
+# BuildKit reads this file instead of a root .dockerignore. Only billing/ and the runtime files under deploy/
+# reach the build; never secrets or local state.
+*
+!billing
+!deploy/entrypoint.sh
+!deploy/healthcheck.php
+!deploy/frankenphp
+!deploy/php
+# Installed by the build stages from the lockfiles
+billing/vendor
+billing/node_modules
+
+# Secrets and local environment
+billing/.env
+billing/.env.*
+!billing/.env.example
+billing/auth.json
+billing/storage/*.key
+
+# Local state and build output (rebuilt in the image)
+billing/public/build
+billing/public/hot
+billing/public/storage
+billing/public/fonts-manifest.dev.json
+billing/bootstrap/cache/*.php
+billing/bootstrap/ssr
+billing/database/*.sqlite*
+billing/storage/app/**
+billing/storage/framework/**
+billing/storage/logs/**
+billing/storage/pail
+!billing/storage/**/.gitignore
+billing/resources/js/actions
+billing/resources/js/routes
+billing/resources/js/wayfinder
+
+# Not part of the running app
+billing/tests
+billing/docs
+billing/.phpunit.cache
+billing/.phpunit.result.cache
+billing/changelog.md
+billing/*.md
+!billing/resources/**/*.md
+
+# Editor, agent and tool folders
+billing/.git
+billing/.github
+billing/.agents
+billing/.claude
+billing/.cursor
+billing/.factory
+billing/.fleet
+billing/.grok
+billing/.idea
+billing/.junie
+billing/.kiro
+billing/.nova
+billing/.vscode
+billing/.zed
+billing/.mcp.json
+billing/boost.json
+billing/.DS_Store
