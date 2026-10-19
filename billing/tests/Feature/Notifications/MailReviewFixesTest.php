@@ -24,6 +24,7 @@ use App\Modules\Notifications\Rendering\TemplateSyntaxError;
 use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
+use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
@@ -261,6 +262,39 @@ it('P3b never turns a ticket subject or requester name into a link, in either pa
     expect($composed->subject)->not->toMatch('/[\r\n]/')
         ->and((string) $composed->html)->not->toContain('href="https://evil.test', 'evil.test/')
         ->and($composed->text)->not->toContain('evil.test/')->toContain('evil[.]test');
+});
+
+it('leaves names that merely contain a domain as typed, and defangs only links', function () {
+    expect(SecretTemplatePolicy::defang('Example.com Ltd'))->toBe('Example.com Ltd')
+        ->and(SecretTemplatePolicy::defang('Help with example.com'))->toBe('Help with example.com')
+        ->and(SecretTemplatePolicy::defang('Pay at https://evil.example/pay'))->toBe('Pay at https[:]//evil[.]example/pay')
+        ->and(SecretTemplatePolicy::defang('see evil.example/pay or www.evil.example'))->toBe('see evil[.]example/pay or www[.]evil[.]example')
+        ->and(SecretTemplatePolicy::defang('mailto:x@evil.example'))->toBe('mailto[:]x@evil[.]example')
+        ->and(SecretTemplatePolicy::defang('exämple。test/pay'))->toBe('exämple[.]test/pay');
+
+    $composed = reviewCompose('client.welcome', ['client' => ['first_name' => 'Ann', 'company_name' => 'Example.com Ltd'], 'recipient' => ['first_name' => 'Ann']]);
+    expect(SecretTemplatePolicy::neutraliseUntrusted(['client' => ['company_name' => 'Example.com Ltd']])['client']['company_name'])->toBe('Example.com Ltd')
+        ->and($composed->text)->not->toContain('[.]');
+});
+
+it('never shows the button token, in any bundled template or its log copy', function () {
+    Mail::fake();
+    $client = Client::factory()->create(['email' => 'owner@example.test']);
+    $samples = app(SampleContext::class);
+
+    foreach (EmailTemplate::query()->with('translations')->get() as $template) {
+        if ($template->carriesSecret()) {
+            continue;
+        }
+
+        $template->translations->first()->update(['preheader' => null]);
+        $composed = app(EmailComposer::class)->compose($template->fresh('translations'), 'en', $samples->build($template->audience->value === 'staff', $template->key));
+
+        expect($composed->subject.$composed->html.$composed->text.$composed->storedHtml.$composed->storedText)->not->toContain('zzbtn', $template->key);
+    }
+
+    app(NotificationMailer::class)->send(new EmailRequest('invoice.created', [app(RecipientResolver::class)->owner($client)], $samples->build(false, 'invoice.created'), 'token|1', $client->id));
+    expect(EmailMessage::query()->sole()->only('subject', 'body_html', 'body_text'))->each->not->toContain('zzbtn');
 });
 
 it('P3c escapes and defangs a client account name in the login-added notice', function () {

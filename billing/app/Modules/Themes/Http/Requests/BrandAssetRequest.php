@@ -34,6 +34,16 @@ class BrandAssetRequest extends FormRequest
      */
     public function messages(): array
     {
+        // The email logo is converted to PNG and flattened onto white in the browser; the server takes only the result.
+        if ($this->route('kind') === 'logo-email') {
+            return [
+                'file.mimes' => 'The email logo must be a PNG or JPEG image (other formats, including WebP and SVG, are not accepted).',
+                'file.image' => 'The email logo must be a PNG or JPEG image (other formats, including WebP and SVG, are not accepted).',
+                'file.max' => 'The email logo must be 512 KB or smaller.',
+                'file.dimensions' => 'The email logo must be at least 16 px high and at most 2000 × 1000 px.',
+            ];
+        }
+
         return [
             'file.mimes' => 'Upload a PNG, JPG or WebP image (SVG is not accepted).',
             'file.image' => 'Upload a PNG, JPG or WebP image (SVG is not accepted).',

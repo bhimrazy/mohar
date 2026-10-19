@@ -231,7 +231,7 @@ final class MailFramer
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
             'auth.user_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailClock::today())],
-            'auth.new_login_alert' => ['warning', self::text('New sign-in'), $this->date(MailClock::today())],
+            'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailClock::today())],
             default => ['info', self::text('Account change'), $this->date(MailClock::today())],
         };
 

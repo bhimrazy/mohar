@@ -307,8 +307,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The email log shows template names instead of keys.
 - A button comes only from the template's own action line or from the system: a link in a client's message or in
   a merged value never becomes the main button. Staff ticket mail puts the "Open ticket" button first and quotes the
-  client's message below it. Names and ticket subjects never turn into links (web addresses in them are shown as
-  `example[.]com`).
+  client's message below it. Links typed into names and ticket subjects are shown inert (`https[:]//evil[.]example/pay`);
+  names such as "Example.com Ltd" stay as typed.
 - An invitation whose link fails the security check is not sent by any other path: staff see "Invitation not sent"
   on the form and a security event is logged. Laravel's own notification is used only when the Notifications module
   is absent, with its link built on `APP_URL`.

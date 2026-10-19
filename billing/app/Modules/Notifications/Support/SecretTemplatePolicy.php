@@ -271,11 +271,13 @@ final class SecretTemplatePolicy
     }
 
     /**
-     * "evil.test/login" → "evil[.]test/login", "https://x" → "https[:]//x": readable, but no mail client links it.
+     * Defangs what reads as a link — a scheme ("https:", "mailto:"), "www.", "//host", or a host followed by a path
+     * or query ("evil.example/pay") — so no mail client links it: "https[:]//evil[.]example/pay". Names and
+     * subjects stay as typed otherwise: "Example.com Ltd" is left alone.
      */
     public static function defang(string $text): string
     {
-        return (string) preg_replace_callback(self::urlPattern(), fn (array $match): string => str_replace(['://', '.', '。', '．', '｡'], ['[:]//', '[.]', '[.]', '[.]', '[.]'], $match[0]), $text);
+        return (string) preg_replace_callback(self::linkPattern(), fn (array $match): string => strtr($match[0], [':' => '[:]', '.' => '[.]', '。' => '[.]', '．' => '[.]', '｡' => '[.]']), $text);
     }
 
     /**
@@ -681,6 +683,22 @@ final class SecretTemplatePolicy
      * Schemes, protocol-relative and www. links, IPv4/IPv6 literals and domain names — including IDN, punycode and
      * full-width dots — i.e. anything a mail client could turn into a link.
      */
+    /**
+     * Link-like text only (see defang()), with the same IDN, punycode and full-width-dot handling as urlPattern().
+     */
+    private static function linkPattern(): string
+    {
+        $dot = self::DOT;
+        $label = self::LABEL;
+        $host = '(?<![\p{L}\p{N}\-])'.$label.'(?:'.$dot.$label.')*'.$dot.'(?:\p{L}{2,}|xn--[a-z0-9\-]+)';
+
+        return '~(?:\b(?:https?|ftp|ftps|mailto|tel|sms|file|data|javascript|vbscript|wss?|ssh|git|irc|news|ldap):\S+)'
+            .'|(?:\b[a-z][a-z0-9+.\-]*://\S+)'
+            .'|(?:(?<!\S)//\S+)'
+            .'|(?:\bwww'.$dot.'\S+)'
+            .'|(?:'.$host.'(?::\d+)?[/?#]\S*)~iu';
+    }
+
     private static function urlPattern(): string
     {
         $dot = self::DOT;
