@@ -28,6 +28,7 @@
         "laravel/pint": "1.32.1",
         "laravel/sail": "1.69.0",
         "mockery/mockery": "1.6.15",
+        "mohar/simulators": "^0.1",
         "nunomaduro/collision": "8.9.5",
         "pestphp/pest": "5.3.0",
         "pestphp/pest-plugin-drift": "5.0.0",
@@ -42,7 +43,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Tests\\": "tests/"
+            "Tests\\": "tests/",
+            "Mohar\\Simulators\\Tests\\": "tools/simulators/tests/"
         }
     },
     "scripts": {
@@ -160,5 +162,14 @@
         "ci": "Run every CI gate locally, including migrate:fresh --seed + tests on PostgreSQL (needs `docker compose up -d`).",
         "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing).",
         "deps:check": "Lockfiles in sync, composer/npm audits, and the ≥7-day dependency cooldown for changes since develop (needs network)."
-    }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "tools/simulators",
+            "options": {
+                "symlink": true
+            }
+        }
+    ]
 }

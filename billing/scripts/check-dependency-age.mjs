@@ -102,6 +102,13 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         ...(composerLock?.packages ?? []),
         ...(composerLock?.['packages-dev'] ?? []),
     ]) {
+        if (
+            pkg.dist?.type === 'path' &&
+            pkg.name === 'mohar/simulators' &&
+            pkg.dist?.url === 'tools/simulators'
+        ) {
+            continue; // the first-party simulators package in this repository (ADR 0016), not a third-party release
+        }
         items.push({
             kind: 'composer',
             name: pkg.name,
