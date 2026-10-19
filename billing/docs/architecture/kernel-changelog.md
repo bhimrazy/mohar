@@ -25,10 +25,20 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
   `core.company_*` and `billing.seller.*` through Core `Settings`.
 
+### Integration simulators, S1 (ADR 0016 §1, §3)
+
+- `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
+  such keys are counted ("(2 malformed keys)"), since one may be a pasted URL with credentials.
+- `Endpoints::configuredKeys()`: the keys set in `INTEGRATION_ENDPOINTS` whatever the environment (for the install
+  check and the dashboard health check; drivers may not call it, Arch rule). Compatible.
+- No other kernel change: the framework is the dev-only package `mohar/simulators` (`tools/simulators`, namespace
+  `Mohar\Simulators\`), which `App\` never references.
+
 ### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
 
 - Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
-  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a driver has nothing to branch on). Drivers of fixed-host providers
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a
+  driver has nothing to branch on). Drivers of fixed-host providers
   make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
   overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
   JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every

@@ -8,6 +8,7 @@ import {
     MoreHorizontal,
     Pencil,
     Plus,
+    Send,
     Trash2,
     ShieldOff,
     UsersRound,
@@ -114,6 +115,11 @@ export default function ClientShow({
     const [confirm, setConfirm] = useState<'close' | 'reopen' | null>(null);
     const [mergeOpen, setMergeOpen] = useState(false);
     const [editingLogin, setEditingLogin] = useState<ClientLogin | null>(null);
+    /** Invitation or password reset to confirm for a login (opened from its actions menu). */
+    const [accessEmail, setAccessEmail] = useState<{
+        login: ClientLogin;
+        kind: 'invitation' | 'reset';
+    } | null>(null);
     const closed = client.status === 'closed';
     const hasMenu = (can.close || can.merge) && !client.merged_into_client_id;
 
@@ -204,6 +210,13 @@ export default function ClientShow({
                         {login.is_owner && (
                             <Badge variant="secondary">Owner</Badge>
                         )}
+                        {login.invitation && (
+                            <Badge variant="outline">
+                                {login.invitation.state === 'expired'
+                                    ? 'Invitation expired'
+                                    : 'Invited'}
+                            </Badge>
+                        )}
                     </span>
                     <span className="truncate text-xs font-normal text-muted-foreground">
                         {login.email}
@@ -282,6 +295,31 @@ export default function ClientShow({
                                                   <KeyRound />
                                                   Edit permissions
                                               </DropdownMenuItem>
+                                              {login.invitation ? (
+                                                  <DropdownMenuItem
+                                                      onSelect={() =>
+                                                          setAccessEmail({
+                                                              login,
+                                                              kind: 'invitation',
+                                                          })
+                                                      }
+                                                  >
+                                                      <Send />
+                                                      Send a new invitation
+                                                  </DropdownMenuItem>
+                                              ) : (
+                                                  <DropdownMenuItem
+                                                      onSelect={() =>
+                                                          setAccessEmail({
+                                                              login,
+                                                              kind: 'reset',
+                                                          })
+                                                      }
+                                                  >
+                                                      <Send />
+                                                      Send a password reset
+                                                  </DropdownMenuItem>
+                                              )}
                                               <DropdownMenuItem
                                                   onSelect={() =>
                                                       post(
@@ -697,6 +735,42 @@ export default function ClientShow({
                     </div>
                 </div>
             </Page>
+
+            {accessEmail && (
+                <ConfirmDialog
+                    key={`${accessEmail.kind}-${accessEmail.login.id}`}
+                    open
+                    onOpenChange={(open) => !open && setAccessEmail(null)}
+                    title={
+                        accessEmail.kind === 'invitation'
+                            ? `Send a new invitation to ${accessEmail.login.email}?`
+                            : `Send a password reset to ${accessEmail.login.email}?`
+                    }
+                    description={
+                        accessEmail.kind === 'invitation'
+                            ? 'The link in the earlier invitation stops working. The new one works once, for the number of days set for invitations.'
+                            : 'They get the usual password reset email. Their current password keeps working until they choose a new one.'
+                    }
+                    confirmLabel={
+                        accessEmail.kind === 'invitation'
+                            ? 'Send invitation'
+                            : 'Send reset link'
+                    }
+                    destructive={false}
+                    action={
+                        accessEmail.kind === 'invitation'
+                            ? ClientUserController.resendInvitation([
+                                  client.id,
+                                  accessEmail.login.id,
+                              ])
+                            : ClientUserController.sendPasswordReset([
+                                  client.id,
+                                  accessEmail.login.id,
+                              ])
+                    }
+                    onSuccess={() => setAccessEmail(null)}
+                />
+            )}
 
             {editingLogin && (
                 <LoginDialog

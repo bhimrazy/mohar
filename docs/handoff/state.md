@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-19 13:00 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 15:05 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
@@ -23,9 +23,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests (merge order: #77 S0, then S1; email follow-up after its review; deploy and #58 independent)
 
-| PR  | Workstream     | Status                                                                                                                                              |
-| --- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge. |
+| PR  | Workstream | Status |
+| --- | ---------- | ------ |
 
 ## Design and research in progress
 
@@ -35,12 +34,16 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
-## Running now (2026-10-19 13:20 UTC)
+## Running now (2026-10-19 14:15 UTC)
 
-- Builds: email follow-up (template auto-update, invitation token); deployment D1; simulators S1 (stacked on #77);
-  cPanel PR 2 (`feature/provisioning-cpanel-2`); storefront home page direction A (remote agent, `feature/storefront-home`).
-- Reviews: #77 S0 re-check; #58 Stripe re-review; periodic round 1 (CEO, CTO, security, architecture → `docs/reviews/`).
-- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews").
+- Builds: security fixes #89; cPanel import step 1 #87 (in review) and step 2; deployment
+  D1 #79 and D2 #80; CI speed-up #91 (urgent: CI exceeds 15 min, stopgap #93); simulators S1 #92 and S2; storefront home
+  page (`feature/storefront-home`).
+- Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
+- Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe (#58, fixture-tested, not live-verified), deployment D1 (#79) and invitations/template defaults (#78) merged; CI limit 25 min (#93).
+- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews"). Round 1 ran 2026-10-19 13:20 UTC
+  (`docs/reviews/2026-10-19-*.md`); the 14:20 and 14:47 rounds were skipped: everything merged since round 1 (S0 #77, Stripe #58,
+  deployment D1 #79, CI timeout #93, docs) had its own security and architecture or board review before merging. Next round at the 02:17 slot.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
@@ -55,12 +58,11 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 7. ADR 0013 steps 1–2 (company clock: `core.timezone`, automation in company time), with a Kathmandu test.
 8. Then: registrars (ADR 0009 PR C, `.np` manual, ResellerClub), Razorpay/PayPal, WHMCS importer.
 
-Deferred, pending owner approval: social sign-in, Affiliates, client dashboard and profile (#31, #32). None
+Social sign-in: next free engineer (owner, 2026-10-19). Deferred: Affiliates, client dashboard and profile (#31, #32). None
 is a switch blocker in the parity studies.
 
 ## Decisions pending from the owner
 
-- Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
 - Test accounts: not available (owner, 2026-10-18). Integrations are verified against local simulators; real smoke runs wait for real accounts.
 - Repository settings: branch protection and required checks on `develop` and `main`.
 - Business: licence and price model, support model, published security policy, trademark search for "Mohar".

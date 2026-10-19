@@ -13,6 +13,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
   other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
   name, address, phone, PAN, VAT number, GSTIN) until the company profile exists.
+- **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
+  server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
+  housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
+  wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
+  who bring existing accounts in. Fetches run on the `provisioning` queue.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -66,6 +71,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
   uploaded; re-upload an existing WebP mark for it to appear in mail.
 - Invitations and account security notices are always sent: their templates can't be switched off.
+- **Email templates follow new defaults.** Run `php artisan migrate` (adds `default_hash` and `previous_text` to
+  `email_template_translations`); the upgrade's `app:install` then replaces the text of templates nobody edited with
+  the new shipped wording, with an activity-log entry each. Edited templates are left as they are.
+- **Client-login invitations have their own link.** A new `client_invitations` table holds a single-use invitation
+  token (stored hashed) instead of a password-reset token. Links work for "Invitation links work for (days)"
+  (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
+  before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
+  use the new "Send a password reset" action for them instead of "Send a new invitation".
 
 ### Storefront
 
@@ -95,7 +108,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
   They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
   fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
-  logged as critical at boot. No integration uses them yet.
+  logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
+  a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
+  uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
+- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+  package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
+  CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
+  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
+  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+--no-dev` build contains neither the commands nor the package (checked in CI).
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -125,6 +146,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
+  on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
+  finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
+  that server; unmatched with the reason otherwise; listed apart when another WHM user owns it (a reseller's customer
+  on a root connection, which signs in as root when no username is set); linked when a live service already holds it,
+  with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
+  recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
+  server or here; the request and its result are recorded in the activity log.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
@@ -398,6 +427,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Partly paid invoices show a "Paid" row between the total and the balance; refunds and credit notes state their
   amount; the text part drops links that the HTML drops. Staff-written ticket replies are not marked automatic.
 - Email wording uses "Log in" and "Forgot your password?" throughout.
+- The template editor shows "New default available" when a release changes the wording of a template you edited,
+  with your text and the new default side by side and "Use new default", which keeps your text as the previous text.
+- A new client login's invitation opens its own page to choose a password. The link works once, for the configured
+  number of days; the email says how long and until when. Sending a new invitation (client page → login actions →
+  "Send a new invitation", shown with an "Invited" or "Invitation expired" badge) or removing the login revokes the
+  old link. Expired, used and unknown links get a clear message. Staff invitations state their expiry the same way.
+  An invitation only ever activates a never-used login: its link stops working once the login changes its email
+  address, gets a password another way (for example "Forgot your password?"), turns on two-factor authentication,
+  signs in, or loses access to the account, and such a login can't be invited again ("Send a password reset" instead).
+  Accepting never signs in past two-factor authentication. A client merge moves open invitations with their logins.
 
 ### Currencies
 
@@ -507,13 +546,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
   with a known password); production reference data comes from the install path in #47.
 
+### Payments — Stripe
+
+- Not yet verified against a live Stripe account: tested with recorded Stripe API fixtures and, once ADR 0016 S3
+  lands, the Stripe simulator. The live sandbox smoke run (`docs/devops/install.md` go-live checklist) is required
+  before a host takes real card payments.
+- Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
+  invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
+  PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
+  `Stripe-Version` and an idempotency key on every POST; no SDK.
+- Signed webhooks (constant-time `Stripe-Signature` check, 5-minute tolerance, mode check) trigger a retrieve and
+  never trust the posted body: payments, Dashboard refunds (`refund.created`/`refund.updated`) and disputes
+  (`charge.dispute.created`, recorded as chargebacks). Duplicates and races with the return route and the poller
+  record one transaction.
+- Full and partial refunds through the Refunds API; exact amounts for zero-decimal currencies; test mode refused
+  in production; connection test; Stripe's official wordmark; `php artisan payments:stripe-smoke` for a real
+  sandbox run.
+
 ### DevOps
 
+- Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
+  (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
+  a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
+  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.8 s. `deploy/compose.dev.yaml`
+  runs the `dev` target with Vite. The dependency check now also requires digest pins and the 7-day cooldown for
+  `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
+- `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
+  means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
+  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+- Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
+  rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
+  skipped. Set it to `true` once an SSR entry exists.
 - Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
   about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
   the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
   peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
-
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
 - CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was

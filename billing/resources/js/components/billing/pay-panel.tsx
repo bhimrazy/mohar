@@ -266,8 +266,8 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                         </p>
                     ) : (
                         <p className="text-sm text-muted-foreground">
-                            You’ll be taken to {selected.name} to complete the
-                            payment, then brought back here.
+                            You’ll be taken to {selected.provider} to complete
+                            the payment, then brought back here.
                         </p>
                     )}
                     {selected.conversion && (
@@ -282,7 +282,7 @@ export function PayPanel({ options, amount, currency, action }: PayPanelProps) {
                         className="w-full sm:w-auto sm:justify-self-end"
                     >
                         {processing && <Spinner />}
-                        Continue to {selected.name}
+                        Continue to {selected.provider}
                     </Button>
                 </>
             )}

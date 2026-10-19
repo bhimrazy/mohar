@@ -16,9 +16,11 @@ use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Support\PublicHelpDirectory;
+use App\Models\User;
 use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
@@ -109,6 +111,14 @@ class CoreServiceProvider extends ModuleServiceProvider
         $navigation->add('client', new NavItem('Account details', 'client.account.edit', 'UserRound', 'Setup', 90));
 
         $this->app->make(CoreDashboard::class)->register($this->app->make(Dashboard::class));
+
+        // An open invitation only ever activates a never-used login: once the login gets a password, another email
+        // address or two-factor authentication some other way (reset, profile, security settings), its link is void.
+        User::saved(function (User $user): void {
+            if ($user->wasChanged(['password', 'email', 'two_factor_secret', 'two_factor_confirmed_at'])) {
+                ClientInvitation::query()->where('user_id', $user->id)->whereNull('accepted_at')->delete();
+            }
+        });
 
         $reference = $this->app->make(ReferenceDataRegistry::class);
         $reference->register(DefaultCurrencies::KEY, DefaultCurrencies::class, order: 10);

@@ -1,6 +1,10 @@
 <?php
 
 use App\Data\Integrations\Endpoint;
+use App\Modules\Core\Install\CheckStatus;
+use App\Modules\Core\Install\EnvironmentChecks;
+use App\Modules\Platform\Support\PlatformDashboard;
+use App\Support\Dashboard\Dashboard;
 use App\Support\Integrations\Endpoints;
 use App\Support\Integrations\OutboundAddressGuard;
 use App\Support\Integrations\OutboundAddressRefused;
@@ -91,7 +95,7 @@ test('only https base URLs without credentials, query or fragment are honoured; 
     'credentials' => [['stripe.api' => 'https://user:secret@sim.example.test'], 'stripe.api'],
     'query' => [['stripe.api' => 'https://sim.example.test/?x=1'], 'stripe.api'],
     'fragment' => [['stripe.api' => 'https://sim.example.test/#top'], 'stripe.api'],
-    'malformed key' => [['Stripe API' => 'https://sim.example.test'], 'Stripe API'],
+    'malformed key, counted and never repeated' => [['Stripe API' => 'https://sim.example.test'], '(1 malformed key)'],
     'not a JSON object' => ['{not json', '(not a JSON object)'],
 ]);
 
@@ -129,4 +133,34 @@ test('overrides have no settings key, so staff cannot set one', function () {
 
     expect($keys)->not->toBeEmpty()
         ->and(array_values(array_filter($keys, fn (string $key) => str_starts_with($key, 'integrations.'))))->toBe([]);
+});
+
+test('the install checks fail on overrides set outside a development environment', function () {
+    endpoints(['stripe.api' => 'https://sim.example.test:8443']);
+    $named = fn () => collect(app(EnvironmentChecks::class)->run())->firstWhere('label', 'Integration endpoints');
+
+    expect($named())->toBeNull();
+
+    app()->detectEnvironment(fn () => 'production');
+    expect($named()?->status)->toBe(CheckStatus::Failed)
+        ->and($named()?->detail)->toContain('stripe.api');
+});
+
+test('the dashboard health check shows overrides only while set: amber in development, red elsewhere, keys only', function () {
+    $check = function (): ?array {
+        $dashboard = new Dashboard;
+        app(PlatformDashboard::class)->registerIntegrationEndpoints($dashboard);
+
+        return collect($dashboard->resolveHealth('admin', actingAsStaff(['core.settings.view'])))->firstWhere('key', 'platform.integration_endpoints');
+    };
+
+    endpoints();
+    expect($check())->toBeNull();
+
+    endpoints(['stripe.api' => 'https://sim.example.test:8443']);
+    expect($check())->toMatchArray(['tone' => 'warning', 'value' => 'Overridden']);
+
+    app()->detectEnvironment(fn () => 'production');
+    expect($check())->toMatchArray(['tone' => 'danger'])
+        ->and($check()['detail'])->toContain('stripe.api')->not->toContain('sim.example.test');
 });
