@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-19 13:00 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 14:15 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
@@ -35,11 +35,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
-## Running now (2026-10-19 13:20 UTC)
+## Running now (2026-10-19 14:15 UTC)
 
-- Builds: email follow-up (template auto-update, invitation token); deployment D1; simulators S1 (stacked on #77);
-  cPanel PR 2 (`feature/provisioning-cpanel-2`); storefront home page direction A (remote agent, `feature/storefront-home`).
-- Reviews: #77 S0 re-check; #58 Stripe re-review; periodic round 1 (CEO, CTO, security, architecture → `docs/reviews/`).
+- Builds: email follow-up #78 fixes; security fixes #89; cPanel import step 1 #87 (in review) and step 2; deployment
+  D1 #79 and D2 #80; CI speed-up #91 (urgent: CI exceeds 15 min, stopgap #93); simulators S1 #92 and S2; storefront home
+  page (`feature/storefront-home`).
+- Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
+- Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe #58 waits only for CI.
 - Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews").
 
 ## Next (in order, from the Fable review and the parity roadmap)
