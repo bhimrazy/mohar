@@ -3,6 +3,7 @@ import { Mail, MapPin, Menu, Phone, ShoppingCart } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageWidthContext } from '@/components/app/page';
+import { HostBrand } from '@/components/host-brand';
 import {
     FromPriceText,
     PaymentMarks,
@@ -54,7 +55,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
             </a>
             <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                 <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-2 px-4 md:px-6">
-                    <HostBrand />
+                    <HomeLink />
                     {site && <DesktopNav site={site} />}
                     <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
                         {site && (
@@ -103,34 +104,14 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
     );
 }
 
-/** The host's uploaded logo, else its name. The product's own mark never shows on the public site. */
-function HostBrand() {
-    const { brand } = usePage().props;
-    const hostLogo = brand.logoLight?.includes('/branding/')
-        ? brand.logoLight
-        : null;
-
+/** The host's brand links home; the product's own mark never shows on the public site. */
+function HomeLink() {
     return (
         <Link
             href="/"
-            className="flex min-w-0 shrink items-center rounded-md font-display text-lg font-semibold focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="flex min-w-0 shrink items-center rounded-md focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
         >
-            {hostLogo ? (
-                <>
-                    <img
-                        src={hostLogo}
-                        alt={brand.name}
-                        className="h-8 w-auto max-w-40 object-contain dark:hidden"
-                    />
-                    <img
-                        src={brand.logoDark ?? hostLogo}
-                        alt={brand.name}
-                        className="hidden h-8 w-auto max-w-40 object-contain dark:block"
-                    />
-                </>
-            ) : (
-                <span className="truncate">{brand.name}</span>
-            )}
+            <HostBrand />
         </Link>
     );
 }

@@ -1,5 +1,5 @@
 import { Link, usePage } from '@inertiajs/react';
-import { BrandLogo } from '@/components/brand-logo';
+import { HostBrand } from '@/components/host-brand';
 import { home } from '@/routes';
 import type { AuthLayoutProps } from '@/types';
 
@@ -19,7 +19,7 @@ export default function AuthSimpleLayout({
                             href={home()}
                             className="flex flex-col items-center gap-2 font-medium"
                         >
-                            <BrandLogo imageClassName="h-9" />
+                            <HostBrand imageClassName="h-9" />
                             {brand?.tagline && (
                                 <span className="text-xs font-normal text-muted-foreground">
                                     {brand.tagline}
