@@ -63,11 +63,23 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 | Shared kernel or ADR               | `principal-architect` + `review-board`                                                                                                 |
 | Driver (gateway, panel, registrar) | `review-board` + `security-reviewer` + contract-test dataset + a recorded real sandbox run in the PR body                              |
 
-- `qa-design-reviewer` and `product-reviewer` overlap. Use `product-reviewer` (it includes QA) for user-facing
-  PRs, and sweep `develop` once per wave rather than every PR.
+- `qa-design-reviewer` is retired; `product-reviewer` (it includes QA) covers user-facing PRs, and sweeps
+  `develop` once per wave.
+- Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
+  secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
+  finding.
+- Reviewer probes become committed regression tests: reviewers push them to `review/pr-<n>-probes` and the
+  engineer adopts them in the fix push, so a re-review is mostly a CI check.
+- CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
+  for queries or migrations, PostgreSQL); the full suite runs locally only to diagnose a CI failure.
+- Scale engineers by location: at most two building locally; further engineers run as remote agents with CI
+  as the gate. Pilot result (2026-10-19): `isolation: "remote"` was not available here and the storefront home
+  page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
 - The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
 - Specs are written before the build starts, and briefs cite `product-standards.md`.
-- PR size cap is about 3,000 changed lines; split larger work before review.
+- PR size cap is about 3,000 changed lines; split larger work before review. Drivers (gateway, panel,
+  registrar), money and security-sensitive PRs have a hard cap of 1,500 changed lines (tests and fixtures
+  count), with no overrides (CTO review, 2026-10-19).
 - Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
   `ci` label so PostgreSQL CI runs before review.
   The label takes effect on the next push (adding the label from the codespace token does not start a run), and

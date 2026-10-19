@@ -19,4 +19,22 @@ return [
         'allow_loopback' => (bool) env('OUTBOUND_ALLOW_LOOPBACK', env('APP_ENV') === 'local'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Endpoint overrides for local simulators (ADR 0016)
+    |--------------------------------------------------------------------------
+    |
+    | Read by App\Support\Integrations\Endpoints. Honoured only when APP_ENV is local or testing: a JSON object of
+    | endpoint key => https base URL (for example {"stripe.api": "https://127.0.0.1:8443"}) and the CA bundle that
+    | signs the simulator's certificate. In every other environment they are ignored and logged as critical. Never a
+    | database setting.
+    |
+    */
+
+    'endpoints' => [
+        // Kept as written; Endpoints parses it and logs anything malformed.
+        'overrides' => env('INTEGRATION_ENDPOINTS'),
+        'ca_bundle' => env('INTEGRATION_CA_BUNDLE'),
+    ],
+
 ];

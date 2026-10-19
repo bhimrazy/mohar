@@ -1,6 +1,6 @@
 # ADR 0013 — Company clock and time zones
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review) · Owner: Principal architect. The setting key is `core.timezone`; code that reads the unregistered `system.timezone` is a bug (issue #85).
 
 ## Context
 
