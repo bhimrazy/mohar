@@ -110,6 +110,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
   recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
   server or here; the request and its result are recorded in the activity log.
+- Import accounts page (Admin → Servers → server menu → Import accounts): summary cards, tabs with counts, search and
+  pages over the stored match. The rows shown are re-checked against today (a service created since links the account,
+  a client closed since is dropped). "Match again" re-matches against today's clients, products and services without
+  asking the server. Unmatched accounts link to creating a product for their package; live services missing on the
+  server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,

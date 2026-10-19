@@ -36,7 +36,9 @@ class ServerImportController extends Controller
     {
         $this->authorize('services.servers.import');
 
-        $import = FetchAccountsForImport::latest($server);
+        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
+        // The encrypted list is read only for the account tabs; the counts and missing ids are plain columns.
+        $import = FetchAccountsForImport::latest($server, withAccounts: $tab !== 'missing');
         $ready = $import?->status === ServerAccountImport::READY;
         $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
         $search = mb_strtolower(mb_substr(trim($request->string('search')->toString()), 0, 100));
@@ -96,7 +98,7 @@ class ServerImportController extends Controller
     {
         $this->authorize('services.servers.import');
 
-        $import = FetchAccountsForImport::latest($server);
+        $import = FetchAccountsForImport::latest($server, withAccounts: true);
 
         if ($import?->status !== ServerAccountImport::READY) {
             throw ValidationException::withMessages(['import' => __('Fetch the accounts on :server first.', ['server' => $server->name])]);

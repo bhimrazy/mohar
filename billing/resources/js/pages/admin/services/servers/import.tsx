@@ -224,7 +224,7 @@ const accountColumns = (
                 {createProductUrl &&
                     row.plan &&
                     !row.product &&
-                    row.category !== 'linked' && (
+                    row.category === 'unmatched' && (
                         <a
                             href={createProductUrl}
                             className="text-xs text-primary hover:underline"
