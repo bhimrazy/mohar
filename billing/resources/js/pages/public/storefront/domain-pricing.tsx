@@ -110,6 +110,9 @@ export default function DomainPricing({
                                                 <span className="text-muted-foreground">
                                                     Not offered
                                                 </span>
+                                            ) : row[action] === 0 ? (
+                                                // A zero price is a free action (UK transfers are a tag change).
+                                                <span>Free</span>
                                             ) : (
                                                 <Money
                                                     amount={row[action]}

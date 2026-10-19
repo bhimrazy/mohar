@@ -13,11 +13,13 @@ final class SiteContent
 
     /** Home sections the host can switch off and reorder; the hero with domain search always comes first. */
     public const SECTIONS = [
+        'trust_facts' => 'Trust facts',
         'why_us' => 'Why choose us',
         'featured_plans' => 'Featured plans',
         'more_products' => 'More products',
         'help' => 'How can we help',
         'news' => 'News and status',
+        'cta_band' => 'Call to action band',
         'payments' => 'Ways to pay',
     ];
 
@@ -35,7 +37,9 @@ final class SiteContent
         return [
             'hero' => ['eyebrow' => '', 'headline' => '', 'subtext' => '', 'domain_search' => true],
             'sections' => array_map(fn (string $key): array => ['key' => $key, 'enabled' => true], array_keys(self::SECTIONS)),
+            'trust_facts' => [],
             'why_us' => [],
+            'cta' => ['headline' => 'Ready to get online?', 'button' => 'See all plans'],
             'featured' => ['group_ids' => [], 'cycle' => 'annually'],
             'news' => ['announcements' => 2, 'articles' => 4, 'status' => true],
             'header' => ['products' => 'auto', 'menu_label' => 'Hosting'],
@@ -75,14 +79,22 @@ final class SiteContent
             }
         }
 
+        // A section added in a later version joins at its default place: after the section that precedes it there.
+        $previous = null;
+
         foreach (array_keys(self::SECTIONS) as $key) {
             if (! isset($seen[$key])) {
-                $sections[] = ['key' => $key, 'enabled' => true];
+                $index = $previous === null ? false : array_search($previous, array_column($sections, 'key'), true);
+                $at = $index === false ? 0 : $index + 1;
+                array_splice($sections, $at, 0, [['key' => $key, 'enabled' => true]]);
             }
+
+            $previous = $key;
         }
 
         $result['sections'] = $sections;
         $result['why_us'] = array_values(array_filter($result['why_us'], is_array(...)));
+        $result['trust_facts'] = array_values(array_filter($result['trust_facts'], is_array(...)));
         $result['featured']['group_ids'] = array_values(array_map(intval(...), (array) $result['featured']['group_ids']));
         $result['prices']['tax_inclusive'] = array_values(array_filter((array) $result['prices']['tax_inclusive'], is_string(...)));
         $result['prices']['notes'] = array_filter((array) $result['prices']['notes'], fn (mixed $note): bool => is_string($note) && trim($note) !== '');

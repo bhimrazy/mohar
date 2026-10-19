@@ -1,5 +1,5 @@
 import { Link, router, usePage } from '@inertiajs/react';
-import { Mail, MapPin, Menu, Phone, ShoppingCart } from 'lucide-react';
+import { Clock, Mail, MapPin, Menu, Phone, ShoppingCart } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageWidthContext } from '@/components/app/page';
@@ -71,7 +71,10 @@ function useSite(): Site | undefined {
             address: null,
             email: null,
             phone: null,
+            whatsapp: null,
+            hours: null,
             ids: [],
+            social: [],
         },
         payments: [],
         tax_note: null,
@@ -86,8 +89,54 @@ function useSite(): Site | undefined {
             login_url: login.url(),
             register_url: register.url(),
             reset_url: null,
+            invoices_url: null,
         },
     };
+}
+
+/** Site links: Inertia visits inside the app, plain anchors for mail, phone and other sites. */
+function SiteAnchor({
+    href,
+    className,
+    children,
+}: {
+    href: string;
+    className?: string;
+    children: ReactNode;
+}) {
+    const internal =
+        href.startsWith('/') || href.startsWith(window.location.origin);
+
+    return internal ? (
+        <Link href={href} className={className}>
+            {children}
+        </Link>
+    ) : (
+        <a href={href} className={className}>
+            {children}
+        </a>
+    );
+}
+
+/** Which header menu the current page belongs to, so its trigger reads as the current section. */
+function useSection(): 'domains' | 'support' | 'products' | null {
+    const path = new URL(usePage().url, 'http://localhost').pathname;
+
+    switch (true) {
+        case path.startsWith('/domains') || path.startsWith('/store/domains'):
+            return 'domains';
+        case [
+            '/knowledgebase',
+            '/announcements',
+            '/network-status',
+            '/support',
+        ].some((prefix) => path.startsWith(prefix)):
+            return 'support';
+        case path.startsWith('/store'):
+            return 'products';
+        default:
+            return null;
+    }
 }
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
@@ -166,6 +215,7 @@ function HomeLink() {
 
 function DesktopNav({ site }: { site: Site }) {
     const { products } = site;
+    const section = useSection();
     const linkClass = cn(navigationMenuTriggerStyle(), 'bg-transparent px-3');
 
     return (
@@ -185,7 +235,10 @@ function DesktopNav({ site }: { site: Site }) {
                       ))
                     : products.groups.length > 0 && (
                           <NavigationMenuItem>
-                              <NavigationMenuTrigger className="bg-transparent px-3">
+                              <NavigationMenuTrigger
+                                  className="bg-transparent px-3"
+                                  data-active={section === 'products'}
+                              >
                                   {products.label}
                               </NavigationMenuTrigger>
                               <NavigationMenuContent>
@@ -240,21 +293,40 @@ function DesktopNav({ site }: { site: Site }) {
                               </NavigationMenuContent>
                           </NavigationMenuItem>
                       )}
-                <MenuOfLinks label="Domains" links={site.domains} />
-                <MenuOfLinks label="Support" links={site.support} />
+                <MenuOfLinks
+                    label="Domains"
+                    links={site.domains}
+                    active={section === 'domains'}
+                />
+                <MenuOfLinks
+                    label="Support"
+                    links={site.support}
+                    active={section === 'support'}
+                />
             </NavigationMenuList>
         </NavigationMenu>
     );
 }
 
-function MenuOfLinks({ label, links }: { label: string; links: SiteLink[] }) {
+function MenuOfLinks({
+    label,
+    links,
+    active,
+}: {
+    label: string;
+    links: SiteLink[];
+    active: boolean;
+}) {
     if (links.length === 0) {
         return null;
     }
 
     return (
         <NavigationMenuItem>
-            <NavigationMenuTrigger className="bg-transparent px-3">
+            <NavigationMenuTrigger
+                className="bg-transparent px-3"
+                data-active={active}
+            >
                 {label}
             </NavigationMenuTrigger>
             <NavigationMenuContent>
@@ -262,7 +334,7 @@ function MenuOfLinks({ label, links }: { label: string; links: SiteLink[] }) {
                     {links.map((link) => (
                         <li key={link.label}>
                             <NavigationMenuLink asChild>
-                                <Link
+                                <SiteAnchor
                                     href={link.url}
                                     className="flex-row items-center justify-between"
                                 >
@@ -275,7 +347,7 @@ function MenuOfLinks({ label, links }: { label: string; links: SiteLink[] }) {
                                             {link.badge} open
                                         </Badge>
                                     )}
-                                </Link>
+                                </SiteAnchor>
                             </NavigationMenuLink>
                         </li>
                     ))}
@@ -441,7 +513,7 @@ function MobileNav({ site }: { site: Site }) {
                                 <div key={group.label} className="space-y-1">
                                     <p className={section}>{group.label}</p>
                                     {group.links.map((link) => (
-                                        <Link
+                                        <SiteAnchor
                                             key={link.label}
                                             href={link.url}
                                             className={item}
@@ -452,10 +524,28 @@ function MobileNav({ site }: { site: Site }) {
                                                     {link.badge} open
                                                 </Badge>
                                             )}
-                                        </Link>
+                                        </SiteAnchor>
                                     ))}
                                 </div>
                             ),
+                    )}
+                    {site.cart && (
+                        <Link
+                            href={site.cart.url}
+                            className={cn(item, 'font-medium')}
+                        >
+                            <span className="flex items-center gap-2">
+                                <ShoppingCart
+                                    className="size-4"
+                                    aria-hidden="true"
+                                />
+                                Cart
+                            </span>
+                            <Badge variant="secondary">
+                                {site.cart.count}{' '}
+                                {site.cart.count === 1 ? 'item' : 'items'}
+                            </Badge>
+                        </Link>
                     )}
                     <CurrencySwitcher site={site} className="w-full" />
                     <AccountLinks site={site} className="flex [&>*]:flex-1" />
@@ -483,23 +573,18 @@ function SiteFooter({ site }: { site: Site }) {
             ],
         },
         { title: 'Domains', links: site.domains },
-        {
-            title: 'Support',
-            links: [
-                ...site.support,
-                {
-                    label: 'Contact us',
-                    url: company.email ? `mailto:${company.email}` : null,
-                },
-            ],
-        },
+        { title: 'Support', links: site.support },
         {
             title: 'Account',
             links: auth.user
-                ? [{ label: 'Client area', url: account.client_area_url }]
+                ? [
+                      { label: 'Client area', url: account.client_area_url },
+                      { label: 'Pay an invoice', url: account.invoices_url },
+                  ]
                 : [
                       { label: 'Log in', url: account.login_url },
                       { label: 'Create account', url: account.register_url },
+                      { label: 'Pay an invoice', url: account.invoices_url },
                       { label: 'Reset password', url: account.reset_url },
                   ],
         },
@@ -559,6 +644,40 @@ function SiteFooter({ site }: { site: Site }) {
                             >
                                 {company.phone}
                             </a>
+                            {company.whatsapp && (
+                                <>
+                                    <span aria-hidden="true">·</span>
+                                    <a
+                                        href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
+                                        className="hover:underline"
+                                    >
+                                        WhatsApp
+                                    </a>
+                                </>
+                            )}
+                        </p>
+                    )}
+                    {company.whatsapp && !company.phone && (
+                        <p className="flex items-center gap-2">
+                            <Phone
+                                className="size-4 shrink-0 text-muted-foreground"
+                                aria-hidden="true"
+                            />
+                            <a
+                                href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
+                                className="hover:underline"
+                            >
+                                WhatsApp {company.whatsapp}
+                            </a>
+                        </p>
+                    )}
+                    {company.hours && (
+                        <p className="flex gap-2 text-muted-foreground">
+                            <Clock
+                                className="mt-0.5 size-4 shrink-0"
+                                aria-hidden="true"
+                            />
+                            {company.hours}
                         </p>
                     )}
                     {company.ids.length > 0 && (
@@ -593,24 +712,12 @@ function SiteFooter({ site }: { site: Site }) {
                                     <ul className="space-y-2">
                                         {links.map((link) => (
                                             <li key={link.label}>
-                                                {link.url.startsWith('/') ||
-                                                link.url.startsWith(
-                                                    window.location.origin,
-                                                ) ? (
-                                                    <Link
-                                                        href={link.url}
-                                                        className="hover:underline"
-                                                    >
-                                                        {link.label}
-                                                    </Link>
-                                                ) : (
-                                                    <a
-                                                        href={link.url}
-                                                        className="hover:underline"
-                                                    >
-                                                        {link.label}
-                                                    </a>
-                                                )}
+                                                <SiteAnchor
+                                                    href={link.url}
+                                                    className="hover:underline"
+                                                >
+                                                    {link.label}
+                                                </SiteAnchor>
                                             </li>
                                         ))}
                                     </ul>
@@ -639,10 +746,30 @@ function SiteFooter({ site }: { site: Site }) {
                 </div>
             )}
             <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 border-t px-4 py-5 text-muted-foreground md:px-6">
-                <p>
-                    © {new Date().getFullYear()}{' '}
-                    {company.legal_name ?? company.name}
-                </p>
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <p>
+                        © {new Date().getFullYear()}{' '}
+                        {company.legal_name ?? company.name}
+                    </p>
+                    {company.social.length > 0 && (
+                        <ul
+                            aria-label="Social media"
+                            className="flex flex-wrap gap-x-4"
+                        >
+                            {company.social.map((link) => (
+                                <li key={link.label}>
+                                    <a
+                                        href={link.url}
+                                        rel="noopener"
+                                        className="hover:text-foreground hover:underline"
+                                    >
+                                        {link.label}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
                 <CurrencySwitcher site={site} />
             </div>
         </footer>

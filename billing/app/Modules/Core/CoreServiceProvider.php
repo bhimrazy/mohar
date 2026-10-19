@@ -136,6 +136,14 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
+            // Shown in the public site footer (Storefront); legal name, address, phone and tax numbers are the invoice seller details.
+            new SettingDefinition('core.support_hours', 'Support hours', help: 'Shown in the website footer, e.g. "Sunday–Friday, 9:00–18:00 (Nepal time). Tickets every day."', rules: ['nullable', 'string', 'max:160']),
+            new SettingDefinition('core.whatsapp', 'WhatsApp number', help: 'International format, e.g. +977 9800000000. Shown in the website footer as a chat link.', rules: ['nullable', 'string', 'max:30', 'regex:/^\+?[0-9 ()-]{6,30}$/']),
+            new SettingDefinition('core.registration_number', 'Company registration number', help: 'Shown in the website footer next to your tax numbers.', rules: ['nullable', 'string', 'max:60']),
+            new SettingDefinition('core.social_facebook', 'Facebook page', help: 'An https:// link, shown in the website footer.', rules: ['nullable', 'url:https', 'max:255']),
+            new SettingDefinition('core.social_instagram', 'Instagram profile', help: 'An https:// link, shown in the website footer.', rules: ['nullable', 'url:https', 'max:255']),
+            new SettingDefinition('core.social_linkedin', 'LinkedIn page', help: 'An https:// link, shown in the website footer.', rules: ['nullable', 'url:https', 'max:255']),
+            new SettingDefinition('core.social_x', 'X (Twitter) profile', help: 'An https:// link, shown in the website footer.', rules: ['nullable', 'url:https', 'max:255']),
         ], 'core.settings.update');
 
         $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()
