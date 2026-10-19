@@ -30,7 +30,8 @@ and get the security reviewer's sign-off.
   silently.
 - `PermissionGuard::canGrant()` applies the same rule. Staff can grant only what they hold, and sensitive permissions
   only if they hold them explicitly.
-- Every route that mutates something behind a sensitive permission uses the `password.recent` middleware. The
+- Every route that mutates something behind a sensitive permission uses the `password.recent` middleware
+  (`tests/Feature/Security/SensitiveRouteStepUpTest.php` enforces it; exemptions are listed there with a reason). The
   password must have been confirmed within `platform.password_confirmation_seconds` (default 900). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
@@ -67,6 +68,10 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## 6. Secrets
 
+- A setting whose key or label reads like a credential (secret, token, password, key, hash) is `secret: true`, in a
+  section behind a sensitive permission (`tests/Feature/Security/SecretSettingsTest.php`).
+- Stored server credentials belong to the destination they were saved for: changing the hostname, address, port,
+  TLS flag or driver clears them unless the same save enters them again (`Server::DESTINATION`).
 - Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString` of
   `{key, value}`, so ciphertext is bound to its key). Only registered secrets are ever decrypted. The cache
   holds only the ciphertext, and only `get()` decrypts. They are write-only: never in Inertia props or HTML, masked in
@@ -95,6 +100,12 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see
       `docs/devops/local-setup.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
       proxy, and HSTS is never sent.
+- [ ] Sessions encrypted (`SESSION_ENCRYPT=true`, the `.env.example` default) or kept in a store no other system
+      reads: a reveal-once secret (a new webhook signing secret) sits in the session until the next request.
+- [ ] `support.inbound_secret` rotated after upgrading past the 2026-10-19 security fixes (Admin → Settings →
+      Inbound email webhook), and set on the mail relay.
+- [ ] `OUTBOUND_ALLOW_PRIVATE_ADDRESSES=false` on a multi-tenant install, so staff cannot point servers at the
+      internal network.
 - [ ] HTTPS only. `SESSION_SECURE_COOKIE=true`. Check that `Strict-Transport-Security` and
       `Content-Security-Policy` headers are present on `/login`, on a 404 and on `/admin` as a guest.
 - [ ] `security.staff_2fa_required` is on (the demo seeder turns it off locally only) and every full administrator
