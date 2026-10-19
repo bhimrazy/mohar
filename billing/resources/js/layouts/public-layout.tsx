@@ -651,7 +651,7 @@ function SiteFooter({ site }: { site: Site }) {
                                         href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
                                         className="hover:underline"
                                     >
-                                        WhatsApp
+                                        WhatsApp {company.whatsapp}
                                     </a>
                                 </>
                             )}

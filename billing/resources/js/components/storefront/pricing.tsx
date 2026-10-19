@@ -178,7 +178,7 @@ export function PlanCard({
                 </p>
             )}
 
-            <div className="mt-4 min-h-24 space-y-1 text-sm">
+            <div className="mt-4 space-y-1 text-sm">
                 {row ? (
                     <>
                         <p className="flex flex-wrap items-baseline gap-x-1">
