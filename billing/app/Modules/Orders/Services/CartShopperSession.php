@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Services;
 
 use App\Contracts\Orders\ShopperSession;
+use App\Modules\Core\Models\Currency;
 use Illuminate\Http\Request;
 
 /**
@@ -25,8 +26,11 @@ class CartShopperSession implements ShopperSession
 
     public function switchableCurrencies(Request $request): array
     {
-        $props = $this->carts->storeProps($request);
+        // Guests pick a currency; a signed-in client shops in the account's currency (same rule as storeProps()).
+        if ($request->user() !== null) {
+            return [];
+        }
 
-        return $props['can_switch_currency'] ? $props['currencies'] : [];
+        return array_values(Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code')->all());
     }
 }
