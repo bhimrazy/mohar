@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\PasswordResetFailedResponse;
 use App\Http\Responses\PasswordResetLinkRequestedResponse;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
 use Laravel\Fortify\Contracts\FailedPasswordResetLinkRequestResponse;
+use Laravel\Fortify\Contracts\FailedPasswordResetResponse;
 use Laravel\Fortify\Contracts\SuccessfulPasswordResetLinkRequestResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
@@ -28,6 +30,8 @@ class FortifyServiceProvider extends ServiceProvider
         // Known and unknown addresses get the same response on POST /forgot-password.
         $this->app->bind(SuccessfulPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
         $this->app->bind(FailedPasswordResetLinkRequestResponse::class, PasswordResetLinkRequestedResponse::class);
+        // …and the same error on POST /reset-password, whether or not the address has an account.
+        $this->app->bind(FailedPasswordResetResponse::class, PasswordResetFailedResponse::class);
     }
 
     /**
@@ -100,18 +104,29 @@ class FortifyServiceProvider extends ServiceProvider
         });
 
         // POST /forgot-password: per IP and per email address (Fortify registers the route without a limiter).
-        RateLimiter::for('password-reset-link', function (Request $request): array {
-            $email = $request->input(Fortify::email());
+        RateLimiter::for('password-reset-link', fn (Request $request): array => [
+            Limit::perMinute(5)->by('ip|'.$request->ip()),
+            Limit::perHour(5)->by('email|'.$this->throttleEmail($request)),
+        ]);
 
-            return [
-                Limit::perMinute(5)->by('ip|'.$request->ip()),
-                Limit::perHour(5)->by('email|'.Str::transliterate(Str::lower(is_string($email) ? $email : ''))),
-            ];
-        });
+        // POST /register and POST /reset-password: per IP and per address. The limiter runs before validation, so a
+        // known and an unknown address get the same answer (security review 2026-10-19, M2).
+        RateLimiter::for('register', fn (Request $request): array => [
+            Limit::perHour(10)->by('register-ip|'.$request->ip()),
+            Limit::perHour(5)->by('register-email|'.$this->throttleEmail($request)),
+        ]);
 
+        RateLimiter::for('password-reset', fn (Request $request): array => [
+            Limit::perMinute(5)->by('reset-ip|'.$request->ip()),
+            Limit::perHour(10)->by('reset-email|'.$this->throttleEmail($request)),
+        ]);
+
+        // Fortify registers these routes without a limiter of their own.
         $this->app->booted(function (): void {
             Route::getRoutes()->refreshNameLookups();
             Route::getRoutes()->getByName('password.email')?->middleware('throttle:password-reset-link');
+            Route::getRoutes()->getByName('register.store')?->middleware('throttle:register');
+            Route::getRoutes()->getByName('password.update')?->middleware('throttle:password-reset');
         });
 
         RateLimiter::for('passkeys', function (Request $request) {
@@ -119,5 +134,16 @@ class FortifyServiceProvider extends ServiceProvider
                 ($request->input('credential.id') ?: $request->session()->getId()).'|'.$request->ip(),
             );
         });
+    }
+
+    /**
+     * The submitted address as a throttle key: lower-cased and transliterated, so case and look-alike variants share
+     * one bucket; non-string input counts as empty and is left to validation.
+     */
+    private function throttleEmail(Request $request): string
+    {
+        $email = $request->input(Fortify::email());
+
+        return Str::transliterate(Str::lower(trim(is_string($email) ? $email : '')));
     }
 }
