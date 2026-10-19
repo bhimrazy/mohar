@@ -10,6 +10,7 @@ use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\Endpoints;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
@@ -52,6 +53,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
         $this->app->singleton(ProvisioningDriverRegistry::class);
+        $this->app->singleton(Endpoints::class);
     }
 
     /**
@@ -59,6 +61,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Simulator endpoint overrides (ADR 0016) are logged once per boot; production ignores them.
+        $this->app->make(Endpoints::class)->report();
+
         $this->configureDefaults();
         $this->configureModules();
         $this->configureAuthMail();

@@ -1,6 +1,7 @@
 # ADR 0015 — Outbound connection policy
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Proposed · 2026-10-18 · Owner: Principal architect. Amendment 1 was accepted with ADR 0016 (CTO decision 2);
+  the rest of this ADR is in force through the kernel guard and awaits its own acceptance with the first caller (#69).
 - Related: ADR 0009 (kernel extension contracts), ADR 0014 (observability), `docs/product/provisioning-cpanel.md`
   §9.2 (K11), the Notifications webhook guard in #28 (`WebhookUrlGuard`).
 
@@ -78,3 +79,12 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
 - Installs behind a mandatory egress proxy cannot reach pinned destinations until a proxy-aware pin exists, for example
   a CONNECT to the checked IP with SNI. That is left for when an install needs it.
 - The security reviewer attacks the guard in its first caller's PR (cPanel).
+
+## Amendment 1 — 2026-10-18, with ADR 0016 (integration simulators)
+
+- Loopback is reached only when the app runs as `local` or `testing`, whatever `OUTBOUND_ALLOW_LOOPBACK` says.
+  Every other environment, including `production`, `staging`, an empty or an unknown name, refuses it, so only
+  development and test runs can reach a local simulator. The setting still defaults to off except in `local`.
+- `OutboundAddressGuard::pinOptions()` returns the options `pin()` applies, as an array, for callers that build their
+  request options themselves (`App\Support\Integrations\Endpoints`, ADR 0016 §3). Both paths pin to the checked address
+  and bypass proxies in the same way.
