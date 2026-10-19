@@ -19,10 +19,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   certificate are removed, and the move is recorded in the activity log as "Server connection address changed".
   Server audit entries now read "Server settings changed", with the server name in the properties.
 - **Registration and password reset are rate-limited.** `POST /register`: 10 an hour per IP and 5 an hour per email
-  address. `POST /reset-password`: 5 a minute per IP and 10 an hour per address. Over the limit the answer is 429.
+  address. `POST /reset-password`: 5 a minute per IP (no per-address limit, so failures from elsewhere cannot block
+  a valid link). Over the limit the answer is 429.
 - **More step-up confirmations.** Creating, editing and deleting server groups, capturing an authorised invoice
   charge, and saving or testing a registrar now need a recent password. `domains.registrars.manage` is sensitive:
   wildcards such as `domains.*` no longer grant it, so grant it explicitly. Registrar tests allow 6 a minute.
+  Sensitive settings sections ask for the password before they validate the form, like every other step-up route.
 - **Clients can change a hosting password 6 times a minute.**
 - **Webhook deliveries ignore `HTTPS_PROXY`.** They connect directly to the vetted address, and also refuse the
   addresses the kernel outbound guard refuses (documentation, tunnelled and non-canonical forms). In local

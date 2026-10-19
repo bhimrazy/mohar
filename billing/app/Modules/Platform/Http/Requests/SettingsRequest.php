@@ -18,11 +18,12 @@ class SettingsRequest extends FormRequest
     }
 
     /**
-     * Sensitive sections (security) need a recent password confirmation.
+     * Sensitive sections (security) need a recent password confirmation, checked before the input is validated, as
+     * the password.recent middleware does for other routes.
      *
      * @throws ValidationException
      */
-    protected function passedValidation(): void
+    protected function prepareForValidation(): void
     {
         if (app(SettingsCatalog::class)->requiresConfirmation((string) $this->route('section')) && ! RequireRecentPasswordConfirmation::recentlyConfirmed($this)) {
             throw ValidationException::withMessages([RequireRecentPasswordConfirmation::ERROR_KEY => __('Confirm your password to continue.')]);

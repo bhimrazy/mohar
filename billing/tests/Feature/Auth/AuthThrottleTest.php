@@ -1,11 +1,14 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Testing\TestResponse;
 
 /**
- * Security review 2026-10-19, M2 (probe P3, inverted): public registration and password reset are throttled per IP
- * and per address, and answer the same for known and unknown addresses.
+ * Security review 2026-10-19, M2 (probe P3, inverted): registration is throttled per IP and per address, token
+ * submission per IP only (so nobody can lock a victim out of a valid link), and answers are the same for known and
+ * unknown addresses.
  */
 function registerAttempt(string $email, string $ip = '198.51.100.7'): TestResponse
 {
@@ -59,12 +62,30 @@ test('password resets from one IP are throttled after five a minute', function (
     resetAttempt('reset6@example.com')->assertTooManyRequests();
 });
 
-test('password resets for one address are throttled across IPs', function () {
-    foreach (range(1, 10) as $attempt) {
-        resetAttempt('target@example.com', "203.0.113.{$attempt}")->assertSessionHasErrors('email');
+test('failed resets for an address from other IPs never block its owner\'s valid link', function () {
+    $victim = User::factory()->create(['email' => 'victim@example.com']);
+    $token = Password::broker()->createToken($victim);
+
+    foreach (range(1, 15) as $attempt) {
+        resetAttempt('victim@example.com', "203.0.113.{$attempt}")->assertSessionHasErrors('email');
     }
 
-    resetAttempt('target@example.com', '203.0.113.99')->assertTooManyRequests();
+    test()->withServerVariables(['REMOTE_ADDR' => '198.51.100.50'])->post(route('password.update'), [
+        'token' => $token,
+        'email' => 'victim@example.com',
+        'password' => 'New-Password-123!',
+        'password_confirmation' => 'New-Password-123!',
+    ])->assertSessionHasNoErrors()->assertRedirect(route('login'));
+
+    expect(Hash::check('New-Password-123!', $victim->refresh()->password))->toBeTrue();
+});
+
+test('reset-link requests for one address stay throttled across IPs', function () {
+    foreach (range(1, 5) as $attempt) {
+        test()->withServerVariables(['REMOTE_ADDR' => "203.0.113.{$attempt}"])->post(route('password.email'), ['email' => 'target@example.com'])->assertSessionHasNoErrors();
+    }
+
+    test()->withServerVariables(['REMOTE_ADDR' => '203.0.113.99'])->post(route('password.email'), ['email' => 'target@example.com'])->assertTooManyRequests();
 });
 
 test('a failed password reset says the same for a known and an unknown address', function () {

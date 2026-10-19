@@ -65,8 +65,8 @@ class Server extends Model
     public const CREDENTIALS = ['password', 'api_token', 'access_hash'];
 
     /**
-     * Backstop for writes outside SaveServer (which also clears secret settings and audits the move): a new
-     * destination never keeps the credentials or the trusted certificate saved for the old one.
+     * Backstop for writes outside SaveServer (which also audits the move): a new destination never keeps the
+     * credentials, secret driver settings or trusted certificate saved for the old one.
      */
     protected static function booted(): void
     {
@@ -84,11 +84,18 @@ class Server extends Model
                 }
             }
 
-            $settings = $server->settings ?? [];
+            if (! $untouched('settings')) {
+                return;
+            }
 
-            if ($untouched('settings') && array_key_exists(ServerSettings::CERTIFICATE_PIN, $settings)) {
-                unset($settings[ServerSettings::CERTIFICATE_PIN]);
-                $server->settings = $settings ?: null;
+            // Secret driver settings (of the old and the new driver) and the pin, as SaveServer drops them.
+            $fields = app(ServerSettings::class);
+            $drop = [ServerSettings::CERTIFICATE_PIN, ...$fields->secretKeys((string) $server->getOriginal('driver')), ...$fields->secretKeys($server->driver)];
+            $settings = $server->settings ?? [];
+            $kept = array_diff_key($settings, array_flip($drop));
+
+            if ($kept !== $settings) {
+                $server->settings = $kept ?: null;
             }
         });
     }

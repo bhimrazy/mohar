@@ -94,3 +94,15 @@ test('a write outside the form that moves the server drops its credentials and p
         ->and($this->server->settings['spki_pin'] ?? null)->toBeNull()
         ->and($this->server->settings['login_method'])->toBe('token');
 });
+
+test('a write outside the form that moves the server drops its secret driver settings too', function () {
+    $server = Server::factory()->create(['driver' => 'log', 'hostname' => 'panel-a.example.net', 'settings' => ['region' => 'eu-1', 'webhook_secret' => 'Old-Host-S3cret']]);
+
+    $server->update(['hostname' => 'panel-b.example.net']);
+    expect($server->refresh()->settings)->toBe(['region' => 'eu-1']);
+
+    // The same write without a move keeps the secret.
+    $server->update(['settings' => ['region' => 'eu-1', 'webhook_secret' => 'New-Host-S3cret']]);
+    $server->update(['name' => 'Renamed']);
+    expect($server->refresh()->settings['webhook_secret'])->toBe('New-Host-S3cret');
+});

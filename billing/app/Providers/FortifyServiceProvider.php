@@ -109,17 +109,17 @@ class FortifyServiceProvider extends ServiceProvider
             Limit::perHour(5)->by('email|'.$this->throttleEmail($request)),
         ]);
 
-        // POST /register and POST /reset-password: per IP and per address. The limiter runs before validation, so a
-        // known and an unknown address get the same answer (security review 2026-10-19, M2).
+        // POST /register: per IP and per address. The limiter runs before validation, so a known and an unknown
+        // address get the same answer (security review 2026-10-19, M2).
         RateLimiter::for('register', fn (Request $request): array => [
             Limit::perHour(10)->by('register-ip|'.$request->ip()),
             Limit::perHour(5)->by('register-email|'.$this->throttleEmail($request)),
         ]);
 
-        RateLimiter::for('password-reset', fn (Request $request): array => [
-            Limit::perMinute(5)->by('reset-ip|'.$request->ip()),
-            Limit::perHour(10)->by('reset-email|'.$this->throttleEmail($request)),
-        ]);
+        // POST /reset-password (submitting a token): per IP only. A per-address limit would let anyone lock a
+        // victim out of a valid link by failing for their address; the token itself cannot be guessed. The request
+        // that sends mail (POST /forgot-password) keeps its per-address limit.
+        RateLimiter::for('password-reset', fn (Request $request): Limit => Limit::perMinute(5)->by('reset-ip|'.$request->ip()));
 
         // Fortify registers these routes without a limiter of their own.
         $this->app->booted(function (): void {

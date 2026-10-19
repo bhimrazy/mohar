@@ -31,7 +31,8 @@ and get the security reviewer's sign-off.
 - `PermissionGuard::canGrant()` applies the same rule. Staff can grant only what they hold, and sensitive permissions
   only if they hold them explicitly.
 - Every route that mutates something behind a sensitive permission uses the `password.recent` middleware
-  (`tests/Feature/Security/SensitiveRouteStepUpTest.php` enforces it; exemptions are listed there with a reason). The
+  (`tests/Feature/Security/SensitiveRouteStepUpTest.php` calls every admin route, records the permissions it
+  checks, and repeats the call without a recent password; exemptions are listed there with a reason). The
   password must have been confirmed within `platform.password_confirmation_seconds` (default 900). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
@@ -68,8 +69,9 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## 6. Secrets
 
-- A setting whose key or label reads like a credential (secret, token, password, key, hash) is `secret: true`, in a
-  section behind a sensitive permission (`tests/Feature/Security/SecretSettingsTest.php`).
+- A setting whose key or label reads like a credential, by the kernel `Redactor`'s key rule (secret, token, pass,
+  api key, hash, ...), is `secret: true`, in a section behind a sensitive permission
+  (`tests/Feature/Security/SecretSettingsTest.php`; non-credentials that match are listed there with a reason).
 - Stored server credentials belong to the destination they were saved for: changing the hostname, address, port,
   TLS flag or driver clears them unless the same save enters them again (`Server::DESTINATION`).
 - Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString` of
