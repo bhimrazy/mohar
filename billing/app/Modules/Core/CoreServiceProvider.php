@@ -3,6 +3,8 @@
 namespace App\Modules\Core;
 
 use App\Contracts\Auth\AuthMailer;
+use App\Contracts\Auth\SignInGate;
+use App\Contracts\Auth\SignInMethodCounter;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
@@ -20,10 +22,12 @@ use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AllowAllSignInGate;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
+use App\Modules\Core\Support\CoreSignInMethodCounter;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
@@ -43,10 +47,6 @@ use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
-use App\Contracts\Auth\SignInGate;
-use App\Contracts\Auth\SignInMethodCounter;
-use App\Modules\Core\Support\AllowAllSignInGate;
-use App\Modules\Core\Support\CoreSignInMethodCounter;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
@@ -136,6 +136,11 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
+        ], 'core.settings.update');
+
+        // Read by Fortify's /register and by sign-in providers, so it lives in Core (ADR 0018 §6).
+        $this->app->make(SettingsRegistry::class)->section('client_signup', 'Client sign-up', [
+            new SettingDefinition('security.client_signup_enabled', 'Let visitors create a client account', 'boolean', 'Off closes the sign-up page and sign-up with a sign-in provider. Customers can still create an account when they place an order.'),
         ], 'core.settings.update');
 
         $this->app->make(GlobalSearch::class)->provider('Clients', fn (string $term): array => array_values(Client::query()

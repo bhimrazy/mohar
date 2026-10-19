@@ -50,11 +50,13 @@ export default function Welcome() {
                                 <Button asChild variant="ghost" size="sm">
                                     <Link href={login()}>Log in</Link>
                                 </Button>
-                                <Button asChild size="sm">
-                                    <Link href={register()}>
-                                        Create account
-                                    </Link>
-                                </Button>
+                                {auth.signup_open && (
+                                    <Button asChild size="sm">
+                                        <Link href={register()}>
+                                            Create account
+                                        </Link>
+                                    </Button>
+                                )}
                             </>
                         )}
                     </nav>

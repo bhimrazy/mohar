@@ -12,9 +12,25 @@ import { store } from '@/routes/register';
 
 type Props = {
     passwordRules: string;
+    signupOpen: boolean;
 };
 
-export default function Register({ passwordRules }: Props) {
+export default function Register({ passwordRules, signupOpen }: Props) {
+    if (!signupOpen) {
+        return (
+            <>
+                <Head title="Register" />
+                <div className="flex flex-col gap-6 text-center text-sm text-muted-foreground">
+                    <p>Sign-up is closed. Contact us if you need an account.</p>
+                    <p>
+                        Already have an account?{' '}
+                        <TextLink href={login()}>Log in</TextLink>
+                    </p>
+                </div>
+            </>
+        );
+    }
+
     return (
         <>
             <Head title="Register" />

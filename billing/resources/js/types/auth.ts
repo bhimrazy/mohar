@@ -12,6 +12,19 @@ export type User = {
 
 export type Auth = {
     user: User;
+    /** False for a login created through a sign-in provider: step-up offers "Set a password" (ADR 0018 §4). */
+    has_password: boolean | null;
+    /** Whether visitors may create a client account themselves (security.client_signup_enabled). */
+    signup_open: boolean;
+};
+
+/** A sign-in method a module offers on the login and sign-up pages (ADR 0018 §1). */
+export type SignInMethodOption = {
+    key: string;
+    label: string;
+    start_url: string;
+    staff: boolean;
+    logo: { url: string; dark_url: string | null; alt: string } | null;
 };
 
 export type Passkey = {

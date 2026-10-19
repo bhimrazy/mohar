@@ -1,4 +1,4 @@
-import { Form } from '@inertiajs/react';
+import { Form, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
@@ -19,6 +19,7 @@ type Props = {
 };
 
 export default function Login({ status, canResetPassword }: Props) {
+    const signupOpen = usePage().props.auth.signup_open;
     return (
         <>
             <Head title="Log in" />
@@ -93,12 +94,14 @@ export default function Login({ status, canResetPassword }: Props) {
                             </Button>
                         </div>
 
-                        <div className="text-center text-sm text-muted-foreground">
-                            Don't have an account?{' '}
-                            <TextLink href={register()} tabIndex={5}>
-                                Create one
-                            </TextLink>
-                        </div>
+                        {signupOpen && (
+                            <div className="text-center text-sm text-muted-foreground">
+                                Don't have an account?{' '}
+                                <TextLink href={register()} tabIndex={5}>
+                                    Create one
+                                </TextLink>
+                            </div>
+                        )}
                     </>
                 )}
             </Form>

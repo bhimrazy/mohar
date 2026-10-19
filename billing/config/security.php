@@ -12,4 +12,7 @@ return [
 
     /** IPs / CIDR ranges exempt from the lockout (newline or comma separated). */
     'login_ip_allowlist' => '',
+
+    /** Visitors may create a client account themselves (/register and sign-in providers; not checkout). */
+    'client_signup_enabled' => true,
 ];

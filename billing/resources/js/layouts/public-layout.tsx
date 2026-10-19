@@ -200,11 +200,13 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                                 >
                                     <Link href={login()}>Log in</Link>
                                 </Button>
-                                <Button asChild size="sm">
-                                    <Link href={register()}>
-                                        Create account
-                                    </Link>
-                                </Button>
+                                {auth.signup_open && (
+                                    <Button asChild size="sm">
+                                        <Link href={register()}>
+                                            Create account
+                                        </Link>
+                                    </Button>
+                                )}
                             </>
                         )}
                     </div>

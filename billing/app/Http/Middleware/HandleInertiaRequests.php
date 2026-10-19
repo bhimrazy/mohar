@@ -2,11 +2,13 @@
 
 namespace App\Http\Middleware;
 
+use App\Actions\Fortify\CreateNewUser;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Currencies\CurrencyDirectory;
 use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\DateFormats;
+use App\Modules\Core\Support\Settings;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -46,6 +48,9 @@ class HandleInertiaRequests extends Middleware
             'name' => fn (): string => app(BrandProvider::class)->brand()->name,
             'auth' => [
                 'user' => $request->user(),
+                // A login without a password cannot pass step-up: the UI offers "Set a password" (ADR 0018 §4).
+                'has_password' => $request->user()?->hasPassword(),
+                'signup_open' => fn (): bool => CreateNewUser::signupOpen(app(Settings::class)),
             ],
             // Display settings per currency (prefix, suffix, grouping) so formatMoney matches server output.
             'currencyFormats' => fn (): array => array_map(fn (CurrencyDisplay $display): array => $display->toArray(), app(CurrencyDirectory::class)->displays()),
