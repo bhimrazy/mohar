@@ -6,6 +6,18 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
+
+- Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`): `Endpoints::url(key,
+default)` and `Endpoints::options(key)` for drivers of fixed-host providers. Overrides come only from the environment
+  (`INTEGRATION_ENDPOINTS`, a JSON map, and `INTEGRATION_CA_BUNDLE`, read in `config/integrations.php`). Without one the
+  URL is the default and the options are `[]`. With one, TLS verification stays on (scenario CA) and the destination
+  is resolved and pinned through `OutboundAddressGuard`. In production every override is ignored and logged once as
+  critical, keys only; elsewhere active overrides are logged at boot as a warning. No driver uses it yet (S3, S5).
+- `OutboundAddressGuard` refuses loopback in production whatever `integrations.outbound.allow_loopback` says, and
+  gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
+- Arch rule: nothing in `app/` references `Mohar\Simulators`.
+
 ### Integrations area (ADR 0009 §1, PR A)
 
 - Added `App\Enums\FieldType` and `App\Data\Integrations\SettingField`, the one settings-field schema. A secret is a

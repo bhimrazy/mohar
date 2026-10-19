@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Loopback is never reached in production.** Outbound connections to `127.0.0.0/8` and `::1` are refused when
+  `APP_ENV=production`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. Development and test installs are unchanged.
+- `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` (new, development and test only) point fixed-host integrations at
+  local simulators. They are ignored in production, where a set value is logged as critical at every boot.
+
 - **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
   currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
   held rate changes, changing the default currency, converted prices and their settings. Wildcards such as

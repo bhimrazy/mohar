@@ -96,10 +96,22 @@ final class OutboundAddressGuard
      */
     public function pin(PendingRequest $request, ResolvedAddress $address): PendingRequest
     {
-        return $request->withoutRedirecting()->withOptions([
+        return $request->withoutRedirecting()->withOptions($this->pinOptions($address));
+    }
+
+    /**
+     * The Guzzle options pin() applies (connect only to the checked IP and port, no proxy), for callers that build
+     * their options as an array (Endpoints). Redirects are off as well.
+     *
+     * @return array{proxy: string, allow_redirects: false, curl: array<int, list<string>>}
+     */
+    public function pinOptions(ResolvedAddress $address): array
+    {
+        return [
             'proxy' => '',
+            'allow_redirects' => false,
             'curl' => [CURLOPT_CONNECT_TO => [$address->curlConnectTo()]],
-        ]);
+        ];
     }
 
     /**
@@ -133,7 +145,8 @@ final class OutboundAddressGuard
         }
 
         if ($this->inAny($binary, self::LOOPBACK)) {
-            return config('integrations.outbound.allow_loopback', false) ? null : 'loopback';
+            // Production never reaches loopback, whatever OUTBOUND_ALLOW_LOOPBACK says (ADR 0015 amendment, ADR 0016).
+            return config('integrations.outbound.allow_loopback', false) && ! app()->isProduction() ? null : 'loopback';
         }
 
         if ($this->inAny($binary, self::PRIVATE)) {

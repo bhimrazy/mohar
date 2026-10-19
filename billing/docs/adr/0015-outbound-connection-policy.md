@@ -78,3 +78,12 @@ with the kernel guard. Infrastructure that staff set up uses the install policy.
 - Installs behind a mandatory egress proxy cannot reach pinned destinations until a proxy-aware pin exists, for example
   a CONNECT to the checked IP with SNI. That is left for when an install needs it.
 - The security reviewer attacks the guard in its first caller's PR (cPanel).
+
+## Amendment 1 — 2026-10-18, with ADR 0016 (integration simulators)
+
+- Loopback is refused whenever the app runs in production (`APP_ENV=production`), whatever `OUTBOUND_ALLOW_LOOPBACK`
+  says. The setting still defaults to off everywhere except `APP_ENV=local`, so only development and test runs can reach
+  a local simulator.
+- `OutboundAddressGuard::pinOptions()` returns the options `pin()` applies, as an array, for callers that build their
+  request options themselves (`App\Support\Integrations\Endpoints`, ADR 0016 §3). Both paths pin to the checked address
+  and bypass proxies in the same way.

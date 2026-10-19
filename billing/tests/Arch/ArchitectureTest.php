@@ -96,3 +96,18 @@ arch('driver registries are kernel classes, final, and never extended by modules
 arch('concrete driver registries are final')
     ->expect('App\Support\Services\ProvisioningDriverRegistry')
     ->toBeFinal();
+
+test('the app never references the dev-only simulators package (ADR 0016)', function () {
+    // The package is installed only with require-dev, so a reference would break a --no-dev install. Checked as text,
+    // because the namespace may not exist on this branch at all.
+    $files = new RegexIterator(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app', FilesystemIterator::SKIP_DOTS)), '/\.php$/');
+    $offenders = [];
+
+    foreach ($files as $file) {
+        if (preg_match('/Mohar\\\\{1,2}Simulators/', (string) file_get_contents($file->getPathname())) === 1) {
+            $offenders[] = $file->getPathname();
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
