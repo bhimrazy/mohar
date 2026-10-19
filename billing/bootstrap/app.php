@@ -23,6 +23,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Reject requests for hosts other than APP_URL's (Laravel skips this check in local and in tests).
         $middleware->trustHosts();
 
+        // Proxies come from config('trustedproxy.proxies') (TRUSTED_PROXIES), read per request so a cached config
+        // works; passing `at:` here would read the environment before .env is loaded. Only the headers Caddy and
+        // Traefik send are honoured, and only from those addresses.
+        $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST
+            | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
+
         $middleware->alias([
             'staff' => EnsureStaff::class,
             'client.area' => ResolveClientContext::class,
