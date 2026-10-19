@@ -32,6 +32,7 @@ use App\Enums\ReconcileStatus;
 use App\Support\Integrations\OutboundAddressGuard;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Support\Facades\Log;
 
 /**
  * cPanel & WHM through WHM API 1 (docs/product/provisioning-cpanel.md). Stateless: every call builds a WhmClient for
@@ -151,6 +152,13 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                 reservedNames: self::RESERVED_NAMES,
             ),
             refusedPorts: WhmClient::refusedPorts(),
+            // Always TLS, and no access hash (deprecated by cPanel): the form shows only what this driver reads.
+            connectionFields: [
+                'port' => [],
+                'username' => [],
+                'api_token' => ['login_method' => WhmClient::LOGIN_TOKEN],
+                'password' => ['login_method' => WhmClient::LOGIN_PASSWORD],
+            ],
         );
     }
 
@@ -435,7 +443,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         try {
             if ($command === 'create') {
-                return $this->reconcileCreate($client, $server, $username, $this->domain($context), $attemptedAt);
+                return $this->reconcileCreate($client, $context, $server, $username, $this->domain($context), $attemptedAt);
             }
 
             if ($command === 'terminate') {
@@ -472,7 +480,8 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     {
         $client = $this->client($server, $this->interactiveSeconds());
         $steps = [];
-        $details = [];
+        // Named in the "Trust this certificate" warning: what a wrong key would expose.
+        $details = ['credentials_name' => 'WHM API token or password'];
 
         try {
             $address = $client->address();
@@ -490,7 +499,12 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
                     $details["certificate_{$key}"] = $value;
                 }
 
-                $steps[] = new ConnectionCheckStep('Address and certificate', CheckStatus::Fail, $failure->getMessage().($certificate === null ? ' The certificate could not be read.' : ''));
+                $detail = match (true) {
+                    $certificate === null => $failure->getMessage().' The certificate could not be read.',
+                    $failure->kind === WhmFailure::PIN => 'The server\'s certificate changed: it no longer matches the trusted one. Check the new fingerprint below, then trust it.',
+                    default => "The certificate {$client->host()} presented is not trusted (self-signed, expired or issued for another name). Check the fingerprint below, then trust it.",
+                };
+                $steps[] = new ConnectionCheckStep('Address and certificate', CheckStatus::Fail, $detail);
 
                 return $this->check($steps, $details);
             }
@@ -596,19 +610,31 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             }
         }
 
+        return DriverResult::ok($message, $this->createdData($context, $account));
+    }
+
+    /**
+     * What a create reports for the account it made (§3.1 step 4); a settled create reports the same (§6.2).
+     *
+     * @param  array<string, mixed>|null  $account
+     * @return array<string, mixed>
+     */
+    private function createdData(ProvisioningContext $context, ?array $account): array
+    {
         $created = isset($account['unix_startdate']) && is_numeric($account['unix_startdate']) ? CarbonImmutable::createFromTimestamp((int) $account['unix_startdate'])->toIso8601String() : null;
+        $ip = $this->checked('ip', $account['ip'] ?? null);
         $data = ['driver_data' => array_filter([
-            'owner' => $account['owner'] ?? null,
-            'plan' => $account['plan'] ?? null,
-            'ip' => $account['ip'] ?? null,
+            'owner' => $this->checked('owner', $account['owner'] ?? null),
+            'plan' => $this->checked('plan', $account['plan'] ?? null),
+            'ip' => $ip,
             'created_at' => $created,
         ], fn (mixed $value): bool => $value !== null && $value !== '')];
 
-        if ($this->wantsDedicatedIp($context) && is_string($account['ip'] ?? null) && $account['ip'] !== '') {
-            $data['dedicated_ip'] = $account['ip'];
+        if ($this->wantsDedicatedIp($context) && $ip !== null) {
+            $data['dedicated_ip'] = $ip;
         }
 
-        return DriverResult::ok($message, $data);
+        return $data;
     }
 
     /**
@@ -650,13 +676,13 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      *
      * @throws WhmFailure
      */
-    private function reconcileCreate(WhmClient $client, ServerConnection $server, string $username, string $domain, CarbonImmutable $attemptedAt): CommandLookup
+    private function reconcileCreate(WhmClient $client, ProvisioningContext $context, ServerConnection $server, string $username, string $domain, CarbonImmutable $attemptedAt): CommandLookup
     {
         $account = $this->findAccount($client, $server, 'user', $username);
 
         if ($account !== null) {
             return $this->adoptable($account, $domain, $attemptedAt, $server)
-                ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($account), 'The account is on the server.')
+                ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($account), 'The account is on the server.', $this->createdData($context, $account))
                 : new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($account), sprintf('The username %s on %s belongs to an account (owner %s, domain %s, created %s) that this attempt did not make.', $username, $server->name, $account['owner'] ?? 'unknown', $account['domain'] ?? 'unknown', $this->createdLabel($account)));
         }
 
@@ -1065,17 +1091,43 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         return new RemoteAccount(
             username: (string) ($row['user'] ?? ''),
-            domain: isset($row['domain']) ? strtolower((string) $row['domain']) : null,
-            plan: isset($row['plan']) ? (string) $row['plan'] : null,
-            owner: isset($row['owner']) ? (string) $row['owner'] : null,
+            domain: $this->checked('domain', isset($row['domain']) ? strtolower((string) $row['domain']) : null),
+            plan: $this->checked('plan', $row['plan'] ?? null),
+            owner: $this->checked('owner', $row['owner'] ?? null),
             email: isset($row['email']) && str_contains((string) $row['email'], '@') ? strtolower((string) $row['email']) : null,
-            ip: isset($row['ip']) ? (string) $row['ip'] : null,
+            ip: $this->checked('ip', $row['ip'] ?? null),
             suspended: (int) ($row['suspended'] ?? 0) === 1,
             suspendReason: $reason !== '' && strtolower($reason) !== 'not suspended' ? $reason : null,
             createdAt: is_numeric($row['unix_startdate'] ?? null) ? CarbonImmutable::createFromTimestamp((int) $row['unix_startdate']) : null,
             diskUsedMb: $this->megabytes($row['diskused'] ?? null),
             diskLimitMb: $this->megabytes($row['disklimit'] ?? null, limit: true),
         );
+    }
+
+    /**
+     * A value WHM reported, checked before anything stores it: an IP must be an IP, a domain a host name, a plan or
+     * owner a short name. An invalid value is dropped (null) and logged; the panel's answer is never trusted blindly.
+     */
+    private function checked(string $field, mixed $value): ?string
+    {
+        if ($value === null || $value === '' || ! is_scalar($value)) {
+            return null;
+        }
+
+        $value = (string) $value;
+        $valid = match ($field) {
+            'ip' => filter_var($value, FILTER_VALIDATE_IP) !== false,
+            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i', $value) === 1,
+            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*$/', $value) === 1,
+        };
+
+        if (! $valid) {
+            Log::warning('WHM reported an invalid account value; it was not stored.', ['field' => $field, 'length' => strlen($value)]);
+
+            return null;
+        }
+
+        return $value;
     }
 
     private function domain(ProvisioningContext $context): string
