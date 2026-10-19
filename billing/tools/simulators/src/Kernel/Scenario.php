@@ -7,8 +7,13 @@ use Mohar\Simulators\Contracts\Simulator;
 use RuntimeException;
 
 /**
- * One simulator run: its directory under the system temp dir (state, certificates, request log, pids), its ports and
- * the control-plane token. Never the app's database or port 8000.
+ * One simulator run: its directory under the system temp dir (state, certificates, request log, pids), its ports, the
+ * control-plane token and, for a scenario a test started, the pid of the process that owns it. Never the app's
+ * database or port 8000.
+ *
+ * Scenarios live under a root of their own per checkout and per parallel test worker
+ * (`mohar-sim/<checkout hash>[-w<TEST_TOKEN>]`), so a run in one worktree or worker never sees, stops or removes
+ * another's.
  */
 final class Scenario
 {
@@ -20,24 +25,29 @@ final class Scenario
     private ?Simulator $simulator = null;
 
     /**
-     * @param  array{id: string, simulator: class-string<Simulator>, token: string, api_port: int, backend_port: int, control_port: int, pids: list<int>}  $config
+     * @param  array{id: string, simulator: class-string<Simulator>, token: string, api_port: int, backend_port: int, control_port: int, pids: list<int>, owner: int|null}  $config
      */
     private function __construct(public readonly string $directory, private array $config) {}
 
     public static function root(): string
     {
-        return sys_get_temp_dir().'/mohar-sim';
+        $root = sys_get_temp_dir().'/mohar-sim/'.substr(hash('sha256', (string) realpath(dirname(__DIR__, 2))), 0, 16);
+        $worker = getenv('TEST_TOKEN');
+
+        return is_string($worker) && preg_match('/^[A-Za-z0-9_-]{1,32}$/', $worker) === 1 ? "{$root}-w{$worker}" : $root;
     }
 
     /**
      * @param  class-string<Simulator>  $simulator
+     * @param  int|null  $owner  the process whose end stops the scenario (a test run); null for a detached one
      */
-    public static function create(string $simulator): self
+    public static function create(string $simulator, ?int $owner = null): self
     {
+        self::ensureRoot();
         $id = (new $simulator)->key().'-'.bin2hex(random_bytes(4));
         $directory = self::root().'/'.$id;
 
-        if (! mkdir($directory, 0700, true)) {
+        if (! mkdir($directory, 0700)) {
             throw new RuntimeException("Could not create {$directory}.");
         }
 
@@ -49,6 +59,7 @@ final class Scenario
             'backend_port' => self::freePort(),
             'control_port' => self::freePort(),
             'pids' => [],
+            'owner' => $owner,
         ]);
         $scenario->save();
         $scenario->ca()->create();
@@ -74,6 +85,7 @@ final class Scenario
             'backend_port' => (int) ($config['backend_port'] ?? 0),
             'control_port' => (int) ($config['control_port'] ?? 0),
             'pids' => array_values(array_map('intval', (array) ($config['pids'] ?? []))),
+            'owner' => isset($config['owner']) ? (int) $config['owner'] : null,
         ]);
     }
 
@@ -110,6 +122,14 @@ final class Scenario
     public function controlUrl(): string
     {
         return 'http://127.0.0.1:'.$this->controlPort();
+    }
+
+    /**
+     * The process that owns the scenario: when it is gone, the scenario stops itself (TLS front watchdog).
+     */
+    public function owner(): ?int
+    {
+        return $this->config['owner'];
     }
 
     /**
@@ -177,6 +197,23 @@ final class Scenario
         } while (in_array($port, self::FORBIDDEN_PORTS, true));
 
         return $port;
+    }
+
+    /**
+     * The temp root and this checkout's root, 0700 and owned by this user: a root someone else created is refused,
+     * never written into.
+     */
+    private static function ensureRoot(): void
+    {
+        foreach ([dirname(self::root()), self::root()] as $directory) {
+            if (! is_dir($directory) && ! @mkdir($directory, 0700) && ! is_dir($directory)) {
+                throw new RuntimeException("Could not create {$directory}.");
+            }
+
+            if (is_link($directory) || fileowner($directory) !== posix_geteuid()) {
+                throw new RuntimeException("{$directory} belongs to another user or is a link; simulators will not use it.");
+            }
+        }
     }
 
     private function save(): void

@@ -95,7 +95,7 @@ test('only https base URLs without credentials, query or fragment are honoured; 
     'credentials' => [['stripe.api' => 'https://user:secret@sim.example.test'], 'stripe.api'],
     'query' => [['stripe.api' => 'https://sim.example.test/?x=1'], 'stripe.api'],
     'fragment' => [['stripe.api' => 'https://sim.example.test/#top'], 'stripe.api'],
-    'malformed key' => [['Stripe API' => 'https://sim.example.test'], 'Stripe API'],
+    'malformed key, counted and never repeated' => [['Stripe API' => 'https://sim.example.test'], '(1 malformed key)'],
     'not a JSON object' => ['{not json', '(not a JSON object)'],
 ]);
 

@@ -8,6 +8,8 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ### Integration simulators, S1 (ADR 0016 §1, §3)
 
+- `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
+  such keys are counted ("(2 malformed keys)"), since one may be a pasted URL with credentials.
 - `Endpoints::configuredKeys()`: the keys set in `INTEGRATION_ENDPOINTS` whatever the environment (for the install
   check and the dashboard health check; drivers may not call it, Arch rule). Compatible.
 - No other kernel change: the framework is the dev-only package `mohar/simulators` (`tools/simulators`, namespace

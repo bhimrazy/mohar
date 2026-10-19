@@ -195,6 +195,12 @@ conformance tests. That is a data file, not running code, but it still goes thro
   nth fires once.
 - The `simulate:e2e` command, the `Simulators` testsuite and the harness refusing the preview and dev databases come
   with S4; the pre-commit scan over `recordings/` comes with the first provider that ships recordings (S2).
+- Isolation (PR #92 review):
+    - Scenarios live under a root per checkout and per parallel test worker.
+    - A scenario a test starts stops itself when its owner process is gone (TLS front watchdog).
+    - `simulate:clean` never touches a scenario another live process owns.
+    - Pids are signalled only when `/proc` shows they are the scenario's own.
+    - The scenario CA is name-constrained to `127.0.0.1` and `localhost`, and its keys are 0600.
 - Health: `app:install` fails and the dashboard health check is red when `INTEGRATION_ENDPOINTS` is set outside
   `local`/`testing`; in development the health check is amber and names the active keys.
 

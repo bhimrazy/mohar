@@ -22,7 +22,10 @@ final class TlsFront
 
     private bool $running = true;
 
-    public function __construct(private readonly string $leafPath, private readonly int $port, private readonly int $backendPort) {}
+    /**
+     * @param  (\Closure(): bool)|null  $alive  checked about once a second; false ends the loop
+     */
+    public function __construct(private readonly string $leafPath, private readonly int $port, private readonly int $backendPort, private readonly ?\Closure $alive = null) {}
 
     public function run(): void
     {
@@ -33,8 +36,14 @@ final class TlsFront
         }
 
         stream_set_blocking($server, false);
+        $checked = microtime(true);
 
         while ($this->running) {
+            if ($this->alive !== null && microtime(true) - $checked >= 1.0) {
+                $checked = microtime(true);
+                $this->running = ($this->alive)();
+            }
+
             $read = [$server];
             $write = [];
 

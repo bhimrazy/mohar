@@ -18,7 +18,18 @@ Each scenario runs as three processes on free 127.0.0.1 ports (never 8000):
 - the API backend (`php -S`, four workers);
 - the control plane (`php -S`, plain HTTP).
 
-State lives in `sys_get_temp_dir()/mohar-sim/<id>/`.
+State lives in `sys_get_temp_dir()/mohar-sim/<checkout>/<id>/`. `<checkout>` is a hash of this checkout's path, with `-w<TEST_TOKEN>` added for a parallel test worker. A run in one worktree or worker never sees, stops or removes another's.
+
+Lifetimes:
+
+- A scenario started from code (`Processes::start()`, as tests do) belongs to the process that started it. The TLS front checks every second that this owner is alive, and stops the scenario when it is gone, so a killed test runner leaves nothing running.
+- `simulate:start` starts detached scenarios, which run until `simulate:stop` or `simulate:clean`.
+- `simulate:clean` reaps detached scenarios, scenarios whose owner is gone, and leftovers. It never touches a scenario another live process owns.
+- Tests stop only the scenarios they started.
+
+Pids are signalled only while `/proc/<pid>/environ` shows they belong to the scenario, so a pid reused after a reboot is never hit.
+
+The package needs Linux: `setsid`, `/proc` and ext-posix.
 
 The control plane answers only requests that carry `X-Sim-Token`:
 
@@ -49,3 +60,14 @@ The control plane answers only requests that carry `X-Sim-Token`:
    them with what the simulator serves.
 
 The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working example.
+
+## Callbacks and redirects
+
+- **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale` or `wrong_secret` variant.
+- **Browser redirects** carry the provider's signed answer in the return URL's query (Khalti and eSewa returns, S5). They are not outbox deliveries. A `HasControlActions` action (for example `pay`) changes the state and returns `['redirect' => <return_url with its signed query>]`. The test or the E2E runner then follows that URL into the app as the browser would, and tampered or unsigned variants are separate actions. S5 adds these actions; the framework needs nothing more.
+
+## Limits
+
+- The TLS front frames requests by `Content-Length` only: no `Transfer-Encoding: chunked` and no `Expect: 100-continue`. Laravel's HTTP client (Guzzle with string bodies) never sends those.
+- The request log and recordings apply the kernel `Redactor` default rule, then its payment rule: card numbers, CVCs, expiry, and Luhn-valid digits inside text.
+- In a recording's shape check, a masked value matches any type.

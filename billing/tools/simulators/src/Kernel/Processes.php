@@ -8,17 +8,27 @@ use RuntimeException;
 /**
  * Starts and stops a scenario's processes: the `php -S` API backend (4 workers), the `php -S` control plane and the TLS
  * front, each detached and recorded by pid, so `simulate:stop` and `simulate:clean` can reap them.
+ *
+ * A scenario a test starts is owned by the test process: the TLS front checks every second that the owner is alive and
+ * otherwise stops the scenario, so a runner that is killed or times out leaves nothing running. `simulate:start`
+ * starts detached scenarios. A pid is signalled only while /proc shows it is one of the scenario's own processes (it
+ * carries the scenario directory in its environment), never a reused pid after a reboot. Needs Linux (`setsid`, /proc
+ * and ext-posix).
  */
 final class Processes
 {
     private const READY_SECONDS = 10;
 
+    /** A scenario directory without a readable scenario.json is a leftover only after this long (it may be starting). */
+    private const LEFTOVER_SECONDS = 60;
+
     /**
      * @param  class-string<Simulator>  $simulator
+     * @param  bool  $detached  true for `simulate:start`: the scenario outlives this process until stopped
      */
-    public static function start(string $simulator): Scenario
+    public static function start(string $simulator, bool $detached = false): Scenario
     {
-        $scenario = Scenario::create($simulator);
+        $scenario = Scenario::create($simulator, $detached ? null : posix_getpid());
         $bin = dirname(__DIR__, 2).'/bin';
         $environment = [
             'SIM_AUTOLOAD' => self::autoloader(),
@@ -43,11 +53,13 @@ final class Processes
 
     /**
      * Stop the scenario's processes and, unless kept, remove its directory.
+     *
+     * @param  int|null  $except  a pid to leave running (the TLS front stopping its own scenario exits by itself)
      */
-    public static function stop(Scenario $scenario, bool $keep = false): void
+    public static function stop(Scenario $scenario, bool $keep = false, ?int $except = null): void
     {
         foreach ($scenario->pids() as $pid) {
-            if ($pid > 0 && posix_kill($pid, 0)) {
+            if ($pid !== $except && self::belongs($pid, $scenario)) {
                 posix_kill($pid, 15); // SIGTERM (the pcntl constants may be missing)
             }
         }
@@ -58,7 +70,9 @@ final class Processes
     }
 
     /**
-     * Stop and remove every scenario under the temp root (`simulate:clean`).
+     * Stop and remove this checkout's scenarios (`simulate:clean`): detached ones, those whose owner is gone and
+     * leftovers. A scenario another live process owns (another test run in this checkout) is left alone; other
+     * checkouts and parallel workers have roots of their own.
      *
      * @return list<string> the scenario ids removed
      */
@@ -69,11 +83,19 @@ final class Processes
         foreach (glob(Scenario::root().'/*', GLOB_ONLYDIR) ?: [] as $directory) {
             try {
                 $scenario = Scenario::load($directory);
+                $owner = $scenario->owner();
+
+                if ($owner !== null && $owner !== posix_getpid() && posix_kill($owner, 0)) {
+                    continue;
+                }
+
                 self::stop($scenario);
                 $removed[] = $scenario->id();
             } catch (\InvalidArgumentException) {
-                self::remove($directory);
-                $removed[] = basename($directory);
+                if (time() - (int) filemtime($directory) >= self::LEFTOVER_SECONDS) {
+                    self::remove($directory);
+                    $removed[] = basename($directory);
+                }
             }
         }
 
@@ -82,7 +104,25 @@ final class Processes
 
     public static function running(Scenario $scenario): bool
     {
-        return $scenario->pids() !== [] && array_filter($scenario->pids(), fn (int $pid): bool => ! posix_kill($pid, 0)) === [];
+        return $scenario->pids() !== [] && array_filter($scenario->pids(), fn (int $pid): bool => ! self::belongs($pid, $scenario)) === [];
+    }
+
+    /**
+     * Whether the pid is alive and one of this scenario's processes. Where /proc is missing, liveness is all there is.
+     */
+    public static function belongs(int $pid, Scenario $scenario): bool
+    {
+        if ($pid <= 0 || ! posix_kill($pid, 0)) {
+            return false;
+        }
+
+        if (! is_dir('/proc/self')) {
+            return true;
+        }
+
+        $environment = @file_get_contents("/proc/{$pid}/environ");
+
+        return is_string($environment) && str_contains("\0{$environment}", "\0SIM_SCENARIO_DIR={$scenario->directory}\0");
     }
 
     /**

@@ -93,8 +93,9 @@ test('the app never references the dev-only simulators package (ADR 0016)', func
     // The package is installed only with require-dev, so a reference would break a --no-dev install. Checked as raw
     // text, case-insensitively (PHP names are), including group imports such as `use Mohar\{Simulators\…}`.
     $offenders = array_keys(array_filter(
-        sourcesUnder(['app', 'bootstrap', 'config', 'routes']),
-        fn (string $source): bool => preg_match('/Mohar\s*\\\\{1,2}\s*(\{\s*)?Simulators/i', $source) === 1,
+        sourcesUnder(['app', 'bootstrap', 'config', 'database', 'routes']),
+        // The namespace, or the package by path (a require of tools/simulators/… would ship in a --no-dev deploy).
+        fn (string $source): bool => preg_match('/Mohar\s*\\\\{1,2}\s*(\{\s*)?Simulators|tools[\/\\\\]simulators/i', $source) === 1,
     ));
 
     expect($offenders)->toBe([]);

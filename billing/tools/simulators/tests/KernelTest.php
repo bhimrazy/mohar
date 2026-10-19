@@ -20,7 +20,8 @@ afterEach(function () {
 });
 
 test('a scenario lives in its own temp directory with its own state, CA and ports, never port 8000', function () {
-    expect($this->scenario->directory)->toStartWith(sys_get_temp_dir().'/mohar-sim/echo-')
+    expect($this->scenario->directory)->toStartWith(Scenario::root().'/echo-')
+        ->and(Scenario::root())->toMatch('#^'.preg_quote(sys_get_temp_dir(), '#').'/mohar-sim/[0-9a-f]{16}(-w[A-Za-z0-9_-]+)?$#')
         ->and(is_file($this->scenario->ca()->bundlePath()))->toBeTrue()
         ->and(is_file($this->scenario->ca()->leafPath()))->toBeTrue()
         ->and($this->scenario->state()->get('config', 'webhook_secret'))->toBe('whsec_echo')

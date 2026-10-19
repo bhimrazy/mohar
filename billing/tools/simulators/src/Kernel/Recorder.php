@@ -27,14 +27,16 @@ final class Recorder
         file_put_contents($path, json_encode([
             'source' => $source,
             'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            'response' => $this->redactor->redact($response, $secrets),
+            // The payment rule too: a recording is committed to the repository.
+            'response' => $this->redactor->redactPayment($this->redactor->redact($response, $secrets)),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
 
         return $path;
     }
 
     /**
-     * Every key path with its type: `data.acct.*.user` => `string`. List items share one path (`*`).
+     * Every key path with its type: `data.acct.*.user` => `string`. List items share one path (`*`). A value the
+     * recording masked has the type `redacted`, which matches any type.
      *
      * @param  array<array-key, mixed>  $value
      * @return array<string, string>
@@ -45,7 +47,11 @@ final class Recorder
 
         foreach ($value as $key => $item) {
             $path = ltrim($prefix.'.'.(array_is_list($value) ? '*' : $key), '.');
-            $shape[$path] = is_array($item) ? (array_is_list($item) ? 'list' : 'object') : get_debug_type($item);
+            $shape[$path] = match (true) {
+                is_array($item) => array_is_list($item) ? 'list' : 'object',
+                in_array($item, [Redactor::MASK, Redactor::CARD_MASK], true) => 'redacted',
+                default => get_debug_type($item),
+            };
 
             if (is_array($item)) {
                 $shape = [...$shape, ...self::shape($item, $path)];
@@ -73,7 +79,7 @@ final class Recorder
         foreach ($expected as $path => $type) {
             if (! isset($found[$path])) {
                 $differences[] = "missing {$path}";
-            } elseif ($found[$path] !== $type && $type !== 'null' && $found[$path] !== 'null') {
+            } elseif ($found[$path] !== $type && ! in_array('null', [$type, $found[$path]], true) && ! in_array('redacted', [$type, $found[$path]], true)) {
                 $differences[] = "{$path} is {$found[$path]}, recorded {$type}";
             }
         }

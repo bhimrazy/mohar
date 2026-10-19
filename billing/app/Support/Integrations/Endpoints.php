@@ -143,7 +143,9 @@ final class Endpoints
 
     /**
      * INTEGRATION_ENDPOINTS read as key => base URL (without a trailing slash), split into usable overrides and the
-     * keys of ignored ones ("(not a JSON object)" when the whole value is unreadable).
+     * keys of ignored ones ("(not a JSON object)" when the whole value is unreadable). A key that does not match
+     * KEY_PATTERN is never repeated, since it may be a pasted URL with credentials: such keys are only counted
+     * ("(2 malformed keys)"), so logs, the installer and the dashboard show nothing an operator did not mean as a key.
      *
      * @return array{valid: array<string, string>, ignored: list<string>}
      */
@@ -163,6 +165,7 @@ final class Endpoints
 
         $valid = [];
         $ignored = [];
+        $malformed = 0;
 
         foreach ($overrides as $key => $url) {
             $parts = is_string($url) ? parse_url($url) : false;
@@ -178,9 +181,15 @@ final class Endpoints
 
             if ($usable) {
                 $valid[$key] = rtrim((string) $url, '/');
+            } elseif (is_string($key) && preg_match(self::KEY_PATTERN, $key) === 1) {
+                $ignored[] = $key;
             } else {
-                $ignored[] = (string) $key;
+                $malformed++;
             }
+        }
+
+        if ($malformed > 0) {
+            $ignored[] = "({$malformed} malformed ".($malformed === 1 ? 'key' : 'keys').')';
         }
 
         return ['valid' => $valid, 'ignored' => $ignored];

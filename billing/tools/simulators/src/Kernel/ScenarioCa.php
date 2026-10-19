@@ -28,7 +28,7 @@ final class ScenarioCa
     {
         $config = $this->config();
         $caKey = $this->newKey();
-        $caCsr = openssl_csr_new(['commonName' => 'Mohar simulator CA'], $caKey, ['config' => $config, 'digest_alg' => 'sha256']);
+        $caCsr = openssl_csr_new(['commonName' => 'Local simulator CA'], $caKey, ['config' => $config, 'digest_alg' => 'sha256']);
 
         if ($caCsr === false || $caCsr === true) {
             throw new RuntimeException('Could not create the scenario CA request.');
@@ -42,6 +42,7 @@ final class ScenarioCa
 
         openssl_x509_export_to_file($caCert, $this->bundlePath());
         openssl_pkey_export_to_file($caKey, $this->directory.'/ca.key');
+        chmod($this->directory.'/ca.key', 0600);
         $this->rotateLeaf();
     }
 
@@ -67,6 +68,8 @@ final class ScenarioCa
         openssl_x509_export($leaf, $certificate);
         openssl_pkey_export($key, $privateKey);
         $temporary = $this->leafPath().'.'.getmypid();
+        touch($temporary);
+        chmod($temporary, 0600);
         file_put_contents($temporary, $certificate.$privateKey);
         rename($temporary, $this->leafPath());
     }
@@ -85,7 +88,9 @@ final class ScenarioCa
         if (! is_file($path)) {
             file_put_contents($path, implode("\n", [
                 '[req]', 'distinguished_name = dn', '[dn]',
+                // The CA can only vouch for this machine's loopback names, even if its bundle is trusted somewhere by mistake.
                 '[v3_ca]', 'basicConstraints = critical, CA:TRUE', 'keyUsage = critical, keyCertSign, cRLSign', 'subjectKeyIdentifier = hash',
+                "nameConstraints = critical, permitted;IP:127.0.0.1/255.255.255.255, permitted;DNS:{$this->dnsName}",
                 '[v3_leaf]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature', 'extendedKeyUsage = serverAuth',
                 "subjectAltName = IP:127.0.0.1, DNS:{$this->dnsName}", '',
             ]));

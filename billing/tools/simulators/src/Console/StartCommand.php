@@ -14,7 +14,7 @@ final class StartCommand extends SimulatorCommand
     protected function perform(): int
     {
         $simulator = $this->laravel->make(SimulatorRegistry::class)->get((string) $this->argument('provider'));
-        $scenario = Processes::start($simulator);
+        $scenario = Processes::start($simulator, detached: true);
         $configuration = $scenario->simulator()->appConfiguration($scenario);
 
         $this->components->info("Scenario {$scenario->id()} is running.");

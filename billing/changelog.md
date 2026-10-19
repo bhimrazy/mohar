@@ -69,7 +69,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
   logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
   a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
-  uses them yet.
+  uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
 - Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
   package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
   CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after

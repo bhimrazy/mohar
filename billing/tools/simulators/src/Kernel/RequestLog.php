@@ -7,8 +7,9 @@ use Mohar\Simulators\Http\Request;
 use Mohar\Simulators\Http\Response;
 
 /**
- * Every request a simulator answered, redacted with the kernel Redactor's keys, so tests can assert on it ("exactly one
- * createacct") without the log ever holding a credential.
+ * Every request a simulator answered, redacted with the kernel Redactor's keys and then its payment rule (card numbers,
+ * CVCs, expiry, Luhn-valid digits in text), so tests can assert on it ("exactly one createacct") without the log ever
+ * holding a credential or card data.
  */
 final class RequestLog
 {
@@ -21,9 +22,9 @@ final class RequestLog
             'method' => $request->method,
             'path' => $request->path,
             'headers' => $this->redactor->redact($request->headers, sensitiveKeys: ['authorization', 'stripe-signature']),
-            'input' => $this->redactor->redact($request->input()),
+            'input' => $this->redactor->redactPayment($this->redactor->redact($request->input())),
             'status' => $response->status,
-            'response' => $this->redactor->redact(json_decode($response->body, true) ?? ['raw' => mb_strcut($response->body, 0, 4096)]),
+            'response' => $this->redactor->redactPayment($this->redactor->redact(json_decode($response->body, true) ?? ['raw' => mb_strcut($response->body, 0, 4096)])),
             'at' => microtime(true),
         ];
 

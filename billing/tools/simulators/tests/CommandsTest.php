@@ -8,7 +8,14 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
-afterEach(fn () => Processes::clean());
+// Only what this test started: other processes and workers may have scenarios running in the same root.
+beforeEach(fn () => $this->before = glob(Scenario::root().'/*', GLOB_ONLYDIR) ?: []);
+
+afterEach(function () {
+    foreach (array_diff(glob(Scenario::root().'/*', GLOB_ONLYDIR) ?: [], $this->before) as $directory) {
+        Processes::stop(Scenario::load($directory));
+    }
+});
 
 test('a simulator starts on free ports, prints what the app needs, and simulate:clean reaps it', function () {
     app(SimulatorRegistry::class)->register(EchoSimulator::class);
@@ -19,7 +26,7 @@ test('a simulator starts on free ports, prints what the app needs, and simulate:
         ->expectsOutputToContain('INTEGRATION_ENDPOINTS={"echo.api":"https:\/\/127.0.0.1:')
         ->assertSuccessful();
 
-    $directory = glob(Scenario::root().'/echo-*')[0];
+    $directory = array_values(array_diff(glob(Scenario::root().'/echo-*', GLOB_ONLYDIR) ?: [], $this->before))[0];
     expect(Processes::running(Scenario::load($directory)))->toBeTrue();
 
     $this->artisan('simulate:clean')->assertSuccessful();
