@@ -44,6 +44,8 @@ export default defineConfig({
         tailwindcss(),
         wayfinder({
             formVariants: true,
+            // The image build generates the routes in its PHP stage and sets this to `true` for the Node stage.
+            command: process.env.WAYFINDER_COMMAND || undefined,
         }),
     ]),
     server: {

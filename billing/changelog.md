@@ -498,11 +498,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
+  (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
+  a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
+  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.8 s. `deploy/compose.dev.yaml`
+  runs the `dev` target with Vite. The dependency check now also requires digest pins and the 7-day cooldown for
+  `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
+- `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
+  means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
+  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+- Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
+  rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
+  skipped. Set it to `true` once an SSR entry exists.
 - Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
   about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
   the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
   peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
-
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
 - CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was
