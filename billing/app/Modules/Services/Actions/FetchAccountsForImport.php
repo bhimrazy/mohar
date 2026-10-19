@@ -57,14 +57,18 @@ class FetchAccountsForImport
     }
 
     /**
-     * The server's list that has not expired, if any. An expired list is deleted here, so client emails never outlive
+     * The server's list that has not expired, if any, without the account list unless $withAccounts. An expired list is deleted here, so client emails never outlive
      * it by more than a read (housekeeping deletes the rest daily).
      */
-    public static function latest(Server $server): ?ServerAccountImport
+    public static function latest(Server $server, bool $withAccounts = false): ?ServerAccountImport
     {
         ServerAccountImport::query()->where('server_id', $server->id)->where('expires_at', '<=', now())->delete();
 
+        // The encrypted account list can be megabytes: it is read only when asked for.
+        $columns = array_values(array_diff((new ServerAccountImport)->getFillable(), $withAccounts ? [] : ['accounts']));
+
         return ServerAccountImport::query()
+            ->select(['id', 'created_at', 'updated_at', ...$columns])
             ->with('requester:id,name')
             ->where('server_id', $server->id)
             ->where('expires_at', '>', now())

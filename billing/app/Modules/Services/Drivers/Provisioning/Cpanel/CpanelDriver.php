@@ -146,7 +146,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             ],
             usernamePolicy: new UsernamePolicy(
                 maxLength: 8,
-                pattern: '/^[a-z][a-z0-9]*$/',
+                pattern: '/^[a-z][a-z0-9]*\z/',
                 reservedPrefixes: ['test'],
                 reservedSuffixes: ['assword'],
                 reservedNames: self::RESERVED_NAMES,
@@ -1123,9 +1123,9 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
         $value = (string) $value;
         $valid = match ($field) {
             'ip' => filter_var($value, FILTER_VALIDATE_IP) !== false,
-            'username' => preg_match('/^[a-z0-9][a-z0-9_.-]{0,31}$/', $value) === 1,
-            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i', $value) === 1,
-            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*$/', $value) === 1,
+            'username' => preg_match('/^[a-z0-9][a-z0-9_.-]{0,31}\z/', $value) === 1,
+            'domain' => strlen($value) <= 253 && preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\z/i', $value) === 1,
+            default => strlen($value) <= 64 && preg_match('/^[A-Za-z0-9][A-Za-z0-9_. -]*\z/', $value) === 1,
         };
 
         if (! $valid) {
