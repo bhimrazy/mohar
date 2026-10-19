@@ -1,0 +1,365 @@
+#!/usr/bin/env bash
+# One load-test run on a host with Docker Compose v2 that can network containers (a GitHub runner via
+# .github/workflows/load-test.yml; not the codespace). loadtest/README.md explains what is measured and how.
+#
+#   loadtest/bin/run --profile small --volume large
+#   loadtest/bin/run --profile medium --volume medium --levels "10 20" --level-duration 1m --keep
+#
+# Steps: cap the "host" at the profile's CPU and memory (a cgroup parent for every container), build the image,
+# install on fresh PostgreSQL and RustFS, seed (loadtest/seed), start the stack, warm up, run the k6 levels while
+# sampling `docker stats` and pg_stat_statements, then the background measurements: invoice PDFs, the billing-day
+# automation run with the workers stopped, and the queue drain once they start again. Results (JSON, NDJSON and
+# summary.md, never secrets) go to loadtest/results/<run>/ or $LOADTEST_RESULTS_DIR.
+#
+# Options: --profile small|medium|large, --volume tiny|small|medium|large, --levels "N N ..." and
+# --level-duration 2m (default: the profile's), --warmup 60s, --image <tag> (skip the build), --keep (leave the
+# stack running; the command to remove it is printed), --require-fit (stop before building when the host has fewer
+# CPUs or less memory than the profile, so a too-small runner does not spend minutes on numbers that mean little).
+set -euo pipefail
+
+self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+root="$(cd "$(dirname "$self")/../.." && pwd)"
+cd "$root"
+
+profile=small
+volume=small
+levels=""
+level_duration=""
+warmup=60s
+image=""
+keep=0
+require_fit=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --profile) profile="$2"; shift 2 ;;
+        --volume) volume="$2"; shift 2 ;;
+        --levels) levels="$2"; shift 2 ;;
+        --level-duration) level_duration="$2"; shift 2 ;;
+        --warmup) warmup="$2"; shift 2 ;;
+        --image) image="$2"; shift 2 ;;
+        --keep) keep=1; shift ;;
+        --require-fit) require_fit=1; shift ;;
+        -h|--help) sed -n '2,18p' "$self" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown option $1" >&2; exit 2 ;;
+    esac
+done
+
+profile_file="loadtest/profiles/${profile}.env"
+[ -f "$profile_file" ] || { echo "no profile $profile_file" >&2; exit 2; }
+case "$volume" in tiny|small|medium|large) ;; *) echo "unknown volume $volume" >&2; exit 2 ;; esac
+
+run_id="${profile}-${volume}-$(date -u +%Y%m%dT%H%M%SZ)"
+results="${LOADTEST_RESULTS_DIR:-$root/loadtest/results/$run_id}"
+mkdir -p "$results"
+chmod 0777 "$results" # k6 writes its summaries as its own non-root user
+secrets="$(mktemp -d)" # env files with keys and passwords: never in the results
+project="${LOADTEST_PROJECT:-mohar-loadtest}"
+env_file="$secrets/run.env"
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml -f loadtest/compose.loadtest.yaml --env-file "$env_file")
+sampler_pid=""
+failed=1
+slice=""
+
+step() { printf '\n== %s\n' "$*"; }
+note() { printf '%s\n' "$*"; }
+random() { head -c 48 /dev/urandom | base64 | tr -d '/+=' | cut -c1-"${1:-32}"; }
+phase() {
+    printf '%s' "$1" > "$results/.phase"
+    printf '{"phase":"%s","t":%s}\n' "$1" "$(date +%s.%N)" >> "$results/phases.ndjson"
+}
+
+cleanup() {
+    [ -n "$sampler_pid" ] && kill "$sampler_pid" 2>/dev/null || true
+    rm -f "$results/.phase"
+    if [ "$failed" = 1 ]; then
+        step "diagnostics"
+        "${compose[@]}" ps -a || true
+        "${compose[@]}" logs --no-color --tail 80 2>&1 | grep -v -i 'password' | tail -400 || true
+    fi
+    if [ "$keep" = 1 ]; then
+        note "Stack kept. Remove it with: ${compose[*]} --profile loadgen down -v --remove-orphans; rm -rf $secrets"
+    else
+        "${compose[@]}" --profile loadgen down -v --remove-orphans --timeout 30 >/dev/null 2>&1 || true
+        rm -rf "$secrets"
+        [ -n "$slice" ] && sudo -n systemctl stop "$slice" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup EXIT
+
+# ------------------------------------------------------------------ profile, clamped to this host
+step "profile $profile, volume $volume"
+host_cpus="$(nproc)"
+host_memory_mb="$(awk '/MemTotal/ { printf "%d", $2 / 1024 }' /proc/meminfo)"
+set -a
+# shellcheck disable=SC1090
+. "$profile_file"
+set +a
+levels="${levels:-$LOAD_LEVELS}"
+level_duration="${level_duration:-$LEVEL_DURATION}"
+[[ "$levels" =~ ^[0-9]+( [0-9]+)*$ ]] || { echo "levels must be numbers separated by spaces: '$levels'" >&2; exit 2; }
+[[ "$level_duration" =~ ^[0-9]+[sm]$ && "$warmup" =~ ^[0-9]+[sm]$ ]] || { echo "durations look like 90s or 2m" >&2; exit 2; }
+
+# Docker refuses a CPU limit above the host's CPU count, so a limit above it is lowered to it (and reported).
+clamped=()
+profile_body="$(grep -E '^[A-Z_]+=' "$profile_file")"
+while IFS='=' read -r key value; do
+    if [[ "$key" == *_CPUS && "$key" != PROFILE_CPUS ]] && awk -v v="$value" -v h="$host_cpus" 'BEGIN { exit !(v > h) }'; then
+        profile_body="$(sed "s/^${key}=.*/${key}=${host_cpus}/" <<< "$profile_body")"
+        clamped+=("${key}=${value}->${host_cpus}")
+    fi
+done <<< "$profile_body"
+capped_by_host=false
+awk -v p="$PROFILE_CPUS" -v h="$host_cpus" 'BEGIN { exit !(p > h) }' && capped_by_host=true
+memory_mb="$(awk -v m="$PROFILE_MEMORY" 'BEGIN { n = m + 0; print (m ~ /G$/ ? n * 1024 : n) }')"
+# The kernel keeps some memory for itself, so a host reports a little less than its nominal size: allow 10%.
+[ "$((memory_mb * 9 / 10))" -gt "$host_memory_mb" ] && capped_by_host=true
+note "host: ${host_cpus} CPUs, ${host_memory_mb} MB; profile: ${PROFILE_CPUS} vCPU, ${PROFILE_MEMORY}; runner smaller than profile: ${capped_by_host}"
+[ "${#clamped[@]}" -gt 0 ] && note "CPU limits lowered to the host: ${clamped[*]}"
+if [ "$require_fit" = 1 ] && [ "$capped_by_host" = true ]; then
+    printf '## Load test: %s profile skipped\n\nThe runner has %s CPUs and %s MB; the profile needs %s vCPU and %s. Run it on a larger runner (workflow input `runner`) or allow a smaller one.\n' \
+        "$profile" "$host_cpus" "$host_memory_mb" "$PROFILE_CPUS" "$PROFILE_MEMORY" > "$results/summary.md"
+    [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+    cat "$results/summary.md"
+    failed=0
+    exit 0
+fi
+
+# ------------------------------------------------------------------ host cap: one cgroup parent for the whole stack
+cgroup_parent=""
+host_cap="none"
+driver="$(docker info --format '{{.CgroupDriver}}')"
+if sudo -n true 2>/dev/null; then
+    cpu_quota="$(awk -v p="$PROFILE_CPUS" 'BEGIN { printf "%d", p * 100 }')"
+    if [ "$driver" = systemd ]; then
+        slice="loadtest.slice"
+        sudo -n tee "/etc/systemd/system/${slice}" >/dev/null <<UNIT
+[Unit]
+Description=Mohar load test: ${profile} host (${PROFILE_CPUS} vCPU, ${PROFILE_MEMORY})
+
+[Slice]
+CPUQuota=${cpu_quota}%
+MemoryMax=${PROFILE_MEMORY}
+MemorySwapMax=0
+UNIT
+        sudo -n systemctl daemon-reload
+        sudo -n systemctl start "$slice"
+        sudo -n systemctl set-property --runtime "$slice" "CPUQuota=${cpu_quota}%" "MemoryMax=${PROFILE_MEMORY}" "MemorySwapMax=0"
+        cgroup_parent="$slice"
+        host_cap="systemd slice ${slice}: CPUQuota=${cpu_quota}% MemoryMax=${PROFILE_MEMORY}"
+    elif [ "$driver" = cgroupfs ] && [ -f /sys/fs/cgroup/cgroup.controllers ]; then
+        sudo -n mkdir -p /sys/fs/cgroup/loadtest
+        echo "$((cpu_quota * 1000)) 100000" | sudo -n tee /sys/fs/cgroup/loadtest/cpu.max >/dev/null
+        echo "$((memory_mb * 1048576))" | sudo -n tee /sys/fs/cgroup/loadtest/memory.max >/dev/null
+        echo 0 | sudo -n tee /sys/fs/cgroup/loadtest/memory.swap.max >/dev/null
+        cgroup_parent="/loadtest"
+        host_cap="cgroup v2 /sys/fs/cgroup/loadtest: cpu.max=$((cpu_quota * 1000)) 100000, memory.max=${memory_mb}M"
+    fi
+fi
+note "host cap (cgroup driver ${driver}): ${host_cap}"
+
+# ------------------------------------------------------------------ environment (generated secrets, internal TLS)
+password="$(random 24)"
+[ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::${password}"
+domain=mohar.test
+{
+    printf '%s\n' "$profile_body"
+    cat <<ENV
+APP_DOMAIN=${domain}
+APP_URL=https://${domain}
+APP_NAME="Load Test Host"
+APP_KEY=base64:$(head -c 32 /dev/urandom | base64)
+APP_ENV=production
+APP_DEBUG=false
+APP_ENV_FILE=${env_file}
+APP_IMAGE=${image:-mohar-app:loadtest}
+CADDY_TLS=tls internal
+HTTP_PORT=${LOADTEST_HTTP_PORT:-18180}
+HTTPS_PORT=${LOADTEST_HTTPS_PORT:-18543}
+DB_DATABASE=billing
+DB_USERNAME=billing
+DB_PASSWORD=$(random)
+OBJECTS_BUCKET=billing
+OBJECTS_ACCESS_KEY=$(random 20)
+OBJECTS_SECRET_KEY=$(random 40)
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true
+MAIL_MAILER=log
+LOADTEST_CGROUP_PARENT=${cgroup_parent}
+LOADTEST_RESULTS=${results}
+ENV
+} > "$env_file"
+chmod 600 "$env_file"
+pg() { "${compose[@]}" exec -T postgres psql -U billing -d billing -At -v ON_ERROR_STOP=1 -c "$1"; }
+pg_top() {
+    pg "SELECT coalesce(json_agg(t), '[]') FROM (SELECT calls, round(total_exec_time::numeric, 1) AS total_ms,
+        round(mean_exec_time::numeric, 2) AS mean_ms, rows, shared_blks_hit, shared_blks_read,
+        left(regexp_replace(query, '\s+', ' ', 'g'), 400) AS query FROM pg_stat_statements
+        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+        ORDER BY total_exec_time DESC LIMIT 20) t" > "$results/$1"
+}
+queues() { pg "SELECT coalesce(json_object_agg(queue, n), '{}') FROM (SELECT queue, count(*) AS n FROM jobs GROUP BY queue) q"; }
+
+docker version --format 'Docker Engine {{.Server.Version}}'
+docker compose version
+
+# ------------------------------------------------------------------ image
+if [ -z "$image" ]; then
+    step "build the image (deploy/Dockerfile, target prod)"
+    start=$(date +%s)
+    "${compose[@]}" build app
+    note "image built in $(( $(date +%s) - start ))s"
+fi
+
+# ------------------------------------------------------------------ install and seed
+step "install on empty PostgreSQL and RustFS"
+phase install
+"${compose[@]}" up -d --wait --wait-timeout 180 postgres rustfs
+"${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
+    && php artisan objects:ensure-bucket --no-interaction \
+    && php artisan app:install --no-interaction --admin-name='Load Test Admin' --admin-email=admin@loadtest.example.com" \
+    > "$secrets/install.log" 2>&1 || { tail -40 "$secrets/install.log" | grep -vi password >&2; exit 1; }
+pg "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null
+
+step "seed volume ${volume} (APP_ENV=loadtest, seeder container only)"
+phase seed
+start=$(date +%s)
+"${compose[@]}" run --rm -T -e APP_ENV=loadtest -e APP_OPTIMIZE=0 -e LOADTEST_PASSWORD="$password" migrate \
+    php /loadtest/seed/run.php --volume="$volume" > "$results/seed.json" 2> "$results/seed.log" \
+    || { cat "$results/seed.log" >&2; exit 1; }
+cat "$results/seed.log"
+note "seeded in $(( $(date +%s) - start ))s"
+pg "VACUUM ANALYZE" >/dev/null
+pg "SELECT json_build_object('database_bytes', pg_database_size(current_database()), 'tables', (SELECT json_agg(t) FROM (
+        SELECT relname AS table, n_live_tup AS rows, pg_total_relation_size(relid) AS bytes FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC LIMIT 12) t))" > "$results/database.json"
+clients="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["clients"])' "$results/seed.json")"
+staff="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["staff"])' "$results/seed.json")"
+
+# ------------------------------------------------------------------ the stack
+step "start every service"
+phase start
+start=$(date +%s)
+"${compose[@]}" up -d --wait --wait-timeout 300
+note "stack healthy in $(( $(date +%s) - start ))s"
+"${compose[@]}" ps --format '{{.Service}} {{.Status}}'
+
+sample() {
+    while :; do
+        local t ids
+        t="$(date +%s)"
+        ids="$(docker ps -q --filter "label=com.docker.compose.project=${project}")"
+        if [ -n "$ids" ]; then
+            # shellcheck disable=SC2086
+            docker stats --no-stream --format '{{json .}}' $ids 2>/dev/null \
+                | sed "s/^/{\"t\":${t},\"phase\":\"$(cat "$results/.phase" 2>/dev/null)\",\"s\":/; s/\$/}/" >> "$results/docker-stats.ndjson" || true
+        fi
+        sleep 2
+    done
+}
+sample &
+sampler_pid=$!
+
+k6() {
+    local vus="$1" duration="$2" out="$3"
+    local rc=0
+    "${compose[@]}" --profile loadgen run --rm -T \
+        -e BASE_URL="https://${domain}" -e VUS="$vus" -e DURATION="$duration" -e CLIENTS="$clients" -e STAFF="$staff" \
+        -e LOADTEST_PASSWORD="$password" -e OUT="/results/${out}" \
+        k6 run --quiet /scripts/main.js > "$results/${out%.json}.log" 2>&1 || rc=$?
+    # 99: a threshold was crossed (the error-rate threshold is reported, not enforced).
+    if [ "$rc" != 0 ] && [ "$rc" != 99 ]; then
+        tail -30 "$results/${out%.json}.log" >&2
+        return 1
+    fi
+}
+
+step "warm-up (${warmup}: OPcache, PostgreSQL buffers, compiled views)"
+phase warmup
+k6 "$(awk '{ print $1 }' <<< "$levels")" "$warmup" k6-warmup.json
+
+pg "SELECT pg_stat_statements_reset()" >/dev/null
+for vus in $levels; do
+    step "web load: ${vus} virtual users for ${level_duration}"
+    phase "web-${vus}"
+    k6 "$vus" "$level_duration" "k6-${vus}.json"
+    python3 - "$results/k6-${vus}.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))["metrics"]
+d, f, r = m["http_req_duration"]["values"], m["http_req_failed"]["values"], m["http_reqs"]["values"]
+print(f"  {r['rate']:.1f} req/s, p50 {d['med']:.0f} ms, p95 {d['p(95)']:.0f} ms, p99 {d['p(99)']:.0f} ms, errors {100 * f['rate']:.2f}%")
+PY
+done
+pg_top pg-top-web.json
+pg "SELECT json_build_object('blks_hit', blks_hit, 'blks_read', blks_read, 'xact_commit', xact_commit, 'temp_bytes', temp_bytes, 'deadlocks', deadlocks)
+    FROM pg_stat_database WHERE datname = current_database()" > "$results/pg-database-stats.json"
+
+# ------------------------------------------------------------------ background work
+step "invoice PDFs (dompdf, one process in the app container)"
+phase pdf
+"${compose[@]}" exec -T app php /loadtest/bench/pdf.php --count=60 > "$results/pdf.json"
+cat "$results/pdf.json"
+
+step "billing-day automation (workers stopped, so the queue it leaves can be timed)"
+"${compose[@]}" stop worker-critical worker-notifications worker-default >/dev/null
+queues > "$results/queues-before.json"
+pg "SELECT pg_stat_statements_reset()" >/dev/null
+phase automation
+start=$(date +%s.%N)
+"${compose[@]}" exec -T scheduler php artisan automation:run > "$results/automation.log" 2>&1 || note "automation reported a failed task (see automation.log)"
+end=$(date +%s.%N)
+pg_top pg-top-automation.json
+pg "SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM (SELECT id, task, status, duration_ms, summary FROM automation_runs) r" > "$results/automation-runs.json"
+queues > "$results/queues-after.json"
+python3 -c 'import sys; print("automation:run took %.1fs" % (float(sys.argv[2]) - float(sys.argv[1])))' "$start" "$end"
+cat "$results/queues-after.json"
+
+step "queue drain (workers start again; log mailer)"
+phase drain
+emails_before="$(pg "SELECT count(*) FROM email_messages WHERE status = 'sent'")"
+start=$(date +%s.%N)
+"${compose[@]}" start worker-critical worker-notifications worker-default >/dev/null
+: > "$results/drain.ndjson"
+deadline=$(( $(date +%s) + ${DRAIN_TIMEOUT:-1500} ))
+while :; do
+    depth="$(queues)"
+    printf '{"t":%s,"queues":%s}\n' "$(date +%s.%N)" "$depth" >> "$results/drain.ndjson"
+    [ "$depth" = '{}' ] && break
+    [ "$(date +%s)" -ge "$deadline" ] && { note "queue not drained after ${DRAIN_TIMEOUT:-1500}s: $depth"; break; }
+    sleep 2
+done
+end=$(date +%s.%N)
+emails_after="$(pg "SELECT count(*) FROM email_messages WHERE status = 'sent'")"
+failed_jobs="$(pg "SELECT count(*) FROM failed_jobs")"
+python3 -c 'import json, sys; print(json.dumps({"seconds": round(float(sys.argv[2]) - float(sys.argv[1]), 1), "emails_sent": int(sys.argv[4]) - int(sys.argv[3]), "failed_jobs": int(sys.argv[5])}))' \
+    "$start" "$end" "$emails_before" "$emails_after" "$failed_jobs" > "$results/drain.json"
+cat "$results/drain.json"
+
+step "provisioning (hook)"
+phase provisioning
+LOADTEST_COMPOSE="${compose[*]}" loadtest/hooks/provisioning.sh "$results" || note "provisioning hook failed"
+
+phase done
+kill "$sampler_pid" 2>/dev/null || true
+sampler_pid=""
+
+# ------------------------------------------------------------------ metadata and summary
+python3 - "$results/meta.json" <<PY
+import json, sys
+json.dump({
+    "run": "${run_id}", "project": "${project}", "profile": "${profile}", "volume": "${volume}", "levels": "${levels}".split(), "level_duration": "${level_duration}",
+    "host_cpus": ${host_cpus}, "host_memory_mb": ${host_memory_mb}, "profile_cpus": float("${PROFILE_CPUS}"), "profile_memory": "${PROFILE_MEMORY}",
+    "runner_smaller_than_profile": "${capped_by_host}" == "true", "cpu_limits_lowered": "${clamped[*]:-}".split(),
+    "host_cap": "${host_cap}", "cgroup_driver": "${driver}", "php_threads": int("${PHP_THREADS}"),
+    "git_sha": "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)",
+    "image_bytes": int("$(docker image inspect "${image:-mohar-app:loadtest}" --format '{{.Size}}' 2>/dev/null || echo 0)"),
+    "docker": "$(docker version --format '{{.Server.Version}}')",
+}, open(sys.argv[1], "w"), indent=2)
+PY
+"${compose[@]}" logs --no-color --tail 300 app worker-notifications scheduler 2>&1 | grep -v -i 'password' > "$results/logs-tail.txt" || true
+python3 loadtest/bin/summarize.py "$results"
+[ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
+failed=0
+step "done: $results"

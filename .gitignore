@@ -5,3 +5,6 @@ rea/
 /deploy/.env
 /deploy/.env.*
 !/deploy/.env.production.example
+
+# Load-test results (loadtest/bin/run); the workflow uploads them as artifacts
+/loadtest/results/
