@@ -100,7 +100,7 @@ class InviteStaff
     {
         $url = AccountLinks::withAppOrigin(fn (): string => route('platform.invitations.show', $token));
         $outcome = $this->mailer->send('staff.invitation', $invitation->email, [
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $invitation->expires_at],
+            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $invitation->expires_at, 'expires_in' => trans_choice(':count day|:count days', $this->expiryDays(), ['count' => $this->expiryDays()])],
         ], 'staff-invite|'.$invitation->id.'|'.StaffInvitation::hashToken($token), carriesSecret: true);
 
         if ($outcome === SystemMailOutcome::Refused) {

@@ -239,7 +239,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
             new SettingDefinition('security.login_lockout_minutes', 'Lockout duration (minutes)', 'integer', rules: ['min:1', 'max:1440']),
             new SettingDefinition('security.login_ip_allowlist', 'IP addresses exempt from lockout', 'text', 'One IP or CIDR range per line.', rules: ['max:2000']),
             new SettingDefinition('platform.impersonation_minutes', 'Sign-in-as-client time limit (minutes)', 'integer', 'Staff are returned to the admin area after this long.', rules: ['min:5', 'max:240']),
-            new SettingDefinition('platform.invitation_expiry_days', 'Staff invitation validity (days)', 'integer', rules: ['min:1', 'max:30']),
+            new SettingDefinition('platform.invitation_expiry_days', 'Invitation links work for (days)', 'integer', 'Staff and client-login invitations. A new invitation replaces the old link.', rules: ['min:1', 'max:30']),
             // Shortening retention prunes staff and security events, so it is a security setting.
             new SettingDefinition('platform.activity_log_retention_days', 'Activity log retention (days)', 'integer', 'Entries not tied to a client are pruned after this many days.', rules: ['min:30', 'max:3650']),
         ], 'core.settings.security');

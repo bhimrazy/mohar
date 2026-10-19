@@ -11,6 +11,7 @@ use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
+use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
@@ -75,6 +76,8 @@ class ClientController extends Controller
         $user = $request->user();
         $can = fn (string $permission): bool => $user?->hasPermission($permission) ?? false;
 
+        $invitations = ClientInvitation::query()->where('client_id', $client->id)->get()->keyBy('user_id');
+
         return Inertia::render('admin/clients/show', [
             'client' => new ClientResource($client->load('group')),
             'contacts' => $client->contacts()->orderBy('first_name')->orderBy('id')->get(['id', 'first_name', 'last_name', 'email', 'phone', 'email_preferences']),
@@ -86,6 +89,11 @@ class ClientController extends Controller
                     'is_owner' => (bool) $login->getRelation('pivot')->getAttribute('is_owner'),
                     'permissions' => json_decode((string) $login->getRelation('pivot')->getAttribute('permissions'), true) ?: [],
                     'last_login_at' => $login->last_login_at?->toIso8601String(),
+                    // An invitation not accepted yet: pending until it expires, then staff can send a new one.
+                    'invitation' => ($invitation = $invitations->get($login->id)) === null || $invitation->accepted_at !== null ? null : [
+                        'state' => $invitation->isExpired() ? 'expired' : 'pending',
+                        'expires_at' => $invitation->expires_at->toIso8601String(),
+                    ],
                 ]),
             'links' => $navigation->clientLinks($client->id, $user),
             // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.

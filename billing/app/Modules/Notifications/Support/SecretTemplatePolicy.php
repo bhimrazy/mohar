@@ -54,7 +54,7 @@ final class SecretTemplatePolicy
      * name. Values an account holder controls (names, company names, addresses) could put a look-alike link beside
      * the real button, so only first names are allowed and they are rendered without URL-like text.
      */
-    public const ALLOWED_FIELDS = ['company.name', 'user.first_name', 'staff.first_name', 'auth.expires_at', 'support.email', 'system.today'];
+    public const ALLOWED_FIELDS = ['company.name', 'user.first_name', 'staff.first_name', 'auth.expires_at', 'auth.expires_in', 'support.email', 'system.today'];
 
     /** Allowed fields an account holder controls: URL-like text is removed from their values. */
     private const ACCOUNT_CONTROLLED_FIELDS = ['user.first_name', 'staff.first_name'];

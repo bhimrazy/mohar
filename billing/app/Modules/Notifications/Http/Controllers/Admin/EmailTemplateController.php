@@ -37,6 +37,7 @@ class EmailTemplateController extends Controller
         private SampleContext $samples,
         private EmailComposer $composer,
         private ActivityLogger $activity,
+        private TemplateCatalog $catalog,
     ) {}
 
     public function index(Request $request): Response
@@ -144,11 +145,18 @@ class EmailTemplateController extends Controller
         $definition = $catalog->find($template->key);
         abort_if(! $template->is_system || $definition === null, 404);
 
+        $current = $template->translations()->where('locale', $this->composer->defaultLocale())->first();
+        $shipped = TemplateCatalog::shippedText($definition);
+        // "Use new default" keeps the staff text it replaces (shown in the editor and in the activity log).
+        $previous = $current !== null && TemplateCatalog::hash($current->text()) !== TemplateCatalog::hash($shipped)
+            ? [...$current->text(), 'replaced_at' => now()->toIso8601String()]
+            : $current?->previous_text;
+
         $template->translations()->updateOrCreate(
             ['locale' => $this->composer->defaultLocale()],
-            ['subject' => $definition['subject'], 'preheader' => $definition['preheader'] ?? null, 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
+            [...$shipped, 'default_hash' => TemplateCatalog::hash($shipped), 'previous_text' => $previous, 'updated_by' => $request->user()?->id],
         );
-        $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key]);
+        $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key, 'previous' => $previous]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Default text restored.')]);
 
         return to_route('admin.notifications.templates.edit', $template);
@@ -260,7 +268,13 @@ class EmailTemplateController extends Controller
                 'body' => $translation->body ?? '',
                 'action_label' => $translation->action_label ?? '',
                 'updated_at' => $translation?->updated_at?->toIso8601String(),
+                'previous_text' => $translation?->previous_text,
             ],
+            // Edited system text whose shipped default changed since: offered side by side ("Use new default").
+            'newDefault' => $template !== null && $template->is_system && $translation !== null && $translation->locale === $this->composer->defaultLocale()
+                && ($definition = $this->catalog->find($template->key)) !== null && $this->catalog->hasNewDefault($translation, $template->key)
+                ? TemplateCatalog::shippedText($definition)
+                : null,
             'defaultLocale' => $this->composer->defaultLocale(),
             'fields' => $template !== null && $template->carriesSecret() ? ['allowed' => SecretTemplatePolicy::ALLOWED_FIELDS] : $this->samples->fieldsFor($type),
             'types' => $this->typeOptions(TemplateType::customisable()),

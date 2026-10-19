@@ -46,6 +46,7 @@ class SampleContext
                 'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
                 'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
                 'expires_at' => MailClock::dateTime(now()->addHour()),
+                'expires_in' => '7 days',
                 'ip' => '203.0.113.24',
             ],
             'order' => [

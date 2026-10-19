@@ -8,6 +8,7 @@ import {
     MoreHorizontal,
     Pencil,
     Plus,
+    Send,
     Trash2,
     ShieldOff,
     UsersRound,
@@ -204,6 +205,13 @@ export default function ClientShow({
                         {login.is_owner && (
                             <Badge variant="secondary">Owner</Badge>
                         )}
+                        {login.invitation && (
+                            <Badge variant="outline">
+                                {login.invitation.state === 'expired'
+                                    ? 'Invitation expired'
+                                    : 'Invited'}
+                            </Badge>
+                        )}
                     </span>
                     <span className="truncate text-xs font-normal text-muted-foreground">
                         {login.email}
@@ -282,6 +290,23 @@ export default function ClientShow({
                                                   <KeyRound />
                                                   Edit permissions
                                               </DropdownMenuItem>
+                                              {login.invitation && (
+                                                  <DropdownMenuItem
+                                                      onSelect={() =>
+                                                          post(
+                                                              ClientUserController.resendInvitation.url(
+                                                                  [
+                                                                      client.id,
+                                                                      login.id,
+                                                                  ],
+                                                              ),
+                                                          )
+                                                      }
+                                                  >
+                                                      <Send />
+                                                      Send a new invitation
+                                                  </DropdownMenuItem>
+                                              )}
                                               <DropdownMenuItem
                                                   onSelect={() =>
                                                       post(
