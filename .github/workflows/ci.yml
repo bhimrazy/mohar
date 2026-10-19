@@ -175,13 +175,28 @@ jobs:
             - name: Image sizes (docs screenshots, 500 KB max)
               run: npm run images:check
 
+            - name: Cache tool results (PHPStan, Pint, tsc)
+              if: steps.changes.outputs.code == 'true'
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  # Each tool validates its own cache (file content hashes, tool version, config), so restoring an
+                  # older entry is safe; a new entry is saved every run so the next one starts from the latest.
+                  path: |
+                      billing/storage/framework/cache/phpstan
+                      billing/storage/framework/cache/pint.cache
+                      billing/storage/framework/cache/tsc.tsbuildinfo
+                  key: tools-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/package-lock.json') }}-${{ github.run_id }}
+                  restore-keys: |
+                      tools-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/package-lock.json') }}-
+                      tools-${{ runner.os }}-
+
             - name: Pint
               if: steps.changes.outputs.code == 'true'
-              run: vendor/bin/pint --parallel --test
+              run: vendor/bin/pint --parallel --test --cache-file=storage/framework/cache/pint.cache
 
             - name: TypeScript
               if: steps.changes.outputs.code == 'true'
-              run: npx tsc --noEmit
+              run: npx tsc --noEmit --incremental --tsBuildInfoFile storage/framework/cache/tsc.tsbuildinfo
 
             - name: Vitest
               if: steps.changes.outputs.code == 'true'
@@ -190,27 +205,44 @@ jobs:
                   LARAVEL_BYPASS_ENV_CHECK: '1'
               run: npm test
 
-            - name: Cache PHPStan results
-              if: steps.changes.outputs.code == 'true'
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-              with:
-                  path: billing/storage/framework/cache/phpstan
-                  key: phpstan-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/phpstan.neon') }}-${{ github.run_id }}
-                  restore-keys: |
-                      phpstan-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/phpstan.neon') }}-
-                      phpstan-${{ runner.os }}-
-
             - name: PHPStan
               if: steps.changes.outputs.code == 'true'
               run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
 
             - name: Pest (SQLite)
               if: steps.changes.outputs.code == 'true'
-              run: vendor/bin/pest --parallel
+              run: |
+                  vendor/bin/pest --parallel --log-junit="$RUNNER_TEMP/sqlite.xml"
+                  node scripts/slowest-tests.mjs "$RUNNER_TEMP/sqlite.xml"
 
-            - name: Migrate, seed and Pest (PostgreSQL)
+            - name: Tune PostgreSQL for throwaway data
               if: steps.changes.outputs.code == 'true'
-              run: composer test:pgsql
+              env:
+                  CONTAINER: ${{ job.services.postgres.id }}
+              run: |
+                  # Durability is irrelevant for a database that is discarded after the run (all three are reloadable).
+                  docker exec "$CONTAINER" psql -U billing -d billing_test -qc 'ALTER SYSTEM SET fsync = off' \
+                      -c 'ALTER SYSTEM SET synchronous_commit = off' -c 'ALTER SYSTEM SET full_page_writes = off' \
+                      -c 'SELECT pg_reload_conf()'
+                  docker exec "$CONTAINER" psql -U billing -d billing_test -tAc 'SHOW fsync' -c 'SHOW synchronous_commit' -c 'SHOW full_page_writes'
+                  # Connect to the container on the job network instead of the published port: localhost:5432 goes
+                  # through docker-proxy, which roughly doubles the latency of every query.
+                  ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
+                  echo "PostgreSQL container: $ip:5432"
+                  {
+                      echo "DB_HOST=$ip"
+                      echo "DB_PORT=5432"
+                  } >> "$GITHUB_ENV"
+
+            - name: Pest (PostgreSQL)
+              if: steps.changes.outputs.code == 'true'
+              env:
+                  # The suite is round-trip bound on PostgreSQL (workers mostly wait on the database), so it runs more
+                  # workers than the 2 vCPUs; each stays under the 1 GB memory_limit in phpunit.xml.
+                  PEST_PROCESSES: '4'
+              run: |
+                  composer test:pgsql -- --log-junit="$RUNNER_TEMP/pgsql.xml"
+                  node scripts/slowest-tests.mjs "$RUNNER_TEMP/pgsql.xml"
 
             - name: Build
               if: steps.changes.outputs.code == 'true'

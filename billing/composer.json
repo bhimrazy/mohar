@@ -98,9 +98,8 @@
         "test:pgsql": [
             "Composer\\Config::disableProcessTimeout",
             "@putenv XDEBUG_MODE=off",
-            "@php artisan config:clear --ansi",
-            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" artisan migrate:fresh --seed --force --no-interaction",
-            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" vendor/bin/pest --parallel"
+            "@php artisan config:clear --ansi @no_additional_args",
+            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" vendor/bin/pest --parallel --processes=${PEST_PROCESSES:-auto} @additional_args"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
