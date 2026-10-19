@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Str;
 use Pdo\Mysql;
+use Pdo\Pgsql;
 
 return [
 
@@ -101,7 +102,7 @@ return [
             // instead of prepare, execute and deallocate. Parameters stay server-side bound. CI enables it because the
             // test suite is bound by round trips; see docs/devops/ci.md.
             'options' => extension_loaded('pdo_pgsql') && env('DB_PGSQL_DISABLE_PREPARES', false)
-                ? [Pdo\Pgsql::ATTR_DISABLE_PREPARES => true]
+                ? [Pgsql::ATTR_DISABLE_PREPARES => true]
                 : [],
         ],
 
