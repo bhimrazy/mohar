@@ -7,6 +7,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
 use Carbon\CarbonInterface;
 use Database\Factories\UserFactory;
+use DomainException;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -26,7 +27,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $name
  * @property string $email
  * @property Carbon|null $email_verified_at
- * @property string $password
+ * @property string|null $password null for a client login created through a sign-in provider (ADR 0018 §5)
  * @property string|null $two_factor_secret
  * @property string|null $two_factor_recovery_codes
  * @property Carbon|null $two_factor_confirmed_at
@@ -65,11 +66,24 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     protected static function booted(): void
     {
         static::saving(function (self $user): void {
+            // Staff step-up depends on a password, so a staff login always has one (ADR 0018 §5).
+            if ($user->is_staff && ! $user->hasPassword()) {
+                throw new DomainException('A staff login must have a password.');
+            }
+
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;
             }
         });
+    }
+
+    /**
+     * Whether the login can sign in with, and confirm, a password. The only check for a passwordless login.
+     */
+    public function hasPassword(): bool
+    {
+        return is_string($this->password) && $this->password !== '';
     }
 
     /**
