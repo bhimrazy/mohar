@@ -13,13 +13,14 @@ type Props = {
     token: string;
     email: string | null;
     account: string | null;
-    state: 'valid' | 'expired' | 'used' | 'invalid';
+    state: 'valid' | 'expired' | 'used' | 'void' | 'invalid';
 };
 
 const MESSAGES: Record<Exclude<Props['state'], 'valid'>, string> = {
     expired:
         'This invitation has expired. Ask the account owner or our team to send you a new one.',
     used: 'This invitation has already been used. Log in with your email and password.',
+    void: 'This invitation is no longer valid; ask for a new one.',
     invalid:
         'This invitation link is not valid. Check the link in your email, or ask for a new invitation.',
 };
@@ -42,7 +43,7 @@ export default function AcceptAccountInvitation({
                         <Button variant="outline" asChild>
                             <Link href={login()}>Log in</Link>
                         </Button>
-                        {state === 'used' && (
+                        {(state === 'used' || state === 'void') && (
                             <Button variant="ghost" asChild>
                                 <Link href={request()}>
                                     Forgot your password?

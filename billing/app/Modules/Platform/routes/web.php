@@ -81,6 +81,7 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
             Route::post('users/{user}/owner', [ClientUserController::class, 'transfer'])->name('users.transfer')->withoutScopedBindings();
             Route::delete('users/{user}', [ClientUserController::class, 'destroy'])->name('users.destroy')->withoutScopedBindings();
             Route::post('users/{user}/invitation', [ClientUserController::class, 'resendInvitation'])->name('users.invitation')->withoutScopedBindings();
+            Route::post('users/{user}/password-reset', [ClientUserController::class, 'sendPasswordReset'])->middleware('throttle:6,1')->name('users.password-reset')->withoutScopedBindings();
         });
         Route::get('merge-preview', [ClientLifecycleController::class, 'mergePreview'])->name('merge-preview');
 
@@ -96,11 +97,11 @@ Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
 Route::middleware('auth')->post('impersonation/leave', [ImpersonationController::class, 'leave'])->name('platform.impersonation.leave');
 
 Route::middleware('guest')->prefix('account-invitation')->name('platform.client-invitations.')->group(function (): void {
-    Route::get('{token}', [ClientInvitationController::class, 'show'])->name('show');
+    Route::get('{token}', [ClientInvitationController::class, 'show'])->middleware('throttle:30,1')->name('show');
     Route::post('{token}', [ClientInvitationController::class, 'accept'])->middleware('throttle:10,1')->name('accept');
 });
 
 Route::middleware('guest')->prefix('staff-invitation')->name('platform.invitations.')->group(function (): void {
-    Route::get('{token}', [AcceptInvitationController::class, 'show'])->name('show');
+    Route::get('{token}', [AcceptInvitationController::class, 'show'])->middleware('throttle:30,1')->name('show');
     Route::post('{token}', [AcceptInvitationController::class, 'accept'])->middleware('throttle:10,1')->name('accept');
 });

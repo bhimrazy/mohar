@@ -148,16 +148,17 @@ class EmailTemplateController extends Controller
         $current = $template->translations()->where('locale', $this->composer->defaultLocale())->first();
         $shipped = TemplateCatalog::shippedText($definition);
         // "Use new default" keeps the staff text it replaces (shown in the editor and in the activity log).
-        $previous = $current !== null && TemplateCatalog::hash($current->text()) !== TemplateCatalog::hash($shipped)
-            ? [...$current->text(), 'replaced_at' => now()->toIso8601String()]
-            : $current?->previous_text;
+        $replacesEdit = $current !== null && TemplateCatalog::hash($current->text()) !== TemplateCatalog::hash($shipped);
+        $previous = $replacesEdit ? [...$current->text(), 'replaced_at' => now()->toIso8601String()] : $current?->previous_text;
 
         $template->translations()->updateOrCreate(
             ['locale' => $this->composer->defaultLocale()],
             [...$shipped, 'default_hash' => TemplateCatalog::hash($shipped), 'previous_text' => $previous, 'updated_by' => $request->user()?->id],
         );
         $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key, 'previous' => $previous]);
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Default text restored.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => $replacesEdit
+            ? __('New default text in use. Your previous text is kept.')
+            : __('Default text restored.')]);
 
         return to_route('admin.notifications.templates.edit', $template);
     }
@@ -272,8 +273,8 @@ class EmailTemplateController extends Controller
             ],
             // Edited system text whose shipped default changed since: offered side by side ("Use new default").
             'newDefault' => $template !== null && $template->is_system && $translation !== null && $translation->locale === $this->composer->defaultLocale()
-                && ($definition = $this->catalog->find($template->key)) !== null && $this->catalog->hasNewDefault($translation, $template->key)
-                ? TemplateCatalog::shippedText($definition)
+                && ($definition = $this->catalog->find($template->key)) !== null && ($status = $this->catalog->newDefaultStatus($translation, $template->key)) !== null
+                ? ['status' => $status, 'text' => TemplateCatalog::shippedText($definition)]
                 : null,
             'defaultLocale' => $this->composer->defaultLocale(),
             'fields' => $template !== null && $template->carriesSecret() ? ['allowed' => SecretTemplatePolicy::ALLOWED_FIELDS] : $this->samples->fieldsFor($type),

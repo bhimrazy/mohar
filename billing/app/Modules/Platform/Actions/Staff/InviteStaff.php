@@ -10,24 +10,24 @@ use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use App\Modules\Platform\Services\PermissionGuard;
+use App\Modules\Platform\Support\InvitationExpiry;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class InviteStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private Settings $settings, private SystemMailer $mailer) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private SystemMailer $mailer) {}
 
     /**
      * Invitation validity from the "Staff invitation validity" setting (falls back to config).
      */
     public function expiryDays(): int
     {
-        return max(1, (int) $this->settings->get('platform.invitation_expiry_days', 7));
+        return InvitationExpiry::days();
     }
 
     public function handle(User $actor, string $email, ?string $name, Role $role): StaffInvitation
@@ -100,7 +100,7 @@ class InviteStaff
     {
         $url = AccountLinks::withAppOrigin(fn (): string => route('platform.invitations.show', $token));
         $outcome = $this->mailer->send('staff.invitation', $invitation->email, [
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $invitation->expires_at, 'expires_in' => trans_choice(':count day|:count days', $this->expiryDays(), ['count' => $this->expiryDays()])],
+            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $invitation->expires_at, 'expires_in' => InvitationExpiry::phrase()],
         ], 'staff-invite|'.$invitation->id.'|'.StaffInvitation::hashToken($token), carriesSecret: true);
 
         if ($outcome === SystemMailOutcome::Refused) {
