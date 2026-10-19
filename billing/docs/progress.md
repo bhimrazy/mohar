@@ -30,7 +30,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Kernel contracts (ADR 0009 PR A)                  | Senior Engineer         | #61         | ✅ merged    | outbound address guard, Redactor, SettingField, driver registry             |
 | Provisioning on kernel (ADR 0009 PR B, B2)        | Senior Engineer         | #62         | 🔍 in review | base for the cPanel/WHM driver                                              |
 | Stripe gateway                                    | Senior Engineer         | #58         | 🔍 in review | needs owner's test keys                                                     |
-| cPanel/WHM driver                                 | Senior Engineer         | —           | ⏳ next      | spec: provisioning-cpanel.md; after #62                                     |
+| cPanel/WHM driver                                 | Senior Engineer         | #69, #73    | 🚧 1a merged | spec: provisioning-cpanel.md; after #62                                     |
 | Registrar drivers (.np, ResellerClub, Namecheap)  | Senior Engineer         | —           | ⏳ wave 2    | spec: registrars.md; needs #12 first                                        |
 | Reports, AI module, WHMCS importer                | Senior Engineers        | —           | ⏳ wave 3    | specs ready                                                                 |
 

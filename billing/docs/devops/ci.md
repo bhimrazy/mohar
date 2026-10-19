@@ -49,6 +49,14 @@ Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm 
 is exercised by `composer ci`); every process gets its own SQLite in-memory database or its own
 `billing_test_test_<n>` PostgreSQL database, so it is reliable.
 
+Each worker is one PHP process that runs about half the suite, so memory a test file leaves behind (static
+caches, singletons) adds up against the 1 GB `memory_limit` in `phpunit.xml`. The largest such cache is the arch
+plugin's: it keeps the parsed source of every namespace a rule touches and never frees it (about 0.7 MB per file
+in `app/`). Every file in `tests/Arch` therefore ends with `afterAll(fn () => releaseArchCache());` (checked by
+`tests/Unit/ArchCacheReleaseTest.php`), and the rules are split across files so no single file parses everything.
+When a worker crashes with "Allowed memory size exhausted", the line in the message is only where the limit was
+reached: log `memory_get_usage()` per test from `TestCase::tearDown()` to find the file that grows.
+
 ## Billable minutes per PR run
 
 | Design                                    | Jobs | Job durations                                                                        | Billable    |
