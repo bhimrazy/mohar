@@ -72,19 +72,21 @@ then `php artisan config:clear && php artisan migrate:fresh --seed`. Switch back
 
 ```bash
 XDEBUG_MODE=off vendor/bin/pest --parallel     # SQLite in-memory (phpunit.xml)
-composer test:pgsql                            # migrate:fresh --seed + same suite on PostgreSQL (billing_test)
+composer test:pgsql                            # same suite on PostgreSQL (billing_test)
 composer ci                                    # every CI gate below, in CI order (incl. test:pgsql)
 ```
 
-`composer test:pgsql` clears cached config, then runs `php artisan migrate:fresh --seed --force` and
-`vendor/bin/pest --parallel` with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
+`composer test:pgsql` clears cached config, then runs `vendor/bin/pest --parallel` (one worker per core, or
+`PEST_PROCESSES=<n>`; extra arguments after `--` go to Pest) with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
 `DB_USERNAME` / `DB_PASSWORD` taken from your shell, defaulting to the compose values
 (`127.0.0.1` / `5432` / `billing_test` / `billing` / `billing`). `.env` is not consulted for these: real
-environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI `tests-pgsql`
-job runs the same script.
+environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI "Pest (PostgreSQL)"
+step runs the same script, with the CI-only settings described in [ci.md](ci.md#postgresql-step).
 
-Two worktrees can run it at the same time against the shared server with different databases — a missing
-database is created by `migrate --force`, and parallel workers add `<name>_test_<n>` copies:
+Each worker migrates its own `<name>_test_<n>` copy once and runs every test in a transaction, so nothing migrates
+or seeds the base database first; it only has to exist (`compose.yaml` creates `billing_test`, `scripts/pg.sh`
+creates one per worktree). Two worktrees can run it at the same time against the shared server with different
+databases:
 
 ```bash
 DB_DATABASE=billing_test_orders composer test:pgsql

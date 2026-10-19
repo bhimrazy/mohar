@@ -59,6 +59,8 @@ jobs:
                     POSTGRES_DB: billing_test
                     POSTGRES_USER: billing
                     POSTGRES_PASSWORD: billing
+                    # Throwaway database reachable only from this job: no SCRAM handshake on each test's new connection.
+                    POSTGRES_HOST_AUTH_METHOD: trust
                 ports:
                     - 5432:5432
                 options: >-
@@ -112,8 +114,6 @@ jobs:
                   tools: composer:2.10.3
                   extensions: pdo_sqlite, pdo_pgsql, pgsql
                   coverage: none
-                  # The test suites are CPU-bound on the 2-vCPU runner; JIT needs OPcache in CLI mode and no coverage driver.
-                  ini-values: opcache.enable_cli=1, opcache.jit=tracing, opcache.jit_buffer_size=64M
 
             - name: Set up Node
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

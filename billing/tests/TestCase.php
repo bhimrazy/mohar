@@ -59,7 +59,7 @@ abstract class TestCase extends BaseTestCase
      * test's outer transaction (RefreshDatabase) every DB::transaction() leaves a savepoint open. PostgreSQL keeps all
      * of them on its subtransaction stack and checks the whole stack for every row the test has written, so a test
      * that commits thousands of nested transactions (the demo seeders) slows down quadratically: BillingSeederTest
-     * took about 4x longer on PostgreSQL than on SQLite (docs/devops/ci.md). Rollback behaviour is unchanged: only
+     * took about 5x longer on PostgreSQL than on SQLite (docs/devops/ci.md). Rollback behaviour is unchanged: only
      * committed savepoints are released. The statement goes straight to PDO so query listeners and counts miss it.
      */
     private function releaseCommittedSavepoints(): void
