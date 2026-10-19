@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $email_template_id
  * @property string $locale
  * @property string $subject
+ * @property string|null $preheader
  * @property string|null $heading
  * @property string $body
  * @property string|null $action_label
@@ -19,7 +20,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $updated_at
  * @property-read EmailTemplate $template
  */
-#[Fillable(['email_template_id', 'locale', 'subject', 'heading', 'body', 'action_label', 'updated_by'])]
+#[Fillable(['email_template_id', 'locale', 'subject', 'preheader', 'heading', 'body', 'action_label', 'updated_by'])]
 class EmailTemplateTranslation extends Model
 {
     /**

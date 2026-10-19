@@ -1,77 +1,75 @@
 {{--
-    Branded transactional layout for every email (Notifications templates and framework/Platform
-    notifications alike). Light by default, with dark-mode overrides for clients that honour
-    prefers-color-scheme (Apple Mail, iOS, Outlook.com). Table-based for Outlook; CSS is inlined by
-    the Markdown renderer from themes/default.css, the <style> block below is kept for media queries.
+    Email shell, direction A "two-card receipt" (docs/design/email/email-design.md §4, §7, §9). Table-based, inline
+    styles carry the light design (clients that strip <style> still fit a phone: mobile-first sizes), the <style>
+    block restores desktop sizes and adds the dark palette for prefers-color-scheme and Outlook.com. A centred
+    640 px column, fluid below it, fixed by an MSO table for Outlook desktop. The theme CSS is inlined after render.
 --}}
-@props(['preheader' => null, 'raw' => false])
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+@props(['preheader' => null, 'subject' => null, 'palette' => null])
+@php
+    $palette ??= \App\Modules\Notifications\Mail\MailPalette::current();
+    $l = $palette->light;
+    $width = \App\Modules\Notifications\Mail\MailPalette::WIDTH;
+    $locale = str_replace('_', '-', app()->getLocale());
+    $label = filled($subject) ? $subject : app(\App\Contracts\Branding\BrandProvider::class)->brand()->name;
+@endphp
+<!DOCTYPE html>
+<html lang="{{ $locale }}" dir="ltr" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
-<title>{{ app(\App\Contracts\Branding\BrandProvider::class)->brand()->name }}</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
 <meta name="color-scheme" content="light dark">
 <meta name="supported-color-schemes" content="light dark">
+<title>{{ $label }}</title>
+<!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<style>table,td,th,p,a,span,div,h1,h2{font-family:Arial,Helvetica,sans-serif !important}.pxa{padding-left:48px !important;padding-right:48px !important}.amt-a{font-size:48px !important;line-height:56px !important}</style><![endif]-->
 <style>
-@media only screen and (max-width: 600px) {
-.inner-body { width: 100% !important; border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important; }
-.footer { width: 100% !important; }
-.content-cell { padding: 28px 20px !important; }
-.header-cell { padding: 24px 20px 16px !important; }
-.button { display: block !important; width: 100% !important; text-align: center !important; box-sizing: border-box !important; }
-.action, .action table { width: 100% !important; }
+.prose a{color:{{ $l['link'] }}}
+a:focus-visible{outline:2px solid {{ $l['accent'] }};outline-offset:2px}
+@media only screen and (max-width:620px){
+.frame-pad{padding:12px 10px 24px !important}
+.px{padding-left:20px !important;padding-right:20px !important}
+.amount{font-size:34px !important;line-height:40px !important}
+.h1{font-size:24px !important;line-height:30px !important}
+.btn-full{width:100% !important}
+.btn-full .button{display:block !important}
+.hide-sm{display:none !important}
 }
-@media (prefers-color-scheme: dark) {
-body, .wrapper, .body, .header-cell, .footer { background-color: #0f1115 !important; }
-.inner-body { background-color: #171a21 !important; border-color: #2a2f3a !important; }
-.content-cell, .content-cell p, .content-cell li, .content-cell td, .content-cell th { color: #c9ced8 !important; }
-.content-cell h1, .content-cell h2, .content-cell h3, .content-cell strong, .footer strong { color: #f1f3f7 !important; }
-.content-cell h1 + p, .footer p, .subcopy p { color: #9aa1ad !important; }
-.content-cell table.facts, .table table { background-color: #1e222b !important; }
-.facts td, .facts th, .table td, .table th { border-color: #2a2f3a !important; }
-.content-cell hr, .subcopy { border-color: #2a2f3a !important; }
-.brand-logo-light { display: none !important; }
-.brand-logo-dark { display: inline-block !important; max-height: none !important; }
-.brand-name { color: #f1f3f7 !important; }
+@media only screen and (max-width:420px){
+.f-k,.f-v{display:block !important;width:100% !important;text-align:left !important}
+.f-k{padding-bottom:0 !important}
+.f-v{padding-top:2px !important}
+.amount{font-size:30px !important;line-height:36px !important}
 }
+@media only screen and (max-width:360px){
+.frame-pad{padding:8px 6px 20px !important}
+.px{padding-left:16px !important;padding-right:16px !important}
+.amount{font-size:26px !important;line-height:32px !important}
+}
+@media only screen and (min-width:621px){
+.pxa{padding-left:48px !important;padding-right:48px !important}
+.amt-a{font-size:48px !important;line-height:56px !important}
+.thumb{display:table-cell !important}
+}
+{!! $palette->darkCss() !!}
 </style>
 {!! $head ?? '' !!}
 </head>
-<body>
+<body class="bg-frame" style="margin:0;padding:0;width:100%;background-color:{{ $l['frame'] }};">
+<div role="article" aria-roledescription="email" aria-label="{{ $label }}" lang="{{ $locale }}" dir="ltr" class="bg-frame" data-mail-layout="brand" style="background-color:{{ $l['frame'] }};font-family:{{ \App\Modules\Notifications\Mail\MailPalette::FONT }};font-size:16px;line-height:24px;">
 @if (filled($preheader))
-<div class="preheader" style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">{{ $preheader }}&#8204;&nbsp;&#8204;&nbsp;&#8204;&nbsp;&#8204;&nbsp;&#8204;&nbsp;&#8204;&nbsp;</div>
+<div class="preheader" style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:{{ $l['frame'] }};opacity:0;">{{ $preheader }}{!! str_repeat('&#8199;&#65279;&#847; ', 40) !!}</div>
 @endif
-
-<table class="wrapper" data-mail-layout="brand" width="100%" cellpadding="0" cellspacing="0" role="presentation">
-<tr>
-<td align="center">
-<table class="content" width="100%" cellpadding="0" cellspacing="0" role="presentation">
-{!! $header ?? '' !!}
-
-<!-- Email Body -->
-<tr>
-<td class="body" width="100%" cellpadding="0" cellspacing="0" style="border: hidden !important;">
-<table class="inner-body" align="center" width="560" cellpadding="0" cellspacing="0" role="presentation">
-<!-- Body content -->
-<tr>
-<td class="content-cell">
-{{-- raw: the body is already final HTML (Notifications templates) and is not parsed as Markdown again. --}}
-{!! $raw ? $slot : Illuminate\Mail\Markdown::parse($slot) !!}
-
-{!! $action ?? '' !!}
-
-{!! $subcopy ?? '' !!}
-</td>
-</tr>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg-frame wrapper" style="background-color:{{ $l['frame'] }};">
+<tr><td align="center" class="frame-pad" style="padding:32px 16px 40px;">
+<!--[if mso]><table role="presentation" width="{{ $width }}" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<div style="max-width:{{ $width }}px;margin:0 auto;">
+{{ $slot }}
+</div>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
 </table>
-</td>
-</tr>
-
-{!! $footer ?? '' !!}
-</table>
-</td>
-</tr>
-</table>
+</div>
 </body>
 </html>

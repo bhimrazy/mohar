@@ -130,6 +130,7 @@ class EmailTemplateController extends Controller
     public function toggle(EmailTemplate $template): RedirectResponse
     {
         $this->authorize('notifications.templates.manage');
+        abort_if($template->isAlwaysSent(), 422, __('Account and security emails are always sent.'));
         $template->update(['is_enabled' => ! $template->is_enabled]);
         $this->activity->log($template->is_enabled ? 'Email template enabled' : 'Email template disabled', $template, properties: ['key' => $template->key]);
         Inertia::flash('toast', ['type' => 'success', 'message' => $template->is_enabled ? __('Template enabled.') : __('Template disabled — these emails are logged as suppressed.')]);
@@ -145,7 +146,7 @@ class EmailTemplateController extends Controller
 
         $template->translations()->updateOrCreate(
             ['locale' => $this->composer->defaultLocale()],
-            ['subject' => $definition['subject'], 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
+            ['subject' => $definition['subject'], 'preheader' => $definition['preheader'] ?? null, 'heading' => $definition['heading'] ?? null, 'body' => $definition['body'], 'action_label' => $definition['action_label'] ?? null, 'updated_by' => $request->user()?->id],
         );
         $this->activity->log('Email template restored to default text', $template, properties: ['key' => $template->key]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Default text restored.')]);
@@ -162,6 +163,7 @@ class EmailTemplateController extends Controller
         $this->authorize('notifications.templates.view');
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:255'],
+            'preheader' => ['nullable', 'string', 'max:255'],
             'heading' => ['nullable', 'string', 'max:255'],
             'body' => ['required', 'string', 'max:50000'],
             'action_label' => ['nullable', 'string', 'max:100'],
@@ -169,7 +171,7 @@ class EmailTemplateController extends Controller
         ]);
         $locale = (string) ($validated['locale'] ?? $this->composer->defaultLocale());
 
-        $problems = SecretTemplatePolicy::violations($template->key, Arr::only($validated, ['subject', 'heading', 'body', 'action_label']));
+        $problems = SecretTemplatePolicy::violations($template->key, Arr::only($validated, ['subject', 'preheader', 'heading', 'body', 'action_label']));
 
         if ($problems !== []) {
             return response()->json(['error' => implode(' ', array_merge(...array_values($problems))), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
@@ -180,13 +182,14 @@ class EmailTemplateController extends Controller
         $draft->setRelation('translations', new Collection([new EmailTemplateTranslation([
             'locale' => $locale,
             'subject' => $validated['subject'],
+            'preheader' => $validated['preheader'] ?? null,
             'heading' => $validated['heading'] ?? null,
             'body' => $validated['body'],
             'action_label' => $validated['action_label'] ?? null,
         ])]));
 
         try {
-            $composed = $this->composer->compose($draft, $locale, $this->samples->build($template->audience === TemplateAudience::Staff));
+            $composed = $this->composer->compose($draft, $locale, $this->samples->build($template->audience === TemplateAudience::Staff, $template->key));
         } catch (TemplateSyntaxError $error) {
             return response()->json(['error' => $error->getMessage(), 'warnings' => [], 'subject' => null, 'html' => null, 'text' => null]);
         }
@@ -212,7 +215,7 @@ class EmailTemplateController extends Controller
         $mailer->send(new EmailRequest(
             $template->key,
             [new Recipient($user->email, $user->name, staffId: $user->id)],
-            $this->samples->build($template->audience === TemplateAudience::Staff),
+            $this->samples->build($template->audience === TemplateAudience::Staff, $template->key),
             'test|'.Str::uuid(),
             relatedType: 'email_template',
             relatedId: $template->id,
@@ -239,6 +242,7 @@ class EmailTemplateController extends Controller
                 'audience' => $template->audience->value,
                 'is_system' => $template->is_system,
                 'is_enabled' => $template->is_enabled,
+                'always_sent' => $template->isAlwaysSent(),
                 'from_name' => $template->from_name,
                 'from_email' => $template->from_email,
                 'cc' => implode(', ', $template->cc ?? []),
@@ -251,6 +255,7 @@ class EmailTemplateController extends Controller
                 'locale' => $locale,
                 'exists' => $translation !== null && $translation->locale === $locale,
                 'subject' => $template?->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : ($translation->subject ?? ''),
+                'preheader' => $translation->preheader ?? '',
                 'heading' => $translation->heading ?? '',
                 'body' => $translation->body ?? '',
                 'action_label' => $translation->action_label ?? '',
@@ -274,7 +279,8 @@ class EmailTemplateController extends Controller
     {
         return [
             'name' => $request->string('name')->toString(),
-            'is_enabled' => $request->boolean('is_enabled', true),
+            // Account and security mail can't be switched off.
+            'is_enabled' => $request->route('template') instanceof EmailTemplate && $request->route('template')->isAlwaysSent() ? true : $request->boolean('is_enabled', true),
             'plain_text_only' => $request->boolean('plain_text_only'),
             'from_name' => $request->filled('from_name') ? $request->string('from_name')->toString() : null,
             'from_email' => $request->filled('from_email') ? $request->string('from_email')->toString() : null,
@@ -288,6 +294,7 @@ class EmailTemplateController extends Controller
         $template->translations()->updateOrCreate(['locale' => $request->string('locale')->toString()], [
             // Support subjects are fixed for threading; the stored subject is kept as-is.
             'subject' => $template->hasFixedSubject() ? EmailComposer::FIXED_SUPPORT_SUBJECT : $request->string('subject')->toString(),
+            'preheader' => $request->filled('preheader') ? $request->string('preheader')->toString() : null,
             'heading' => $template->carriesSecret() ? $request->string('heading')->toString() : null,
             'body' => $request->string('body')->toString(),
             'action_label' => $template->carriesSecret() || SecretTemplatePolicy::systemActionPath($template->key) !== null ? $request->string('action_label')->toString() : null,

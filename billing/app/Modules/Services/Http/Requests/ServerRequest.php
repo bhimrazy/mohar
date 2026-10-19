@@ -6,9 +6,11 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Create/update a server. Blank credential fields and blank secret settings on update keep the stored secret.
@@ -51,7 +53,7 @@ class ServerRequest extends FormRequest
             'api_token' => ['nullable', 'string', 'max:4000'],
             'access_hash' => ['nullable', 'string', 'max:10000'],
             'secure' => ['boolean'],
-            'port' => ['nullable', 'integer', 'between:1,65535'],
+            'port' => ['nullable', 'integer', 'between:1,65535', Rule::notIn($this->refusedPorts())],
             'max_accounts' => ['required', 'integer', 'min:0', 'max:1000000'],
             'is_active' => ['boolean'],
             'is_default' => ['boolean'],
@@ -80,6 +82,55 @@ class ServerRequest extends FormRequest
         }
 
         return $data;
+    }
+
+    /**
+     * Every credential the driver reads with the submitted settings must be entered or already stored: switching
+     * "Sign in with" never leaves a server without one (the unused one is removed on save).
+     *
+     * @return list<Closure(Validator): void>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            $driver = (string) $this->input('driver');
+            $used = app(ServerSettings::class)->usedCredentials($driver, (array) $this->input('settings', []));
+            $server = $this->routeServer();
+
+            foreach ($used ?? [] as $credential) {
+                $stored = $server !== null && $server->driver === $driver && (string) $server->getAttribute($credential) !== '';
+
+                if (! $this->filled($credential) && ! $stored) {
+                    $validator->errors()->add($credential, match ($credential) {
+                        'password' => __('Enter the password, or keep signing in with the API token.'),
+                        'api_token' => __('Enter the API token, or keep signing in with the password.'),
+                        default => __('Enter the access hash.'),
+                    });
+                }
+            }
+        }];
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function refusedPorts(): array
+    {
+        $drivers = app(ProvisioningDriverRegistry::class);
+        $key = (string) $this->input('driver');
+
+        return $drivers->has($key) ? $drivers->metadata($key)->refusedPorts : [];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'port.not_in' => __('This driver does not allow this port; use the panel\'s TLS port (for cPanel & WHM, 2087 or 443).'),
+            'settings.'.ServerSettings::CERTIFICATE_PIN.'.regex' => __('A trusted certificate is a SHA-256 fingerprint in base64 (44 characters ending in "="); use "Trust this certificate" after Test connection.'),
+        ];
     }
 
     /**

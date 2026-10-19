@@ -156,7 +156,7 @@ export default function EmailLogShow({
                                     label: 'Template',
                                     value: (
                                         <span className="font-mono text-xs">
-                                            {message.template_key ?? 'ad-hoc'}
+                                            {message.template_name}
                                         </span>
                                     ),
                                 },

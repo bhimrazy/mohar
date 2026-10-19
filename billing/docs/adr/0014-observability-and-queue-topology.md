@@ -1,6 +1,6 @@
 # ADR 0014 — Observability baseline and queue topology
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Queue topology accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review); observability sections remain Proposed · Owner: Principal architect. Enforcement and the job-timeout mismatch: issue #82 and ADR 0017.
 - Related: `product-vision.md` (OpenTelemetry), `docs/handoff/state.md` "Tracked gaps", roadmap wave 4 (system health
   and automation watchdog).
 

@@ -19,6 +19,13 @@ use InvalidArgumentException;
  */
 class ServerSettings
 {
+    /**
+     * The server setting a driver declares when it can pin the server's certificate: an SPKI SHA-256, base64
+     * (optionally prefixed `sha256//`). Its format is checked on save. Test connection's "Trust this certificate"
+     * writes it from ConnectionCheck::$details['certificate_spki_sha256'].
+     */
+    public const CERTIFICATE_PIN = 'spki_pin';
+
     public function __construct(private ProvisioningDriverRegistry $drivers, private ActivityLogger $activity) {}
 
     /**
@@ -27,6 +34,41 @@ class ServerSettings
     public function fields(string $driverKey): array
     {
         return $this->drivers->has($driverKey) ? $this->drivers->metadata($driverKey)->serverFields : [];
+    }
+
+    /**
+     * The server-row credentials (`password`, `api_token`, `access_hash`) a driver reads with these settings, from
+     * DriverMetadata::$connectionFields; a setting left unset counts as its default. Null when the driver declares no
+     * connection fields (it may read any of them).
+     *
+     * @param  array<string, mixed>  $settings
+     * @return list<string>|null
+     */
+    public function usedCredentials(string $driverKey, array $settings): ?array
+    {
+        $metadata = $this->drivers->has($driverKey) ? $this->drivers->metadata($driverKey) : null;
+        $fields = $metadata?->connectionFields;
+
+        if ($metadata === null || $fields === null) {
+            return null;
+        }
+
+        foreach ($metadata->serverFields as $field) {
+            if ((! array_key_exists($field->key, $settings) || $settings[$field->key] === null || $settings[$field->key] === '') && $field->default !== null) {
+                $settings[$field->key] = is_bool($field->default) ? ($field->default ? '1' : '0') : (string) $field->default;
+            }
+        }
+
+        return array_values(array_filter(['password', 'api_token', 'access_hash'], function (string $credential) use ($fields, $settings): bool {
+            $conditions = $fields[$credential] ?? null;
+
+            return $conditions !== null && array_filter($conditions, fn (string $value, string $setting): bool => (string) ($settings[$setting] ?? '') !== $value, ARRAY_FILTER_USE_BOTH) === [];
+        }));
+    }
+
+    public function declares(string $driverKey, string $key): bool
+    {
+        return collect($this->fields($driverKey))->contains(fn (SettingField $field): bool => $field->key === $key);
     }
 
     /**
@@ -70,6 +112,7 @@ class ServerSettings
                 FieldType::Text, FieldType::SecretText => ['string', 'max:20000'],
                 default => ['string', 'max:2000'],
             },
+            ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=$#'] : []),
         ];
     }
 
@@ -88,7 +131,8 @@ class ServerSettings
 
         foreach ($this->fields($driverKey) as $field) {
             $before = $stored[$field->key] ?? null;
-            $value = $this->cast($field, $submitted[$field->key] ?? null);
+            // A certificate pin is set only by "Trust this certificate" and removed only by Remove (put()), never by a form.
+            $value = $field->key === self::CERTIFICATE_PIN ? $before : $this->cast($field, $submitted[$field->key] ?? null);
 
             if ($field->isSecret() && ($value === null || $value === '')) {
                 $value = $before;

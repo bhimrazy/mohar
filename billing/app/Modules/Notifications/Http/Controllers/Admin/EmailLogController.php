@@ -7,6 +7,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\NotificationMailer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,11 +34,13 @@ class EmailLogController extends Controller
             ->orderByDesc('id')
             ->paginate(25)->withQueryString();
 
+        $names = $this->templateNames();
+
         return Inertia::render('admin/notifications/emails/index', [
-            'messages' => $messages->through(fn (EmailMessage $message): array => $this->summary($message)),
+            'messages' => $messages->through(fn (EmailMessage $message): array => $this->summary($message, $names)),
             'statuses' => array_map(fn (EmailStatus $status): array => ['value' => $status->value, 'label' => $status->label()], EmailStatus::cases()),
             'templates' => EmailMessage::query()->whereNotNull('template_key')->distinct()->orderBy('template_key')->pluck('template_key')
-                ->map(fn (string $key): array => ['value' => $key, 'label' => $key])->values(),
+                ->map(fn (string $key): array => ['value' => $key, 'label' => $names[$key] ?? $key])->sortBy('label')->values(),
             'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name],
             'filters' => $request->only(['search', 'status', 'template', 'client']),
             'canSend' => $client !== null && ($request->user()?->hasPermission('notifications.send') ?? false),
@@ -50,7 +53,7 @@ class EmailLogController extends Controller
 
         return Inertia::render('admin/notifications/emails/show', [
             'message' => [
-                ...$this->summary($message),
+                ...$this->summary($message, $this->templateNames()),
                 'cc' => $message->cc ?? [],
                 'bcc' => $message->bcc ?? [],
                 'from' => $message->from ?? config('mail.from.address'),
@@ -86,14 +89,25 @@ class EmailLogController extends Controller
     }
 
     /**
+     * @return array<string, string> template key => name
+     */
+    private function templateNames(): array
+    {
+        return EmailTemplate::query()->pluck('name', 'key')->all();
+    }
+
+    /**
+     * @param  array<string, string>  $names
      * @return array<string, mixed>
      */
-    private function summary(EmailMessage $message): array
+    private function summary(EmailMessage $message, array $names): array
     {
         return [
             'id' => $message->id,
             'uuid' => $message->uuid,
             'template_key' => $message->template_key,
+            // Staff see the template's name; a deleted template keeps its key, a staff-written message is "Written by staff".
+            'template_name' => $message->template_key === null ? __('Written by staff') : ($names[$message->template_key] ?? $message->template_key),
             'to' => $message->to,
             'recipient' => $message->recipient,
             'subject' => $message->subject,

@@ -182,13 +182,16 @@ test('create is not called again when a previous attempt never reported back', f
 test('only a staff retry of the verify item creates the account after an unknown outcome', function () {
     actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
     $this->kit->priceBook->addProduct(11, 'Starter');
-    $service = Service::factory()->pending()->create(['product_id' => 11, 'server_id' => Server::factory()->create()->id]);
+    // An attempt that died mid-call had its username assigned already (the host does that before the first call).
+    $service = Service::factory()->pending()->create(['product_id' => 11, 'server_id' => Server::factory()->create()->id, 'username' => 'shop1']);
     ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'log', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'status' => ModuleCommand::RUNNING]);
     RunModuleCommand::dispatch($service->id, 'create');
 
     RunModuleCommand::dispatch($service->id, 'create', lockRetries: 1);
     expect($this->kit->driver->callsFor('create'))->toBeEmpty();
 
+    // The driver can check the server, so "Create again" waits until the check finds no account.
+    $this->post(route('admin.services.module-log.check', ModuleQueueItem::query()->sole()))->assertSessionHasNoErrors();
     $this->post(route('admin.services.module-log.retry', ModuleQueueItem::query()->sole()))->assertSessionHasNoErrors();
 
     expect($service->refresh()->status)->toBe(ServiceStatus::Active)

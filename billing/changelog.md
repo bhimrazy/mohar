@@ -11,6 +11,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
+- **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
+  `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
+
+- **Server ports.** A cPanel server cannot be saved with a plain-HTTP port (2082, 2086, 2095) or any port below 1024
+  other than 443; WHM is reached on 2087, or 443 behind a proxy. A trusted certificate pin must be a base64 SHA-256.
+- **Usernames are unique per server among live services.** A migration adds a partial unique index on
+  `services (server_id, username)` for pending, active and suspended services that are not deleted (built without a
+  write lock on PostgreSQL). Terminated, cancelled and deleted services may share a name with a live one, since the
+  panel frees it on removal. The migration fails only if two live services on one server share a username; rename one
+  first. Generated and renamed usernames now treat only live services as taken.
 - **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
   currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
   held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
@@ -38,6 +48,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Forgot-password** gives the same answer for known and unknown addresses and is throttled (5 a minute per IP,
   5 an hour per address).
 - `php artisan app:install` and `db:seed` install the default email templates; staff edits are never overwritten.
+- **Email direction A** adds `email_template_translations.preheader` (nullable) and seven new system templates;
+  `db:seed` or `app:install` installs the new templates. Existing template text is never overwritten: use
+  "Restore default text" on a template to pick up the new wording, buttons with amounts and preheaders.
+- Staff invitations and account security notices (login added, access given, owner changed, two-step sign-in
+  reset, staff sign-in email changed, security settings changed) now send editable templates and appear in the
+  email log. A new client login gets the "Account invitation" email instead of the password-reset email.
+- Demo seeders no longer send mail: what they would send is logged as suppressed (`demo_data`).
+- **Host brand only in customer mail.** The default tagline is now empty; mail shows a tagline only when the host
+  sets one. Mail shows the host's uploaded mark (PNG or JPG) beside the company name, or the name alone; the
+  product's own mark and logo are no longer used. An optional "Email logo" upload (Settings → Appearance) replaces
+  both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
+  uploaded; re-upload an existing WebP mark for it to appear in mail.
+- Invitations and account security notices are always sent: their templates can't be switched off.
 
 ### Platform foundation
 
@@ -106,6 +129,43 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
   value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers. A failed save never flashes a secret into the
   session (#65).
+- **cPanel & WHM driver** (`cpanel`, #69). Creates, suspends, unsuspends and terminates cPanel accounts through WHM
+  API 1, changes their package and password (the MySQL password follows), and reads disk and bandwidth for the daily
+  usage sync. It can also list the server's packages and accounts and create cPanel and WHM login links; the package
+  select, login buttons and account import that use them come in follow-up releases. Sign-in uses an API token
+  (recommended) or username and password, root or reseller. Every call goes over TLS to the checked address only and
+  within a time limit; a self-signed server works after its certificate's SPKI fingerprint is trusted, and a changed
+  key is refused. Create checks the username first and moves to the next free name when the server already holds
+  it. An existing account is taken as the service's only when an earlier create with an unknown outcome made it
+  (same username and domain, created after that attempt began). Test connection reports address and certificate,
+  sign-in, token permissions and expiry, root or reseller, packages and name servers, and is limited to 6 runs a
+  minute per staff member. `php artisan provisioning:cpanel-smoke` checks a real server (read-only unless
+  `--lifecycle --confirm-lifecycle`).
+- **Test connection opens the server form with a checklist** (#73): each step passes, warns or fails in a plain
+  sentence, with the WHM version, root or reseller access, token expiry and name servers. When a server presents a
+  certificate that is not trusted, staff see its subject, issuer, expiry and SPKI fingerprint and can trust exactly
+  that fingerprint ("Trust this certificate": the sensitive server permission and a recent password, audited).
+- **Unknown outcomes settle themselves.** `services:verify-unknown` runs every five minutes and asks the server whether
+  a command whose outcome was unknown ran, for the first hour after the attempt; staff can press "Check now" later.
+  A command that ran completes as if it had answered; a conflict or an account still in progress stays on the
+  failed-actions queue with what the check found. For a create, "Create again" is offered only once the check finds
+  no account. Works for any driver that can check its server (cPanel and the demo driver today). Each check answers
+  for one attempt: a new attempt needs a new check, "Create again" needs a check from the last 15 minutes, and a
+  service moved to another server or edited since the attempt is a conflict for staff. A check never settles an entry
+  that was settled, dismissed or retried meanwhile, and a busy service is skipped with a message. Check now is limited
+  to 6 a minute; "Mark resolved" and "Dismiss" are now "Mark fixed" and "Ignore". A "not on the server" answer opens
+  Create again once, and the create re-checks it under the service lock before sending anything. A create settled by
+  a check stores the account's IP and plan like any create.
+- The server form shows only the connection fields the driver reads (cPanel: port, username, and an API token or a
+  password per "Sign in with"). A trusted certificate is shown read-only with a Remove action (sensitive, recent
+  password, audited); trusting one shows the fingerprint to compare and a copyable command, and an offer is dropped
+  when the server's address is edited. Errors from Test connection and from trusting now show on the form. The form
+  never sets a pin. Switching "Sign in with" removes the credential no longer used (audited), and the form says so
+  before saving; it cannot be switched to a method whose credential is neither entered nor stored. Values WHM reports
+  (IP, plan, owner, domain) are checked before they are stored, and a settled create never changes the service's
+  username or password. Ignoring an entry cancels a Create again already requested for it.
+- Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
+  in URLs.
 
 ### Core
 
@@ -283,6 +343,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Resend is disabled for logged mail that carried a private link, with the reason shown; for ticket mail the page
   links to the ticket.
 - Admin dashboard: "Account email" health check.
+- Every email uses design direction A, "two-card receipt": the brand above a summary card (who it's from, a large
+  amount or a title, a status line such as "Due in 14 days" or "Overdue by 3 days", one button that names the action
+  and amount, "Pay ₹588.82", download links and key facts) and a record card (what was bought with subtotal, tax
+  lines and total, then reassurance and the help line). The card is 640 px wide and fluid below that, renders in
+  light, dark and Outlook.com dark modes, and keeps AA contrast; the brand name is live text next to the mark so it
+  stays readable when a mail client inverts colours. A theme accent is used only when its email colour pairs pass AA.
+- Plain-text parts are written text in the same order: status, amount, opening, "Label: link" actions, aligned key
+  facts, line items and the footer. Lists become "- " lines and links "text (url)"; no Markdown or HTML.
+- Templates have a preheader (the inbox preview line), editable in the template editor with a character count.
+- Suspension email names the overdue invoice and its amount ("Your invoice INV-1906 for Rs 12,769.57 is overdue")
+  with a button that pays it; reason codes and staff notes are never shown to the client.
+- Payment reminders and updated invoices have their own subjects, with the due date.
+- The footer's "write to" address is the address replies go to (billing, the ticket's department, or support).
+- System mail carries `Auto-Submitted: auto-generated` and `X-Auto-Response-Suppress: All`; mail staff write by
+  hand does not.
+- Dates in email use the date-format setting and the company time zone; times add the zone.
+- The email log shows template names instead of keys.
+- A button comes only from the template's own action line or from the system: a link in a client's message or in
+  a merged value never becomes the main button. Staff ticket mail puts the "Open ticket" button first and quotes the
+  client's message below it. Links typed into names and ticket subjects are shown inert (`https[:]//evil[.]example/pay`);
+  names such as "Example.com Ltd" stay as typed.
+- An invitation whose link fails the security check is not sent by any other path: staff see "Invitation not sent"
+  on the form and a security event is logged. Laravel's own notification is used only when the Notifications module
+  is absent, with its link built on `APP_URL`.
+- Partly paid invoices show a "Paid" row between the total and the balance; refunds and credit notes state their
+  amount; the text part drops links that the HTML drops. Staff-written ticket replies are not marked automatic.
+- Email wording uses "Log in" and "Forgot your password?" throughout.
 
 ### Currencies
 
@@ -359,6 +446,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `PriceBook::moduleInputs()` (options and custom fields by module key, hidden, admin-only and retired included) and
   `PriceBook::productsForDriver()`; provisioning snapshots carry options by module key. `ProvisioningDrivers::all()`
   gains `fields` in the shared `SettingField` shape (`config_fields` deprecated). Module keys of custom fields are unique per product (#65).
+- `Notifications\SystemMailer` contract (Core binds a null default, Notifications the templated one): Platform sends
+  invitations and account security notices through editable templates, one recipient per call. It returns
+  `App\Enums\SystemMailOutcome` (`Taken`, `Refused`, `Unavailable`); callers fall back only on `Unavailable`.
+  `AccountLinks::problem()` is the one check that account links can be mailed. `Brand::$emailMark` carries the
+  host's raster mark for mail; `BrandProvider::emailLogoUrl()` is now the opt-in email logo.
 - `ServiceImported` event; `ConnectionCheck` gains an optional checklist (`ConnectionCheckStep`, `CheckStatus`) and
   details; `ProvisioningDrivers::remoteOptions()` for remote-filled selects; `GatewayDriver` extends
   `IntegrationDriver`.
@@ -388,6 +480,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   with a known password); production reference data comes from the install path in #47.
 
 ### DevOps
+
+- Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
+  about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
+  the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
+  peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.

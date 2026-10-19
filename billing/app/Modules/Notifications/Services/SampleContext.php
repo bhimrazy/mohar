@@ -3,10 +3,11 @@
 namespace App\Modules\Notifications\Services;
 
 use App\Data\Notifications\SensitiveValue;
-use App\Modules\Core\Support\DateFormats;
 use App\Modules\Notifications\Enums\TemplateType;
+use App\Modules\Notifications\Support\MailClock;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Support\SupportAddresses;
+use Carbon\CarbonImmutable;
 
 /**
  * Fictional data for previews and test sends (spec §9, acceptance criterion 20). It covers every merge
@@ -17,12 +18,15 @@ class SampleContext
     public function __construct(private MergeContext $context) {}
 
     /**
+     * @param  string|null  $templateKey  the template previewed, so the sample fits it (an overdue notice's invoice is overdue)
      * @return array<string, mixed>
      */
-    public function build(bool $forStaff = false): array
+    public function build(bool $forStaff = false, ?string $templateKey = null): array
     {
-        $today = now()->toDateString();
-        $due = now()->addDays(14)->toDateString();
+        $today = MailClock::today();
+        // Overdue notices preview an invoice that is overdue, everything else one due in two weeks.
+        $due = CarbonImmutable::parse($today)->addDays(str_starts_with((string) $templateKey, 'invoice.overdue') ? -7 : 14)->toDateString();
+        $period = [CarbonImmutable::parse($today)->addDays(14)->toDateString(), CarbonImmutable::parse($today)->addDays(14)->addYear()->subDay()->toDateString()];
 
         return [
             ...$this->context->base($forStaff),
@@ -41,7 +45,7 @@ class SampleContext
                 'reset_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/reset-password/SAMPLE-LINK-NOT-VALID'),
                 'verify_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/email/verify/SAMPLE-LINK-NOT-VALID'),
                 'invite_url' => new SensitiveValue(rtrim((string) config('app.url'), '/').'/invitation/SAMPLE-LINK-NOT-VALID'),
-                'expires_at' => now()->addHour()->format(DateFormats::current().' H:i'),
+                'expires_at' => MailClock::dateTime(now()->addHour()),
                 'ip' => '203.0.113.24',
             ],
             'order' => [
@@ -55,10 +59,15 @@ class SampleContext
             'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7')],
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',
-                'balance' => '$28.98', 'amount_paid' => '$0.00', 'issue_date' => $today, 'due_date' => $due,
-                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'days_overdue' => 7, 'balance_due' => true,
+                'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'amount_paid_minor' => 1000, 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
+                'taxes' => [], 'issue_date' => $today, 'due_date' => $due,
+                'items' => [
+                    ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],
+                    ['description' => 'Domain renewal — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$9.99'],
+                ],
+                'payment_gateway' => 'card', 'url' => url('/client/invoices/2101'), 'pdf_url' => url('/client/invoices/2101/pdf'), 'days_overdue' => 7, 'balance_due' => true,
             ],
-            'payment' => ['amount' => '$28.98', 'date' => $today, 'reference' => 'TXN-58201', 'gateway' => 'card', 'failure_reason' => 'Card declined'],
+            'payment' => ['amount' => '$10.00', 'date' => $today, 'reference' => 'TXN-58201', 'gateway' => 'card', 'failure_reason' => 'Card declined'],
             'refund' => ['amount' => '$28.98'],
             'service' => [
                 'id' => 501, 'product_name' => 'Starter Hosting', 'domain' => 'example.com', 'username' => 'examplec',
@@ -96,7 +105,12 @@ class SampleContext
             'automation' => ['run_at' => $today, 'status' => 'completed'],
             'security' => ['email' => 'sam@example.test', 'failures' => 10],
             'webhook' => ['url' => 'https://hooks.example.com/billing', 'consecutive_failures' => 20, 'admin_url' => url('/admin/notifications/webhooks/1')],
-            'template' => ['key' => 'invoice.created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
+            'notice' => [
+                'account' => 'Example Studio', 'email' => 'sam@example.test', 'actor' => 'Sam Rivera', 'section' => 'Security',
+                'changes' => 'Require two-step sign-in', 'old_email' => 'sam@example.test', 'new_email' => 'sam.rivera@example.test',
+            ],
+            'credit_note' => ['amount' => '$10.00'],
+            'template' => ['key' => 'invoice.created', 'name' => 'Invoice created', 'error' => 'Line 3: "{% if %}" is never closed.', 'admin_url' => url('/admin/notifications/templates/1/edit')],
         ];
     }
 
@@ -108,12 +122,12 @@ class SampleContext
     public function fieldsFor(TemplateType $type): array
     {
         $groups = match ($type) {
-            TemplateType::General => ['client', 'user', 'auth', 'order', 'quote', 'affiliate'],
+            TemplateType::General => ['client', 'user', 'auth', 'order', 'quote', 'affiliate', 'notice'],
             TemplateType::Product => ['client', 'service', 'cancellation'],
-            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund'],
+            TemplateType::Invoice => ['client', 'invoice', 'payment', 'refund', 'credit_note'],
             TemplateType::Domain => ['client', 'domain', 'domains'],
             TemplateType::Support => ['ticket', 'reply'],
-            TemplateType::Admin => ['staff', 'client', 'order', 'service', 'domain', 'ticket', 'reply', 'invoice', 'failure', 'sync', 'automation', 'security', 'webhook', 'template', 'auth', 'cancellation', 'affiliate'],
+            TemplateType::Admin => ['staff', 'client', 'order', 'service', 'domain', 'ticket', 'reply', 'invoice', 'failure', 'sync', 'automation', 'security', 'webhook', 'template', 'auth', 'cancellation', 'affiliate', 'notice'],
         };
 
         $sample = $this->build($type === TemplateType::Admin);

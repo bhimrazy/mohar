@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Models;
 
+use App\Enums\ReconcileStatus;
 use App\Modules\Services\Enums\QueueStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -22,12 +23,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $attempts
  * @property QueueStatus $status
  * @property int|null $resolved_by
+ * @property ReconcileStatus|null $lookup_status what the last server check found (verify items)
+ * @property string|null $lookup_message
+ * @property CarbonImmutable|null $looked_up_at
+ * @property int|null $lookup_command_id the module command (attempt) the last check described
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Service|null $service
  */
 #[Table('module_queue')]
-#[Fillable(['subject_type', 'subject_id', 'command', 'kind', 'args', 'last_error', 'attempts', 'status', 'resolved_by'])]
+#[Fillable(['subject_type', 'subject_id', 'command', 'kind', 'args', 'last_error', 'attempts', 'status', 'resolved_by', 'lookup_status', 'lookup_message', 'looked_up_at', 'lookup_command_id'])]
 class ModuleQueueItem extends Model
 {
     public const SUBJECT_SERVICE = 'service';
@@ -65,6 +70,8 @@ class ModuleQueueItem extends Model
         return [
             'args' => 'encrypted:array',
             'status' => QueueStatus::class,
+            'lookup_status' => ReconcileStatus::class,
+            'looked_up_at' => 'immutable_datetime',
         ];
     }
 

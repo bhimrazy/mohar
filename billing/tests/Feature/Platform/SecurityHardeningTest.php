@@ -139,7 +139,10 @@ test('changing a colleague\'s email needs a recent password, notifies the old ad
     $this->put(route('admin.platform.staff.update', $agent), $payload)->assertRedirect();
 
     expect($agent->fresh())->email->toBe('new@example.com')->email_verified_at->toBeNull();
-    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === ['old@example.com', 'new@example.com']);
+    // Without the email templates each address gets its own notice (the fallback goes per recipient).
+    foreach (['old@example.com', 'new@example.com'] as $address) {
+        Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => (array) $notifiable->routes['mail'] === [$address]);
+    }
 });
 
 test('a staff 2FA reset emails the affected staff member', function () {
@@ -150,7 +153,7 @@ test('a staff 2FA reset emails the affected staff member', function () {
 
     $this->post(route('admin.platform.staff.reset-two-factor', $agent))->assertRedirect();
 
-    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => $notifiable->routes['mail'] === [$agent->email]);
+    Notification::assertSentOnDemand(SecurityNotice::class, fn ($notification, $channels, $notifiable) => (array) $notifiable->routes['mail'] === [$agent->email]);
 });
 
 test('after an admin email change, a 2FA reset also notifies the previous address', function () {
@@ -162,9 +165,10 @@ test('after an admin email change, a 2FA reset also notifies the previous addres
     $this->put(route('admin.platform.staff.update', $agent), ['name' => $agent->name, 'email' => 'attacker@evil.test', 'role_id' => $agent->role_id, 'is_active' => true])->assertRedirect();
     $this->post(route('admin.platform.staff.reset-two-factor', $agent))->assertRedirect();
 
-    Notification::assertSentOnDemand(SecurityNotice::class, fn (SecurityNotice $notification, $channels, $notifiable) => $notification->subject === 'Your two-factor authentication was reset'
-        && in_array('real.owner@example.com', (array) $notifiable->routes['mail'], true)
-        && in_array('attacker@evil.test', (array) $notifiable->routes['mail'], true));
+    foreach (['real.owner@example.com', 'attacker@evil.test'] as $address) {
+        Notification::assertSentOnDemand(SecurityNotice::class, fn (SecurityNotice $notification, $channels, $notifiable) => $notification->subject === 'Your two-factor authentication was reset'
+            && (array) $notifiable->routes['mail'] === [$address]);
+    }
 });
 
 test('activity-log retention is a security setting', function () {

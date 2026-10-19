@@ -21,6 +21,7 @@ use App\Modules\Services\Actions\PruneModuleLog;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Drivers\Provisioning\NoneDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -48,6 +49,7 @@ use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 
@@ -72,6 +74,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers = $this->app->make(ProvisioningDriverRegistry::class);
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
+        $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
@@ -86,6 +89,12 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $this->registerPermissions();
         $this->registerSettings();
         $this->registerSearchAndMergeFields();
+    }
+
+    protected function schedule(Schedule $schedule): void
+    {
+        // Unknown outcomes (a create that timed out) settle themselves when the server shows the command ran.
+        $schedule->command('services:verify-unknown')->everyFiveMinutes()->withoutOverlapping(15)->onOneServer();
     }
 
     private function registerAutomation(): void
@@ -289,6 +298,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 'registration_date' => $service->registration_date->toDateString(),
                 'next_due_date' => $service->next_due_date?->toDateString(),
                 'suspension_reason' => $service->suspension_reason,
+                'addon_ids' => $service->addons()->pluck('id')->all(),
                 'dedicated_ip' => $service->dedicated_ip,
                 'server_hostname' => $service->server?->hostname,
                 'server_ip' => $service->server?->ip_address,

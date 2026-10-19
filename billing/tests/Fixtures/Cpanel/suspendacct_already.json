@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "The account “example” is already suspended.",
+        "command": "suspendacct",
+        "version": 1
+    }
+}

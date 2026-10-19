@@ -3,6 +3,7 @@
 namespace App\Modules\Notifications\Listeners;
 
 use App\Modules\Notifications\Enums\TemplateType;
+use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Support\SupportAddresses;
 use Illuminate\Mail\Events\MessageSending;
 use Symfony\Component\Mime\Address;
@@ -32,6 +33,17 @@ class BrandOutgoingMail
 
         if ($message->getReplyTo() === [] && ($address = $this->addresses->general()) !== null) {
             $message->replyTo(new Address($address));
+        }
+
+        // Framework notifications are system mail too (templated mail sets its own headers).
+        $headers = $message->getHeaders();
+
+        if (! $headers->has('X-Message-Ref')) {
+            foreach (TemplatedMail::AUTOMATIC_HEADERS as $name => $value) {
+                if (! $headers->has($name)) {
+                    $headers->addTextHeader($name, $value);
+                }
+            }
         }
     }
 }

@@ -75,7 +75,7 @@ it('shows the email preferences link only where the category can be switched off
 it('turns the first standalone link into the primary button and tables into the key-facts block', function () {
     $html = (string) app(EmailComposer::class)->composeSource('Hi', "# Title\n\nSummary line.\n\n| Amount | \$5.00 |\n|---|---|\n\n[Pay invoice](https://billing.test/i/1)", [], 'en')->html;
 
-    expect($html)->toContain('class="facts"', 'class="button"', 'Pay invoice', 'Summary line.')
+    expect($html)->toContain('f-k', 'f-v', 'class="button"', 'Pay invoice', 'Summary line.')
         ->and(substr_count($html, 'class="preheader"'))->toBe(1);
 });
 

@@ -7,11 +7,11 @@ use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\Notifications\Support\MailClock;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
@@ -45,7 +45,7 @@ class TemplatedAuthMailer implements AuthMailer
         }
 
         $broker = (string) config('auth.defaults.passwords', 'users');
-        $expiresAt = now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))->format(DateFormats::current().' H:i');
+        $expiresAt = MailClock::dateTime(now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60)));
 
         $sent = $this->send($user, $user->is_staff ? 'staff.password_reset' : 'auth.password_reset', [
             'auth' => ['reset_url' => new SensitiveValue($url, secret: str_contains($url, $token) ? $token : null), 'expires_at' => $expiresAt],

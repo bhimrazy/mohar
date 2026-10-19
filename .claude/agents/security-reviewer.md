@@ -42,3 +42,7 @@ Reply to the CTO in under 250 words.
 
 Every verdict you post includes a line `PostgreSQL run: yes/no` (the full suite or the relevant tests on
 PostgreSQL via `eval "$(/workspaces/whmcs/scripts/pg.sh <slug>)"`). If no, say why; the review then counts as incomplete.
+
+Probes that reproduce a finding become regression tests: push them as Pest test files to a branch
+`review/pr-<n>-probes` (based on the PR head, tests only) and name the branch in your review, so the engineer
+adopts them. Run targeted tests locally; CI is the full-suite runner.

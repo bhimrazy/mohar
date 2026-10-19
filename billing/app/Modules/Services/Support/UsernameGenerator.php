@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Support;
 
 use App\Data\Services\Provisioning\UsernamePolicy;
+use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -74,7 +75,10 @@ class UsernameGenerator
 
     private function taken(string $username, ?int $serverId, ?int $exceptServiceId): bool
     {
-        return Service::withTrashed()
+        // Only services that hold an account count (the unique index covers the same set); a terminated service's
+        // name is free again, and the server's own check is the final word.
+        return Service::query()
+            ->whereIn('status', ServiceStatus::occupyingValues())
             ->where('username', $username)
             ->when($serverId !== null, fn ($query) => $query->where('server_id', $serverId), fn ($query) => $query->whereNull('server_id'))
             ->when($exceptServiceId !== null, fn ($query) => $query->whereKeyNot($exceptServiceId))

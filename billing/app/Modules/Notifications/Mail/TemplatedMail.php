@@ -13,6 +13,17 @@ use Illuminate\Mail\Mailables\Headers;
  */
 class TemplatedMail extends Mailable
 {
+    /** @var array<string, string> */
+    public const AUTOMATIC_HEADERS = ['Auto-Submitted' => 'auto-generated', 'X-Auto-Response-Suppress' => 'All'];
+
+    /** Templates that carry a message a person wrote (a staff reply): not automatic mail. */
+    public const PERSON_WRITTEN = ['ticket.reply', 'ticket.opened_by_staff'];
+
+    public static function isAutomatic(?string $templateKey): bool
+    {
+        return $templateKey !== null && ! in_array($templateKey, self::PERSON_WRITTEN, true);
+    }
+
     /**
      * @param  string|null  $htmlBody  null for plain-text-only templates
      */
@@ -24,6 +35,7 @@ class TemplatedMail extends Mailable
         public ?string $fromName = null,
         public ?string $replyToEmail = null,
         public ?string $messageUuid = null,
+        public bool $automatic = true,
     ) {}
 
     public function envelope(): Envelope
@@ -45,10 +57,14 @@ class TemplatedMail extends Mailable
     }
 
     /**
-     * Correlates provider reports with the log row.
+     * Correlates provider reports with the log row. System mail is marked automatic (RFC 3834), so autoresponders
+     * and out-of-office replies leave it alone; a message staff wrote by hand is not.
      */
     public function headers(): Headers
     {
-        return new Headers(text: $this->messageUuid !== null ? ['X-Message-Ref' => $this->messageUuid] : []);
+        return new Headers(text: [
+            ...($this->messageUuid !== null ? ['X-Message-Ref' => $this->messageUuid] : []),
+            ...($this->automatic ? self::AUTOMATIC_HEADERS : []),
+        ]);
     }
 }

@@ -7,6 +7,7 @@ use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Contracts\Services\Provisioning\ProvisioningDriver;
 use App\Data\Services\Provisioning\DriverResult;
 use App\Data\Services\Provisioning\ProvisioningContext;
+use App\Data\Services\Provisioning\UsernamePolicy;
 use App\Enums\DriverOutcome;
 use App\Events\Services\ProvisioningFailed;
 use App\Events\Services\ServerCapacityExhausted;
@@ -14,6 +15,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
+use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\NoServerCapacity;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleCommand;
@@ -31,7 +33,9 @@ use App\Modules\Services\Support\UsernameGenerator;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Services\RetryableProvisioningException;
+use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -51,6 +55,12 @@ use Throwable;
  */
 class ExecuteModuleCommand
 {
+    /** Seconds between the driver's deadline and the job timeout, for logging and the result write. */
+    private const DEADLINE_MARGIN_SECONDS = 5;
+
+    /** Usernames a create may move to when the server already holds the assigned one (spec §4.1). */
+    private const MAX_RENAMES = 5;
+
     public function __construct(
         private ProvisioningDriverRegistry $drivers,
         private ServiceDrivers $serviceDrivers,
@@ -77,8 +87,32 @@ class ExecuteModuleCommand
      */
     public function handle(int $serviceId, ModuleCommandName $command, array $args = [], string $initiator = 'system', int $attempt = 1, ?int $jobTimeout = null): CommandOutcome
     {
-        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout ?? $this->serviceDrivers->jobTimeoutFor($serviceId)))
-            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt));
+        $jobTimeout ??= $this->serviceDrivers->jobTimeoutFor($serviceId);
+        // One deadline for the whole job, fixed before waiting for the lock: renames re-run the driver within it.
+        $deadline = CarbonImmutable::now()->addSeconds(max(5, $jobTimeout - self::DEADLINE_MARGIN_SECONDS));
+
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($jobTimeout))
+            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => $this->run($serviceId, $command, $args, $initiator, $attempt, $deadline));
+    }
+
+    /**
+     * A command whose outcome was unknown turned out to have run (ReconcilesCommands answered Executed): apply it as a
+     * success, close its verify item and record the confirmation in the module log. Never calls the driver.
+     *
+     * The answer is applied only if, under the service lock and the item's row lock, the verify item is still open and
+     * the attempt it describes is still the latest one with an unknown outcome. A second check, a staff dismissal or a
+     * newer attempt in the meantime makes it a no-op (skipped).
+     *
+     * @param  array<string, mixed>  $args
+     *
+     * @throws LockTimeoutException when another command for the service holds the lock too long
+     */
+    public function settle(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result, int $itemId, ?int $attemptId, string $initiator = 'system'): CommandOutcome
+    {
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($this->serviceDrivers->jobTimeoutFor($serviceId)))
+            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => Service::withTrashed()->whereKey($serviceId)->exists()
+                ? $this->succeeded($serviceId, $command, [...$args, 'verified' => true], $result, ['item' => $itemId, 'attempt' => $attemptId, 'initiator' => $initiator])
+                : CommandOutcome::skipped('Service not found.'));
     }
 
     /**
@@ -109,7 +143,7 @@ class ExecuteModuleCommand
     /**
      * @param  array<string, mixed>  $args
      */
-    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt): CommandOutcome
+    private function run(int $serviceId, ModuleCommandName $command, array $args, string $initiator, int $attempt, CarbonImmutable $deadline, int $renames = 0): CommandOutcome
     {
         $service = Service::withTrashed()->with('client')->find($serviceId);
 
@@ -141,17 +175,36 @@ class ExecuteModuleCommand
             }
         }
 
+        // "Create again" after a server check answers for exactly the attempt that was checked. Re-checked here, under
+        // the lock and just before the driver runs: a newer attempt that is unfinished or of unknown outcome means the
+        // answer no longer holds, so nothing is sent and the entry waits for a new check.
+        if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && ! $this->awaitingVerification($service->id)) {
+            // Staff ignored or closed the entry after clicking: the Create again it allowed is cancelled.
+            return CommandOutcome::skipped('Not sent: the entry was closed after Create again was requested.');
+        }
+
+        if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && $this->newerAttemptSince($service->id, (int) $args['checked_attempt'])) {
+            $error = 'Not sent: a newer create attempt has an unknown outcome since the server was checked. Check the server again.';
+            $this->openQueueItem($service, $command, array_diff_key($args, ['verified' => true, 'checked_attempt' => true]), $error, 0, ModuleQueueItem::KIND_VERIFY);
+
+            return CommandOutcome::failed($error);
+        }
+
         $product = $this->catalog->product($service->product_id);
         $driverKey = $this->serviceDrivers->keyFor($service);
         $started = hrtime(true);
         $log = null;
         $context = null;
+        $driver = null;
+        $target = null;
 
         try {
             $driver = $this->drivers->get($driverKey);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
-            $context = $this->snapshots->context($service, $server, $product, $driver);
-            $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt);
+            // What a create sends, recorded before the call: only an account matching it may later be adopted.
+            $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain, 'server_id' => $service->server_id] : null;
+            $context = $this->snapshots->context($service, $server, $product, $driver, $deadline, $target === null ? null : $this->unknownAttemptAt($service));
+            $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt, $target);
             $result = $this->callDriver($driver, $context, $command, $args);
         } catch (RetryableProvisioningException $exception) {
             $result = DriverResult::fail($exception->getMessage(), retryable: true);
@@ -176,7 +229,8 @@ class ExecuteModuleCommand
                 default => ModuleCommand::FAILED,
             },
             'error' => $error,
-            'request' => $this->redactor->redact($result->request, $secrets) ?: null,
+            // The recorded target goes last, so nothing a driver logs can overwrite it.
+            'request' => [...$this->redactor->redact($result->request, $secrets), ...($target === null ? [] : ['target' => $target])] ?: null,
             'response' => $this->redactor->redact($result->response, $secrets) ?: null,
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
         ];
@@ -191,6 +245,10 @@ class ExecuteModuleCommand
             return $this->succeeded($service->id, $command, $args, $result);
         }
 
+        if ($command === ModuleCommandName::Create && $outcome === DriverOutcome::Retryable && $renames < self::MAX_RENAMES && $this->takeRename($service, $result, $driver)) {
+            return $this->run($serviceId, $command, $args, $initiator, $attempt, $deadline, $renames + 1);
+        }
+
         if ($outcome === DriverOutcome::Retryable && $attempt < $this->settings->maxAttempts()) {
             return CommandOutcome::retry((string) $error, $this->settings->backoffBefore($attempt + 1));
         }
@@ -201,9 +259,13 @@ class ExecuteModuleCommand
         return $this->failed($service, $command, $args, $error, $attempt, $kind);
     }
 
-    private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt): ModuleCommand
+    /**
+     * @param  array{username: ?string, domain: ?string, server_id: ?int}|null  $target  what a create is about to send
+     */
+    private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt, ?array $target = null): ModuleCommand
     {
         return ModuleCommand::query()->create([
+            'request' => $target === null ? null : ['target' => $target],
             'service_id' => $service->id,
             'server_id' => $service->server_id,
             'driver' => $driverKey,
@@ -213,6 +275,97 @@ class ExecuteModuleCommand
             'success' => false,
             'status' => ModuleCommand::RUNNING,
         ]);
+    }
+
+    /**
+     * When the latest create with an unknown outcome was sent, if it was sent with the service's current username and
+     * domain. A driver may adopt only what that attempt left behind (ProvisioningContext::$unknownAttemptAt).
+     */
+    private function unknownAttemptAt(Service $service): ?CarbonImmutable
+    {
+        if ($service->domain === null || $service->domain === '') {
+            return null;
+        }
+
+        $attempt = ModuleCommand::query()
+            ->where('service_id', $service->id)
+            ->where('command', ModuleCommandName::Create->value)
+            ->where('status', ModuleCommand::UNKNOWN)
+            ->orderByDesc('id')
+            ->first();
+
+        if ($attempt === null) {
+            return null;
+        }
+
+        $target = $attempt->request['target'] ?? null;
+
+        return is_array($target) && ($target['username'] ?? null) === $service->username && ($target['domain'] ?? null) === $service->domain
+            && (! array_key_exists('server_id', $target) || $target['server_id'] === $service->server_id)
+            ? $attempt->created_at
+            : null;
+    }
+
+    /**
+     * A create that found its username taken on the server proposes a free one (DriverResult::renameUsername()). Take
+     * it when it fits the driver's policy and no other service on the server has it; the create then runs again.
+     */
+    private function takeRename(Service $service, DriverResult $result, ?ProvisioningDriver $driver): bool
+    {
+        $username = $result->data['username'] ?? null;
+        $policy = $driver?->metadata()->usernamePolicy ?? new UsernamePolicy;
+
+        if ($driver === null || ! is_string($username) || $username === $service->username || $policy->violation($username) !== null) {
+            return false;
+        }
+
+        // The proposed name first, then local variants of it; the next attempt checks the chosen one on the server.
+        $base = rtrim($username, '0123456789') ?: $username;
+        $candidates = [$username];
+
+        for ($suffix = 1; count($candidates) < self::MAX_RENAMES && $suffix <= 99; $suffix++) {
+            $candidate = substr($base, 0, $policy->maxLength - strlen((string) $suffix)).$suffix;
+
+            if ($candidate !== $service->username && $policy->violation($candidate) === null && ! in_array($candidate, $candidates, true)) {
+                $candidates[] = $candidate;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            // Only services that hold an account count; the server's own check decides about the rest.
+            if (Service::query()->whereIn('status', ServiceStatus::occupyingValues())->where('server_id', $service->server_id)->where('username', $candidate)->whereKeyNot($service->id)->exists()) {
+                continue;
+            }
+
+            try {
+                // The unique (server_id, username) index over live services settles a race with another service. The
+                // write runs in its own transaction (a savepoint inside an open one), so a refused statement leaves any
+                // surrounding transaction usable on PostgreSQL (rule 7).
+                DB::transaction(fn () => Service::withTrashed()->whereKey($service->id)->update(['username' => $candidate]));
+            } catch (UniqueConstraintViolationException) {
+                continue;
+            }
+
+            $this->activity->log("Username for {$service->label()} changed: the server already holds the assigned one", $service, $service->client_id, ['from' => $service->username, 'to' => $candidate]);
+            $service->username = $candidate;
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a create attempt after the checked one is unfinished or of unknown outcome.
+     */
+    private function newerAttemptSince(int $serviceId, int $checkedAttemptId): bool
+    {
+        return ModuleCommand::query()
+            ->where('service_id', $serviceId)
+            ->where('command', ModuleCommandName::Create->value)
+            ->where('id', '>', $checkedAttemptId)
+            ->whereIn('status', [ModuleCommand::UNKNOWN, ModuleCommand::RUNNING])
+            ->exists();
     }
 
     /**
@@ -338,11 +491,28 @@ class ExecuteModuleCommand
      *
      * @param  array<string, mixed>  $args
      */
-    private function succeeded(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result): CommandOutcome
+    /**
+     * @param  array<string, mixed>  $args
+     * @param  array{item: int, attempt: ?int, initiator: string}|null  $settling  set when a server check settles an unknown
+     *                                                                             outcome (settle())
+     */
+    private function succeeded(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result, ?array $settling = null): CommandOutcome
     {
-        $outcome = DB::transaction(function () use ($serviceId, $command, $args, $result): array {
+        $outcome = DB::transaction(function () use ($serviceId, $command, $args, $result, $settling): array {
             /** @var Service $service */
             $service = Service::withTrashed()->lockForUpdate()->findOrFail($serviceId);
+
+            if ($settling !== null && ! $this->stillUnsettled($service, $command, $settling)) {
+                return ['skipped' => true, 'conflict' => null, 'events' => [], 'client_id' => $service->client_id];
+            }
+
+            if ($settling !== null) {
+                $this->startLog($service, $this->serviceDrivers->keyFor($service), $command, $settling['initiator'], 1)->update([
+                    'success' => true,
+                    'status' => ModuleCommand::SUCCEEDED,
+                    'response' => ['verified' => (string) $result->message],
+                ]);
+            }
             $target = CommandEffects::targetStatus($command, $args);
             $conflict = match (true) {
                 $target !== null && ! $service->status->canTransitionTo($target) => "The service became {$service->status->value} while {$command->label()} ran; the remote account was changed but the local status was not.",
@@ -354,7 +524,7 @@ class ExecuteModuleCommand
                 $this->openQueueItem($service, $command, $args, $conflict, 1, ModuleQueueItem::KIND_RECONCILE);
                 $this->activity->log("{$command->noun()} for {$service->label()} needs reconciling", $service, $service->client_id, ['reason' => $conflict]);
 
-                return ['conflict' => $conflict, 'events' => [], 'client_id' => $service->client_id];
+                return ['skipped' => false, 'conflict' => $conflict, 'events' => [], 'client_id' => $service->client_id];
             }
 
             $events = $this->effects->apply($service, $command, $args, $result);
@@ -371,8 +541,12 @@ class ExecuteModuleCommand
                 $this->acknowledgeUnknown($serviceId, $command);
             }
 
-            return ['conflict' => null, 'events' => $events, 'client_id' => $service->client_id];
+            return ['skipped' => false, 'conflict' => null, 'events' => $events, 'client_id' => $service->client_id];
         });
+
+        if ($outcome['skipped']) {
+            return CommandOutcome::skipped('The entry was settled or changed meanwhile.');
+        }
 
         if ($outcome['conflict'] !== null) {
             ProvisioningFailed::dispatch($serviceId, $outcome['client_id'], $command->value, $outcome['conflict']);
@@ -403,6 +577,31 @@ class ExecuteModuleCommand
     }
 
     /**
+     * Under the service row lock: the verify item is still open and still a verify item, and the attempt it describes
+     * is still the latest one of the command with an unknown outcome.
+     *
+     * @param  array{item: int, attempt: ?int, initiator: string}  $settling
+     */
+    private function stillUnsettled(Service $service, ModuleCommandName $command, array $settling): bool
+    {
+        $item = ModuleQueueItem::query()->lockForUpdate()->find($settling['item']);
+        $latest = ModuleCommand::query()
+            ->where('service_id', $service->id)
+            ->where('command', $command->value)
+            ->where('status', ModuleCommand::UNKNOWN)
+            ->orderByDesc('id')
+            ->value('id');
+
+        return $item !== null
+            && $item->status === QueueStatus::Open
+            && $item->kind === ModuleQueueItem::KIND_VERIFY
+            && $item->subject_id === $service->id
+            && $latest !== null
+            && $settling['attempt'] !== null
+            && (int) $latest === $settling['attempt'];
+    }
+
+    /**
      * @param  array<string, mixed>  $args
      */
     private function openQueueItem(Service $service, ModuleCommandName $command, array $args, string $error, int $attempts, string $kind): void
@@ -419,6 +618,10 @@ class ExecuteModuleCommand
                 'status' => QueueStatus::Open,
             ]);
 
-        $item->fill(['kind' => $kind, 'args' => $args, 'last_error' => $error, 'attempts' => $item->attempts + $attempts])->save();
+        // A new failure or unknown outcome makes any earlier server check stale: it described an older attempt.
+        $item->fill([
+            'kind' => $kind, 'args' => $args, 'last_error' => $error, 'attempts' => $item->attempts + $attempts,
+            'lookup_status' => null, 'lookup_message' => null, 'looked_up_at' => null, 'lookup_command_id' => null,
+        ])->save();
     }
 }

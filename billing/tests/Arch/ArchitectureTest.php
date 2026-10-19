@@ -6,7 +6,8 @@ use App\Support\Events\IdentifiesOccurrence;
 /*
  * Architecture rules enforced in CI (docs/architecture.md → "Dependency rules").
  * Modules may depend on Core and the shared kernel only; cross-module calls go through
- * App\Contracts, cross-module reactions through App\Events.
+ * App\Contracts, cross-module reactions through App\Events. Hygiene and extension rules are in HygieneTest.php
+ * and ExtensionsTest.php: one file per group keeps the arch plugin's parsed-source cache small (tests/Pest.php).
  */
 
 /** Read models allowed to depend on every module. */
@@ -59,43 +60,6 @@ arch('every kernel event is a DomainEvent with an occurrence id (ADR 0011)')
     ->classes()
     ->toImplement(DomainEvent::class)
     ->toUseTrait(IdentifiesOccurrence::class);
-
-arch('no debugging leftovers')
-    ->expect(['dd', 'dump', 'ray', 'var_dump', 'print_r', 'die', 'exit'])
-    ->not->toBeUsed();
-
-arch('controllers do not query other modules or the DB facade directly')
-    ->expect('App\Modules\*\Http\Controllers')
-    ->not->toUse(['Illuminate\Support\Facades\DB']);
-
-arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
-    ->expect('App')
-    ->not->toUse([
-        'App\Modules\Services\Drivers\Provisioning\ProvisioningDriver',
-        'App\Modules\Services\Drivers\Provisioning\ServiceContext',
-        'App\Modules\Services\Drivers\Provisioning\DriverMetadata',
-        'App\Modules\Services\Drivers\Provisioning\DriverResult',
-        'App\Modules\Services\Drivers\Provisioning\DriverRegistry',
-        'App\Modules\Services\Drivers\Provisioning\UsageRow',
-        'App\Modules\Services\Exceptions\RetryableProvisioningException',
-        'App\Modules\Services\Support\Redactor',
-    ]);
-
-arch('provisioning drivers see snapshots only: no models, no database')
-    ->expect(['App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions'])
-    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Services\Models', 'App\Models']);
-
-arch('an extension package uses the kernel only, never a module')
-    ->expect('Tests\Fixtures\Extensions')
-    ->not->toUse('App\Modules');
-
-arch('driver registries are kernel classes, final, and never extended by modules (ADR 0012)')
-    ->expect('App\Modules')
-    ->not->toExtend('App\Support\Integrations\DriverRegistry');
-
-arch('concrete driver registries are final')
-    ->expect('App\Support\Services\ProvisioningDriverRegistry')
-    ->toBeFinal();
 
 /**
  * PHP files under the given directories of the billing app, as path => source text.
@@ -198,3 +162,5 @@ test('the driver rule exempts only the three demo drivers, by full path, and fol
         'app/Modules/PaymentsNepal/Support/ProviderHttp.php',
     ]);
 });
+
+afterAll(fn () => releaseArchCache());

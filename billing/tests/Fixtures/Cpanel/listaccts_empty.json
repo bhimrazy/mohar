@@ -1,0 +1,11 @@
+{
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "listaccts",
+        "version": 1
+    },
+    "data": {
+        "acct": []
+    }
+}

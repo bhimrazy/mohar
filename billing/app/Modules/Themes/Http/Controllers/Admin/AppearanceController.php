@@ -59,6 +59,7 @@ class AppearanceController extends Controller
             }, $this->themes->options()),
             'densities' => ThemeManager::DENSITIES,
             'brand' => $brand->brand()->toArray(),
+            'emailLogo' => $brand->emailLogoUrl(),
             'uploads' => array_combine(BrandAssets::KINDS, array_map(fn (string $kind): bool => $brand->path($kind) !== null, BrandAssets::KINDS)),
         ]);
     }
