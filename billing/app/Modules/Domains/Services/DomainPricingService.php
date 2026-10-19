@@ -88,8 +88,17 @@ class DomainPricingService implements DomainPricing
     {
         $group = $this->groupOf($clientId);
         $rows = [];
+        $tlds = Tld::query()->active()->ordered()->get();
+        $prices = TldPrice::query()->whereIn('tld_id', $tlds->modelKeys())->where('enabled', true)->get()->groupBy('tld_id');
 
-        foreach (Tld::query()->active()->ordered()->get() as $tld) {
+        // Two queries for the whole list: prime the per-request memo that price lookups read.
+        $this->tlds ??= $tlds->keyBy('extension')->all();
+
+        foreach ($tlds as $tld) {
+            $this->prices[$tld->id] ??= $prices->get($tld->id) ?? collect();
+        }
+
+        foreach ($tlds as $tld) {
             $register = $this->priceForGroup($tld->extension, 'register', 1, $currency, $group);
             $transfer = $this->priceForGroup($tld->extension, 'transfer', 1, $currency, $group);
 

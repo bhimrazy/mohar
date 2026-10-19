@@ -11,6 +11,7 @@ use App\Modules\Storefront\Services\HomePage;
 use App\Modules\Storefront\Services\PriceDisplay;
 use App\Modules\Storefront\Services\SiteData;
 use App\Modules\Storefront\Support\PageHead;
+use App\Modules\Storefront\Support\StorefrontCache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -51,16 +52,16 @@ class HomeController extends Controller
         return $response;
     }
 
-    public function domainPricing(Request $request, Catalogue $catalogue, PriceDisplay $prices): Response
+    public function domainPricing(Request $request, Catalogue $catalogue, PriceDisplay $prices, StorefrontCache $cache): Response
     {
         $currency = $this->shopper->currency($request);
         $display = $prices->forCurrency($currency, $this->store->published());
         $head = PageHead::make('Domain prices', 'Register, renew and transfer prices for every domain extension we sell.', $request->path());
 
         return Inertia::render('public/storefront/domain-pricing', [
-            'domains' => $catalogue->domains($currency, $display),
+            'domains' => $cache->remember("domains.{$currency}", fn (): array => $catalogue->domains($currency, $display)),
             'currency' => $currency,
-            'tax_note' => $display['note'],
+            'tax_note' => $catalogue->domainsTaxed() ? $display['note'] : null,
             'search_url' => Route::has('store.domains') ? route('store.domains') : null,
             'seo' => $head,
         ])->withViewData(['seo' => $head]);

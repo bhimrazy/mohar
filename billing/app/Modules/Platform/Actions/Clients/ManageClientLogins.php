@@ -8,9 +8,12 @@ use App\Enums\SystemMailOutcome;
 use App\Events\Core\TwoFactorReset;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
+use App\Modules\Platform\Support\InvitationExpiry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
@@ -77,32 +80,81 @@ class ManageClientLogins
     }
 
     /**
-     * The invitation for a new login: its link is a password-reset link, so accepting it sets the password. When the
-     * template system refuses it (its link failed the checks) nothing is sent by any other path: the refusal is a
-     * security event and staff see it on the form. Laravel's notification is used only when no template system is
-     * there to take it.
+     * Sends a new invitation to a login that has not accepted one yet; the previous link stops working.
+     *
+     * @throws ValidationException
+     */
+    public function resendInvitation(Client $client, User $user): void
+    {
+        $invitation = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
+
+        // An invitation only ever activates a never-used login. Anything else gets a password reset instead.
+        $refusal = match (true) {
+            $invitation === null => __('This login has no open invitation (it may have been invited before invitations had their own link, or set its password already). Send a password reset instead.'),
+            $invitation->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
+            $invitation->isVoid() => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
+            default => null,
+        };
+
+        if ($refusal !== null) {
+            throw ValidationException::withMessages(['user' => $refusal]);
+        }
+
+        if (($problem = AccountLinks::problem()) !== null) {
+            throw ValidationException::withMessages(['user' => __('Invitation not sent: the link host isn\'t your site address. :problem', ['problem' => $problem])]);
+        }
+
+        $this->sendInvitation($user, $client);
+        $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+    }
+
+    /**
+     * Staff send the login a password-reset link (the normal reset email, through AuthMailer), for logins that can't
+     * be invited again.
+     */
+    public function sendPasswordReset(Client $client, User $user): void
+    {
+        $status = Password::broker()->sendResetLink(['email' => $user->email]);
+
+        if ($status !== Password::RESET_LINK_SENT) {
+            throw ValidationException::withMessages(['user' => __($status)]);
+        }
+
+        $this->activity->log('Password reset sent by staff', $user, $client->id, ['email' => $user->email], 'client.password_reset_sent');
+    }
+
+    /**
+     * The invitation for a new login: its own single-use token (only its hash is stored), valid for the configured
+     * number of days; a new invitation replaces the token, so an older link stops working. Accepting it sets the
+     * password. When the template system refuses it (its link failed the checks) nothing is sent by any other path:
+     * the refusal is a security event and staff see it on the form. The Platform notification is used only when no
+     * template system is there to take it.
      *
      * @throws ValidationException
      */
     private function sendInvitation(User $user, Client $client): void
     {
-        $token = Password::broker()->createToken($user);
-        $url = AccountLinks::passwordReset($user, $token);
-        $broker = (string) config('auth.defaults.passwords', 'users');
+        $token = Str::random(48);
+        $expiresAt = now()->addDays(InvitationExpiry::days());
+        ClientInvitation::query()->updateOrCreate(
+            ['client_id' => $client->id, 'user_id' => $user->id],
+            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => auth()->id()],
+        );
+        $url = AccountLinks::withAppOrigin(fn (): string => route('platform.client-invitations.show', $token));
 
         $outcome = $this->mailer->send('auth.user_invitation', $user, [
             'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => now()->addMinutes((int) config("auth.passwords.{$broker}.expire", 60))],
-        ], 'invite|'.$user->id.'|'.hash('sha256', $token), $client->id, carriesSecret: true);
+            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
+        ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
 
         if ($outcome === SystemMailOutcome::Refused) {
             $this->activity->log('Invitation not sent: its link failed the security check', $user, $client->id, ['email' => $user->email], 'security');
 
-            throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send a password reset to this login.')]);
+            throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send the invitation again.')]);
         }
 
         if ($outcome === SystemMailOutcome::Unavailable) {
-            $user->sendPasswordResetNotification($token);
+            $user->notify(new ClientInvitationNotification($client->display_name, $url, $expiresAt));
         }
     }
 
@@ -171,6 +223,8 @@ class ManageClientLogins
         }
 
         $client->users()->detach($user->id);
+        // An open invitation for this account is cancelled with the access: its link stops working.
+        ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->delete();
         $this->activity->log('Login removed from the account', $user, $client->id, ['email' => $user->email], 'client.user_removed');
     }
 }

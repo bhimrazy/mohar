@@ -17,18 +17,36 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   contract: `FakeDomains` is updated.
 - Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
   `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
-- Added `App\Support\Seo\SitemapRegistry` (`add(key, Closure)`, `entries()`), bound as a singleton; Orders,
-  Support and Storefront register their public URLs.
-- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`.
+- Added `App\Support\Seo\SitemapRegistry` (ADR 0012 shape: `register(key, Closure, replace: false)` with keys
+  `[a-z0-9_]{1,50}`, a duplicate key throws unless replaced, `has()`, `keys()`, `entries()`; a source that throws is
+  reported and left out), bound as a singleton. Orders, Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`. Declared here with the
+  other storefront kernel pieces; the publish flow that dispatches it is the stacked PR #99.
+- `PriceBook::storefront()` products also document the optional `is_taxable` key (Catalog sends it).
+- Interim gaps, each until its spec contract exists: K6 (`TaxDisplay`): Storefront derives the tax statement and
+  inclusive amounts from a probe line through `TaxCalculator`, and reads `orders.domains_taxable` and
+  `catalog.show_monthly_breakdown` through Core `Settings`. K7 (`GatewayDirectory::acceptanceMarks()`): Storefront
+  reads logos from `GatewayRegistry` drivers that implement `ProvidesLogo`. K5 (`ProductGroupUpdated`): a group that is
+  hidden or renamed can show in the header for up to `storefront.cache_seconds` (600 s).
 - `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
   `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
 - Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
   `core.company_*` and `billing.seller.*` through Core `Settings`.
 
+### Integration simulators, S1 (ADR 0016 §1, §3)
+
+- `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
+  such keys are counted ("(2 malformed keys)"), since one may be a pasted URL with credentials.
+- `Endpoints::configuredKeys()`: the keys set in `INTEGRATION_ENDPOINTS` whatever the environment (for the install
+  check and the dashboard health check; drivers may not call it, Arch rule). Compatible.
+- No other kernel change: the framework is the dev-only package `mohar/simulators` (`tools/simulators`, namespace
+  `Mohar\Simulators\`), which `App\` never references.
+
 ### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
 
 - Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
-  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a driver has nothing to branch on). Drivers of fixed-host providers
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a
+  driver has nothing to branch on). Drivers of fixed-host providers
   make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
   overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
   JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every

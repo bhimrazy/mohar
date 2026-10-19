@@ -65,7 +65,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(FraudScreening::class);
         $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
-        $this->app->bind(ShopperSession::class, CartShopperSession::class);
+        $this->app->scoped(ShopperSession::class, CartShopperSession::class);
     }
 
     protected function bootModule(): void
@@ -86,7 +86,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->registerSearchAndMergeFields();
         $this->registerAutomation();
 
-        $this->app->make(SitemapRegistry::class)->add('orders', fn (): array => [
+        $this->app->make(SitemapRegistry::class)->register('orders', fn (): array => [
             ['loc' => route('store.index'), 'lastmod' => null],
             ['loc' => route('store.domains'), 'lastmod' => null],
         ]);

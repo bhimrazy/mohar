@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
     composerDistProblems,
     digestBelongsToTag,
+    dockerfileImages,
+    isDockerfile,
     isExcepted,
     npmEntryProblems,
     npmIntegrityProblem,
@@ -156,5 +158,72 @@ describe('security exceptions', () => {
             false,
         );
         expect(parseSecurityExceptions('').size).toBe(0);
+    });
+});
+
+describe('dockerfileImages', () => {
+    const node = `node:24.21.0-trixie-slim@${POSTGRES_INDEX}`;
+    const composer = `composer:2.10.3@${RUSTFS_INDEX}`;
+
+    it('returns external FROM and --from images, not stages, scratch or stage indexes', () => {
+        const dockerfile = [
+            '# FROM commented:out',
+            `FROM --platform=$BUILDPLATFORM ${node} AS assets`,
+            'FROM assets AS build',
+            `COPY --from=${composer} /usr/bin/composer /usr/bin/composer`,
+            'COPY --from=assets /app/public/build /app/public/build',
+            'COPY --from=0 /a /b',
+            `RUN --mount=type=bind,from=${node},source=/x,target=/y true`,
+            'FROM scratch',
+        ].join('\n');
+
+        expect(dockerfileImages(dockerfile)).toEqual([node, composer, node]);
+    });
+
+    it('treats stage names case-insensitively and joins line continuations', () => {
+        const dockerfile = `FROM ${node} as Base\nfrom base\nCOPY \\\n    --from=${composer} /c /c`;
+
+        expect(dockerfileImages(dockerfile)).toEqual([node, composer]);
+    });
+
+    it('keeps unpinned and build-argument references so the digest check fails them', () => {
+        expect(
+            dockerfileImages(
+                'ARG PHP=8.4\nFROM php:${PHP}-cli\nFROM debian:trixie-slim',
+            ),
+        ).toEqual(['php:${PHP}-cli', 'debian:trixie-slim']);
+    });
+});
+
+describe('dockerfileImages parser directives', () => {
+    it('checks a # syntax= frontend like a FROM, only before the first instruction', () => {
+        const dockerfile = [
+            '# syntax=docker/dockerfile:1',
+            '# escape=\\',
+            'FROM scratch',
+            '# syntax=ignored/after:instructions',
+        ].join('\n');
+
+        expect(dockerfileImages(dockerfile)).toEqual(['docker/dockerfile:1']);
+    });
+});
+
+describe('isDockerfile', () => {
+    it('matches Dockerfile and Containerfile names anywhere, not their ignore files', () => {
+        expect(
+            [
+                'deploy/Dockerfile',
+                'deploy/Dockerfile.prod',
+                'tools/worker.Dockerfile',
+                'Containerfile',
+                'deploy/Dockerfile.dockerignore',
+                'billing/docs/dockerfile-notes.md',
+            ].filter(isDockerfile),
+        ).toEqual([
+            'deploy/Dockerfile',
+            'deploy/Dockerfile.prod',
+            'tools/worker.Dockerfile',
+            'Containerfile',
+        ]);
     });
 });

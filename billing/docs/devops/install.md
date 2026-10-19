@@ -256,6 +256,11 @@ custom role is never changed, even one named like a system role. Each reset is i
 (`role.updated`). Permission changes staff made to a system role are lost: copy it into a custom role if you need
 different permissions. Currencies are never re-created or changed after the first install.
 
+Email templates follow the shipped wording where staff never edited them: `app:install` replaces their text with
+the new default and records each change in the activity log (`notifications.template_default_updated`). Edited
+templates keep their text; the template editor shows "New default available" with a side-by-side compare and "Use
+new default", which keeps a copy of the replaced text.
+
 ## Demo data
 
 `php artisan db:seed` installs the same reference data through the same installers, then, outside production only,

@@ -19,6 +19,8 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['status', 'id']);
+            $table->index('created_by');
+            $table->index('published_by');
         });
     }
 

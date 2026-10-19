@@ -59,7 +59,7 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        $this->app->make(SitemapRegistry::class)->add('support', fn (): iterable => [
+        $this->app->make(SitemapRegistry::class)->register('support', fn (): iterable => [
             ['loc' => route('support.kb.index'), 'lastmod' => null],
             ['loc' => route('support.announcements.index'), 'lastmod' => null],
             ...$this->app->make(SupportPublicHelp::class)->sitemapEntries(),

@@ -5,7 +5,7 @@ import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cycleLabel, cycleMonths } from '@/lib/billing-cycles';
+import { cycleLabel, cycleMonths, cycleSuffix } from '@/lib/billing-cycles';
 import { cn } from '@/lib/utils';
 import type { FromPrice, PaymentMark, Plan } from '@/types/storefront';
 
@@ -40,7 +40,43 @@ export function savingAgainstMonthly(plan: Plan, cycle: string): number {
     );
 }
 
-/** "from Rs 485.38/mo", or "Rs 4,409.00 one-time" for products without a recurring cycle. */
+/**
+ * The period after a price: a short visible form ("/mo", "/yr") and the words a screen reader says ("per month",
+ * "annually"), so prices read with their period (spec §8).
+ */
+export function PeriodSuffix({
+    cycle,
+    perMonth = false,
+}: {
+    cycle: string;
+    perMonth?: boolean;
+}) {
+    if (perMonth || cycle === 'monthly') {
+        return (
+            <>
+                <span aria-hidden="true">/mo</span>
+                <span className="sr-only"> per month</span>
+            </>
+        );
+    }
+
+    if (cycle === 'onetime') {
+        return <> one-time</>;
+    }
+
+    if (!cycleSuffix(cycle)) {
+        return null;
+    }
+
+    return (
+        <>
+            <span aria-hidden="true">{cycleSuffix(cycle)}</span>
+            <span className="sr-only"> {billedPhrase(cycle)}</span>
+        </>
+    );
+}
+
+/** "From Rs 485.38/mo" with the monthly breakdown on, else "From Rs 6,189.00/yr" or "From Rs 4,409.00 one-time". */
 export function FromPriceText({
     from,
     currency,
@@ -52,17 +88,13 @@ export function FromPriceText({
 }) {
     return (
         <span className={cn('text-sm text-muted-foreground', className)}>
-            {from.per_month && 'From '}
+            {from.cycle !== 'free' && 'From '}
             <Money
                 amount={from.amount}
                 currency={currency}
                 className="font-semibold text-foreground"
             />
-            {from.per_month
-                ? '/mo'
-                : from.amount === 0
-                  ? ''
-                  : ` ${from.cycle === 'onetime' ? 'one-time' : cycleLabel(from.cycle).toLowerCase()}`}
+            <PeriodSuffix cycle={from.cycle} perMonth={from.per_month} />
         </span>
     );
 }
@@ -156,11 +188,10 @@ export function PlanCard({
                                 className="text-3xl font-semibold tracking-tight"
                             />
                             <span className="text-muted-foreground">
-                                {perMonth !== null || row.cycle === 'monthly'
-                                    ? '/mo'
-                                    : row.cycle === 'onetime'
-                                      ? 'one-time'
-                                      : ''}
+                                <PeriodSuffix
+                                    cycle={row.cycle}
+                                    perMonth={perMonth !== null}
+                                />
                             </span>
                         </p>
                         {perMonth !== null && (
