@@ -8,15 +8,21 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
 
-- Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`): `Endpoints::url(key,
-default)` and `Endpoints::options(key)` for drivers of fixed-host providers. Overrides come only from the environment
-  (`INTEGRATION_ENDPOINTS`, a JSON map, and `INTEGRATION_CA_BUNDLE`, read in `config/integrations.php`). Without one the
-  URL is the default and the options are `[]`. With one, TLS verification stays on (scenario CA) and the destination
-  is resolved and pinned through `OutboundAddressGuard`. In production every override is ignored and logged once as
-  critical, keys only; elsewhere active overrides are logged at boot as a warning. No driver uses it yet (S3, S5).
-- `OutboundAddressGuard` refuses loopback in production whatever `integrations.outbound.allow_loopback` says, and
-  gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
-- Arch rule: nothing in `app/` references `Mohar\Simulators`.
+- Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `overridden`, `url(path)`). Drivers of fixed-host providers
+  make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
+  overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
+  JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every
+  other environment, including an empty or unknown one, fails closed and logs them once as critical, keys only. Only
+  https base URLs without credentials, query or fragment are used; malformed ones are logged once. An override is
+  shaped like the default (trailing `/` kept or dropped to match), and `url(path)` joins with one `/`, so the request
+  path is the same with and without it. Without one the base URL is the default and the options are `[]`. With one,
+  TLS verification stays on (scenario CA) and the destination is resolved and pinned through `OutboundAddressGuard`.
+  No driver uses it yet (S3, S5).
+- `OutboundAddressGuard` reaches loopback only in `local` and `testing`, whatever `integrations.outbound.allow_loopback`
+  says elsewhere, and gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
+- Arch rules: nothing in `app/`, `bootstrap/`, `config/` or `routes/` names `Mohar\Simulators` (any case, group
+  imports included), and no provider driver mentions "simulat" (the demo drivers excepted).
 
 ### Integrations area (ADR 0009 §1, PR A)
 

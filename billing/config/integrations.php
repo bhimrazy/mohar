@@ -24,14 +24,16 @@ return [
     | Endpoint overrides for local simulators (ADR 0016)
     |--------------------------------------------------------------------------
     |
-    | Read by App\Support\Integrations\Endpoints. Development and test only: a JSON map of endpoint key => base URL
-    | (for example {"stripe.api": "https://127.0.0.1:8443"}) and the CA bundle that signs the simulator's certificate.
-    | Ignored, and logged as critical, when the app runs in production. Never a database setting.
+    | Read by App\Support\Integrations\Endpoints. Honoured only when APP_ENV is local or testing: a JSON object of
+    | endpoint key => https base URL (for example {"stripe.api": "https://127.0.0.1:8443"}) and the CA bundle that
+    | signs the simulator's certificate. In every other environment they are ignored and logged as critical. Never a
+    | database setting.
     |
     */
 
     'endpoints' => [
-        'overrides' => json_decode((string) env('INTEGRATION_ENDPOINTS', ''), true) ?: [],
+        // Kept as written; Endpoints parses it and logs anything malformed.
+        'overrides' => env('INTEGRATION_ENDPOINTS'),
         'ca_bundle' => env('INTEGRATION_CA_BUNDLE'),
     ],
 

@@ -145,8 +145,9 @@ final class OutboundAddressGuard
         }
 
         if ($this->inAny($binary, self::LOOPBACK)) {
-            // Production never reaches loopback, whatever OUTBOUND_ALLOW_LOOPBACK says (ADR 0015 amendment, ADR 0016).
-            return config('integrations.outbound.allow_loopback', false) && ! app()->isProduction() ? null : 'loopback';
+            // Only development and test environments may reach loopback, whatever OUTBOUND_ALLOW_LOOPBACK says elsewhere
+            // (ADR 0015 amendment 1, ADR 0016): an empty, unknown or production-like environment fails closed.
+            return config('integrations.outbound.allow_loopback', false) && Endpoints::developmentEnvironment(app()) ? null : 'loopback';
         }
 
         if ($this->inAny($binary, self::PRIVATE)) {

@@ -97,17 +97,46 @@ arch('concrete driver registries are final')
     ->expect('App\Support\Services\ProvisioningDriverRegistry')
     ->toBeFinal();
 
-test('the app never references the dev-only simulators package (ADR 0016)', function () {
-    // The package is installed only with require-dev, so a reference would break a --no-dev install. Checked as text,
-    // because the namespace may not exist on this branch at all.
-    $files = new RegexIterator(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 2).'/app', FilesystemIterator::SKIP_DOTS)), '/\.php$/');
-    $offenders = [];
+/**
+ * PHP files under the given directories of the billing app, as path => source text.
+ *
+ * @param  list<string>  $directories
+ * @return array<string, string>
+ */
+function sourcesUnder(array $directories): array
+{
+    $sources = [];
 
-    foreach ($files as $file) {
-        if (preg_match('/Mohar\\\\{1,2}Simulators/', (string) file_get_contents($file->getPathname())) === 1) {
-            $offenders[] = $file->getPathname();
+    foreach ($directories as $directory) {
+        $path = dirname(__DIR__, 2).'/'.$directory;
+
+        if (! is_dir($path)) {
+            continue;
+        }
+
+        foreach (new RegexIterator(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS)), '/\.php$/') as $file) {
+            $sources[$file->getPathname()] = (string) file_get_contents($file->getPathname());
         }
     }
 
+    return $sources;
+}
+
+test('the app never references the dev-only simulators package (ADR 0016)', function () {
+    // The package is installed only with require-dev, so a reference would break a --no-dev install. Checked as raw
+    // text, case-insensitively (PHP names are), including group imports such as `use Mohar\{Simulators\…}`.
+    $offenders = array_keys(array_filter(
+        sourcesUnder(['app', 'bootstrap', 'config', 'routes']),
+        fn (string $source): bool => preg_match('/Mohar\s*\\\\{1,2}\s*(\{\s*)?Simulators/i', $source) === 1,
+    ));
+
     expect($offenders)->toBe([]);
+});
+
+test('no provider driver knows about simulators (ADR 0016 §5): there is no simulator branch in driver code', function () {
+    // The demo drivers simulate a provider by design; every real driver must behave the same against a simulator.
+    $demo = ['LogDriver.php', 'LogRegistrar.php', 'SandboxCardDriver.php', 'GatewayManager.php'];
+    $drivers = array_filter(sourcesUnder(['app/Modules']), fn (string $source, string $path): bool => str_contains($path, '/Drivers/') && ! in_array(basename($path), $demo, true), ARRAY_FILTER_USE_BOTH);
+
+    expect(array_keys(array_filter($drivers, fn (string $source): bool => stripos($source, 'simulat') !== false)))->toBe([]);
 });
