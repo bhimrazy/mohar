@@ -8,9 +8,9 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
   Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72).
-- Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
-  logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
-  registrars, no international gateway, no production install, and nothing has run outside the codespace.
+- Progress toward "a product a host would switch to": 55/100 by evidence (CEO review, 2026-10-19,
+  `docs/reviews/2026-10-19-ceo.md`): the score moves only when work is merged and proven. Built-but-unproven work
+  (simulators, the image, Stripe) is tracked separately; including it gives about 62.
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
   account created from an order, paid through Stripe, on a server the owner provides.
 
