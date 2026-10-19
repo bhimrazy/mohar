@@ -60,8 +60,10 @@ final class ProvisioningDriverContract
 
     /**
      * @param  (Closure(): void)|null  $arrange
+     * @param  array<string, mixed>  $serverSettings  values for server fields whose placeholder would be invalid
+     *                                                (a certificate pin, an enumerated region), replacing it
      */
-    public static function verify(string $key, ?Closure $arrange = null): void
+    public static function verify(string $key, ?Closure $arrange = null, array $serverSettings = []): void
     {
         $setUp = function (string $resolvesTo = self::SERVER_IP) use ($arrange): void {
             Http::preventStrayRequests();
@@ -111,10 +113,10 @@ final class ProvisioningDriverContract
             expect($metadata->commandTimeoutSeconds === null || $metadata->commandTimeoutSeconds > 0)->toBeTrue();
         });
 
-        test("{$key} driver: lifecycle calls answer with one outcome, report only documented data and touch no database", function () use ($key, $setUp) {
+        test("{$key} driver: lifecycle calls answer with one outcome, report only documented data and touch no database", function () use ($key, $setUp, $serverSettings) {
             $setUp();
             $driver = app(ProvisioningDriverRegistry::class)->get($key);
-            $context = ProvisioningDriverContract::context($driver->metadata());
+            $context = ProvisioningDriverContract::context($driver->metadata(), $serverSettings);
             $results = [];
 
             $queries = ProvisioningDriverContract::countQueries(function () use ($driver, $context, &$results): void {
@@ -136,10 +138,10 @@ final class ProvisioningDriverContract
                 ->and($queries)->toBe(0);
         });
 
-        test("{$key} driver: sends nothing to a server whose hostname resolves to a forbidden address", function () use ($key, $setUp) {
+        test("{$key} driver: sends nothing to a server whose hostname resolves to a forbidden address", function () use ($key, $setUp, $serverSettings) {
             $setUp('169.254.169.254');
             $driver = app(ProvisioningDriverRegistry::class)->get($key);
-            $context = ProvisioningDriverContract::context($driver->metadata());
+            $context = ProvisioningDriverContract::context($driver->metadata(), $serverSettings);
 
             foreach (['create', 'unsuspend', 'terminate'] as $command) {
                 try {
@@ -152,10 +154,10 @@ final class ProvisioningDriverContract
             Http::assertNothingSent();
         });
 
-        test("{$key} driver: everything it echoes is masked by the host's redaction set, secret settings included", function () use ($key, $setUp) {
+        test("{$key} driver: everything it echoes is masked by the host's redaction set, secret settings included", function () use ($key, $setUp, $serverSettings) {
             $setUp();
             $driver = app(ProvisioningDriverRegistry::class)->get($key);
-            $context = ProvisioningDriverContract::context($driver->metadata());
+            $context = ProvisioningDriverContract::context($driver->metadata(), $serverSettings);
             $redactor = new Redactor;
             $secrets = $context->secrets();
             $result = $driver->create($context);
@@ -172,11 +174,11 @@ final class ProvisioningDriverContract
             }
         });
 
-        test("{$key} driver: every implemented capability returns its documented type", function () use ($key, $setUp) {
+        test("{$key} driver: every implemented capability returns its documented type", function () use ($key, $setUp, $serverSettings) {
             $setUp();
             $registry = app(ProvisioningDriverRegistry::class);
             $driver = $registry->get($key);
-            $context = ProvisioningDriverContract::context($driver->metadata());
+            $context = ProvisioningDriverContract::context($driver->metadata(), $serverSettings);
             $checked = [];
 
             $queries = ProvisioningDriverContract::countQueries(function () use ($driver, $context, &$checked): void {
@@ -257,8 +259,10 @@ final class ProvisioningDriverContract
     /**
      * A plausible service on a plausible server, with every declared setting filled (secret ones with recognisable
      * values, so the redaction check can look for them).
+     *
+     * @param  array<string, mixed>  $serverSettings  replaces the placeholders of these server settings
      */
-    public static function context(?DriverMetadata $metadata = null): ProvisioningContext
+    public static function context(?DriverMetadata $metadata = null, array $serverSettings = []): ProvisioningContext
     {
         $productConfig = [];
         $secretValues = [];
@@ -277,6 +281,7 @@ final class ProvisioningDriverContract
             $settings[$field->key] = $field->isSecret() ? "Contract-Server-Secret-{$field->key}-42" : (array_key_first($field->options) ?? "contract-{$field->key}");
         }
 
+        $settings = [...$settings, ...$serverSettings];
         $secretSettingKeys = array_values(array_map(fn (SettingField $field): string => $field->key, array_filter($metadata->serverFields ?? [], fn (SettingField $field): bool => $field->isSecret())));
 
         return new ProvisioningContext(

@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "Account “example” does not exist.",
+        "command": "accountsummary",
+        "version": 1
+    }
+}

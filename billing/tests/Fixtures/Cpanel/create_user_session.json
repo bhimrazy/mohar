@@ -1,0 +1,15 @@
+{
+    "metadata": {
+        "result": 1,
+        "reason": "OK",
+        "command": "create_user_session",
+        "version": 1
+    },
+    "data": {
+        "session": "example:AbCdEf0123456789:CREATE_USER_SESSION,0123456789abcdef",
+        "cp_security_token": "/cpsess1234567890",
+        "expires": 1893456000,
+        "service": "cpaneld",
+        "url": "https://whm.example.test:2083/cpsess1234567890/login/?session=example%3aAbCdEf0123456789%3aCREATE_USER_SESSION%2c0123456789abcdef"
+    }
+}

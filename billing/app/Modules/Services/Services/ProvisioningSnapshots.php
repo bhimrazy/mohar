@@ -15,6 +15,7 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\Catalog;
 use App\Modules\Services\Support\ServerSettings;
+use Carbon\CarbonImmutable;
 
 /**
  * Builds the read-only snapshots drivers receive (ADR 0009 §2). Everything a driver may know about a service is
@@ -24,7 +25,11 @@ class ProvisioningSnapshots
 {
     public function __construct(private Catalog $catalog, private ServerSettings $serverSettings) {}
 
-    public function context(Service $service, ?Server $server, ?ProductSummary $product, ProvisioningDriver $driver): ProvisioningContext
+    /**
+     * @param  CarbonImmutable|null  $deadline  when the host stops waiting for the call (ProvisioningContext::$deadline)
+     * @param  CarbonImmutable|null  $unknownAttemptAt  the earlier unknown attempt with the same target, if any
+     */
+    public function context(Service $service, ?Server $server, ?ProductSummary $product, ProvisioningDriver $driver, ?CarbonImmutable $deadline = null, ?CarbonImmutable $unknownAttemptAt = null): ProvisioningContext
     {
         $productConfig = $product->driverConfig ?? [];
         $inputs = $this->catalog->moduleInputs($service->product_id, $service->config_options['selections'] ?? [], $service->custom_fields ?? []);
@@ -37,6 +42,8 @@ class ProvisioningSnapshots
             configOptions: $inputs->configOptions,
             customFields: $inputs->customFields,
             secretValues: [...$this->secretSettingValues($driver->metadata()->productConfigFields, $productConfig), ...$inputs->secretValues],
+            deadline: $deadline,
+            unknownAttemptAt: $unknownAttemptAt,
         );
     }
 

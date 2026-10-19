@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Server ports.** A cPanel server cannot be saved with a plain-HTTP port (2082, 2086, 2095) or any port below 1024
+  other than 443; WHM is reached on 2087, or 443 behind a proxy. A trusted certificate pin must be a base64 SHA-256.
+- **Usernames are unique per server among live services.** A migration adds a partial unique index on
+  `services (server_id, username)` for pending, active and suspended services that are not deleted (built without a
+  write lock on PostgreSQL). Terminated, cancelled and deleted services may share a name with a live one, since the
+  panel frees it on removal. The migration fails only if two live services on one server share a username; rename one
+  first. Generated and renamed usernames now treat only live services as taken.
 - **Exchange rates are a separate, sensitive permission.** `core.currencies.rates` now guards creating and deleting
   currencies, rate sources and manual rates, rounding and buffer rules, "Update rates now", approving or rejecting
   held rate changes, changing the default currency, converted prices and their settings. Wildcards such as
@@ -98,6 +105,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   settings renderer that gateways and products now use too. Secret settings are never sent back, a blank one keeps its
   value, and a change is audited as "rotated". Custom fields without a module key are no longer sent to drivers. A failed save never flashes a secret into the
   session (#65).
+- **cPanel & WHM driver** (`cpanel`, #69). Creates, suspends, unsuspends and terminates cPanel accounts through WHM
+  API 1, changes their package and password (the MySQL password follows), and reads disk and bandwidth for the daily
+  usage sync. It can also list the server's packages and accounts and create cPanel and WHM login links; the package
+  select, login buttons and account import that use them come in follow-up releases. Sign-in uses an API token
+  (recommended) or username and password, root or reseller. Every call goes over TLS to the checked address only and
+  within a time limit; a self-signed server works after its certificate's SPKI fingerprint is trusted, and a changed
+  key is refused. Create checks the username first and moves to the next free name when the server already holds
+  it. An existing account is taken as the service's only when an earlier create with an unknown outcome made it
+  (same username and domain, created after that attempt began). Test connection reports address and certificate,
+  sign-in, token permissions and expiry, root or reseller, packages and name servers, and is limited to 6 runs a
+  minute per staff member. `php artisan provisioning:cpanel-smoke` checks a real server (read-only unless
+  `--lifecycle --confirm-lifecycle`).
+- Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
+  in URLs.
 
 ### Core
 
