@@ -126,10 +126,16 @@ jobs:
                   pattern='postgres:[0-9.]+-alpine[0-9.]*@sha256:[0-9a-f]{64}'
                   compose_image=$(grep -Eo "$pattern" compose.yaml | sort -u)
                   ci_image=$(grep -Eo "$pattern" ../.github/workflows/ci.yml | sort -u)
-                  echo "compose.yaml: ${compose_image:-<none>}"
-                  echo "ci.yml:       ${ci_image:-<none>}"
+                  prod_image=$(grep -Eo "$pattern" ../deploy/compose.prod.yaml 2>/dev/null | sort -u)
+                  echo "compose.yaml:      ${compose_image:-<none>}"
+                  echo "ci.yml:            ${ci_image:-<none>}"
+                  echo "compose.prod.yaml: ${prod_image:-<none>}"
                   if [ -z "$compose_image" ] || [ "$(wc -l <<< "$compose_image")" -ne 1 ] || [ "$compose_image" != "$ci_image" ]; then
                       echo "::error file=.github/workflows/ci.yml::the postgres service image must equal the postgres image in billing/compose.yaml"
+                      exit 1
+                  fi
+                  if [ "$compose_image" != "$prod_image" ]; then
+                      echo "::error file=deploy/compose.prod.yaml::the postgres image must equal the postgres image in billing/compose.yaml"
                       exit 1
                   fi
 

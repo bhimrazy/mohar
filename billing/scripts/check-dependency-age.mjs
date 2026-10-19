@@ -144,9 +144,12 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         if (text === null) {
             continue;
         }
-        for (const [, image] of text.matchAll(
-            /^\s*image:\s*['"]?([^\s'"#]+)/gm,
+        for (const [, image, comment = ''] of text.matchAll(
+            /^\s*image:\s*['"]?([^\s'"#]+)['"]?[ \t]*(#.*)?$/gm,
         )) {
+            if (isOwnImage(image, comment)) {
+                continue;
+            }
             items.push({
                 kind: 'image',
                 name: image.split('@')[0],
@@ -202,6 +205,15 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
     }
 
     return items;
+}
+
+/**
+ * The app's own image (built from deploy/Dockerfile or pushed by us) is not a third-party dependency. Only a
+ * value that is wholly a ${VAR} reference and carries a `# own image` comment counts, so a pinned third-party
+ * image cannot be hidden behind a variable by accident.
+ */
+function isOwnImage(image, comment) {
+    return /^\$\{[A-Z0-9_]+(:-[^}]*)?\}$/.test(image) && /^#\s*own image\b/.test(comment);
 }
 
 const key = (item) =>
