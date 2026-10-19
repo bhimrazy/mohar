@@ -24,9 +24,11 @@ class HomePage
      * @param  array<string, mixed>  $content  normalised site content
      * @return array<string, mixed>
      */
-    public function props(array $content, string $currency, bool $signedIn): array
+    public function props(array $content, string $currency, bool $signedIn, bool $preview = false): array
     {
-        return $this->cache->remember("home.{$currency}.".(int) $signedIn, fn (): array => $this->build($content, $currency, $signedIn));
+        $build = fn (): array => $this->build($content, $currency, $signedIn);
+
+        return $preview ? $build() : $this->cache->remember("home.{$currency}.".(int) $signedIn, $build);
     }
 
     /**

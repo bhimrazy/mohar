@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
+  `storefront.publish` (make it live); `storefront.*` grants both. Grant them to staff who maintain the public site.
 - **Public website (Storefront module).** A migration adds `storefront_revisions`. Until a version is published, the
   home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
   `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
@@ -84,6 +86,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   included is a per-currency choice, off by default.
 - Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
   never the product's own logo or mark.
+- Admin → Website: headline, text, sections on/off and order, why-us points, featured groups and first billing
+  cycle, news counts, header product menu, legal links, page title and description, and price display per currency
+  (tax included or not, and the tax note's wording). Changes are saved as a draft, previewed at a signed staff-only
+  link (60 minutes, not indexed) and published after a dialog that lists the changes; publishing is audit-logged and
+  fires `StorefrontPublished`. A fresh install is marked "Needs your text" until the host publishes a headline.
 - `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
   "Transfer a domain" opens the domain search with transfer preselected.
 - Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
