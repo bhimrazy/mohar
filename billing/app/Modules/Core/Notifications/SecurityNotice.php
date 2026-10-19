@@ -1,15 +1,16 @@
 <?php
 
-namespace App\Modules\Platform\Notifications;
+namespace App\Modules\Core\Notifications;
 
-use App\Modules\Platform\Support\MailText;
+use App\Modules\Core\Support\MailText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * Security-event email (account email changed, 2FA reset, security policy changed). Sent to the
- * affected person and, for platform-wide changes, to every full administrator.
+ * Security-event email (account email changed, 2FA reset, security policy changed, a sign-in method connected). Sent
+ * to the affected person and, for platform-wide changes, to every full administrator. In Core (ADR 0018 §7): the
+ * fallback any module sends when SystemMailer::send() returns Unavailable, never when it returns Refused.
  */
 class SecurityNotice extends Notification
 {

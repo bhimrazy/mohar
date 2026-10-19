@@ -12,7 +12,7 @@ use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\ImpersonationSession;
 use App\Modules\Platform\Models\StaffInvitation;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use App\Support\Permissions\PermissionRegistry;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;

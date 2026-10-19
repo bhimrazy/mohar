@@ -9,7 +9,7 @@ use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;

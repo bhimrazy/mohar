@@ -20,7 +20,7 @@ use App\Modules\Notifications\Services\RecipientResolver;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;

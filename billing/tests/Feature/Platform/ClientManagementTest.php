@@ -9,7 +9,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use App\Support\Clients\ClientMergeRegistry;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;

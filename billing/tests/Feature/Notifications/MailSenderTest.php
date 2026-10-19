@@ -8,7 +8,7 @@ use App\Modules\Notifications\Data\EmailRequest;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Services\NotificationMailer;
 use App\Modules\Notifications\Services\RecipientResolver;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use Illuminate\Mail\Transport\ArrayTransport;
 use Inertia\Testing\AssertableInertia;
 use Symfony\Component\Mime\Email;

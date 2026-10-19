@@ -3,7 +3,7 @@
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Platform\Models\StaffInvitation;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use Illuminate\Notifications\AnonymousNotifiable;
 

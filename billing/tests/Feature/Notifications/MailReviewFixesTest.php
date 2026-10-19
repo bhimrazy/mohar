@@ -29,7 +29,7 @@ use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
 use App\Modules\Platform\Models\StaffInvitation;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
 use App\Modules\Services\Models\Service;

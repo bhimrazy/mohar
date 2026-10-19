@@ -5,7 +5,7 @@ namespace App\Modules\Platform\Support;
 use App\Contracts\Notifications\SystemMailer;
 use App\Enums\SystemMailOutcome;
 use App\Models\User;
-use App\Modules\Platform\Notifications\SecurityNotice;
+use App\Modules\Core\Notifications\SecurityNotice;
 use Illuminate\Support\Facades\Notification;
 
 /**
