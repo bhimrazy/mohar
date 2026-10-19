@@ -43,7 +43,7 @@ class RegistrarAccountRequest extends FormRequest
         $registrars = app(RegistrarManager::class);
         $key = (string) $this->route('registrar');
         $public = $registrars->has($key)
-            ? array_column(array_filter($registrars->driver($key)->settingsSchema(), fn (array $field): bool => ($field['type'] ?? '') !== 'password'), 'key')
+            ? array_column(array_filter($registrars->driver($key)->settingsSchema(), fn (array $field): bool => $field['type'] !== 'password'), 'key')
             : [];
         $submitted = array_map('strval', array_keys((array) $this->input('settings', [])));
 
