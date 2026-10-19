@@ -93,19 +93,21 @@ then every recording is `source: docs`.
   run unchanged. `rotate_certificate` must then produce the driver's "server certificate changed" failure.
 - **Fixed-host providers (Stripe, Khalti, eSewa, ResellerClub, Razorpay, PayPal)** need one kernel helper,
   `App\Support\Integrations\Endpoints`:
-    - Drivers always call `Endpoints::url('stripe.api', config('payments_stripe.api'))` and
-      `Endpoints::options('stripe.api')`. They do this whether or not an override exists, so there is no simulator branch
-      in driver code.
+    - Drivers always call `Endpoints::for('stripe.api', config('payments_stripe.api'))`, which returns the URL and its
+      request options together. They do this whether or not an override exists, so there is no simulator branch in
+      driver code.
     - Overrides come only from the environment: `INTEGRATION_ENDPOINTS` (a JSON map) and `INTEGRATION_CA_BUNDLE`. They
       are never database settings, so staff cannot change them.
-    - With no override, `options()` returns `[]` and behaviour is byte-for-byte the current behaviour.
-    - With an override, `options()` adds `verify => <scenario CA bundle>`, so TLS and hostname checks stay on. The
-      destination is also resolved and pinned through `OutboundAddressGuard`, so loopback is reachable only when
-      `OUTBOUND_ALLOW_LOOPBACK` allows it.
-- **Fail closed.** When `app()->isProduction()`, `Endpoints` ignores every override and logs `critical` once per boot
-  with the keys only. The health check and `app:install` report the override as an error. Outside production, active
-  overrides are logged at `warning` at boot.
-- **Guard tightening (kernel, amends ADR 0015).** Loopback is refused in production whatever
+    - With no override, the endpoint is the default and its options are `[]`: behaviour is byte-for-byte the current
+      behaviour.
+    - With an override (https only, no credentials, query or fragment), the options add `verify => <scenario CA
+bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
+      `OutboundAddressGuard`, so loopback is reachable only when `OUTBOUND_ALLOW_LOOPBACK` allows it.
+- **Fail closed.** Overrides are honoured only when the app runs as `local` or `testing` (S0 review on #77). In every
+  other environment, including `production`, `staging`, an empty or an unknown name, `Endpoints` ignores every
+  override and logs `critical` once per boot with the keys only. The health check and `app:install` report the
+  override as an error (S1). In development and tests, active overrides are logged at `warning` at boot.
+- **Guard tightening (kernel, amends ADR 0015).** Loopback is refused outside `local` and `testing` whatever
   `OUTBOUND_ALLOW_LOOPBACK` says. It stays off by default everywhere except `APP_ENV=local`.
 - **Signatures and settlement stay real.** Signature checks, timestamp tolerance, idempotency and `lookup()` settlement
   run as in production. A return or webhook alone never settles a payment. The simulator must answer `lookup()`.
@@ -171,15 +173,15 @@ conformance tests. That is a data file, not running code, but it still goes thro
 
 ## Delivery
 
-| PR  | Scope (≈ lines)                                                                                                     | Depends on                      |
-| --- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| S0  | Kernel: `Endpoints`, loopback refused in production, Arch rules, ADR 0015 amendment (≈ 400)                         | —                               |
-| S1  | Framework: kernel pieces, registry, commands, `--no-dev` CI step (≈ 2,200)                                          | S0                              |
-| S2  | `whm` simulator and conformance tests against the #69 fixtures (≈ 2,000)                                            | S1, #69 and #73 merged          |
-| S3  | `stripe` simulator, hosted checkout, webhooks; PaymentsStripe adopts `Endpoints` (≈ 2,600)                          | S1, #58 merged                  |
-| S4  | E2E: `Simulators` suite, `simulate:e2e`, CI job (≈ 1,800)                                                           | S2, S3; SSO step in cPanel PR 2 |
-| S5  | `khalti` and `esewa`; PaymentsNepal adopts `Endpoints`; NPR scenario (≈ 2,200)                                      | S4                              |
-| S6+ | `inbound-mail` and `webhook-receiver`, then `resellerclub`, `razorpay`, `paypal`, `whmcs-api`, each with its driver | S1                              |
+| PR  | Scope (≈ lines)                                                                                                                                                        | Depends on                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| S0  | Kernel: `Endpoints::for()`, loopback and overrides only in `local` and `testing`, Arch rules (`Mohar\Simulators`, no "simulat" in drivers), ADR 0015 amendment (≈ 400) | —                               |
+| S1  | Framework: kernel pieces, registry, commands, `--no-dev` CI step, health check and `app:install` error for an override outside development (≈ 2,200)                   | S0                              |
+| S2  | `whm` simulator and conformance tests against the #69 fixtures (≈ 2,000)                                                                                               | S1, #69 and #73 merged          |
+| S3  | `stripe` simulator, hosted checkout, webhooks; PaymentsStripe adopts `Endpoints` (≈ 2,600)                                                                             | S1, #58 merged                  |
+| S4  | E2E: `Simulators` suite, `simulate:e2e`, CI job (≈ 1,800)                                                                                                              | S2, S3; SSO step in cPanel PR 2 |
+| S5  | `khalti` and `esewa`; PaymentsNepal adopts `Endpoints`; NPR scenario (≈ 2,200)                                                                                         | S4                              |
+| S6+ | `inbound-mail` and `webhook-receiver`, then `resellerclub`, `razorpay`, `paypal`, `whmcs-api`, each with its driver                                                    | S1                              |
 
 ## Limits: what simulators cannot prove
 

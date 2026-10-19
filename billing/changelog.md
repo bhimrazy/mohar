@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
   wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
   who bring existing accounts in. Fetches run on the `provisioning` queue.
+- **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
+  unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
+  reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -65,6 +68,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Invitations and account security notices are always sent: their templates can't be switched off.
 
 ### Platform foundation
+
+- `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
+  They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
+  fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
+  logged as critical at boot. No integration uses them yet.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -484,13 +492,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
   with a known password); production reference data comes from the install path in #47.
 
+### Payments — Stripe
+
+- Not yet verified against a live Stripe account: tested with recorded Stripe API fixtures and, once ADR 0016 S3
+  lands, the Stripe simulator. The live sandbox smoke run (`docs/devops/install.md` go-live checklist) is required
+  before a host takes real card payments.
+- Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
+  invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
+  PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
+  `Stripe-Version` and an idempotency key on every POST; no SDK.
+- Signed webhooks (constant-time `Stripe-Signature` check, 5-minute tolerance, mode check) trigger a retrieve and
+  never trust the posted body: payments, Dashboard refunds (`refund.created`/`refund.updated`) and disputes
+  (`charge.dispute.created`, recorded as chargebacks). Duplicates and races with the return route and the poller
+  record one transaction.
+- Full and partial refunds through the Refunds API; exact amounts for zero-decimal currencies; test mode refused
+  in production; connection test; Stripe's official wordmark; `php artisan payments:stripe-smoke` for a real
+  sandbox run.
+
 ### DevOps
 
+- Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
+  (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
+  a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
+  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.8 s. `deploy/compose.dev.yaml`
+  runs the `dev` target with Vite. The dependency check now also requires digest pins and the 7-day cooldown for
+  `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
+- `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
+  means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
+  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+- Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
+  rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
+  skipped. Set it to `true` once an SSR entry exists.
 - Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
   about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
   the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
   peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
-
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
 - CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was

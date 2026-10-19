@@ -92,7 +92,7 @@ class GatewayManager implements GatewayRegistry
     }
 
     /**
-     * Whether the gateway takes test money: the simulated sandbox driver, or a provider driver whose sandbox mode
+     * Whether the gateway takes test money: the built-in sandbox card driver, or a provider driver whose sandbox mode
      * (the "sandbox" setting) is on.
      */
     public function isSandbox(string|Gateway $gateway): bool

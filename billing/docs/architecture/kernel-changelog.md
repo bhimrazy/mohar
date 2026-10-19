@@ -6,6 +6,27 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
+
+- Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a driver has nothing to branch on). Drivers of fixed-host providers
+  make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
+  overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
+  JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every
+  other environment, including an empty or unknown one, fails closed and logs them once as critical, keys only. Only
+  https base URLs without credentials, query or fragment are used; malformed ones are logged once. An override is
+  shaped like the default (trailing `/` kept or dropped to match), and `url(path)` joins with one `/`, so the request
+  path is the same with and without it. Without one the base URL is the default and the options are `[]`. With one,
+  TLS verification stays on (scenario CA) and the destination is resolved and pinned through `OutboundAddressGuard`.
+  No driver uses it yet (S3, S5).
+- `OutboundAddressGuard` reaches loopback only in `local` and `testing`, whatever `integrations.outbound.allow_loopback`
+  says elsewhere, and gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
+- Arch rules: nothing in `app/`, `bootstrap/`, `config/` or `routes/` names `Mohar\Simulators` (any case, group
+  imports included), and no driver code mentions "simulat" or asks `Endpoints` whether an override is active
+  (`activeKeys`, `developmentEnvironment`, `configuredKeys`). Driver code is every file under a module's `Drivers/`
+  plus the module classes those files import (such as `PaymentsNepal\Support\ProviderHttp`); the three demo drivers
+  (`Services/.../LogDriver`, `Domains/.../LogRegistrar`, `Billing/.../SandboxCardDriver`) are exempt by full path.
+
 ### Integrations area (ADR 0009 §1, PR A)
 
 - Added `App\Enums\FieldType` and `App\Data\Integrations\SettingField`, the one settings-field schema. A secret is a

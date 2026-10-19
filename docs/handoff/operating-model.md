@@ -73,7 +73,8 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 - CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
   for queries or migrations, PostgreSQL); the full suite runs locally only to diagnose a CI failure.
 - Scale engineers by location: at most two building locally; further engineers run as remote agents with CI
-  as the gate (piloted with the storefront home page, 2026-10-19).
+  as the gate. Pilot result (2026-10-19): `isolation: "remote"` was not available here and the storefront home
+  page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
 - The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
 - Specs are written before the build starts, and briefs cite `product-standards.md`.
 - PR size cap is about 3,000 changed lines; split larger work before review. Drivers (gateway, panel,
