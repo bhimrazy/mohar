@@ -4,6 +4,7 @@ namespace App\Modules\Domains\Jobs;
 
 use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Models\Domain;
+use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -20,10 +21,16 @@ class RegisterDomain implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
+    /** Registrar calls time out well before this (ADR 0017: below retry_after minus the lock slack). */
+    public int $timeout = 120;
+
     /** Seconds a queued duplicate is refused (released as soon as the job finishes). */
     public int $uniqueFor = 3600;
 
-    public function __construct(public int $domainId, public ?int $staffId = null) {}
+    public function __construct(public int $domainId, public ?int $staffId = null)
+    {
+        $this->onQueue(Queues::REGISTRAR);
+    }
 
     public function uniqueId(): string
     {

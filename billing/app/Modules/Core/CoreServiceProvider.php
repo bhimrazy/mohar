@@ -20,6 +20,7 @@ use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationRunner;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
@@ -44,10 +45,12 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\DevCommands;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -63,6 +66,7 @@ class CoreServiceProvider extends ModuleServiceProvider
 
         $this->app->singleton(Settings::class);
         $this->app->singleton(ActivityLogger::class);
+        $this->app->singleton(AutomationRunner::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
         $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
@@ -84,10 +88,20 @@ class CoreServiceProvider extends ModuleServiceProvider
     {
         $time = (string) rescue(fn (): mixed => $this->app->make(Settings::class)->get('core.automation_time'), config('core.automation_time', '03:00'), report: false);
 
+        // Runs in a child process (runInBackground) so a long pipeline never delays the other entries. A run can last
+        // longer than a queue's retry_after, so it never runs on a worker (ADR 0017).
         $schedule->command('automation:run')
             ->dailyAt(preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) === 1 ? $time : '03:00')
             ->withoutOverlapping()
-            ->onOneServer();
+            ->onOneServer()
+            ->runInBackground();
+
+        // "Run now" from the admin stores a request; this starts it within a minute.
+        $schedule->command('automation:run-requested')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground();
 
         // Scheduler heartbeat for the dashboard (spec §13).
         $schedule->call(fn () => $this->app->make(AutomationStatus::class)->beat())
@@ -98,6 +112,9 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // One development worker (composer dev) over every queue in priority order (ADR 0014).
+        DevCommands::artisan('queue:listen --queue='.implode(',', Queues::all()).' --tries=1 --timeout=0', 'queue');
+
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Dashboard', 'admin.dashboard', 'LayoutGrid', 'General', 0));
         $navigation->add('admin', new NavItem('Clients', 'admin.clients.index', 'Users', 'Clients', 0, 'core.clients.view', 'admin.clients.*'));

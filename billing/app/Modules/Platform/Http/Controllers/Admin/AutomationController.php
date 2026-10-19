@@ -5,8 +5,8 @@ namespace App\Modules\Platform\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\AutomationRunner;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Modules\Platform\Support\AutomationInsights;
 use App\Support\Automation\Automation;
 use Illuminate\Http\RedirectResponse;
@@ -66,7 +66,7 @@ class AutomationController extends Controller
         ]);
     }
 
-    public function run(Request $request, Automation $automation, ActivityLogger $activity): RedirectResponse
+    public function run(Request $request, Automation $automation, AutomationRunner $runner, ActivityLogger $activity): RedirectResponse
     {
         $this->authorize('core.automation.run');
 
@@ -76,14 +76,14 @@ class AutomationController extends Controller
         ]);
 
         $force = (bool) ($data['force'] ?? false);
-        RunAutomationJob::dispatch($data['task'] ?? null, $force);
+        $runner->request($data['task'] ?? null, $force);
 
         $activity->log('Automation run requested', properties: [
             'task' => $data['task'] ?? null,
             'force' => $force,
         ], event: 'automation.run');
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Automation run queued. Results appear in the run log.')]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Automation run requested. It starts within a minute; results appear in the run log.')]);
 
         return to_route('admin.platform.automation.index');
     }

@@ -9,6 +9,7 @@ use App\Enums\ReconcileStatus;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
+use App\Modules\Services\Jobs\VerifyUnknownOutcome;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
@@ -60,11 +61,13 @@ class VerifyUnknownOutcomes
     ) {}
 
     /**
-     * @return int the number of items checked
+     * Queue one check per open item on the provisioning queue; the scheduler never calls a server (ADR 0017 §2).
+     *
+     * @return int the number of checks queued
      */
     public function sweep(): int
     {
-        $checked = 0;
+        $queued = 0;
         $since = CarbonImmutable::now()->subMinutes(self::SWEEP_WINDOW_MINUTES);
 
         // An item is saved when its attempt turns unknown, so updated_at bounds the window in SQL (a safe superset);
@@ -76,22 +79,16 @@ class VerifyUnknownOutcomes
             ->where('status', QueueStatus::Open->value)
             ->where('updated_at', '>=', $since)
             ->lazyById(100)
-            ->each(function (ModuleQueueItem $item) use ($since, &$checked): void {
-                if ($this->attemptedAt($item)->lessThan($since)) {
+            ->each(function (ModuleQueueItem $item) use ($since, &$queued): void {
+                if ($this->attemptedAt($item)->lessThan($since) || ! $this->canCheck($item)) {
                     return;
                 }
 
-                try {
-                    if ($this->check($item) !== null) {
-                        $checked++;
-                    }
-                } catch (Throwable $exception) {
-                    // One item that cannot be checked never stops the others.
-                    report($exception);
-                }
+                VerifyUnknownOutcome::dispatch($item->id);
+                $queued++;
             });
 
-        return $checked;
+        return $queued;
     }
 
     /**

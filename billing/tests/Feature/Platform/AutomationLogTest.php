@@ -1,20 +1,19 @@
 <?php
 
 use App\Events\Core\AutomationRunCompleted;
-use App\Modules\Core\Console\Commands\RunAutomation;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\AutomationRunner;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 
 beforeEach(function () {
@@ -59,10 +58,13 @@ test('staff can run one task now and force a re-run', function () {
     actingAsStaff(['core.automation.*']);
 
     $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping'])->assertRedirect(route('admin.platform.automation.index'));
+    $this->artisan('automation:run-requested')->assertSuccessful();
     $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping'])->assertRedirect();
+    $this->artisan('automation:run-requested')->assertSuccessful();
     expect($this->calls)->toBe(1);
 
     $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping', 'force' => true]);
+    $this->artisan('automation:run-requested')->assertSuccessful();
     expect($this->calls)->toBe(2)
         ->and(AutomationRun::query()->where('task', 'test.housekeeping')->value('summary'))->toBe('cleaned 2');
     $this->assertDatabaseHas('activity_log', ['event' => 'automation.run']);
@@ -70,17 +72,40 @@ test('staff can run one task now and force a re-run', function () {
     $this->post(route('admin.platform.automation.run'), ['task' => 'unknown.task'])->assertSessionHasErrors('task');
 });
 
-test('run now is queued and does not force re-runs unless asked', function () {
-    Queue::fake();
+test('run now never runs on a queue worker: the scheduler starts the request once', function () {
     actingAsStaff(['core.automation.*']);
 
     $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping'])->assertRedirect();
+    expect($this->calls)->toBe(0)
+        ->and(app(AutomationRunner::class)->pendingRequest())->toBe(['task' => 'test.housekeeping', 'force' => false]);
 
-    Queue::assertPushed(RunAutomationJob::class, fn (RunAutomationJob $job) => $job->task === 'test.housekeeping' && $job->force === false);
+    // A second scheduler tick, or a redelivered tick, finds nothing left to run.
+    $this->artisan('automation:run-requested')->assertSuccessful();
+    $this->artisan('automation:run-requested')->assertSuccessful();
+    expect($this->calls)->toBe(1)
+        ->and(app(AutomationRunner::class)->pendingRequest())->toBeNull();
+
+    $events = collect(app(Schedule::class)->events())->filter(fn ($event) => str_contains((string) $event->command, 'automation:run'));
+    expect($events)->toHaveCount(2)
+        ->and($events->every(fn ($event) => $event->runInBackground && $event->withoutOverlapping && $event->onOneServer))->toBeTrue();
+});
+
+test('a requested run waits while another run holds the lock, then runs', function () {
+    app(AutomationRunner::class)->request('test.housekeeping', false);
+    $lock = Cache::lock(AutomationRunner::LOCK, 60);
+    $lock->get();
+
+    $this->artisan('automation:run-requested')->assertSuccessful();
+    expect($this->calls)->toBe(0)
+        ->and(app(AutomationRunner::class)->pendingRequest())->not->toBeNull();
+
+    $lock->release();
+    $this->artisan('automation:run-requested')->assertSuccessful();
+    expect($this->calls)->toBe(1);
 });
 
 test('automation:run refuses to overlap a run holding the shared lock', function () {
-    $lock = Cache::lock(RunAutomation::LOCK, 60);
+    $lock = Cache::lock(AutomationRunner::LOCK, 60);
     $lock->get();
 
     $this->artisan('automation:run')->assertFailed();

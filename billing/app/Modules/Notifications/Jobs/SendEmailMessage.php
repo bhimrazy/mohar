@@ -9,6 +9,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\EmailStatus;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -39,7 +40,7 @@ class SendEmailMessage implements ShouldBeEncrypted, ShouldQueue
         public int $attemptsBefore = 0,
     ) {
         $this->tries = max(1, (int) config('notifications.mail_max_attempts', 3));
-        $this->onQueue('notifications');
+        $this->onQueue(Queues::NOTIFICATIONS);
     }
 
     /**

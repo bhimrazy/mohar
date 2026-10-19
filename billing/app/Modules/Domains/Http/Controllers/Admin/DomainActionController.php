@@ -115,7 +115,7 @@ class DomainActionController extends Controller
                 throw new DomainActionNotAllowed('A renewal is in progress or awaiting verification. Check the registrar first.');
             }
 
-            RenewDomain::dispatch($domain->id, $domain->period_years, $domain->expiry_date?->toDateString(), null, $staffId);
+            RenewDomain::dispatch($domain->id, $domain->period_years, $domain->expiry_date?->toDateString(), null, $staffId)->afterCommit();
 
             return $this->done(__('Renewal for :years year(s) queued.', ['years' => $domain->period_years]), $domain);
         }

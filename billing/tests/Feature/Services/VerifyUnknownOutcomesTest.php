@@ -13,17 +13,20 @@ use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Enums\ServiceStatus;
+use App\Modules\Services\Jobs\VerifyUnknownOutcome;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ModuleCommandDispatcher;
+use App\Support\Queues;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
 
@@ -67,6 +70,19 @@ test('a create found on the server with our domain and owner completes on the ne
         ->and(ModuleCommand::query()->where('service_id', $service->id)->where('status', ModuleCommand::UNKNOWN)->exists())->toBeFalse()
         ->and(Whm::sent('createacct'))->toBeEmpty();
     Event::assertDispatched(ServiceActivated::class);
+});
+
+test('the sweep only queues one check per item on the provisioning queue; the scheduler never calls the server', function () {
+    $service = unknownCpanelCreate();
+    Whm::fake(['listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp()])]);
+    Queue::fake();
+
+    $this->artisan('services:verify-unknown')->expectsOutputToContain('1 unknown outcomes queued')->assertSuccessful();
+    $this->artisan('services:verify-unknown')->assertSuccessful();
+
+    Queue::assertPushedOn(Queues::PROVISIONING, VerifyUnknownOutcome::class, fn (VerifyUnknownOutcome $job) => $job->itemId === verifyItem($service)->id);
+    expect(Whm::sent('listaccts'))->toBeEmpty()
+        ->and((new VerifyUnknownOutcome(verifyItem($service)->id))->uniqueId())->toBe('verify-unknown:'.verifyItem($service)->id);
 });
 
 test('a lookup that finds the username under another domain or owner leaves the item open as a conflict and sends no createacct', function () {
@@ -114,7 +130,7 @@ test('the sweep stops checking an hour after the attempt; staff can still check 
     $this->travel(61)->minutes();
     Whm::fake(['listaccts' => Whm::accounts(['unix_startdate' => $createdAt])]);
 
-    $this->artisan('services:verify-unknown')->expectsOutputToContain('0 unknown outcomes checked')->assertSuccessful();
+    $this->artisan('services:verify-unknown')->expectsOutputToContain('0 unknown outcomes queued')->assertSuccessful();
     expect(verifyItem($service)->status)->toBe(QueueStatus::Open);
 
     actingAsStaff(['services.module_log.view', 'services.module_log.manage']);

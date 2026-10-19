@@ -13,7 +13,7 @@ class ReconcilePayments extends Command
 {
     public function handle(PaymentReconciler $reconciler): int
     {
-        $this->components->info($reconciler->run().' attempts checked.');
+        $this->components->info($reconciler->run().' attempts queued for lookup.');
 
         return self::SUCCESS;
     }

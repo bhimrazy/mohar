@@ -13,7 +13,7 @@ class VerifyUnknownOutcomesCommand extends Command
 {
     public function handle(VerifyUnknownOutcomes $verify): int
     {
-        $this->components->info($verify->sweep().' unknown outcomes checked.');
+        $this->components->info($verify->sweep().' unknown outcomes queued for a check.');
 
         return self::SUCCESS;
     }

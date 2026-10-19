@@ -24,7 +24,7 @@ class ResubmitTransfer
 
         $domain->forceFill(['epp_code' => trim($eppCode), 'last_error' => null])->save();
         $this->activity->log('Transfer resubmitted with a new EPP code', $domain, $domain->client_id);
-        TransferDomain::dispatch($domain->id, $staffId);
+        TransferDomain::dispatch($domain->id, $staffId)->afterCommit();
 
         return $domain;
     }

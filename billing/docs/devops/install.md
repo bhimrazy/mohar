@@ -159,16 +159,19 @@ Cron, as the user that runs PHP:
 The scheduler writes a heartbeat every minute and runs the daily automation pipeline at `core.automation_time`
 (03:00 server time by default). The admin dashboard flags automation that has not run for 26 hours.
 
-Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
+Queue workers, kept running by systemd or Supervisor (the queue names are `App\Support\Queues`, ADR 0014; `app:install`
+prints the same three lines):
 
 ```bash
-php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
-php artisan queue:work --queue=notifications,webhooks --tries=3
-php artisan queue:work --queue=default --tries=3
+php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200 --max-time=3600
+php artisan queue:work --queue=notifications,webhooks --tries=3 --timeout=200 --max-time=3600
+php artisan queue:work --queue=default --tries=3 --timeout=200 --max-time=3600
 ```
 
-The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
-calls gateways, control panels and registrars. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
+The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md) (queue topology accepted). The first pool
+calls gateways (`payments`: payment lookups), control panels (`provisioning`) and registrars (`registrar`: register,
+transfer, renew). No job runs longer than the pool timeout: the automation pipeline runs in the scheduler, and the
+admin "Run now" button only asks the scheduler to start it within a minute. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
 or after the driver's declared command timeout up to `services.module.max_job_timeout_seconds` (180 s); the pool's
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
@@ -184,7 +187,7 @@ After=network.target
 [Service]
 User=www-data
 WorkingDirectory=/srv/billing/billing
-ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks --tries=3 --max-time=3600
+ExecStart=/usr/bin/php artisan queue:work --queue=notifications,webhooks --tries=3 --timeout=200 --max-time=3600
 Restart=always
 
 [Install]

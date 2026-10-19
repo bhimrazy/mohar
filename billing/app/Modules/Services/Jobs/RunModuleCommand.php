@@ -6,6 +6,7 @@ use App\Modules\Services\Actions\ExecuteModuleCommand;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Services\ServiceDrivers;
 use App\Modules\Services\Support\CommandOutcome;
+use App\Support\Queues;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -48,7 +49,7 @@ class RunModuleCommand implements ShouldBeEncrypted, ShouldBeUnique, ShouldQueue
         public int $lockRetries = 0,
         ?int $timeoutSeconds = null,
     ) {
-        $this->onQueue('provisioning');
+        $this->onQueue(Queues::PROVISIONING);
         $this->timeout = $timeoutSeconds ?? app(ServiceDrivers::class)->jobTimeoutFor($serviceId);
     }
 

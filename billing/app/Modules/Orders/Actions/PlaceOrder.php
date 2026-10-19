@@ -507,6 +507,6 @@ class PlaceOrder
         $order->items()
             ->where('item_type', OrderItemType::Service)
             ->where('auto_setup', 'order')
-            ->each(fn (OrderItem $item) => ProvisionOrderItem::dispatch($item->id));
+            ->each(fn (OrderItem $item) => ProvisionOrderItem::dispatch($item->id)->afterCommit());
     }
 }

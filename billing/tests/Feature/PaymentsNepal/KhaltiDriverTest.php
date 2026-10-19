@@ -9,6 +9,7 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Jobs\LookUpPaymentAttempt;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
@@ -18,10 +19,12 @@ use App\Modules\Core\Models\Client;
 use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Queues;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
 use Inertia\Testing\AssertableInertia as Assert;
 
@@ -85,6 +88,19 @@ test('initiate sends the amount in paisa with the key header and redirects to Kh
         && $request['purchase_order_name'] === 'Invoice '.$invoice->displayNumber());
     expect($attempt)->status->toBe(AttemptStatus::Pending)->provider_ref->toBe('PIDX1')->amount->toBe(150_050)->currency->toBe('NPR')
         ->and($attempt->expires_at->diffInMinutes(now(), true))->toBeGreaterThan(59);
+});
+
+test('the reconciliation sweep only queues lookups on the payments queue; the scheduler never calls the gateway', function () {
+    [, , $attempt] = startKhalti();
+    Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Completed'))]);
+    Queue::fake();
+    $this->travel(6)->minutes();
+
+    $this->artisan('billing:reconcile-payments')->expectsOutputToContain('1 attempts queued')->assertSuccessful();
+
+    Queue::assertPushedOn(Queues::PAYMENTS, LookUpPaymentAttempt::class, fn (LookUpPaymentAttempt $job) => $job->attemptId === $attempt->id);
+    Http::assertNotSent(fn (Request $request) => $request->url() === KHALTI_LOOKUP);
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
 });
 
 test('a return claiming Completed pays nothing until the lookup confirms it, then the poller settles it', function () {

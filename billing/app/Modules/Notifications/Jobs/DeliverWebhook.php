@@ -5,6 +5,7 @@ namespace App\Modules\Notifications\Jobs;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Webhooks\WebhookSender;
+use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -24,7 +25,7 @@ class DeliverWebhook implements ShouldQueue
 
     public function __construct(public int $deliveryId)
     {
-        $this->onQueue('webhooks');
+        $this->onQueue(Queues::WEBHOOKS);
     }
 
     public function handle(WebhookSender $sender): void

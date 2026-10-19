@@ -4,6 +4,7 @@ namespace App\Modules\Domains\Jobs;
 
 use App\Modules\Domains\Actions\PerformRenewal;
 use App\Modules\Domains\Models\Domain;
+use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -21,6 +22,9 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
 
     public int $tries = 3;
 
+    /** Registrar calls time out well before this (ADR 0017: below retry_after minus the lock slack). */
+    public int $timeout = 120;
+
     public int $uniqueFor = 3600;
 
     public function __construct(
@@ -29,7 +33,9 @@ class RenewDomain implements ShouldBeUnique, ShouldQueue
         public ?string $fromExpiry = null,
         public ?int $invoiceId = null,
         public ?int $staffId = null,
-    ) {}
+    ) {
+        $this->onQueue(Queues::REGISTRAR);
+    }
 
     public function uniqueId(): string
     {

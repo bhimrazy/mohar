@@ -50,7 +50,6 @@ use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 
 class ServicesServiceProvider extends ModuleServiceProvider
@@ -79,9 +78,6 @@ class ServicesServiceProvider extends ModuleServiceProvider
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
-
-        // Driver commands run on the "provisioning" queue; the dev runner must consume it too.
-        DevCommands::artisan('queue:listen --queue=provisioning,default --tries=1 --timeout=0', 'queue');
 
         $this->registerAutomation();
         $this->registerNavigation();
