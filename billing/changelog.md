@@ -13,6 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
   wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
   who bring existing accounts in. Fetches run on the `provisioning` queue.
+  A second migration adds `server_account_imports.selections` (staff choices; nullable). Importing needs a recent
+  password.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -115,6 +117,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   a client closed since is dropped). "Match again" re-matches against today's clients, products and services without
   asking the server. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
+- Import accounts, step 2: staff tick the accounts to import (nothing is ticked by default; "Select all proposed" ticks
+  the proposed ones and opens the review), choose the client, product, billing cycle and next due date per account
+  (the cycle and due date also in bulk), and review every ticked account with its recurring amount from the price book
+  and totals before confirming. Each account is matched and checked again against today when reviewed and applied: an
+  account a live service holds, a client that is not active, a product that does not provision on the server or a
+  missing price keeps it out, and an account owned by another WHM user needs a chosen client. Each account becomes a
+  service, active or suspended as on the server, billed from its next due date, with no invoice, welcome email, module
+  command or password (the client sets one). Each imported service and each run are recorded in the activity log, the
+  page reports what was imported and why any account was left out, and `ServiceImported` is dispatched per service.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,

@@ -7,13 +7,14 @@ import {
 } from '@inertiajs/react';
 import {
     CircleAlert,
+    Pencil,
     Link2,
     ServerCrash,
     Sparkles,
     UserRoundSearch,
     Users,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -27,14 +28,16 @@ import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
 import { show as showClient } from '@/routes/admin/clients';
-import type { LaravelPaginated } from '@/types/app';
+import type { LaravelPaginated, SelectOption } from '@/types/app';
 
 type Category = 'proposed' | 'unmatched' | 'reseller' | 'linked';
 type Tab = 'all' | Category | 'missing';
@@ -55,6 +58,15 @@ type AccountRow = {
     note: string | null;
     service: LinkedService | null;
     differences: string[];
+    include: boolean;
+    chosen: { cycle?: string; next_due_date?: string };
+};
+
+type ReportLine = {
+    username: string;
+    imported: boolean;
+    message: string;
+    service_id: number | null;
 };
 
 type MissingRow = {
@@ -81,6 +93,9 @@ type Props = {
     rows: LaravelPaginated<AccountRow | MissingRow>;
     filters: { tab: Tab; search: string };
     createProductUrl: string | null;
+    included: number;
+    productOptions: { id: number; name: string }[];
+    cycles: SelectOption[];
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -146,7 +161,21 @@ function ServiceLink({ service }: { service: LinkedService }) {
 
 const accountColumns = (
     createProductUrl: string | null,
+    toggle: (row: AccountRow) => void,
+    choose: (row: AccountRow) => void,
 ): DataTableColumn<AccountRow>[] => [
+    {
+        key: 'include',
+        header: <span className="sr-only">Import</span>,
+        cell: (row) =>
+            row.category !== 'linked' && (
+                <Checkbox
+                    checked={row.include}
+                    onCheckedChange={() => toggle(row)}
+                    aria-label={`Import ${row.username}`}
+                />
+            ),
+    },
     {
         key: 'account',
         header: 'Account',
@@ -235,6 +264,23 @@ const accountColumns = (
             </span>
         ),
     },
+    {
+        key: 'choose',
+        header: <span className="sr-only">Actions</span>,
+        align: 'right',
+        cell: (row) =>
+            row.category !== 'linked' && (
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => choose(row)}
+                    aria-label={`Choose how ${row.username} is imported`}
+                    title="Choose client, product and billing"
+                >
+                    <Pencil />
+                </Button>
+            ),
+    },
 ];
 
 const missingColumns: DataTableColumn<MissingRow>[] = [
@@ -280,8 +326,22 @@ export default function ServerImport({
     rows,
     filters,
     createProductUrl,
+    included,
+    productOptions,
+    cycles,
 }: Props) {
-    const { errors } = usePage().props as { errors: Record<string, string> };
+    const page = usePage();
+    const { errors } = page.props as { errors: Record<string, string> };
+    const report = (page.flash as { importReport?: ReportLine[] }).importReport;
+    const [choosing, setChoosing] = useState<AccountRow | null>(null);
+    const select = (
+        data: Record<string, string | boolean | string[]>,
+        onSuccess?: () => void,
+    ) =>
+        router.put(ServerImportController.select(server.id).url, data, {
+            preserveScroll: true,
+            onSuccess,
+        });
     const { apply } = useQueryParams();
     const running = fetched?.running ?? false;
     const stalled = fetched?.status === 'fetching' && !running;
@@ -353,15 +413,56 @@ export default function ServerImport({
                                 </Button>
                             )}
                             {fetchButton}
+                            {ready && counts.proposed > 0 && (
+                                <Button
+                                    variant="outline"
+                                    title="Tick every proposed account, then check each one on the review page."
+                                    onClick={() =>
+                                        select({ proposed: true }, () =>
+                                            router.visit(
+                                                ServerImportController.review(
+                                                    server.id,
+                                                ).url,
+                                            ),
+                                        )
+                                    }
+                                >
+                                    Select all proposed
+                                </Button>
+                            )}
+                            {ready && (
+                                <Button
+                                    asChild={included > 0}
+                                    disabled={included === 0}
+                                    title={
+                                        included === 0
+                                            ? 'Tick the accounts to import first.'
+                                            : undefined
+                                    }
+                                >
+                                    {included > 0 ? (
+                                        <Link
+                                            href={ServerImportController.review(
+                                                server.id,
+                                            )}
+                                        >
+                                            Review import ({included})
+                                        </Link>
+                                    ) : (
+                                        'Review import'
+                                    )}
+                                </Button>
+                            )}
                         </>
                     }
                 />
 
                 <p className="-mt-2 text-sm text-muted-foreground">
-                    This page changes nothing. Importing comes next: you tick
-                    the accounts to bring in, review them, and confirm. Each
-                    becomes a service for its client, with no invoice, email or
-                    change on the server.
+                    Tick the accounts to bring in, then review and confirm.
+                    Matches come from the contact email the server reports,
+                    which the account holder can change, so check each one. Each
+                    account becomes a service for its client, with no invoice,
+                    email or change on the server.
                 </p>
 
                 {!supported && (
@@ -374,6 +475,29 @@ export default function ServerImport({
                             Its driver does not report the accounts on the
                             server, so they cannot be imported. Add the services
                             by hand instead.
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {report && report.length > 0 && (
+                    <Alert>
+                        <AlertTitle>
+                            {report.filter((line) => line.imported).length} of{' '}
+                            {plural(report.length, 'account')} imported
+                        </AlertTitle>
+                        <AlertDescription>
+                            <ul className="list-disc pl-4">
+                                {report
+                                    .filter((line) => !line.imported)
+                                    .map((line) => (
+                                        <li key={line.username}>
+                                            <span className="font-mono">
+                                                {line.username}
+                                            </span>
+                                            : {line.message}
+                                        </li>
+                                    ))}
+                            </ul>
                         </AlertDescription>
                     </Alert>
                 )}
@@ -541,7 +665,15 @@ export default function ServerImport({
                         ) : (
                             <DataTable
                                 caption="Accounts on the server"
-                                columns={accountColumns(createProductUrl)}
+                                columns={accountColumns(
+                                    createProductUrl,
+                                    (row) =>
+                                        select({
+                                            usernames: [row.username],
+                                            include: !row.include,
+                                        }),
+                                    setChoosing,
+                                )}
                                 rows={rows.data as AccountRow[]}
                                 getRowKey={(row) => row.username}
                                 empty={
@@ -562,6 +694,21 @@ export default function ServerImport({
                     </>
                 )}
             </Page>
+            <ImportChoiceDialog
+                serverId={server.id}
+                usernames={choosing ? [choosing.username] : []}
+                initial={
+                    choosing && {
+                        client: choosing.client,
+                        product: choosing.product,
+                        cycle: choosing.chosen.cycle ?? null,
+                        next_due_date: choosing.chosen.next_due_date ?? null,
+                    }
+                }
+                onClose={() => setChoosing(null)}
+                productOptions={productOptions}
+                cycles={cycles}
+            />
         </>
     );
 }

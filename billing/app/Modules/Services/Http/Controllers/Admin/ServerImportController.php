@@ -3,20 +3,25 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Contracts\Services\Provisioning\ListsAccounts;
+use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Actions\FetchAccountsForImport;
+use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\AccountImportMatcher;
+use App\Modules\Services\Support\AccountImportPlan;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -32,7 +37,7 @@ class ServerImportController extends Controller
 
     private const PER_PAGE = 50;
 
-    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher): Response
+    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher, AccountImportPlan $plan): Response
     {
         $this->authorize('services.servers.import');
 
@@ -75,6 +80,9 @@ class ServerImportController extends Controller
             'rows' => $rows,
             'filters' => ['tab' => $tab, 'search' => $search],
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
+            'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
+            'productOptions' => $ready ? $plan->productOptions($server) : [],
+            'cycles' => self::cycles(),
         ]);
     }
 
@@ -98,16 +106,135 @@ class ServerImportController extends Controller
     {
         $this->authorize('services.servers.import');
 
-        $import = FetchAccountsForImport::latest($server, withAccounts: true);
-
-        if ($import?->status !== ServerAccountImport::READY) {
-            throw ValidationException::withMessages(['import' => __('Fetch the accounts on :server first.', ['server' => $server->name])]);
-        }
-
-        $matcher->rematch($import->load('server'));
+        $matcher->rematch($this->ready($server)->load('server'));
         Inertia::flash('toast', ['type' => 'success', 'message' => __('The accounts on :server were matched again.', ['server' => $server->name])]);
 
         return to_route('admin.services.servers.import.show', $server);
+    }
+
+    /**
+     * Record staff choices for accounts (tick or untick, client, product, cycle, next due date), or tick every proposed
+     * account at once. Only usernames in the fetched list, open clients and products that provision on this server are
+     * accepted; nothing else about an account ever comes from the request.
+     */
+    public function select(Request $request, Server $server, AccountImportPlan $plan): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $import = $this->ready($server);
+        $data = $request->validate([
+            'proposed' => ['sometimes', 'accepted'],
+            'usernames' => ['required_without:proposed', 'array', 'max:500'],
+            'usernames.*' => ['string', 'max:32'],
+            'include' => ['sometimes', 'boolean'],
+            'client_id' => ['sometimes', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
+            'product_id' => ['sometimes', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
+            'cycle' => ['sometimes', Rule::in(array_column(self::cycles(), 'value'))],
+            'next_due_date' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:today', 'before:+5 years'],
+        ], [
+            'client_id.exists' => __('Choose an active client.'),
+            'product_id.in' => __('Choose a product that provisions on :server.', ['server' => $server->name]),
+            'next_due_date.after_or_equal' => __('The next due date cannot be in the past.'),
+        ]);
+
+        $accounts = collect($import->accounts ?? [])->keyBy('username');
+        $usernames = isset($data['proposed'])
+            ? $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all()
+            : array_values(array_intersect(array_unique($data['usernames']), $accounts->keys()->all()));
+        $choice = isset($data['proposed']) ? ['include' => true] : array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date']));
+        $selections = $import->selections ?? [];
+
+        foreach ($usernames as $username) {
+            $selections[$username] = [...($selections[$username] ?? []), ...$choice];
+        }
+
+        $import->update(['selections' => $selections]);
+
+        return back();
+    }
+
+    /**
+     * Open, active clients for the client picker on this page (name, company or email).
+     */
+    public function clients(Request $request, Server $server): JsonResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $term = mb_substr(trim($request->string('q')->toString()), 0, 100);
+
+        return response()->json(Client::query()
+            ->where('status', 'active')
+            ->when($term !== '', fn ($query) => $query->search($term))
+            ->orderBy('first_name')->orderBy('last_name')->orderBy('id')
+            ->limit(20)
+            ->get(['id', 'first_name', 'last_name', 'company_name', 'email', 'currency'])
+            ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency])
+            ->values());
+    }
+
+    /**
+     * Every ticked account as it would be imported, matched and checked again against today, with totals.
+     */
+    public function review(Server $server, AccountImportPlan $plan): Response
+    {
+        $this->authorize('services.servers.import');
+
+        $rows = $plan->rows($server, $this->ready($server));
+        $totals = [];
+
+        foreach ($rows as $row) {
+            if ($row['decision']['problems'] === []) {
+                $currency = $row['decision']['client']['currency'];
+                $totals[$currency] = ($totals[$currency] ?? 0) + (int) $row['decision']['amount'];
+            }
+        }
+
+        return Inertia::render('admin/services/servers/import-review', [
+            'server' => ['id' => $server->id, 'name' => $server->name, 'hostname' => $server->hostname],
+            'rows' => $rows,
+            'totals' => array_map(fn (string $currency, int $amount): array => ['currency' => $currency, 'amount' => $amount], array_keys($totals), $totals),
+            'cycles' => self::cycles(),
+        ]);
+    }
+
+    /**
+     * Create the services (ImportServerAccounts) and show the per-row report on the import page.
+     */
+    public function apply(Request $request, Server $server, ImportServerAccounts $importer): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $report = $importer->handle($server, $this->ready($server), $request->user());
+        $imported = count(array_filter($report, fn (array $line): bool => $line['imported']));
+
+        Inertia::flash('importReport', $report);
+        Inertia::flash('toast', ['type' => $imported === count($report) ? 'success' : 'info', 'message' => __(':imported of :total accounts imported from :server.', ['imported' => $imported, 'total' => count($report), 'server' => $server->name])]);
+
+        return to_route('admin.services.servers.import.show', $server);
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    private static function cycles(): array
+    {
+        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => ucfirst($cycle->value)], BillingCycle::recurring());
+    }
+
+    /**
+     * The server's fetched list, with its accounts.
+     *
+     * @throws ValidationException when there is none to work from
+     */
+    private function ready(Server $server): ServerAccountImport
+    {
+        $import = FetchAccountsForImport::latest($server, withAccounts: true);
+
+        if ($import?->status !== ServerAccountImport::READY) {
+            throw ValidationException::withMessages(['import' => __('Fetch the accounts on :server again: the list is missing or expired.', ['server' => $server->name])]);
+        }
+
+        return $import;
     }
 
     /**
@@ -127,6 +254,13 @@ class ServerImportController extends Controller
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
             ->whereIn('username', array_column($slice, 'username'))
             ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy('username');
+        $choices = $import->selections ?? [];
+        $slice = array_map(fn (array $row): array => [...$row,
+            'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
+            'product_id' => $choices[$row['username']]['product_id'] ?? $row['product_id'],
+            'chosen' => array_intersect_key($choices[$row['username']] ?? [], array_flip(['cycle', 'next_due_date'])),
+            'include' => (bool) ($choices[$row['username']]['include'] ?? false),
+        ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
             ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
         $products = $matcher->serverProducts($server);

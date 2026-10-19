@@ -24,6 +24,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $reseller_count
  * @property int $linked_count
  * @property list<int>|null $missing ids of live services whose account the server did not report
+ * @property array<string, array{include?: bool, client_id?: int, product_id?: int, cycle?: string, next_due_date?: string}>|null $selections staff choices by username
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at
  * @property CarbonImmutable $expires_at
@@ -33,7 +34,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read User|null $requester
  */
 #[Hidden(['accounts'])]
-#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'error', 'fetched_at', 'expires_at'])]
+#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'selections', 'error', 'fetched_at', 'expires_at'])]
 class ServerAccountImport extends Model
 {
     public const FETCHING = 'fetching';
@@ -58,6 +59,7 @@ class ServerAccountImport extends Model
             'reseller_count' => 'integer',
             'linked_count' => 'integer',
             'missing' => 'array',
+            'selections' => 'array',
             'fetched_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];
