@@ -6,7 +6,7 @@ use App\Modules\Core\Models\Currency;
 
 require_once __DIR__.'/helpers.php';
 
-/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+/** Sensitive staff actions require a recent password confirmation (password.recent). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
 beforeEach(function () {

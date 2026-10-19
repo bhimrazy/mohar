@@ -13,7 +13,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
-/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+/** Sensitive staff actions require a recent password confirmation (password.recent). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
 test('a failed gateway save never flashes a secret setting into the session', function () {

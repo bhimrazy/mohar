@@ -17,7 +17,6 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
@@ -50,7 +49,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -93,13 +91,6 @@ class BillingServiceProvider extends ModuleServiceProvider
         // signed-in user so one account can't get the key throttled or flagged at the provider.
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
             ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
-
-        // Step-up middleware is owned by Platform; provide the same contract when Platform isn't installed.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', ConfirmPasswordForAction::class);
-        }
 
         // Card data must never be flashed into the session by a validation redirect (PCI DSS 3.3.1).
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
