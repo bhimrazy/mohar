@@ -10,8 +10,10 @@ use InvalidArgumentException;
  * with `retryable: true`) and unknown(). Provisioning has no `pending` outcome yet; a later trailing flag would add it.
  *
  * $data is the only way a driver reports changes back, with the documented keys `username`, `password`,
- * `dedicated_ip` (strings) and `driver_data` (an array merged into the service's driver data). $request and $response
- * are what was sent and answered; the host redacts them before they reach the module log.
+ * `dedicated_ip` (strings) and `driver_data` (an array merged into the service's driver data). One exception to
+ * "data only on success": a retryable create may carry `username`, the free name the driver found when the assigned
+ * one is taken on the server; the host stores it and runs the create again at once with it (renameUsername()).
+ * $request and $response are what was sent and answered; the host redacts them before they reach the module log.
  */
 final readonly class DriverResult
 {
@@ -70,6 +72,15 @@ final readonly class DriverResult
     public static function unknown(string $message, array $request = [], array $response = []): self
     {
         return new self(false, $message, request: $request, response: $response, outcomeUnknown: true);
+    }
+
+    /**
+     * Create only: nothing was sent, because the assigned username is taken on the server by an account that is not
+     * this service's. The host stores $username on the service, so the next attempt sends exactly that name.
+     */
+    public static function renameUsername(string $username, string $message): self
+    {
+        return new self(false, $message, retryable: true, data: ['username' => $username]);
     }
 
     public function outcome(): DriverOutcome

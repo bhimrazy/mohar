@@ -1,13 +1,13 @@
 # Current state
 
-Last updated: 2026-10-19 11:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 12:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66) and kernel PR B2 with encrypted server settings (#65).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) and the cPanel/WHM driver 1a (#69).
 - Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,14 +21,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #69, then 1b, 2, 3; email direction A and #58 independent)
+## Open pull requests (merge order: #73, then cPanel 2 and 3; #72, #77, deploy and #58 independent)
 
-| PR  | Workstream              | Status                                                                                                                                                                                                                           |
-| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #69 | cPanel/WHM driver PR 1a | All reviews passed (account adoption only with proof, one deadline per job, live-only unique usernames). Blocked on CI: a test worker exceeds 1 GB in Support attachment tests; DevOps agent fixing on `feature/ci-test-memory`. |
-| —   | Email direction A       | PR #72. Security, board and product reviews requested changes (fallback must not bypass the secret policy, button never inferred from content, security mail always sent, host brand only, Paid row). Engineer fixing.           |
-| #73 | cPanel/WHM driver PR 1b | Connection checklist, "Trust this certificate" (sensitive + step-up), generic verify sweep. Stacked on #69. Security, review board (with database) and product reviews running.                                                  |
-| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                              |
+| PR  | Workstream              | Status                                                                                                                                                                                                                 |
+| --- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| —   | Email direction A       | PR #72. Security, board and product reviews requested changes (fallback must not bypass the secret policy, button never inferred from content, security mail always sent, host brand only, Paid row). Engineer fixing. |
+| #73 | cPanel/WHM driver PR 1b | Security, board+database and product reviews passed after re-checks; final small fixes pushed with the develop merge, then merge on green CI.                                                                          |
+| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                    |
 
 ## Design and research in progress
 

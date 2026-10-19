@@ -1,0 +1,8 @@
+{
+    "metadata": {
+        "result": 0,
+        "reason": "The cpmod “retro” is not installed on this server.",
+        "command": "createacct",
+        "version": 1
+    }
+}
