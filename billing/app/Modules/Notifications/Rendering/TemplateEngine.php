@@ -4,9 +4,8 @@ namespace App\Modules\Notifications\Rendering;
 
 use App\Data\Notifications\SensitiveValue;
 use App\Modules\Core\Support\DateFormats;
+use App\Modules\Notifications\Support\MailClock;
 use App\Support\Currencies\MoneyFormatter;
-use Carbon\CarbonImmutable;
-use Throwable;
 
 /**
  * Sandboxed merge-field engine for staff-editable templates (spec §3). It never executes code:
@@ -459,23 +458,14 @@ final class TemplateEngine
         return $value;
     }
 
+    /**
+     * The date setting's format, in the company's time zone (MailClock); a value that is not a date is left as is.
+     */
     private function formatDate(mixed $value, mixed $format): mixed
     {
-        if (! is_string($value) || $value === '') {
-            return $value;
-        }
+        $formatted = MailClock::date($value, is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? DateFormats::current()), $this->options['locale'] ?? 'en');
 
-        try {
-            $date = CarbonImmutable::parse($value)->locale($this->options['locale'] ?? 'en');
-        } catch (Throwable) {
-            return $value;
-        }
-
-        if (! $date instanceof CarbonImmutable) {
-            return $value;
-        }
-
-        return $date->translatedFormat(is_string($format) && $format !== '' ? $format : ($this->options['date_format'] ?? DateFormats::current()));
+        return $formatted ?? $value;
     }
 
     /**

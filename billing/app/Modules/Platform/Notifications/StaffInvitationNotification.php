@@ -13,7 +13,10 @@ class StaffInvitationNotification extends Notification
 {
     use Queueable;
 
-    public function __construct(public StaffInvitation $invitation, public string $token) {}
+    /**
+     * @param  string|null  $acceptUrl  the accept link, built on APP_URL by the sender; null = built here
+     */
+    public function __construct(public StaffInvitation $invitation, public string $token, public ?string $acceptUrl = null) {}
 
     /**
      * @return list<string>
@@ -31,7 +34,7 @@ class StaffInvitationNotification extends Notification
                 'inviter' => $this->invitation->inviter->name ?? __('An administrator'),
                 'role' => $this->invitation->role->name,
             ])))
-            ->action(__('Accept invitation'), route('platform.invitations.show', $this->token))
+            ->action(__('Accept invitation'), $this->acceptUrl ?? route('platform.invitations.show', $this->token))
             ->line(__('This link expires on :date.', ['date' => $this->invitation->expires_at->toDayDateTimeString()]));
     }
 }

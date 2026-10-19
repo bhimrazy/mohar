@@ -5,6 +5,7 @@ namespace App\Modules\Notifications\Services;
 use App\Events\Notifications\EmailFailed;
 use App\Events\Notifications\EmailQueued;
 use App\Events\Notifications\EmailSuppressed;
+use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Data\ComposedEmail;
@@ -150,6 +151,8 @@ class NotificationMailer
         $suppressedReason = match (true) {
             ! $template->is_enabled && ! $template->isAlwaysSent() => 'template_disabled',
             (bool) $this->settings->get('notifications.mail_disabled', false) => 'mail_disabled',
+            // Demo data replays months of history; it is logged for the demo but never sent.
+            DemoSeeder::running() => 'demo_data',
             default => null,
         };
 
@@ -204,6 +207,7 @@ class NotificationMailer
             $this->recipients->staff(StaffCategory::System),
             ['template' => [
                 'key' => $template->key,
+                'name' => $template->name,
                 'error' => $error->getMessage(),
                 'admin_url' => $this->mergeContext->link('admin.notifications.templates.edit', $template->id),
             ]],

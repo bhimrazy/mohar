@@ -30,6 +30,27 @@ final class AccountLinks
     }
 
     /**
+     * Why no account link (reset, verification, invitation) may be mailed with this configuration, or null when they
+     * can be: APP_URL needs a host, and https in production. Every sender checks this before mailing a one-time link,
+     * with or without the Notifications module.
+     */
+    public static function problem(): ?string
+    {
+        $url = (string) config('app.url');
+        $parts = parse_url($url);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return __('APP_URL ":url" has no host, so password-reset, verification and invitation emails are held. Set APP_URL to the public https:// address.', ['url' => $url]);
+        }
+
+        if (app()->isProduction() && strtolower((string) ($parts['scheme'] ?? '')) !== 'https') {
+            return __('APP_URL is ":url": in production account links must use https://, so password-reset, verification and invitation emails are held. Set APP_URL to the https:// address.', ['url' => $url]);
+        }
+
+        return null;
+    }
+
+    /**
      * Runs $callback (rendering or sending mail) with every url(), route() and asset() rooted at APP_URL, then
      * restores the request's generator. Mail never carries links built from a forged Host header.
      *

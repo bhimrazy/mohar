@@ -30,6 +30,7 @@ type Template = {
     audience: string;
     is_system: boolean;
     is_enabled: boolean;
+    always_sent?: boolean;
     from_name: string | null;
     from_email: string | null;
     cc: string;
@@ -43,6 +44,7 @@ type Translation = {
     locale: string;
     exists: boolean;
     subject: string;
+    preheader: string;
     heading: string;
     body: string;
     action_label: string;
@@ -59,6 +61,7 @@ type Preview = {
 
 type PreviewInput = {
     subject: string;
+    preheader: string;
     heading: string;
     body: string;
     action_label: string;
@@ -100,6 +103,7 @@ export default function TemplateEditor({
         bcc: template?.bcc ?? '',
         locale: translation.locale,
         subject: translation.subject,
+        preheader: translation.preheader,
         heading: translation.heading,
         body: translation.body,
         action_label: translation.action_label,
@@ -112,6 +116,7 @@ export default function TemplateEditor({
 
     const previewRequest = useHttp<PreviewInput, Preview>({
         subject: '',
+        preheader: '',
         heading: '',
         body: '',
         action_label: '',
@@ -128,6 +133,7 @@ export default function TemplateEditor({
         const timer = setTimeout(() => {
             previewRequest.transform(() => ({
                 subject: form.data.subject || ' ',
+                preheader: form.data.preheader,
                 heading: form.data.heading,
                 body: form.data.body || ' ',
                 action_label: form.data.action_label,
@@ -142,6 +148,7 @@ export default function TemplateEditor({
         return () => clearTimeout(timer);
     }, [
         form.data.subject,
+        form.data.preheader,
         form.data.heading,
         form.data.body,
         form.data.action_label,
@@ -422,6 +429,26 @@ export default function TemplateEditor({
                                         required
                                     />
                                 </Field>
+                                <Field
+                                    htmlFor="preheader"
+                                    label="Preheader"
+                                    hint={`The preview line inboxes show after the subject. About 90 characters show on most phones (${form.data.preheader.length} now). Leave empty to use the opening line.`}
+                                    error={errors.preheader}
+                                >
+                                    <Input
+                                        id="preheader"
+                                        value={form.data.preheader}
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'preheader',
+                                                event.target.value,
+                                            )
+                                        }
+                                        disabled={readOnly}
+                                        maxLength={255}
+                                        className="font-mono text-sm"
+                                    />
+                                </Field>
                                 {secretAction && (
                                     <Field
                                         htmlFor="heading"
@@ -582,16 +609,23 @@ export default function TemplateEditor({
                                         />
                                     </Field>
                                 </div>
-                                <SwitchField
-                                    id="is_enabled"
-                                    label="Enabled"
-                                    description="Disabled templates are logged as suppressed instead of sent."
-                                    checked={form.data.is_enabled}
-                                    onCheckedChange={(checked) =>
-                                        form.setData('is_enabled', checked)
-                                    }
-                                    disabled={readOnly}
-                                />
+                                {template?.always_sent ? (
+                                    <p className="text-sm text-muted-foreground">
+                                        Account and security emails are always
+                                        sent and can't be switched off.
+                                    </p>
+                                ) : (
+                                    <SwitchField
+                                        id="is_enabled"
+                                        label="Enabled"
+                                        description="Disabled templates are logged as suppressed instead of sent."
+                                        checked={form.data.is_enabled}
+                                        onCheckedChange={(checked) =>
+                                            form.setData('is_enabled', checked)
+                                        }
+                                        disabled={readOnly}
+                                    />
+                                )}
                                 <SwitchField
                                     id="plain_text_only"
                                     label="Plain text only"

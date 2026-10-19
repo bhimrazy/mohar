@@ -6,16 +6,15 @@ use App\Events\Core\StaffDisabled;
 use App\Models\User;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Services\PermissionGuard;
+use App\Modules\Platform\Support\AccountMail;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class UpdateStaff
 {
-    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity) {}
+    public function __construct(private PermissionGuard $guard, private ActivityLogger $activity, private AccountMail $mail) {}
 
     /**
      * @param  array{name: string, email: string, role_id: int, is_active: bool}  $data
@@ -66,9 +65,9 @@ class UpdateStaff
 
         if ($emailChanged) {
             // Both addresses hear about it: the old one so a takeover is noticed, the new one for the record.
-            Notification::route('mail', [$oldEmail, $newEmail])->notify(new SecurityNotice(__('Your staff sign-in email was changed'), [
+            $this->mail->notice('staff.email_changed', [$oldEmail, $newEmail], ['actor' => $actor->name, 'old_email' => $oldEmail, 'new_email' => $newEmail], 'staff:'.$staff->id, __('Your staff sign-in email was changed'), [
                 __(':actor changed the sign-in email of your staff account from :old to :new.', ['actor' => $actor->name, 'old' => $oldEmail, 'new' => $newEmail]),
-            ]));
+            ]);
 
             if (! $staff->is($actor)) {
                 $staff->sendEmailVerificationNotification();

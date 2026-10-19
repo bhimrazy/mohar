@@ -4,6 +4,7 @@ namespace App\Modules\Notifications;
 
 use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Notifications\EmailTemplates;
+use App\Contracts\Notifications\SystemMailer;
 use App\Models\User;
 use App\Modules\Notifications\Actions\PruneNotificationLogs;
 use App\Modules\Notifications\Enums\EmailStatus;
@@ -17,6 +18,7 @@ use App\Modules\Notifications\Rendering\TemplateEngine;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Notifications\Services\TemplatedAuthMailer;
 use App\Modules\Notifications\Services\TemplateDirectory;
+use App\Modules\Notifications\Services\TemplatedSystemMailer;
 use App\Modules\Notifications\Support\SecretTemplatePolicy;
 use App\Modules\Notifications\Webhooks\HostResolver;
 use App\Modules\Notifications\Webhooks\WebhookEventTypes;
@@ -52,6 +54,7 @@ class NotificationsServiceProvider extends ModuleServiceProvider
         $this->app->singleton(HostResolver::class);
         $this->app->bind(EmailTemplates::class, TemplateDirectory::class);
         $this->app->bind(AuthMailer::class, TemplatedAuthMailer::class);
+        $this->app->bind(SystemMailer::class, TemplatedSystemMailer::class);
     }
 
     protected function schedule(Schedule $schedule): void
