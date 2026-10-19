@@ -22,16 +22,16 @@ final class LiveRecording
 
     public function run(Recorder $recorder): void
     {
-        $host = (string) env('WHM_RECORD_HOST', '');
-        $token = (string) env('WHM_RECORD_TOKEN', '');
+        $host = self::env('WHM_RECORD_HOST');
+        $token = self::env('WHM_RECORD_TOKEN');
 
         if ($host === '' || $token === '') {
             throw new RuntimeException('Set WHM_RECORD_HOST and WHM_RECORD_TOKEN (and optionally WHM_RECORD_PORT, WHM_RECORD_USER, WHM_RECORD_ACCOUNT, WHM_RECORD_CA_BUNDLE) to record a real WHM.');
         }
 
-        $port = (int) env('WHM_RECORD_PORT', 2087);
-        $user = (string) env('WHM_RECORD_USER', 'root');
-        $account = (string) env('WHM_RECORD_ACCOUNT', '');
+        $port = (int) self::env('WHM_RECORD_PORT', '2087');
+        $user = self::env('WHM_RECORD_USER', 'root');
+        $account = self::env('WHM_RECORD_ACCOUNT');
         $calls = [
             'version' => ['version', []],
             'myprivs' => ['myprivs', []],
@@ -54,7 +54,7 @@ final class LiveRecording
 
         $guard = app(OutboundAddressGuard::class);
         $address = $guard->resolve($host, $port);
-        $bundle = (string) env('WHM_RECORD_CA_BUNDLE', '');
+        $bundle = self::env('WHM_RECORD_CA_BUNDLE');
 
         foreach ($calls as $name => [$function, $params]) {
             // Reads only; POST for the token lookup so the token stays out of the server's access log.
@@ -69,6 +69,17 @@ final class LiveRecording
 
             $recorder->record($name, self::anonymise($decoded), 'live', [$token, $host, $user, $account]);
         }
+    }
+
+    /**
+     * A variable from the process environment or the loaded .env (never config: these are a developer's credentials
+     * for one recording run, not app settings).
+     */
+    private static function env(string $name, string $default = ''): string
+    {
+        $value = $_SERVER[$name] ?? $_ENV[$name] ?? getenv($name);
+
+        return is_string($value) && $value !== '' ? $value : $default;
     }
 
     /**

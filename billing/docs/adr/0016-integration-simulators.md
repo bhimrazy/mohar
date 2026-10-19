@@ -204,6 +204,30 @@ conformance tests. That is a data file, not running code, but it still goes thro
 - Health: `app:install` fails and the dashboard health check is red when `INTEGRATION_ENDPOINTS` is set outside
   `local`/`testing`; in development the health check is amber and names the active keys.
 
+### S2 as delivered
+
+- **The simulator.** `whm` (`tools/simulators/src/Providers/Whm`) is stateful WHM API 1 for the driver's 17 functions:
+    - token and password sign-in (a token never exceeds its user's privileges);
+    - root and reseller ACLs, package grants and account limits;
+    - username rules in one table, duplicate usernames and domains, kept DNS zones;
+    - the driver fixtures' reasons;
+    - single-use login links on the TLS port.
+- **Conformance.** `tests/Whm/WhmConformanceTest.php` checks each answer against `tests/Fixtures/Cpanel`: key paths and types, and the refusal kind through the driver's `WhmReasons`.
+- **End to end.** `tests/Whm/CpanelDriverAgainstWhmTest.php` runs the unchanged driver through the host over a real socket:
+    - the outbound guard resolves and pins 127.0.0.1;
+    - Test connection, then "Trust this certificate", through the staff routes;
+    - the lifecycle with slow answers;
+    - `commit_then_hang` on createacct, adopted by the verify sweep;
+    - a 5xx followed by a foreign account with the same name, never adopted;
+    - a 5xx on a read, after which no create is sent;
+    - a rotated certificate, refused before any request is sent, then trusted again;
+    - reseller scoping and a single-use login link.
+- **Recording.** `simulate:record whm` is read-only and anonymises before it redacts. `simulate:scan` and `RecordingScanner` are the secret scan over `recordings/`; it runs in `simulate:record`, in the CI tests, and as an optional pre-commit hook.
+- **Framework changes.**
+    - `Request::fields()` keeps dotted names (`api.version`) and nests brackets (`card[number]`).
+    - `StateStore::transaction()`.
+    - The API kernel logs a committed call before a `commit_then_hang` delay.
+
 ## Limits: what simulators cannot prove
 
 - That the provider really behaves as we read its reference: undocumented fields, error wording, rate limits, real

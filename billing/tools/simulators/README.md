@@ -43,6 +43,41 @@ The control plane answers only requests that carry `X-Sim-Token`:
 | `GET /__sim/outbox`              | Pending callbacks                                                  |
 | `POST /__sim/actions/{name}`     | A simulator's own actions (`HasControlActions`)                    |
 
+## Simulators in this package
+
+### `whm`: cPanel & WHM, for the cPanel driver
+
+- **API.** WHM API 1 for the 17 functions the driver calls, plus the login links that `create_user_session` returns, served on the same TLS port.
+- **Seed.** Created on `simulate:start whm`:
+    - `root`, with token `WhmSimulator::ROOT_TOKEN` and full access;
+    - `reseller1`, with `RESELLER_TOKEN` and the driver's ACLs only, granted `root_basic`, with a limit of 3 accounts;
+    - four packages, two accounts (`alpha` owned by root, `bravo` owned by the reseller), and two free dedicated IPs.
+- **Rules.**
+    - Usernames follow one table (`UsernameRules`).
+    - A token never exceeds its user's privileges, and a reseller sees and changes only what it owns.
+    - `removeacct keepdns=1` keeps the zone, which blocks the domain.
+    - Every refusal happens before anything changes.
+- **Control actions.** `add_account` (someone else's account), `issue_token` (ACLs, expiry), `set_licence`, `set_usage`.
+- **Using it from the app.** Add a cPanel server with host `127.0.0.1`, the scenario's port and a token. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only). Run Test connection, then "Trust this certificate".
+- **Recording.** `simulate:record whm` makes read-only calls against a real WHM:
+    - credentials come from `WHM_RECORD_HOST` and `WHM_RECORD_TOKEN`, and optionally `WHM_RECORD_PORT`, `WHM_RECORD_USER`, `WHM_RECORD_ACCOUNT` and `WHM_RECORD_CA_BUNDLE`;
+    - customer and server values are replaced by placeholders of the same type before the secret redaction;
+    - recordings land in `whm/recordings/`, tagged `source: live`.
+- **Docs-sourced shapes.** Until a live recording exists, `tests/Fixtures/Cpanel` (written from the reference) is the `source: docs` set the conformance tests check.
+
+## Recordings and the secret scan
+
+`simulate:scan` checks every `*/recordings/*.json` file in this package for:
+
+- credentials: WHM, Basic or Bearer authorization values, cPanel tokens, Stripe keys, private keys, JWTs, AWS keys, and unmasked values under sensitive keys;
+- personal data: emails outside example domains, and public IPv4 addresses.
+
+`simulate:record` deletes a recording that fails the scan. The framework tests run the same scan in CI. To run it before each commit, add it to `.git/hooks/pre-commit`:
+
+```sh
+cd billing && php artisan simulate:scan
+```
+
 ## Adding a provider
 
 1. Implement `Contracts\Simulator` in `src/Providers/<Name>/`:

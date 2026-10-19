@@ -410,15 +410,16 @@ final class WhmApi
         $plan = $input['pkg'] ?? '';
         $package = $this->state->get('packages', $plan);
 
-        $refusal = match (true) {
-            $account === null => 'Account “'.($input['user'] ?? '').'” does not exist.',
-            $package === null => "The package “{$plan}” does not exist.",
-            ! array_key_exists($plan, $this->usablePackages($actor)) => "You are not allowed to use the package “{$plan}”.",
-            default => null,
-        };
+        if ($account === null) {
+            return $this->answer($function, false, 'Account “'.($input['user'] ?? '').'” does not exist.');
+        }
 
-        if ($refusal !== null || $account === null || $package === null) {
-            return $this->answer($function, false, (string) $refusal);
+        if ($package === null) {
+            return $this->answer($function, false, "The package “{$plan}” does not exist.");
+        }
+
+        if (! array_key_exists($plan, $this->usablePackages($actor))) {
+            return $this->answer($function, false, "You are not allowed to use the package “{$plan}”.");
         }
 
         $this->state->put('accounts', $account['user'], [...$account, 'plan' => $plan, 'disklimit' => $this->diskLimit($package)]);

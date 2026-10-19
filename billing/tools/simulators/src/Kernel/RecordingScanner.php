@@ -24,6 +24,11 @@ final class RecordingScanner
         'an AWS access key' => '/\bAKIA[0-9A-Z]{16}\b/',
     ];
 
+    private const NON_PUBLIC_RANGES = [
+        '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24',
+        '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/3',
+    ];
+
     public function __construct(private readonly Redactor $redactor = new Redactor) {}
 
     /**
@@ -95,15 +100,39 @@ final class RecordingScanner
                 }
             }
 
-            preg_match_all('/\b\d{1,3}(\.\d{1,3}){3}\b/', $value, $addresses);
+            // Version numbers look like addresses (WHM 11.124.0.12).
+            preg_match_all('/\b\d{1,3}(\.\d{1,3}){3}\b/', is_string($key) && stripos($key, 'version') !== false ? '' : $value, $addresses);
 
             foreach ($addresses[0] as $address) {
-                if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_GLOBAL_RANGE) !== false) {
+                if (self::isPublicIpv4($address)) {
                     $findings[] = "a public IP address under \"{$key}\"";
                 }
             }
         });
 
         return array_values(array_unique($findings));
+    }
+
+    /**
+     * Not private, loopback, link-local, shared, multicast, reserved or a documentation range (RFC 5737).
+     */
+    private static function isPublicIpv4(string $address): bool
+    {
+        $long = ip2long($address);
+
+        if ($long === false) {
+            return false;
+        }
+
+        foreach (self::NON_PUBLIC_RANGES as $range) {
+            [$network, $bits] = explode('/', $range);
+            $mask = -1 << (32 - (int) $bits);
+
+            if ((($long ^ (int) ip2long($network)) & $mask) === 0) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

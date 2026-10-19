@@ -8,7 +8,7 @@ namespace Mohar\Simulators\Http;
 final readonly class Request
 {
     /**
-     * @param  array<string, string>  $query
+     * @param  array<array-key, mixed>  $query  as fields() reads it: dotted names kept, brackets nested
      * @param  array<string, string>  $headers  lower-case names
      */
     public function __construct(
@@ -52,7 +52,7 @@ final readonly class Request
     /**
      * The body as JSON or form fields (whichever it is), merged over the query string.
      *
-     * @return array<string, mixed>
+     * @return array<array-key, mixed>
      */
     public function input(): array
     {
@@ -63,9 +63,9 @@ final readonly class Request
 
     /**
      * Query-string or form fields as sent: names keep their dots (`api.version`, which parse_str would turn into
-     * `api_version`), and a repeated name keeps its last value.
+     * `api_version`), brackets nest as in PHP (`card[number]`, `items[]`), and a repeated name keeps its last value.
      *
-     * @return array<string, string>
+     * @return array<array-key, mixed>
      */
     public static function fields(string $encoded): array
     {
@@ -77,9 +77,36 @@ final readonly class Request
             }
 
             [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
-            $fields[urldecode($name)] = urldecode($value);
+            $name = urldecode($name);
+            $path = [$name];
+
+            if (preg_match('/^([^\[]+)((?:\[[^\]]*\])+)$/', $name, $match) === 1) {
+                preg_match_all('/\[([^\]]*)\]/', $match[2], $parts);
+                $path = [$match[1], ...$parts[1]];
+            }
+
+            $fields = self::place($fields, $path, urldecode($value));
         }
 
         return $fields;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $target
+     * @param  list<string>  $path  an empty segment appends (`items[]`)
+     * @return array<array-key, mixed>
+     */
+    private static function place(array $target, array $path, string $value): array
+    {
+        $key = (string) array_shift($path);
+        $child = $path === [] ? $value : self::place($key !== '' && is_array($target[$key] ?? null) ? $target[$key] : [], $path, $value);
+
+        if ($key === '') {
+            $target[] = $child;
+        } else {
+            $target[$key] = $child;
+        }
+
+        return $target;
     }
 }
