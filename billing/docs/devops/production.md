@@ -3,22 +3,28 @@
 Runbook for `deploy/compose.prod.yaml`: install, configure, update, back up, restore and roll back. The image is
 described in [container-image.md](container-image.md), the design choices in
 [deployment-options.md](deployment-options.md). Installs without Docker follow [install.md](install.md).
-Blue-green deploys (no gap during an update) and the expand-then-contract migration rule come in the next PR; until
-then an update restarts the app in place, with a gap of a few seconds.
+Every deploy is blue-green (`deploy/bin/deploy`): the new version starts beside the live one and takes traffic only
+once it is healthy, with no gap, and the old one stays ready for a one-command rollback. That is why migrations
+follow the expand-then-contract rule ([architecture.md](../architecture.md#migrations-during-blue-green-deploys-expand-then-contract)).
 
 ## What runs
 
-| Service                | Image           | Command                                                                  | Limit (CPU / memory) | Stop grace |
-| ---------------------- | --------------- | ------------------------------------------------------------------------ | -------------------- | ---------- |
-| `caddy`                | `caddy`         | edge proxy: TLS, HTTP→HTTPS, forwards to `app:8080`                      | 0.5 / 128 MB         | default    |
-| `app`                  | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
-| `worker-critical`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
-| `worker-notifications` | the app image   | `queue:work --queue=notifications,webhooks --timeout=90`                 | 0.5 / 384 MB         | 100 s      |
-| `worker-default`       | the app image   | `queue:work --queue=default --timeout=90`                                | 0.5 / 384 MB         | 100 s      |
-| `scheduler`            | the app image   | `schedule:work` (exactly one)                                            | 0.5 / 256 MB         | 60 s       |
-| `migrate`              | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |
-| `postgres`             | `postgres`      | PostgreSQL 18                                                            | 1.0 / 1 GB           | default    |
-| `rustfs`               | `rustfs/rustfs` | S3-compatible object storage (console off)                               | 0.5 / 512 MB         | default    |
+The app's roles run once per colour (`blue`, `green`): `app-<colour>`, `worker-critical-<colour>`,
+`worker-notifications-<colour>`, `worker-default-<colour>` and `scheduler-<colour>`. Only the live colour's workers
+and scheduler run; the previous colour's web container keeps running for a rollback until you `retire` it.
+`deploy/bin/deploy status` shows which colour is live.
+
+| Service                  | Image           | Command                                                                  | Limit (CPU / memory) | Stop grace |
+| ------------------------ | --------------- | ------------------------------------------------------------------------ | -------------------- | ---------- |
+| `caddy`                  | `caddy`         | edge proxy: TLS, HTTP→HTTPS, forwards to the live colour                 | 0.5 / 128 MB         | default    |
+| `app-<colour>`           | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
+| `worker-critical-…`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
+| `worker-notifications-…` | the app image   | `queue:work --queue=notifications,webhooks --timeout=90`                 | 0.5 / 384 MB         | 100 s      |
+| `worker-default-…`       | the app image   | `queue:work --queue=default --timeout=90`                                | 0.5 / 384 MB         | 100 s      |
+| `scheduler-…`            | the app image   | `schedule:work` (exactly one, live colour)                               | 0.5 / 256 MB         | 60 s       |
+| `migrate`                | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |
+| `postgres`               | `postgres`      | PostgreSQL 18                                                            | 1.0 / 1 GB           | default    |
+| `rustfs`                 | `rustfs/rustfs` | S3-compatible object storage (console off)                               | 0.5 / 512 MB         | default    |
 
 The worker pools are the ones ADR 0014 defines. Workers restart every hour (`--max-time=3600`), and a stop waits up
 to the grace period so a running job finishes; the critical pool's `--timeout` covers the provisioning cap
@@ -36,7 +42,8 @@ volume is writable. Caddy keeps `NET_BIND_SERVICE` only. The Docker socket is mo
 
 **Logs.** Every container logs to stdout/stderr (the app as JSON lines, Caddy's access log as JSON). The json-file
 driver rotates at 10 MB × 5 files per container. Read them with
-`docker compose -f deploy/compose.prod.yaml logs -f app worker-critical`.
+`docker compose -f deploy/compose.prod.yaml --profile blue --profile green logs -f app-blue worker-critical-blue`
+(use the live colour). Caddy's access log names the colour that served each request (`upstream`).
 
 ## Requirements
 
@@ -61,17 +68,18 @@ All commands run from the repository root (a clone at the release you deploy).
     `OBJECTS_SECRET_KEY` and the `MAIL_*` block. `DB_HOST`, `OBJECTS_ENDPOINT` and `TRUSTED_PROXIES` are set by the
     compose file; do not set them here.
 
-2. **Image.** Build it on the host, or name a pushed image in `APP_IMAGE` (by digest) and skip the build.
+2. **Image.** Build it on the host (`deploy/bin/deploy` does this in step 5 too), or use a pushed image by digest
+   with `deploy/bin/deploy --image <ref>`.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml build
+    docker compose -f deploy/compose.prod.yaml build migrate
     ```
 
 3. **Application key**, once. Put the output in `APP_KEY`, and store a copy in your password manager, away from the
    backups: it decrypts the stored gateway, registrar and server credentials.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 app php artisan key:generate --show
+    docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 migrate php artisan key:generate --show
     ```
 
 4. **Database, bucket, reference data and the first administrator.** This starts PostgreSQL and RustFS, then asks
@@ -86,11 +94,11 @@ All commands run from the repository root (a clone at the release you deploy).
     `app:install --admin-email=you@example.com` instead prints a generated one-time password once (sign-in then
     forces a new one). Two-factor setup is required at the first admin sign-in.
 
-5. **Start everything.** The `migrate` one-shot runs again before the app and workers start, and Caddy waits for the
-   app's health check.
+5. **First deploy.** It checks and runs the migrations again (nothing to do), starts the blue colour, writes Caddy's
+   upstream and starts Caddy, then the workers and the scheduler.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml up -d --wait
+    deploy/bin/deploy
     ```
 
 6. **Check.** Open `https://APP_DOMAIN/up`, then sign in. Confirm that the response carries
@@ -104,22 +112,34 @@ GitHub runner (Actions → Deploy smoke, or the `deploy-smoke` label on a pull r
 ## Changing settings
 
 Containers read `deploy/.env` when they start, and the entrypoint caches the configuration then. After editing it,
-recreate the PHP services: `docker compose -f deploy/compose.prod.yaml up -d --force-recreate app worker-critical
-worker-notifications worker-default scheduler`.
+deploy again: `deploy/bin/deploy` starts the other colour with the new settings and switches to it, without a gap.
 
 ## Updating
 
-Until blue-green deploys arrive, an update replaces the containers in place:
-
 ```bash
-git pull                                              # or check out the release tag
-docker compose -f deploy/compose.prod.yaml build      # or set APP_IMAGE to the new digest
-docker compose -f deploy/compose.prod.yaml up -d --wait
+git pull                     # or check out the release tag
+deploy/bin/deploy            # or: deploy/bin/deploy --image ghcr.io/<owner>/<repo>@sha256:<digest>
 ```
 
-`migrate` runs the new migrations before the new app and workers start; the web container is unavailable for the
-seconds its health check takes, and workers finish their current job first (stop grace). Back up before an update
-that contains migrations, and read the changelog's upgrade notes.
+The script, step by step:
+
+1. Builds the checkout as `mohar-app:<commit>` (or uses `--image`).
+2. Runs `php artisan deploy:check-migrations --pending` in the new image, and stops if a pending migration drops,
+   renames or changes schema in one step (`DEPLOY_SKIP_MIGRATION_CHECK=1` skips the check once you have reviewed
+   it).
+3. Runs the one-shot `migrate` with the new image: migrations, the bucket, reference data.
+4. Starts the idle colour's web container and waits for its health check, then probes `/up` from Caddy's network.
+   If it is not healthy, it stops it and leaves traffic where it was.
+5. Writes `deploy/state/live/upstream.caddy` and reloads Caddy gracefully: in-flight requests finish, new ones go
+   to the new colour. It confirms Caddy's running configuration names the new upstream, and restores the old file
+   if the reload fails.
+6. Stops the old scheduler, starts the new colour's workers and scheduler, then stops the old workers. A stopped
+   worker finishes its current job first (stop grace up to 210 s), so no job runs twice, and only one scheduler
+   ever runs.
+7. Records the live and previous colour and their images in `deploy/state/deploy.env`.
+
+Back up the database before an update that contains migrations, and read the changelog's upgrade notes. While both
+colours run, the host needs memory for an extra web container (512 MB).
 
 **Base images.** The `FROM` images in `deploy/Dockerfile` are updated by Dependabot (14-day cooldown). Caddy and
 RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document whether Dependabot reads a compose file
@@ -128,10 +148,16 @@ image must equal the one in `billing/compose.yaml` (CI checks it).
 
 ## Rolling back
 
-Redeploy the previous image: check out the previous release and build, or set `APP_IMAGE` to the previous digest,
-then `up -d --wait`. Migrations are not rolled back. A release whose migrations only add tables and columns runs
-with the older code; one that dropped or renamed something needs the database restored from the backup taken before
-the update (the expand-then-contract rule in the next PR prevents such releases).
+```bash
+deploy/bin/deploy rollback   # switch back to the previous colour; run it again to roll forward
+deploy/bin/deploy retire     # once you are sure: stop the previous colour's web container
+```
+
+A rollback switches Caddy back to the previous colour's web container (started again if it was retired), moves the
+workers and the scheduler with the same drain, and keeps the other colour for a roll-forward. Migrations are not
+rolled back: the expand-then-contract rule keeps the previous release working against the new schema. A release
+that broke that rule (a `@contract` or `@compatible` migration that was wrong) needs the database restored from the
+backup taken before the update.
 
 ## Backups
 
@@ -178,14 +204,16 @@ Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to co
 
 ## Troubleshooting
 
-| Symptom                                   | Look at                                                                                                                                       |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up` stops at `migrate`                   | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means step 4 of the first install was skipped  |
-| 502 from Caddy                            | `docker compose ... ps`: the app must be `healthy`; `logs app` shows why it is not                                                            |
-| No HSTS, or the activity log shows one IP | the app does not trust the proxy: `EDGE_SUBNET` must be the edge network's range (`docker network inspect mohar_edge`)                        |
-| Certificate errors                        | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates |
-| Jobs not processed                        | `logs worker-default` (or the pool that carries the queue); the dashboard's automation summary shows the scheduler heartbeat                  |
-| `Read-only file system` errors            | something writes outside `storage/`, `/tmp` or `bootstrap/cache`: report it as a bug                                                          |
+| Symptom                                   | Look at                                                                                                                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deploy` stops at the migration check     | a pending migration drops, renames or changes schema in one step: split it (architecture.md), or tag it `@contract` / `@compatible` with the reason |
+| `deploy` stops at the migrations          | its output, or `logs migrate`. "No full administrator was created" means step 4 of the first install was skipped                                    |
+| `deploy` says the new colour is unhealthy | the printed `app-<colour>` logs; traffic stayed on the live colour, so fix and deploy again                                                         |
+| 502 from Caddy                            | `docker compose ... ps`: the app must be `healthy`; `logs app` shows why it is not                                                                  |
+| No HSTS, or the activity log shows one IP | the app does not trust the proxy: `EDGE_SUBNET` must be the edge network's range (`docker network inspect mohar_edge`)                              |
+| Certificate errors                        | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates       |
+| Jobs not processed                        | `logs worker-default` (or the pool that carries the queue); the dashboard's automation summary shows the scheduler heartbeat                        |
+| `Read-only file system` errors            | something writes outside `storage/`, `/tmp` or `bootstrap/cache`: report it as a bug                                                                |
 
 ## Traefik instead of Caddy
 

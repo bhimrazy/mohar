@@ -537,6 +537,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 3 (D3): blue-green deploys on one host. `deploy/bin/deploy` checks and runs the migrations with
+  the new image, starts the idle colour beside the live one, switches Caddy with a graceful reload once it is
+  healthy, moves the single scheduler and drains the old workers (each finishes its current job), and keeps the old
+  web container for `deploy/bin/deploy rollback`. `php artisan deploy:check-migrations` enforces the new
+  expand-then-contract rule (`docs/architecture.md`): an `up()` that drops, renames or changes a column or table
+  fails unless tagged `@contract` or `@compatible`. It runs before every deploy and locally (`--since`), not in CI.
+
 - Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
   (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools, the scheduler, a one-shot
   migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
