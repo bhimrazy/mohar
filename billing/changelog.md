@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
+  server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
+  housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
+  wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
+  who bring existing accounts in. Fetches run on the `provisioning` queue.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -113,6 +118,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
+  on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
+  finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
+  that server; unmatched with the reason otherwise; listed apart when another WHM user owns it (a reseller's customer
+  on a root connection, which signs in as root when no username is set); linked when a live service already holds it,
+  with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
+  recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
+  server or here; the request and its result are recorded in the activity log.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,

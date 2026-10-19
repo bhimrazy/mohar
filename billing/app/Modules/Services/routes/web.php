@@ -4,6 +4,7 @@ use App\Modules\Services\Http\Controllers\Admin\CancellationRequestController;
 use App\Modules\Services\Http\Controllers\Admin\ModuleLogController;
 use App\Modules\Services\Http\Controllers\Admin\ServerController;
 use App\Modules\Services\Http\Controllers\Admin\ServerGroupController;
+use App\Modules\Services\Http\Controllers\Admin\ServerImportController;
 use App\Modules\Services\Http\Controllers\Admin\ServiceActionController;
 use App\Modules\Services\Http\Controllers\Admin\ServiceController;
 use App\Modules\Services\Http\Controllers\Client\ServiceActionController as ClientServiceActionController;
@@ -21,6 +22,7 @@ Route::adminArea(function (): void {
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
             Route::post('servers/{server}/trust-certificate', [ServerController::class, 'trustCertificate'])->name('servers.trust-certificate');
             Route::delete('servers/{server}/trust-certificate', [ServerController::class, 'forgetCertificate'])->name('servers.forget-certificate');
+            Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
         });
         Route::resource('server-groups', ServerGroupController::class)->except(['index', 'show']);
 

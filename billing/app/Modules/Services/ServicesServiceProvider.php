@@ -32,6 +32,7 @@ use App\Modules\Services\Listeners\RecordOrderInvoice;
 use App\Modules\Services\Listeners\SyncCancelledInvoice;
 use App\Modules\Services\Models\CancellationRequest;
 use App\Modules\Services\Models\ModuleQueueItem;
+use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
@@ -103,6 +104,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today), label: 'Terminate overdue services', description: 'Terminates services that stayed overdue past the termination threshold.');
         $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
         $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
+        $automation->task('services.import-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ServerAccountImport::query()->where('expires_at', '<=', now())->delete(), label: 'Discard expired account imports', description: 'Deletes account lists fetched for import more than a day ago; they hold client emails.');
         $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
     }
 
@@ -228,11 +230,12 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'services.services.credentials' => 'Reveal service passwords',
             'services.servers.view' => 'View servers and server groups',
             'services.servers.manage' => 'Create, edit and delete servers and server groups',
+            'services.servers.import' => 'Import existing accounts from servers (reads client emails from the server)',
             'services.cancellations.manage' => 'Review, approve and void cancellation requests',
             'services.module_log.view' => 'View the module log and failed actions',
             'services.module_log.manage' => 'Retry, resolve and dismiss failed module actions',
             'services.settings.manage' => 'Manage services automation settings',
-        ], sensitive: ['services.services.credentials', 'services.servers.manage']);
+        ], sensitive: ['services.services.credentials', 'services.servers.manage', 'services.servers.import']);
     }
 
     private function registerSettings(): void
