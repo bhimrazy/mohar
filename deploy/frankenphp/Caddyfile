@@ -5,6 +5,8 @@
 	auto_https off
 	# No admin API in the app container; the edge proxy is the one that reloads.
 	admin off
+	# Finish in-flight requests on SIGTERM, within Docker's default 10 s stop timeout.
+	grace_period 8s
 	frankenphp
 	log default {
 		output stderr

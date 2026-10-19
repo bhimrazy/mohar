@@ -26,11 +26,19 @@ billing/public/fonts-manifest.dev.json
 billing/bootstrap/cache/*.php
 billing/bootstrap/ssr
 billing/database/*.sqlite*
-billing/storage/app/**
-billing/storage/framework/**
-billing/storage/logs/**
-billing/storage/pail
-!billing/storage/**/.gitignore
+# Everything under storage/ is local state (logs, sessions, uploads, dev-tool recordings). Only the skeleton's
+# tracked .gitignore files are kept, by name: tools create their own (storage/inertia-devtools/.gitignore).
+billing/storage/**
+!billing/storage/app/.gitignore
+!billing/storage/app/private/.gitignore
+!billing/storage/app/public/.gitignore
+!billing/storage/framework/.gitignore
+!billing/storage/framework/cache/.gitignore
+!billing/storage/framework/cache/data/.gitignore
+!billing/storage/framework/sessions/.gitignore
+!billing/storage/framework/testing/.gitignore
+!billing/storage/framework/views/.gitignore
+!billing/storage/logs/.gitignore
 billing/resources/js/actions
 billing/resources/js/routes
 billing/resources/js/wayfinder
@@ -62,3 +70,10 @@ billing/.zed
 billing/.mcp.json
 billing/boost.json
 billing/.DS_Store
+billing/.phpactor.json
+billing/Homestead.*
+billing/npm-debug.log
+billing/yarn-error.log
+billing/.amp
+billing/.pi
+billing/opencode.json*

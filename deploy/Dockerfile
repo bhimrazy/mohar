@@ -47,9 +47,12 @@ RUN set -eux; \
 COPY --from=php /usr/local/bin/frankenphp /usr/local/bin/php /usr/local/bin/
 COPY --from=php /usr/local/lib/php/extensions /usr/local/lib/php/extensions
 COPY --from=php /usr/local/etc/php /usr/local/etc/php
+# The slim image has no CA store and no /usr/lib/ssl, so OpenSSL's default paths are empty: PHP stream TLS (SMTP
+# STARTTLS, https:// streams) would not verify. Point OpenSSL at the bundle (app.ini sets openssl.cafile too).
 COPY --from=php /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 ENV PHP_INI_DIR=/usr/local/etc/php \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SERVER_NAME=:8080 \
     XDG_CONFIG_HOME=/config \
     XDG_DATA_HOME=/data
@@ -69,6 +72,12 @@ RUN --mount=type=cache,target=/root/.cache/composer \
     composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-progress
 
 COPY billing/ .
+# Backstop for Dockerfile.dockerignore: local state (an .env, logs, sessions, dev-tool recordings) must never reach
+# the image, where Docker would also seed the storage volume from it.
+RUN leaked="$(find . -path ./vendor -prune -o \( -name '.env' -o -name '.env.*' \) ! -name .env.example -print; \
+        find storage -type f ! -name .gitignore; \
+        find storage -mindepth 1 -maxdepth 1 ! -name app ! -name framework ! -name logs)"; \
+    if [ -n "$leaked" ]; then echo "Local files in the build context:" >&2; echo "$leaked" >&2; exit 1; fi
 # Runs the post-autoload-dump scripts: package discovery writes bootstrap/cache/{packages,services}.php.
 RUN composer dump-autoload --no-dev --optimize
 
@@ -136,11 +145,19 @@ COPY --chmod=0755 deploy/healthcheck.php /usr/local/bin/app-healthcheck
 COPY --from=vendor /app /app
 COPY --from=assets /app/public/build /app/public/build
 RUN mkdir -p storage/app/private storage/app/public storage/framework/cache/data storage/framework/sessions \
-        storage/framework/views storage/logs /data/caddy /config/caddy \
-    && chown -R app:app storage bootstrap/cache /data /config
+        storage/logs /data/caddy /config/caddy \
+    && chown -R app:app storage bootstrap/cache /data /config \
+    # The slimmed runtime must still load every extension the app needs, and OpenSSL must find the CA bundle.
+    && php -r 'foreach (["bcmath","ctype","curl","dom","fileinfo","gd","intl","mbstring","openssl","pcntl","pdo_pgsql", \
+        "pgsql","sodium","zip","Zend OPcache"] as $e) { if (! extension_loaded($e)) { fwrite(STDERR, "missing $e\n"); exit(1); } } \
+        if (! is_readable((string) ini_get("openssl.cafile"))) { fwrite(STDERR, "no CA bundle\n"); exit(1); }' \
+    && frankenphp version
 
+# Compiled views stay per container (bootstrap/cache is a tmpfs): two versions running side by side during a
+# blue-green deploy must never share them through the storage volume.
 ENV APP_ENV=production \
     APP_DEBUG=false \
+    VIEW_COMPILED_PATH=/app/bootstrap/cache/views \
     LOG_CHANNEL=stderr \
     LOG_STDERR_FORMATTER=Monolog\\Formatter\\JsonFormatter \
     INERTIA_SSR_ENABLED=false
