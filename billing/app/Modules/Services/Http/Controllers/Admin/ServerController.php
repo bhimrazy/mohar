@@ -168,7 +168,7 @@ class ServerController extends Controller
         $this->authorize('services.servers.manage');
 
         $fingerprint = (string) $request->validate([
-            'fingerprint' => ['required', 'string', 'regex:#^[A-Za-z0-9+/]{43}=$#'],
+            'fingerprint' => ['required', 'string', 'regex:#^[A-Za-z0-9+/]{43}=\z#'],
         ])['fingerprint'];
         $offered = $request->session()->pull(self::offeredPinKey($server));
 
