@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# One-shot smoke install of the production stack (deploy/compose.prod.yaml) on fresh volumes, checked through
-# Caddy with a certificate from Caddy's internal CA. Used by .github/workflows/deploy-smoke.yml; runs anywhere
-# Docker Compose v2 can network containers. It never reads or writes deploy/.env: it generates its own
-# deploy/.env.smoke (gitignored) and a separate compose project, and removes both on exit.
+# One-shot smoke install of the production stack (deploy/compose.prod.yaml) on fresh volumes, deployed with
+# deploy/bin/deploy and checked through Caddy with a certificate from Caddy's internal CA. Used by
+# .github/workflows/deploy-smoke.yml; runs anywhere Docker Compose v2 can network containers. It never reads or
+# writes deploy/.env or deploy/state: it generates its own deploy/.env.smoke (gitignored), state directory and
+# compose project, and removes them on exit.
 #
-#   deploy/bin/smoke            build the image, install, check, tear down
+#   deploy/bin/smoke                build the image, install, deploy blue, check, deploy green, roll back, tear down
 #   SMOKE_KEEP=1 deploy/bin/smoke   leave the stack running for inspection (remove it with the printed command)
 #
-# Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; every service up; /up through
-# Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job processed
-# by the default worker pool; the app container runs as UID 10001 on a read-only root filesystem; PHP stream TLS
-# verifies public certificates; compiled views stay out of the shared storage volume.
+# Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; the first deploy (blue); /up
+# through Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job
+# processed by the live colour's default pool; UID 10001 on a read-only root; PHP stream TLS verifies public
+# certificates; compiled views stay per container. Then a blue-green deploy to green and a rollback to blue under a
+# steady request loop: no failed request, the live upstream, one scheduler, and the old colour's workers drained.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -19,30 +21,34 @@ cd "$root"
 project="${SMOKE_PROJECT:-mohar-smoke}"
 http_port="${SMOKE_HTTP_PORT:-18080}"
 https_port="${SMOKE_HTTPS_PORT:-18443}"
+image="${SMOKE_IMAGE:-mohar-app:smoke}"
 env_file="deploy/.env.smoke"
 work="$(mktemp -d)"
 base="https://localhost:${https_port}"
 admin_email="smoke-admin@example.com"
-compose=(docker compose -p "$project" -f deploy/compose.prod.yaml --env-file "$env_file")
+export DEPLOY_ENV_FILE="$env_file" DEPLOY_PROJECT="$project" DEPLOY_STATE_DIR="$work/state"
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml --env-file "$env_file" --profile blue --profile green)
 failed=1
 
 step() { printf '\n== %s\n' "$*"; }
 pass() { printf 'PASS %s\n' "$*"; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf -- '- PASS %s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; return 0; }
 fail() { printf 'FAIL %s\n' "$*" >&2; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf -- '- FAIL %s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
 random() { head -c 32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-"${1:-32}"; }
+running() { "${compose[@]}" ps --status running --services | sort | tr '\n' ' '; }
 
 cleanup() {
+    [ -n "${loop_pid:-}" ] && kill "$loop_pid" 2>/dev/null || true
     if [ "$failed" = 1 ]; then
         step "diagnostics"
         "${compose[@]}" ps -a || true
         "${compose[@]}" logs --no-color --tail 60 || true
     fi
     if [ "${SMOKE_KEEP:-0}" = 1 ]; then
-        echo "Stack kept. Remove it with: ${compose[*]} down -v --remove-orphans && rm -f $env_file"
-    else
-        "${compose[@]}" down -v --remove-orphans --timeout 20 >/dev/null 2>&1 || true
-        rm -f "$env_file"
+        echo "Stack kept. Remove it with: ${compose[*]} down -v --remove-orphans && rm -rf $env_file $work"
+        return
     fi
+    "${compose[@]}" down -v --remove-orphans --timeout 20 >/dev/null 2>&1 || true
+    rm -f "$env_file"
     rm -rf "$work"
 }
 trap cleanup EXIT
@@ -59,7 +65,7 @@ APP_ENV_FILE=.env.smoke
 CADDY_TLS=tls internal
 HTTP_PORT=${http_port}
 HTTPS_PORT=${https_port}
-APP_IMAGE=${SMOKE_IMAGE:-mohar-app:smoke}
+APP_IMAGE=${image}
 DB_DATABASE=billing
 DB_USERNAME=billing
 DB_PASSWORD=$(random)
@@ -78,14 +84,14 @@ docker compose version
 if [ -z "${SMOKE_IMAGE:-}" ]; then
     step "build the image (deploy/Dockerfile, target prod)"
     start=$(date +%s)
-    "${compose[@]}" build app
+    APP_IMAGE="$image" "${compose[@]}" build migrate
     pass "image built in $(( $(date +%s) - start ))s"
 fi
-docker image inspect "${SMOKE_IMAGE:-mohar-app:smoke}" --format 'image size (unpacked): {{.Size}} bytes'
+docker image inspect "$image" --format 'image size (unpacked): {{.Size}} bytes'
 
 step "first install on empty PostgreSQL and RustFS"
 "${compose[@]}" up -d --wait --wait-timeout 120 postgres rustfs
-"${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
+APP_IMAGE="$image" "${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
     && php artisan objects:ensure-bucket --no-interaction \
     && php artisan app:install --no-interaction --admin-name='Smoke Admin' --admin-email=${admin_email}" > "$work/install.log" 2>&1 \
     || { tail -40 "$work/install.log" >&2; fail "first install"; }
@@ -95,15 +101,14 @@ password="$(awk 'found && NF { print $1; exit } /one-time password/ { found = 1 
 [ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::${password}"
 pass "migrations, bucket and first administrator"
 
-step "start every service and wait for health"
+step "first deploy (blue)"
 start=$(date +%s)
-"${compose[@]}" up -d --wait --wait-timeout 180 || fail "stack did not become healthy"
-pass "stack healthy in $(( $(date +%s) - start ))s (migrate re-run on the installed database)"
-running="$("${compose[@]}" ps --status running --services | sort | tr '\n' ' ')"
-for service in app caddy postgres rustfs scheduler worker-critical worker-default worker-notifications; do
-    grep -qw "$service" <<< "$running" || fail "service $service is not running (running: $running)"
+deploy/bin/deploy --image "$image" || fail "first deploy"
+pass "deployed blue in $(( $(date +%s) - start ))s (migration check, migrate, health, switch)"
+for service in app-blue caddy postgres rustfs scheduler-blue worker-critical-blue worker-default-blue worker-notifications-blue; do
+    grep -qw "$service" <<< "$(running)" || fail "service $service is not running (running: $(running))"
 done
-pass "running: $running"
+pass "running: $(running)"
 
 step "HTTPS through Caddy (internal CA)"
 for _ in $(seq 30); do
@@ -137,36 +142,89 @@ login_page='/login$'
 { [[ "$after" =~ $ok_pattern ]] && ! [[ "$after" =~ $login_page ]]; } || fail "signed-in request to /admin: $after"
 pass "POST /login = ${login}; /admin then answers ${after} (the one-time password asks for confirmation and 2FA next)"
 
-step "queued job through the default worker pool"
-"${compose[@]}" exec -T app php artisan tinker --execute \
-    'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
-done_line=""
-for _ in $(seq 60); do
-    done_line="$("${compose[@]}" logs --no-color worker-default 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
-    [ -n "$done_line" ] && break
-    sleep 2
-done
-[[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed: ${done_line:-no worker output}"
-failed_jobs="$("${compose[@]}" exec -T app php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
-[ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
-pass "RunAutomationJob processed by worker-default (${done_line##* }); failed_jobs = 0"
+# Queue RunAutomationJob through the live web container and wait for the live colour's default pool to finish it.
+queued_job() {
+    local colour="$1" done_line="" before
+    before="$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)"
+    "${compose[@]}" exec -T "app-$colour" php artisan tinker --execute \
+        'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
+    for _ in $(seq 60); do
+        done_line="$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
+        [ "$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)" -gt "$before" ] && break
+        sleep 2
+    done
+    [[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed by worker-default-$colour: ${done_line:-no worker output}"
+    failed_jobs="$("${compose[@]}" exec -T "app-$colour" php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
+    [ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
+    pass "RunAutomationJob processed by worker-default-$colour; failed_jobs = 0"
+}
 
-step "container hardening"
-uid="$("${compose[@]}" exec -T app id -u)"
+step "queued job through the live colour's default pool"
+queued_job blue
+
+step "container hardening, outbound TLS and per-container caches"
+uid="$("${compose[@]}" exec -T app-blue id -u)"
 [ "$uid" = 10001 ] || fail "app runs as UID $uid"
-if "${compose[@]}" exec -T app sh -c 'touch /app/smoke-write-test' 2>/dev/null; then
+if "${compose[@]}" exec -T app-blue sh -c 'touch /app/smoke-write-test' 2>/dev/null; then
     fail "the app's root filesystem is writable"
 fi
 pass "app runs as UID 10001 on a read-only root filesystem"
-
-step "outbound TLS and per-container caches"
-"${compose[@]}" exec -T app php -r 'exit(@file_get_contents("https://example.com") === false ? 1 : 0);' \
+"${compose[@]}" exec -T app-blue php -r 'exit(@file_get_contents("https://example.com") === false ? 1 : 0);' \
     || fail "PHP stream TLS (SMTP STARTTLS, https:// streams) cannot verify a public certificate"
 pass "PHP stream TLS verifies a public certificate (CA bundle)"
-views="$("${compose[@]}" exec -T app sh -c 'ls /app/bootstrap/cache/views | wc -l; ls -A /app/storage/framework/views | grep -vc gitignore || true')"
+views="$("${compose[@]}" exec -T app-blue sh -c 'ls /app/bootstrap/cache/views | wc -l; ls -A /app/storage/framework/views | grep -vc gitignore || true')"
 [ "$(sed -n 1p <<< "$views")" -gt 0 ] && [ "$(sed -n 2p <<< "$views")" = 0 ] \
     || fail "compiled views must be per container, not in the shared storage volume (got: $(tr '\n' ' ' <<< "$views"))"
 pass "compiled views are per container ($(sed -n 1p <<< "$views") in bootstrap/cache/views, none in storage)"
+
+# A steady request loop against /up through Caddy while a deploy or rollback runs; every response must be 200.
+start_loop() {
+    : > "$work/loop.log"
+    ( while :; do "${curl_tls[@]}" -o /dev/null -w '%{http_code}\n' "${base}/up" >> "$work/loop.log" 2>/dev/null || echo 000 >> "$work/loop.log"; sleep 0.2; done ) &
+    loop_pid=$!
+}
+stop_loop() {
+    kill "$loop_pid" 2>/dev/null || true
+    wait "$loop_pid" 2>/dev/null || true
+    loop_pid=""
+    total="$(wc -l < "$work/loop.log")"
+    bad="$(grep -vc '^200$' "$work/loop.log" || true)"
+    [ "$bad" = 0 ] || fail "$bad of $total requests failed during the $1 ($(sort "$work/loop.log" | uniq -c | tr '\n' ' '))"
+    pass "$total requests during the $1, none failed"
+}
+assert_live() {
+    local live="$1" old="$2"
+    "${compose[@]}" exec -T caddy wget -qO- http://localhost:2019/config/ | grep -q "app-${live}:8080" \
+        || fail "Caddy's running configuration does not name app-$live"
+    "${curl_tls[@]}" -o /dev/null "${base}/up"
+    sleep 1
+    "${compose[@]}" logs --no-color --since 30s caddy | grep '"upstream":' | tail -1 | grep -q "\"upstream\":\"app-${live}" \
+        || fail "the last request through Caddy was not served by app-$live"
+    local now
+    now="$(running)"
+    for service in "app-$live" "scheduler-$live" "worker-critical-$live" "worker-default-$live" "worker-notifications-$live" "app-$old"; do
+        grep -qw "$service" <<< "$now" || fail "$service is not running after the switch (running: $now)"
+    done
+    for service in "scheduler-$old" "worker-critical-$old" "worker-default-$old" "worker-notifications-$old"; do
+        grep -qw "$service" <<< "$now" && fail "$service still runs after the switch (one scheduler, old workers drained)"
+    done
+    pass "live: $live (Caddy config and access log); one scheduler; $old workers drained; app-$old kept for rollback"
+}
+
+step "blue-green deploy to green under load"
+start_loop
+start=$(date +%s)
+deploy/bin/deploy --image "$image" || fail "blue-green deploy"
+stop_loop "deploy to green ($(( $(date +%s) - start ))s)"
+assert_live green blue
+queued_job green
+
+step "rollback to blue under load"
+start_loop
+deploy/bin/deploy rollback || fail "rollback"
+stop_loop "rollback"
+assert_live blue green
+queued_job blue
 
 failed=0
 step "all checks passed"
