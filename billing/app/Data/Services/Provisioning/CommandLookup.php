@@ -10,9 +10,15 @@ use App\Enums\ReconcileStatus;
  */
 final readonly class CommandLookup
 {
+    /**
+     * @param  array<string, mixed>  $data  for Executed: what the command would have reported had it answered, with the
+     *                                      DriverResult::$data keys (`driver_data`, `dedicated_ip`, ...), so a settled
+     *                                      command stores the same as a completed one
+     */
     public function __construct(
         public ReconcileStatus $status,
         public ?RemoteAccount $account = null,
         public ?string $message = null,
+        public array $data = [],
     ) {}
 }

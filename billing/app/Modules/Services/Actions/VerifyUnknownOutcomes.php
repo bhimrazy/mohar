@@ -134,6 +134,37 @@ class VerifyUnknownOutcomes
     }
 
     /**
+     * Whether running the command again waits on a server check (a create on a driver that can check).
+     */
+    public function gatesRunAgain(ModuleQueueItem $item): bool
+    {
+        return $item->command === ModuleCommandName::Create->value && $this->canCheck($item);
+    }
+
+    /**
+     * Use up the "not executed" answer that allows "Create again", atomically, so two clicks (or two staff) cannot
+     * both run it. Returns the attempt the answer was about, which the command re-checks under the lock before it
+     * sends anything; null when the answer was already used or no longer applies.
+     */
+    public function consumeRunAgain(ModuleQueueItem $item): ?int
+    {
+        $attempt = $this->unknownAttempt($item);
+
+        if ($attempt === null || $this->runAgainBlockedReason($item) !== null) {
+            return null;
+        }
+
+        $consumed = ModuleQueueItem::query()
+            ->whereKey($item->id)
+            ->where('status', QueueStatus::Open->value)
+            ->where('lookup_status', ReconcileStatus::NotExecuted->value)
+            ->where('lookup_command_id', $attempt->id)
+            ->update(['lookup_status' => null, 'lookup_message' => null, 'looked_up_at' => null, 'lookup_command_id' => null]);
+
+        return $consumed === 1 ? $attempt->id : null;
+    }
+
+    /**
      * Ask the driver and record or apply the answer. Null when the driver cannot check, or when the entry was settled
      * or changed meanwhile (nothing is applied then).
      *
@@ -168,7 +199,7 @@ class VerifyUnknownOutcomes
 
         if ($lookup->status === ReconcileStatus::Executed) {
             try {
-                $outcome = $this->commands->settle($service->id, $command, $item->args ?? [], DriverResult::ok($message ?? __('Confirmed on the server.')), $item->id, $attempt?->id, $initiator);
+                $outcome = $this->commands->settle($service->id, $command, $item->args ?? [], DriverResult::ok($message ?? __('Confirmed on the server.'), array_intersect_key($lookup->data, array_flip(DriverResult::DATA_KEYS))), $item->id, $attempt?->id, $initiator);
             } catch (LockTimeoutException) {
                 $this->record($item, ReconcileStatus::InProgress, __('Busy: another action is running for this service. Try again in a moment; the sweep also checks it again.'), $attempt);
 

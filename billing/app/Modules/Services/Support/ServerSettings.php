@@ -101,7 +101,8 @@ class ServerSettings
 
         foreach ($this->fields($driverKey) as $field) {
             $before = $stored[$field->key] ?? null;
-            $value = $this->cast($field, $submitted[$field->key] ?? null);
+            // A certificate pin is set only by "Trust this certificate" and removed only by Remove (put()), never by a form.
+            $value = $field->key === self::CERTIFICATE_PIN ? $before : $this->cast($field, $submitted[$field->key] ?? null);
 
             if ($field->isSecret() && ($value === null || $value === '')) {
                 $value = $before;

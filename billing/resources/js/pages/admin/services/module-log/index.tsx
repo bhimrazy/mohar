@@ -15,6 +15,11 @@ import {
 } from '@/components/services/module-log-table';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ModuleLogController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ModuleLogController';
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
@@ -305,29 +310,46 @@ export default function ModuleLogIndex({
                                                           Check now
                                                       </Button>
                                                   )}
-                                                  <Button
-                                                      size="sm"
-                                                      disabled={
-                                                          row.retry_blocked !==
-                                                          null
-                                                      }
-                                                      title={
-                                                          row.retry_blocked ??
-                                                          undefined
-                                                      }
-                                                      onClick={() =>
-                                                          post(
-                                                              ModuleLogController.retry(
-                                                                  row.id,
-                                                              ).url,
-                                                          )
-                                                      }
-                                                  >
-                                                      {row.can_check &&
-                                                      row.command === 'create'
-                                                          ? 'Create again'
-                                                          : 'Retry'}
-                                                  </Button>
+                                                  <Tooltip>
+                                                      <TooltipTrigger asChild>
+                                                          {/* A disabled button gets no pointer events, so the wrapper carries the tooltip. */}
+                                                          <span
+                                                              tabIndex={
+                                                                  row.retry_blocked
+                                                                      ? 0
+                                                                      : -1
+                                                              }
+                                                          >
+                                                              <Button
+                                                                  size="sm"
+                                                                  disabled={
+                                                                      row.retry_blocked !==
+                                                                      null
+                                                                  }
+                                                                  onClick={() =>
+                                                                      post(
+                                                                          ModuleLogController.retry(
+                                                                              row.id,
+                                                                          ).url,
+                                                                      )
+                                                                  }
+                                                              >
+                                                                  {row.can_check &&
+                                                                  row.command ===
+                                                                      'create'
+                                                                      ? 'Create again'
+                                                                      : 'Retry'}
+                                                              </Button>
+                                                          </span>
+                                                      </TooltipTrigger>
+                                                      {row.retry_blocked && (
+                                                          <TooltipContent className="max-w-xs">
+                                                              {
+                                                                  row.retry_blocked
+                                                              }
+                                                          </TooltipContent>
+                                                      )}
+                                                  </Tooltip>
                                               </span>
                                           ),
                                       },

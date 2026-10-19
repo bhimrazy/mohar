@@ -101,6 +101,17 @@ class ModuleLogController extends Controller
         $command = ModuleCommandName::from($item->command);
         // Retrying a "verify" item is the staff statement that the server was checked.
         $args = [...($item->args ?? []), ...($item->kind === ModuleQueueItem::KIND_VERIFY ? ['verified' => true] : [])];
+
+        if ($item->kind === ModuleQueueItem::KIND_VERIFY && $verify->gatesRunAgain($item)) {
+            // The check's answer is single use and travels with the command, which re-checks it under the lock.
+            $checked = $verify->consumeRunAgain($item);
+
+            if ($checked === null) {
+                throw ValidationException::withMessages(['action' => __('Check now first: this check was already used or no longer applies.')]);
+            }
+
+            $args['checked_attempt'] = $checked;
+        }
         $outcome = $this->attempt(fn (): CommandOutcome => $commands->runNow($item->service, $command, $args, 'staff:'.$request->user()?->id));
 
         if (! $outcome->succeededNow()) {

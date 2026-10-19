@@ -2,6 +2,7 @@
 
 use App\Data\Integrations\ResolvedAddress;
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CertificateInspector;
 use App\Modules\Services\Models\Server;
 use Illuminate\Support\Facades\Http;
@@ -137,4 +138,35 @@ test('the server form shows only the connection fields the driver reads', functi
             ->missing('driverConnectionFields.cpanel.secure')
             ->missing('driverConnectionFields.cpanel.access_hash')
             ->where('driverConnectionFields.none', null));
+});
+
+test('the server form never sets or changes a pin', function () {
+    actingAsStaff();
+    confirmPassword();
+    $this->server->update(['settings' => ['login_method' => 'token', 'spki_pin' => PRESENTED_PIN]]);
+    $currency = Currency::factory()->create()->code;
+    $form = ['name' => 'Shared 1', 'hostname' => Whm::HOST, 'driver' => 'cpanel', 'username' => 'root', 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
+
+    $this->put(route('admin.services.servers.update', $this->server), [...$form, 'settings' => ['login_method' => 'token', 'spki_pin' => str_repeat('B', 43).'=']])->assertSessionHasNoErrors();
+    expect($this->server->refresh()->settings['spki_pin'])->toBe(PRESENTED_PIN);
+
+    $this->post(route('admin.services.servers.store'), [...$form, 'name' => 'New', 'settings' => ['spki_pin' => str_repeat('B', 43).'=']])->assertSessionHasNoErrors();
+    expect(Server::query()->where('name', 'New')->sole()->settings['spki_pin'] ?? null)->toBeNull();
+});
+
+test('switching the sign-in method removes the credential no longer used, and audits it', function () {
+    actingAsStaff();
+    confirmPassword();
+    $this->server->update(['password' => 'Old-Root-Password', 'settings' => null]);
+    $currency = Currency::factory()->create()->code;
+    $form = ['name' => 'Shared 1', 'hostname' => Whm::HOST, 'driver' => 'cpanel', 'username' => 'root', 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
+
+    // No sign-in setting stored: it reads as its default (token), so the token stays and the unused password goes.
+    $this->put(route('admin.services.servers.update', $this->server), $form)->assertSessionHasNoErrors();
+    expect($this->server->refresh()->api_token)->toBe(Whm::TOKEN)->and($this->server->password)->toBeNull();
+
+    $this->put(route('admin.services.servers.update', $this->server), [...$form, 'password' => 'New-Root-Password', 'settings' => ['login_method' => 'password']])->assertSessionHasNoErrors();
+    expect($this->server->refresh()->api_token)->toBeNull()
+        ->and($this->server->password)->toBe('New-Root-Password')
+        ->and(ActivityLog::query()->where('subject_id', $this->server->id)->latest('id')->first()?->properties['changes']['api_token'] ?? null)->toBe('removed');
 });

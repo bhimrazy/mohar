@@ -132,11 +132,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   for one attempt: a new attempt needs a new check, "Create again" needs a check from the last 15 minutes, and a
   service moved to another server or edited since the attempt is a conflict for staff. A check never settles an entry
   that was settled, dismissed or retried meanwhile, and a busy service is skipped with a message. Check now is limited
-  to 6 a minute; "Mark resolved" and "Dismiss" are now "Mark fixed" and "Ignore".
+  to 6 a minute; "Mark resolved" and "Dismiss" are now "Mark fixed" and "Ignore". A "not on the server" answer opens
+  Create again once, and the create re-checks it under the service lock before sending anything. A create settled by
+  a check stores the account's IP and plan like any create.
 - The server form shows only the connection fields the driver reads (cPanel: port, username, and an API token or a
   password per "Sign in with"). A trusted certificate is shown read-only with a Remove action (sensitive, recent
   password, audited); trusting one shows the fingerprint to compare and a copyable command, and an offer is dropped
-  when the server's address is edited. Errors from Test connection and from trusting now show on the form.
+  when the server's address is edited. Errors from Test connection and from trusting now show on the form. The form
+  never sets a pin. Switching "Sign in with" removes the credential no longer used (audited), and the form says so
+  before saving.
 - Module log entries of a create record the username and domain it sent. Log redaction also masks `session=` values
   in URLs.
 

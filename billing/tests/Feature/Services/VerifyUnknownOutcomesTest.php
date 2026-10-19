@@ -248,3 +248,39 @@ test('Check now is throttled per staff member', function () {
 
     $this->post(route('admin.services.module-log.check', $item))->assertTooManyRequests();
 });
+
+test('a "not on the server" answer opens Create again once, and the create re-checks it under the lock', function () {
+    actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
+    $service = unknownCpanelCreate();
+    $item = verifyItem($service);
+    $checked = ModuleCommand::query()->where('service_id', $service->id)->where('status', ModuleCommand::UNKNOWN)->value('id');
+    $this->travel(11)->minutes();
+    Whm::fake(['listaccts' => 'listaccts_empty']);
+    app(VerifyUnknownOutcomes::class)->check($item);
+
+    // The first click uses the answer up; a second click (a double-click, or a colleague) is refused at once.
+    expect(app(VerifyUnknownOutcomes::class)->consumeRunAgain($item->refresh()))->toBe($checked)
+        ->and(app(VerifyUnknownOutcomes::class)->consumeRunAgain($item->refresh()))->toBeNull();
+
+    // The first click's create times out: a newer attempt of unknown outcome.
+    Whm::fake(['createacct' => Http::failedConnection('cURL error 28: Operation timed out after 50001 milliseconds with 0 bytes received')]);
+    app(ExecuteModuleCommand::class)->handle($service->id, ModuleCommandName::Create, ['verified' => true, 'checked_attempt' => $checked]);
+
+    // A job queued for the earlier answer (it passed the gate before the timeout) now runs: nothing is sent.
+    $outcome = app(ExecuteModuleCommand::class)->handle($service->id, ModuleCommandName::Create, ['verified' => true, 'checked_attempt' => $checked]);
+
+    expect($outcome->message)->toContain('newer create attempt')
+        ->and(Whm::sent('createacct'))->toHaveCount(1)
+        ->and(verifyItem($service)->kind)->toBe(ModuleQueueItem::KIND_VERIFY)
+        ->and(verifyItem($service)->status)->toBe(QueueStatus::Open);
+});
+
+test('a create settled by the check stores what a completed create stores', function () {
+    $service = unknownCpanelCreate();
+    Whm::fake(['listaccts' => Whm::accounts(['unix_startdate' => now()->getTimestamp(), 'ip' => '203.0.113.77', 'plan' => 'root_basic'])]);
+
+    $this->artisan('services:verify-unknown')->assertSuccessful();
+
+    expect($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and($service->driver_data)->toMatchArray(['ip' => '203.0.113.77', 'plan' => 'root_basic', 'owner' => 'root']);
+});

@@ -216,8 +216,11 @@ export function ConnectionCheck({
                                     <span>
                                         Only trust this if it matches the
                                         fingerprint on your server. A wrong key
-                                        lets someone intercept this server's
-                                        credentials.
+                                        lets someone intercept{' '}
+                                        {check.details.credentials_name
+                                            ? `your ${check.details.credentials_name}`
+                                            : "this server's credentials"}
+                                        .
                                     </span>
                                     <code className="block overflow-x-auto rounded-md border bg-muted/50 p-2 font-mono text-xs whitespace-pre">
                                         {fingerprint}

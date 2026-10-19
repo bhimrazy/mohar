@@ -25,8 +25,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('module_queue', function (Blueprint $table): void {
-            $table->dropConstrainedForeignId('lookup_command_id');
-            $table->dropColumn(['lookup_status', 'lookup_message', 'looked_up_at']);
+            // Foreign key, then its index, then the columns: SQLite will not drop a column an index still covers.
+            $table->dropForeign(['lookup_command_id']);
+            $table->dropIndex(['lookup_command_id']);
+            $table->dropColumn(['lookup_status', 'lookup_message', 'looked_up_at', 'lookup_command_id']);
         });
     }
 };

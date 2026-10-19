@@ -442,7 +442,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
 
         try {
             if ($command === 'create') {
-                return $this->reconcileCreate($client, $server, $username, $this->domain($context), $attemptedAt);
+                return $this->reconcileCreate($client, $context, $server, $username, $this->domain($context), $attemptedAt);
             }
 
             if ($command === 'terminate') {
@@ -479,7 +479,8 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
     {
         $client = $this->client($server, $this->interactiveSeconds());
         $steps = [];
-        $details = [];
+        // Named in the "Trust this certificate" warning: what a wrong key would expose.
+        $details = ['credentials_name' => 'WHM API token or password'];
 
         try {
             $address = $client->address();
@@ -608,6 +609,17 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             }
         }
 
+        return DriverResult::ok($message, $this->createdData($context, $account));
+    }
+
+    /**
+     * What a create reports for the account it made (§3.1 step 4); a settled create reports the same (§6.2).
+     *
+     * @param  array<string, mixed>|null  $account
+     * @return array<string, mixed>
+     */
+    private function createdData(ProvisioningContext $context, ?array $account): array
+    {
         $created = isset($account['unix_startdate']) && is_numeric($account['unix_startdate']) ? CarbonImmutable::createFromTimestamp((int) $account['unix_startdate'])->toIso8601String() : null;
         $data = ['driver_data' => array_filter([
             'owner' => $account['owner'] ?? null,
@@ -620,7 +632,7 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
             $data['dedicated_ip'] = $account['ip'];
         }
 
-        return DriverResult::ok($message, $data);
+        return $data;
     }
 
     /**
@@ -662,13 +674,13 @@ class CpanelDriver implements ChangesPackage, ChangesPassword, ListsAccounts, Pr
      *
      * @throws WhmFailure
      */
-    private function reconcileCreate(WhmClient $client, ServerConnection $server, string $username, string $domain, CarbonImmutable $attemptedAt): CommandLookup
+    private function reconcileCreate(WhmClient $client, ProvisioningContext $context, ServerConnection $server, string $username, string $domain, CarbonImmutable $attemptedAt): CommandLookup
     {
         $account = $this->findAccount($client, $server, 'user', $username);
 
         if ($account !== null) {
             return $this->adoptable($account, $domain, $attemptedAt, $server)
-                ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($account), 'The account is on the server.')
+                ? new CommandLookup(ReconcileStatus::Executed, $this->remoteAccount($account), 'The account is on the server.', $this->createdData($context, $account))
                 : new CommandLookup(ReconcileStatus::Conflict, $this->remoteAccount($account), sprintf('The username %s on %s belongs to an account (owner %s, domain %s, created %s) that this attempt did not make.', $username, $server->name, $account['owner'] ?? 'unknown', $account['domain'] ?? 'unknown', $this->createdLabel($account)));
         }
 

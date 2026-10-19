@@ -146,6 +146,28 @@ export default function ServerForm({
         );
     };
     const errorsByKey = errors as Record<string, string>;
+    /** Driver settings the connection fields depend on ("Sign in with"): shown in the Connection section. */
+    const connectionSettingKeys = new Set(
+        Object.values(driverConnectionFields[data.driver] ?? {}).flatMap(
+            (conditions) => Object.keys(conditions),
+        ),
+    );
+    /** Stored credentials the selected driver and settings no longer read; saving removes them. */
+    const unusedStored = (
+        [
+            ['password', 'password', server?.has_password],
+            ['api_token', 'API token', server?.has_api_token],
+            ['access_hash', 'access hash', server?.has_access_hash],
+        ] as const
+    )
+        .filter(
+            ([key, , stored]) =>
+                stored &&
+                server?.driver === data.driver &&
+                driverConnectionFields[data.driver] &&
+                !shows(key),
+        )
+        .map(([, label]) => label);
     // Test connection and Trust redirect here with page errors (not this form's); the checklist, when flashed, already
     // shows a failed test.
     const page = usePage();
@@ -332,6 +354,27 @@ export default function ServerForm({
                                     />
                                 </Field>
                             )}
+                            {(driverFields[data.driver] ?? [])
+                                .filter((field) =>
+                                    connectionSettingKeys.has(field.key),
+                                )
+                                .map((field) => (
+                                    <SettingFieldInput
+                                        key={field.key}
+                                        id={`settings-${field.key}`}
+                                        field={field}
+                                        value={data.settings[field.key] ?? ''}
+                                        onChange={(value) =>
+                                            setData('settings', {
+                                                ...data.settings,
+                                                [field.key]: value,
+                                            })
+                                        }
+                                        error={
+                                            errorsByKey[`settings.${field.key}`]
+                                        }
+                                    />
+                                ))}
                             {shows('username') && (
                                 <Field
                                     htmlFor="username"
@@ -390,6 +433,14 @@ export default function ServerForm({
                                     />
                                 </Field>
                             )}
+                            {unusedStored.length > 0 && (
+                                <p className="text-sm text-warning-text sm:col-span-2">
+                                    Saving removes the stored{' '}
+                                    {unusedStored.join(' and ')}, which this
+                                    sign-in method does not use. The removal is
+                                    recorded in the activity log.
+                                </p>
+                            )}
                             {shows('secure') && (
                                 <SwitchField
                                     id="secure"
@@ -431,8 +482,14 @@ export default function ServerForm({
                             description="Settings this driver needs for the server. Secret values are encrypted and never shown again."
                         >
                             <div className="grid items-start gap-6 sm:grid-cols-2">
-                                {(driverFields[data.driver] ?? []).map(
-                                    (field) => {
+                                {(driverFields[data.driver] ?? [])
+                                    .filter(
+                                        (field) =>
+                                            !connectionSettingKeys.has(
+                                                field.key,
+                                            ),
+                                    )
+                                    .map((field) => {
                                         const setValue = (value: string) =>
                                             setData('settings', {
                                                 ...data.settings,
@@ -500,8 +557,7 @@ export default function ServerForm({
                                                 }
                                             />
                                         );
-                                    },
-                                )}
+                                    })}
                             </div>
                         </SectionCard>
                     )}
