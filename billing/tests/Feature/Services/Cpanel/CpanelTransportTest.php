@@ -77,7 +77,7 @@ test('a certificate pin is checked when the server is saved', function () {
     actingAsStaff();
     confirmPassword();
     $currency = Currency::factory()->create()->code;
-    $base = ['name' => 'Pinned', 'hostname' => 'whm.example.test', 'driver' => 'cpanel', 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
+    $base = ['name' => 'Pinned', 'hostname' => 'whm.example.test', 'driver' => 'cpanel', 'api_token' => Whm::TOKEN, 'max_accounts' => 0, 'monthly_cost' => 0, 'currency' => $currency];
 
     $this->post(route('admin.services.servers.store'), [...$base, 'settings' => ['spki_pin' => 'changeme']])->assertSessionHasErrors('settings.spki_pin');
     $this->post(route('admin.services.servers.store'), [...$base, 'settings' => ['spki_pin' => str_repeat('A', 43).'=']])->assertSessionHasNoErrors();

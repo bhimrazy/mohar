@@ -6,9 +6,11 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Support\ServerSettings;
 use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use App\Support\Services\ProvisioningDriverRegistry;
+use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
  * Create/update a server. Blank credential fields and blank secret settings on update keep the stored secret.
@@ -80,6 +82,33 @@ class ServerRequest extends FormRequest
         }
 
         return $data;
+    }
+
+    /**
+     * Every credential the driver reads with the submitted settings must be entered or already stored: switching
+     * "Sign in with" never leaves a server without one (the unused one is removed on save).
+     *
+     * @return list<Closure(Validator): void>
+     */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            $driver = (string) $this->input('driver');
+            $used = app(ServerSettings::class)->usedCredentials($driver, (array) $this->input('settings', []));
+            $server = $this->routeServer();
+
+            foreach ($used ?? [] as $credential) {
+                $stored = $server !== null && $server->driver === $driver && (string) $server->getAttribute($credential) !== '';
+
+                if (! $this->filled($credential) && ! $stored) {
+                    $validator->errors()->add($credential, match ($credential) {
+                        'password' => __('Enter the password, or keep signing in with the API token.'),
+                        'api_token' => __('Enter the API token, or keep signing in with the password.'),
+                        default => __('Enter the access hash.'),
+                    });
+                }
+            }
+        }];
     }
 
     /**

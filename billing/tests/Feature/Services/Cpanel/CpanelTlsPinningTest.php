@@ -53,7 +53,10 @@ function startTlsServer(object $test, bool $www = true): array
     mkdir($directory);
     openssl_x509_export_to_file($certificate, "{$directory}/cert.pem");
     openssl_pkey_export_to_file($key, "{$directory}/key.pem");
-    $port = random_int(20000, 40000);
+    // A port the system just handed out, so two runs in parallel never collide.
+    $probe = stream_socket_server('tcp://127.0.0.1:0');
+    $port = (int) substr((string) stream_socket_get_name($probe, false), strrpos((string) stream_socket_get_name($probe, false), ':') + 1);
+    fclose($probe);
 
     // -www answers every request with a status page; without it the server prints whatever the client sends.
     $process = new Process([$test->openssl, 's_server', '-accept', "127.0.0.1:{$port}", '-cert', "{$directory}/cert.pem", '-key', "{$directory}/key.pem", ...($www ? ['-www'] : []), '-quiet']);
@@ -103,13 +106,13 @@ test('a pin check that fails in any way aborts before a single request byte is s
     $server = Whm::server(['spki_pin' => $pin], port: $port);
 
     // Positive control: with a working check the request reaches the server (which never answers, so it times out).
-    $working = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + 3);
+    $working = new WhmClient($server, app(OutboundAddressGuard::class), microtime(true) + 6);
     expect(fn () => $working->read('version'))->toThrow(WhmFailure::class);
     expect($echo->getOutput())->toContain('GET /json-api/version');
 
     [$port, $pin] = startTlsServer($this, www: false);
     $echo = end($this->servers);
-    $throwing = new WhmClient(Whm::server(['spki_pin' => $pin], port: $port), app(OutboundAddressGuard::class), microtime(true) + 3, fn () => throw new RuntimeException('certificate info unavailable'));
+    $throwing = new WhmClient(Whm::server(['spki_pin' => $pin], port: $port), app(OutboundAddressGuard::class), microtime(true) + 6, fn () => throw new RuntimeException('certificate info unavailable'));
 
     expect(fn () => $throwing->read('version'))->toThrow(fn (WhmFailure $failure) => expect($failure->kind)->toBe(WhmFailure::PIN));
     usleep(300_000);

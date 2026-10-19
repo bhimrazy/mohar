@@ -1,13 +1,13 @@
 # Current state
 
-Last updated: 2026-10-19 12:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 13:00 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) and the cPanel/WHM driver 1a (#69).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72).
 - Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
   logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
   registrars, no international gateway, no production install, and nothing has run outside the codespace.
@@ -21,13 +21,11 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #73, then cPanel 2 and 3; #72, #77, deploy and #58 independent)
+## Open pull requests (merge order: #77 S0, then S1; email follow-up after its review; deploy and #58 independent)
 
-| PR  | Workstream              | Status                                                                                                                                                                                                                 |
-| --- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| —   | Email direction A       | PR #72. Security, board and product reviews requested changes (fallback must not bypass the secret policy, button never inferred from content, security mail always sent, host brand only, Paid row). Engineer fixing. |
-| #73 | cPanel/WHM driver PR 1b | Security, board+database and product reviews passed after re-checks; final small fixes pushed with the develop merge, then merge on green CI.                                                                          |
-| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                    |
+| PR  | Workstream     | Status                                                                                                                                              |
+| --- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #58 | Stripe gateway | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge. |
 
 ## Design and research in progress
 
@@ -36,6 +34,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                                                                                                                                                                                                        |
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
+
+## Running now (2026-10-19 13:20 UTC)
+
+- Builds: email follow-up (template auto-update, invitation token); deployment D1; simulators S1 (stacked on #77);
+  cPanel PR 2 (`feature/provisioning-cpanel-2`); storefront home page direction A (remote agent, `feature/storefront-home`).
+- Reviews: #77 S0 re-check; #58 Stripe re-review; periodic round 1 (CEO, CTO, security, architecture → `docs/reviews/`).
+- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews").
 
 ## Next (in order, from the Fable review and the parity roadmap)
 

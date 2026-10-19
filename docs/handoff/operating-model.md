@@ -76,8 +76,6 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 
 ## Gates
 
-## Gates
-
 Run from the worktree's `billing/` directory with `export XDEBUG_MODE=off`:
 
 ```bash
@@ -138,6 +136,24 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
   `billing/docs/screenshots/<module>/` and linked from progress.md.
 - Tests: Pest feature tests per capability, reasonable not exhaustive. Browser E2E will use the Pest
   browser plugin (Playwright) for critical flows only.
+
+## Periodic reviews (owner request, 2026-10-19)
+
+Every 12 hours, and after a restart if the last round is older than that, the CTO session runs one review
+round in parallel, read-only, each writing to `docs/reviews/<date>-<kind>.md`:
+
+| Kind         | Agent                 | Model | Scope                                                                              |
+| ------------ | --------------------- | ----- | ---------------------------------------------------------------------------------- |
+| CEO          | `ceo-advisor`         | Fable | progress score, priorities, business risks, first-week experience of a host        |
+| CTO          | `cto-advisor`         | Fable | velocity, recurring defects, gates, CTO decisions, debt                            |
+| Security     | `security-reviewer`   | Opus  | whole `develop`: auth, permissions, money, secrets, outbound calls, webhooks, mail |
+| Architecture | `principal-architect` | Opus  | kernel surface, module boundaries, ADR drift, scalability                          |
+
+Rules: reviewers do not modify product code; the CTO merges the review files (docs-only PR), turns findings
+into issues or workstream briefs, records owner-relevant items in `state.md`, and reports a short summary to
+the owner. Skip a kind when nothing relevant changed since its last review. Heavy test runs go through
+`scripts/heavy.sh`; when the machine is loaded, security runs targeted tests only. The schedule lives in the
+session (CronCreate, every 12 hours) and is recreated by the `resume-session` skill after a restart.
 
 ## Session restarts
 

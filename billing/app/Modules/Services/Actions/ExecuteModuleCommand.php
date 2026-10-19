@@ -96,6 +96,26 @@ class ExecuteModuleCommand
     }
 
     /**
+     * A command whose outcome was unknown turned out to have run (ReconcilesCommands answered Executed): apply it as a
+     * success, close its verify item and record the confirmation in the module log. Never calls the driver.
+     *
+     * The answer is applied only if, under the service lock and the item's row lock, the verify item is still open and
+     * the attempt it describes is still the latest one with an unknown outcome. A second check, a staff dismissal or a
+     * newer attempt in the meantime makes it a no-op (skipped).
+     *
+     * @param  array<string, mixed>  $args
+     *
+     * @throws LockTimeoutException when another command for the service holds the lock too long
+     */
+    public function settle(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result, int $itemId, ?int $attemptId, string $initiator = 'system'): CommandOutcome
+    {
+        return Cache::lock(self::lockKey($serviceId), $this->settings->lockTtlSeconds($this->serviceDrivers->jobTimeoutFor($serviceId)))
+            ->block($this->settings->lockWaitSeconds(), fn (): CommandOutcome => Service::withTrashed()->whereKey($serviceId)->exists()
+                ? $this->succeeded($serviceId, $command, [...$args, 'verified' => true], $result, ['item' => $itemId, 'attempt' => $attemptId, 'initiator' => $initiator])
+                : CommandOutcome::skipped('Service not found.'));
+    }
+
+    /**
      * The job died, timed out or ran out of tries: record the failure without calling the driver.
      * Only a job that died mid-call ($jobDied) marks running attempts as unknown; a job that merely
      * waited for the lock must not touch a call another worker is still making.
@@ -155,6 +175,21 @@ class ExecuteModuleCommand
             }
         }
 
+        // "Create again" after a server check answers for exactly the attempt that was checked. Re-checked here, under
+        // the lock and just before the driver runs: a newer attempt that is unfinished or of unknown outcome means the
+        // answer no longer holds, so nothing is sent and the entry waits for a new check.
+        if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && ! $this->awaitingVerification($service->id)) {
+            // Staff ignored or closed the entry after clicking: the Create again it allowed is cancelled.
+            return CommandOutcome::skipped('Not sent: the entry was closed after Create again was requested.');
+        }
+
+        if ($command === ModuleCommandName::Create && isset($args['checked_attempt']) && $this->newerAttemptSince($service->id, (int) $args['checked_attempt'])) {
+            $error = 'Not sent: a newer create attempt has an unknown outcome since the server was checked. Check the server again.';
+            $this->openQueueItem($service, $command, array_diff_key($args, ['verified' => true, 'checked_attempt' => true]), $error, 0, ModuleQueueItem::KIND_VERIFY);
+
+            return CommandOutcome::failed($error);
+        }
+
         $product = $this->catalog->product($service->product_id);
         $driverKey = $this->serviceDrivers->keyFor($service);
         $started = hrtime(true);
@@ -167,7 +202,7 @@ class ExecuteModuleCommand
             $driver = $this->drivers->get($driverKey);
             $server = $this->prepare($service, $command, $driver, $product?->serverGroupId, $driverKey);
             // What a create sends, recorded before the call: only an account matching it may later be adopted.
-            $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain] : null;
+            $target = $command === ModuleCommandName::Create ? ['username' => $service->username, 'domain' => $service->domain, 'server_id' => $service->server_id] : null;
             $context = $this->snapshots->context($service, $server, $product, $driver, $deadline, $target === null ? null : $this->unknownAttemptAt($service));
             $log = $this->startLog($service, $driverKey, $command, $initiator, $attempt, $target);
             $result = $this->callDriver($driver, $context, $command, $args);
@@ -225,7 +260,7 @@ class ExecuteModuleCommand
     }
 
     /**
-     * @param  array{username: ?string, domain: ?string}|null  $target  what a create is about to send
+     * @param  array{username: ?string, domain: ?string, server_id: ?int}|null  $target  what a create is about to send
      */
     private function startLog(Service $service, string $driverKey, ModuleCommandName $command, string $initiator, int $attempt, ?array $target = null): ModuleCommand
     {
@@ -266,6 +301,7 @@ class ExecuteModuleCommand
         $target = $attempt->request['target'] ?? null;
 
         return is_array($target) && ($target['username'] ?? null) === $service->username && ($target['domain'] ?? null) === $service->domain
+            && (! array_key_exists('server_id', $target) || $target['server_id'] === $service->server_id)
             ? $attempt->created_at
             : null;
     }
@@ -317,6 +353,19 @@ class ExecuteModuleCommand
         }
 
         return false;
+    }
+
+    /**
+     * Whether a create attempt after the checked one is unfinished or of unknown outcome.
+     */
+    private function newerAttemptSince(int $serviceId, int $checkedAttemptId): bool
+    {
+        return ModuleCommand::query()
+            ->where('service_id', $serviceId)
+            ->where('command', ModuleCommandName::Create->value)
+            ->where('id', '>', $checkedAttemptId)
+            ->whereIn('status', [ModuleCommand::UNKNOWN, ModuleCommand::RUNNING])
+            ->exists();
     }
 
     /**
@@ -442,11 +491,28 @@ class ExecuteModuleCommand
      *
      * @param  array<string, mixed>  $args
      */
-    private function succeeded(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result): CommandOutcome
+    /**
+     * @param  array<string, mixed>  $args
+     * @param  array{item: int, attempt: ?int, initiator: string}|null  $settling  set when a server check settles an unknown
+     *                                                                             outcome (settle())
+     */
+    private function succeeded(int $serviceId, ModuleCommandName $command, array $args, DriverResult $result, ?array $settling = null): CommandOutcome
     {
-        $outcome = DB::transaction(function () use ($serviceId, $command, $args, $result): array {
+        $outcome = DB::transaction(function () use ($serviceId, $command, $args, $result, $settling): array {
             /** @var Service $service */
             $service = Service::withTrashed()->lockForUpdate()->findOrFail($serviceId);
+
+            if ($settling !== null && ! $this->stillUnsettled($service, $command, $settling)) {
+                return ['skipped' => true, 'conflict' => null, 'events' => [], 'client_id' => $service->client_id];
+            }
+
+            if ($settling !== null) {
+                $this->startLog($service, $this->serviceDrivers->keyFor($service), $command, $settling['initiator'], 1)->update([
+                    'success' => true,
+                    'status' => ModuleCommand::SUCCEEDED,
+                    'response' => ['verified' => (string) $result->message],
+                ]);
+            }
             $target = CommandEffects::targetStatus($command, $args);
             $conflict = match (true) {
                 $target !== null && ! $service->status->canTransitionTo($target) => "The service became {$service->status->value} while {$command->label()} ran; the remote account was changed but the local status was not.",
@@ -458,7 +524,7 @@ class ExecuteModuleCommand
                 $this->openQueueItem($service, $command, $args, $conflict, 1, ModuleQueueItem::KIND_RECONCILE);
                 $this->activity->log("{$command->noun()} for {$service->label()} needs reconciling", $service, $service->client_id, ['reason' => $conflict]);
 
-                return ['conflict' => $conflict, 'events' => [], 'client_id' => $service->client_id];
+                return ['skipped' => false, 'conflict' => $conflict, 'events' => [], 'client_id' => $service->client_id];
             }
 
             $events = $this->effects->apply($service, $command, $args, $result);
@@ -475,8 +541,12 @@ class ExecuteModuleCommand
                 $this->acknowledgeUnknown($serviceId, $command);
             }
 
-            return ['conflict' => null, 'events' => $events, 'client_id' => $service->client_id];
+            return ['skipped' => false, 'conflict' => null, 'events' => $events, 'client_id' => $service->client_id];
         });
+
+        if ($outcome['skipped']) {
+            return CommandOutcome::skipped('The entry was settled or changed meanwhile.');
+        }
 
         if ($outcome['conflict'] !== null) {
             ProvisioningFailed::dispatch($serviceId, $outcome['client_id'], $command->value, $outcome['conflict']);
@@ -507,6 +577,31 @@ class ExecuteModuleCommand
     }
 
     /**
+     * Under the service row lock: the verify item is still open and still a verify item, and the attempt it describes
+     * is still the latest one of the command with an unknown outcome.
+     *
+     * @param  array{item: int, attempt: ?int, initiator: string}  $settling
+     */
+    private function stillUnsettled(Service $service, ModuleCommandName $command, array $settling): bool
+    {
+        $item = ModuleQueueItem::query()->lockForUpdate()->find($settling['item']);
+        $latest = ModuleCommand::query()
+            ->where('service_id', $service->id)
+            ->where('command', $command->value)
+            ->where('status', ModuleCommand::UNKNOWN)
+            ->orderByDesc('id')
+            ->value('id');
+
+        return $item !== null
+            && $item->status === QueueStatus::Open
+            && $item->kind === ModuleQueueItem::KIND_VERIFY
+            && $item->subject_id === $service->id
+            && $latest !== null
+            && $settling['attempt'] !== null
+            && (int) $latest === $settling['attempt'];
+    }
+
+    /**
      * @param  array<string, mixed>  $args
      */
     private function openQueueItem(Service $service, ModuleCommandName $command, array $args, string $error, int $attempts, string $kind): void
@@ -523,6 +618,10 @@ class ExecuteModuleCommand
                 'status' => QueueStatus::Open,
             ]);
 
-        $item->fill(['kind' => $kind, 'args' => $args, 'last_error' => $error, 'attempts' => $item->attempts + $attempts])->save();
+        // A new failure or unknown outcome makes any earlier server check stale: it described an older attempt.
+        $item->fill([
+            'kind' => $kind, 'args' => $args, 'last_error' => $error, 'attempts' => $item->attempts + $attempts,
+            'lookup_status' => null, 'lookup_message' => null, 'looked_up_at' => null, 'lookup_command_id' => null,
+        ])->save();
     }
 }

@@ -105,5 +105,10 @@ DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   once (at most 5 times), so the name is recorded before it is ever sent.
 - `Redactor` also masks `session=` credentials in URL query strings (cPanel login links), wherever they appear,
   percent-encoded ones included.
+- `CommandLookup` gains trailing `array $data` (compatible, #73): for Executed, what the command would have reported
+  (`DriverResult::$data` keys), so a command settled by a server check stores the same as a completed one.
+- `DriverMetadata` gains trailing `?array $connectionFields` (compatible, #73): the host's shared server fields the
+  driver reads (`username`, `password`, `api_token`, `access_hash`, `secure`, `port`), each with the driver settings it
+  depends on. The server form shows only those; null keeps all of them.
 - Test support: `ProvisioningDriverContract::verify()` gains a trailing `serverSettings` override (compatible; not ADR
   0010 public surface) for server settings whose placeholder would be invalid, such as a certificate pin.
