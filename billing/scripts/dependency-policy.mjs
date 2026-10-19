@@ -154,3 +154,60 @@ export function isExcepted(exceptions, item) {
 function normalise(name, version) {
     return `${name.toLowerCase()}@${String(version).replace(/^v/, '')}`;
 }
+
+/**
+ * External images a Dockerfile builds from, for the pinning and cooldown checks: `FROM <image>` (not `scratch`,
+ * not an earlier stage) and `--from=<image>` in `COPY` / `RUN --mount`. Stage names and numeric stage indexes
+ * are skipped. Line continuations are joined and comments ignored. A reference that uses a build argument
+ * (`$VAR`) is returned unchanged, so it fails the digest check instead of escaping it.
+ *
+ * @param {string} text
+ * @returns {string[]} references in file order, e.g. "node:24.21.0-trixie-slim@sha256:…"
+ */
+export function dockerfileImages(text) {
+    const stages = new Set();
+    const images = [];
+    const lines = text
+        .replace(/\\[ \t]*\r?\n/g, ' ')
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line !== '' && !line.startsWith('#'));
+
+    const external = (reference) =>
+        reference.toLowerCase() !== 'scratch' &&
+        !/^\d+$/.test(reference) &&
+        !stages.has(reference.toLowerCase());
+
+    for (const line of lines) {
+        const from = line.match(
+            /^FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?/i,
+        );
+        if (from) {
+            if (external(from[1])) {
+                images.push(from[1]);
+            }
+            if (from[2]) {
+                stages.add(from[2].toLowerCase());
+            }
+            continue;
+        }
+        const references = [];
+        if (/^(COPY|ADD)\b/i.test(line)) {
+            references.push(
+                ...[...line.matchAll(/\s--from=(\S+)/gi)].map((m) => m[1]),
+            );
+        }
+        if (/^RUN\b/i.test(line)) {
+            for (const [, mount] of line.matchAll(/\s--mount=(\S+)/gi)) {
+                references.push(
+                    ...[...mount.matchAll(/(?:^|,)from=([^,]+)/gi)].map(
+                        (m) => m[1],
+                    ),
+                );
+            }
+        }
+        images.push(...references.filter(external));
+    }
+
+    return images;
+}
