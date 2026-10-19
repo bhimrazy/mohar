@@ -8,8 +8,9 @@ use App\Support\Integrations\Redactor;
  * The secret scan over `tools/simulators/<provider>/recordings/` (ADR 0016, "Leaked secrets in recordings"): run by
  * `simulate:record` on what it just wrote, by `simulate:scan` (the pre-commit hook), and by the framework tests in CI.
  *
- * A finding is a credential (a known key or token format, an Authorization value, a private key, a value under a
- * sensitive key that is not masked) or personal data (an email outside example domains, a public IP address).
+ * A finding is a credential (a known key or token format, an Authorization value, a private key, a cPanel session
+ * path, a value under a sensitive key that is not masked) or personal data (an email outside example domains, a public
+ * IPv4 or IPv6 address, a host name outside the example and test domains).
  */
 final class RecordingScanner
 {
@@ -22,6 +23,7 @@ final class RecordingScanner
         'a cPanel API token' => '/\b[A-Z0-9]{32}\b/',
         'a JSON web token' => '/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./',
         'an AWS access key' => '/\bAKIA[0-9A-Z]{16}\b/',
+        'a cPanel session path' => '/cpsess\d{6,}/',
     ];
 
     private const NON_PUBLIC_RANGES = [
@@ -83,7 +85,9 @@ final class RecordingScanner
             }
         }
 
-        array_walk_recursive($decoded, function (mixed $value, int|string $key) use (&$findings): void {
+        // The response only: the stored shape holds type names, under the same keys.
+        $response = (array) ($decoded['response'] ?? []);
+        array_walk_recursive($response, function (mixed $value, int|string $key) use (&$findings): void {
             if (! is_string($value) || $value === '') {
                 return;
             }
@@ -106,6 +110,23 @@ final class RecordingScanner
             foreach ($addresses[0] as $address) {
                 if (self::isPublicIpv4($address)) {
                     $findings[] = "a public IP address under \"{$key}\"";
+                }
+            }
+
+            preg_match_all('/(?<![0-9a-f:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![0-9a-f:])/i', $value, $ipv6);
+
+            foreach ($ipv6[0] as $address) {
+                // Global unicast (2000::/3) outside the documentation prefix 2001:db8::/32.
+                if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false && preg_match('/^[23][0-9a-f]{0,3}:/i', $address) === 1 && preg_match('/^2001:0?db8:/i', $address) !== 1) {
+                    $findings[] = "a public IPv6 address under \"{$key}\"";
+                }
+            }
+
+            preg_match_all('/(?<![@\w.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{1,62}(?![\w-])/i', $value, $hosts);
+
+            foreach ($hosts[0] as $host) {
+                if (preg_match('/(^|\.)(test|example|invalid|localhost)$|(^|\.)example\.(com|org|net)$/i', $host) !== 1) {
+                    $findings[] = "a real-looking host name under \"{$key}\"";
                 }
             }
         });

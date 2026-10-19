@@ -14,24 +14,25 @@ use RuntimeException;
  */
 final class LiveRecording
 {
-    /** Keys whose string values describe a customer or the server, and are replaced before recording. */
-    private const PERSONAL_KEYS = [
-        'user', 'owner', 'reseller', 'email', 'domain', 'maindomain', 'ip', 'suspendreason', 'name', 'nameservers',
-        'whitelist_ips', 'session', 'cp_security_token', 'url', 'theme', 'partition', 'shell',
+    /**
+     * The only keys whose string values are kept as they came: WHM's own words (`reason`, `command`), versions,
+     * statuses, flags, sizes and limits, ACL names and dates. Every other string is replaced (deny by default).
+     */
+    private const SAFE_KEYS = [
+        'reason', 'command', 'result', 'status', 'statusmsg', 'version', 'suspended', 'is_locked', 'diskused',
+        'disklimit', 'quota', 'bwlimit', 'maxaddon', 'maxftp', 'maxlst', 'maxpark', 'maxpop', 'maxsql', 'maxsub',
+        'hasshell', 'cgi', 'lang', 'theme', 'mailbox_format', 'acls', 'service', 'app', 'month', 'year', 'limit',
+        'startdate', 'expires', 'expires_at', 'create_time', 'unix_startdate', 'backup', 'legacy_backup', 'temporary',
+        'outgoing_mail_hold', 'outgoing_mail_suspended', 'max_defer_fail_percentage', 'max_email_per_hour',
     ];
 
-    public function run(Recorder $recorder): void
+    /**
+     * The read-only calls `simulate:record whm` makes, by recording name; the drift test replays the same ones.
+     *
+     * @return array<string, array{0: string, 1: array<string, scalar>}>
+     */
+    public static function calls(string $token, string $user, string $account): array
     {
-        $host = self::env('WHM_RECORD_HOST');
-        $token = self::env('WHM_RECORD_TOKEN');
-
-        if ($host === '' || $token === '') {
-            throw new RuntimeException('Set WHM_RECORD_HOST and WHM_RECORD_TOKEN (and optionally WHM_RECORD_PORT, WHM_RECORD_USER, WHM_RECORD_ACCOUNT, WHM_RECORD_CA_BUNDLE) to record a real WHM.');
-        }
-
-        $port = (int) self::env('WHM_RECORD_PORT', '2087');
-        $user = self::env('WHM_RECORD_USER', 'root');
-        $account = self::env('WHM_RECORD_ACCOUNT');
         $calls = [
             'version' => ['version', []],
             'myprivs' => ['myprivs', []],
@@ -51,6 +52,23 @@ final class LiveRecording
         if ($user !== 'root') {
             $calls['acctcounts'] = ['acctcounts', ['user' => $user]];
         }
+
+        return $calls;
+    }
+
+    public function run(Recorder $recorder): void
+    {
+        $host = self::env('WHM_RECORD_HOST');
+        $token = self::env('WHM_RECORD_TOKEN');
+
+        if ($host === '' || $token === '') {
+            throw new RuntimeException('Set WHM_RECORD_HOST and WHM_RECORD_TOKEN (and optionally WHM_RECORD_PORT, WHM_RECORD_USER, WHM_RECORD_ACCOUNT, WHM_RECORD_CA_BUNDLE) to record a real WHM.');
+        }
+
+        $port = (int) self::env('WHM_RECORD_PORT', '2087');
+        $user = self::env('WHM_RECORD_USER', 'root');
+        $account = self::env('WHM_RECORD_ACCOUNT');
+        $calls = self::calls($token, $user, $account);
 
         $guard = app(OutboundAddressGuard::class);
         $address = $guard->resolve($host, $port);
@@ -83,26 +101,28 @@ final class LiveRecording
     }
 
     /**
-     * Same structure and types, placeholder values: strings under personal keys become `example` values of the same
-     * kind (an address stays an address), numbers and flags stay as they are.
+     * Same structure and types, placeholder values: a string is kept only under a SAFE_KEYS key or when it is a size or
+     * a number ("14M", "unlimited", "0"); every other string becomes a placeholder of its kind (an IPv4 or IPv6
+     * address, an email, a URL, a host name, or "example"). Numbers and flags stay as they are.
      *
      * @param  array<array-key, mixed>  $value
      * @return array<array-key, mixed>
      */
-    public static function anonymise(array $value, bool $personal = false): array
+    public static function anonymise(array $value, ?string $parent = null): array
     {
         foreach ($value as $key => $item) {
-            $isPersonal = $personal || (is_string($key) && in_array(strtolower($key), self::PERSONAL_KEYS, true));
+            $context = is_string($key) ? strtolower($key) : $parent;
 
             $value[$key] = match (true) {
-                is_array($item) => self::anonymise($item, $isPersonal),
-                $isPersonal && is_string($item) => match (true) {
-                    filter_var($item, FILTER_VALIDATE_IP) !== false => '192.0.2.10',
-                    str_contains($item, '@') => 'owner@example.test',
-                    str_contains($item, '://') => 'https://example.test/',
-                    default => $item === '' ? '' : 'example',
-                },
-                default => $item,
+                is_array($item) => self::anonymise($item, $context),
+                ! is_string($item) || $item === '' => $item,
+                in_array($context, self::SAFE_KEYS, true), preg_match('/^(\d+(\.\d+)?[KMGT]?|unlimited)$/i', $item) === 1 => $item,
+                filter_var($item, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false => '192.0.2.10',
+                filter_var($item, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false => '2001:db8::10',
+                str_contains($item, '@') => 'owner@example.test',
+                str_contains($item, '://') => 'https://example.test/',
+                preg_match('/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i', $item) === 1 => 'host.example.test',
+                default => 'example',
             };
         }
 

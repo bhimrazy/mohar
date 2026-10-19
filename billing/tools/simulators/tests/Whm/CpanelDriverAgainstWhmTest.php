@@ -192,7 +192,7 @@ test('a reseller login sees only its accounts and packages, and its login links 
     expect($check['can_trust'])->toBeTrue()
         ->and($driver->testConnection($connection)->details['account_kind'])->toBe('reseller')
         ->and(array_map(fn ($account) => $account->username, $driver->listAccounts($connection)))->toBe(['bravo'])
-        ->and(array_keys($driver->fieldOptions($connection, 'package')))->toBe(['reseller1_starter', 'root_basic'])
+        ->and(array_keys($driver->fieldOptions($connection, 'package')))->toBe(['reseller1_starter'])
         ->and($driver->create(Whm::context(['package' => 'root_pro'], $connection, 'shop', 'shop.test'))->message)->toContain('Package root_pro is not available to reseller1');
 
     $link = $driver->serviceSsoLink(Whm::context(server: $connection, username: 'bravo'));

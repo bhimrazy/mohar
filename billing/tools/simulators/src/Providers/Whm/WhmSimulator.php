@@ -60,8 +60,8 @@ final class WhmSimulator implements HasControlActions, RecordsLive, Simulator
     }
 
     /**
-     * A server with root and one reseller (reseller1, limit 3, granted root_basic), four packages, two accounts and
-     * two free dedicated IPs. Documentation addresses (RFC 5737) and `.test` names only.
+     * A server with root and one reseller (reseller1: limit 3, its own package only, no IPs delegated), four
+     * packages, two accounts and two free dedicated IPs. Documentation addresses (RFC 5737) and `.test` names only.
      */
     public function seed(Scenario $scenario): void
     {
@@ -81,7 +81,7 @@ final class WhmSimulator implements HasControlActions, RecordsLive, Simulator
         }
 
         $state->put('users', 'root', ['privileges' => ['all'], 'password_hash' => password_hash(self::ROOT_PASSWORD, PASSWORD_DEFAULT), 'reseller' => false]);
-        $state->put('users', 'reseller1', ['privileges' => self::RESELLER_ACLS, 'password_hash' => password_hash(self::ROOT_PASSWORD, PASSWORD_DEFAULT), 'reseller' => true, 'limit' => 3, 'packages' => ['root_basic']]);
+        $state->put('users', 'reseller1', ['privileges' => self::RESELLER_ACLS, 'password_hash' => password_hash(self::ROOT_PASSWORD, PASSWORD_DEFAULT), 'reseller' => true, 'limit' => 3, 'delegated_ips' => []]);
         self::issueToken($scenario, 'root', self::ROOT_TOKEN, ['all']);
         self::issueToken($scenario, 'reseller1', self::RESELLER_TOKEN, self::RESELLER_ACLS);
 
@@ -106,7 +106,7 @@ final class WhmSimulator implements HasControlActions, RecordsLive, Simulator
             'notes' => [
                 'Add a cPanel server: hostname 127.0.0.1, port '.$scenario->apiPort().', username root, API token '.self::ROOT_TOKEN.' (or reseller1 with '.self::RESELLER_TOKEN.').',
                 'Run Test connection, check the fingerprint against the scenario CA, then "Trust this certificate".',
-                'Packages: root_basic, root_pro, default (root); reseller1_starter and root_basic (reseller1, limit 3 accounts).',
+                'Packages: root_basic, root_pro, default (root); reseller1_starter (reseller1, limit 3 accounts, no viewglobalpackages).',
             ],
         ];
     }
@@ -116,7 +116,7 @@ final class WhmSimulator implements HasControlActions, RecordsLive, Simulator
         return [
             // Someone else's account, made outside the app (the verify sweep must never adopt it).
             'add_account' => fn (array $input, Scenario $scenario): array => ['account' => self::addAccount($scenario, $input)],
-            'issue_token' => fn (array $input, Scenario $scenario): array => ['token' => self::issueToken($scenario, (string) $input['user'], (string) ($input['token'] ?? strtoupper(bin2hex(random_bytes(16)))), array_values((array) ($input['acls'] ?? ['all'])), isset($input['expires_at']) ? (int) $input['expires_at'] : null)],
+            'issue_token' => fn (array $input, Scenario $scenario): array => ['token' => self::issueToken($scenario, (string) $input['user'], (string) ($input['token'] ?? strtoupper(bin2hex(random_bytes(16)))), array_values((array) ($input['acls'] ?? ['all'])), isset($input['expires_at']) ? (int) $input['expires_at'] : null, array_values((array) ($input['whitelist_ips'] ?? ['127.0.0.1'])))],
             'set_licence' => function (array $input, Scenario $scenario): array {
                 $scenario->state()->put('config', 'licence_valid', (bool) ($input['valid'] ?? true));
 
@@ -172,15 +172,16 @@ final class WhmSimulator implements HasControlActions, RecordsLive, Simulator
 
     /**
      * @param  list<string>  $acls
+     * @param  list<string>  $whitelist  the addresses the token may be used from ([]: any)
      */
-    public static function issueToken(Scenario $scenario, string $user, string $token, array $acls, ?int $expiresAt = null): string
+    public static function issueToken(Scenario $scenario, string $user, string $token, array $acls, ?int $expiresAt = null, array $whitelist = ['127.0.0.1']): string
     {
         $scenario->state()->put('tokens', hash('sha256', $token), [
             'user' => $user,
             'name' => 'billing',
             'create_time' => time(),
             'expires_at' => $expiresAt,
-            'whitelist_ips' => ['127.0.0.1'],
+            'whitelist_ips' => $whitelist,
             'acls' => $acls,
         ]);
 

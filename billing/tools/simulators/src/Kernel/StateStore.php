@@ -14,6 +14,9 @@ final class StateStore
 {
     private ?PDO $pdo = null;
 
+    /** How many transaction() calls are open on this connection. */
+    private int $depth = 0;
+
     public function __construct(private readonly string $path) {}
 
     public function pdo(): PDO
@@ -82,7 +85,8 @@ final class StateStore
 
     /**
      * Run $work under a write lock held across processes (BEGIN IMMEDIATE), so a check and the change it guards cannot
-     * interleave with another worker's: two creates for one username, for example.
+     * interleave with another worker's: two creates for one username, for example. Nestable: work inside work (an id
+     * counter inside an idempotency check) runs in a savepoint of the outer transaction.
      *
      * @template T
      *
@@ -92,17 +96,21 @@ final class StateStore
     public function transaction(\Closure $work): mixed
     {
         $pdo = $this->pdo();
-        $pdo->exec('BEGIN IMMEDIATE');
+        $savepoint = $this->depth > 0 ? 'level'.$this->depth : null;
+        $pdo->exec($savepoint === null ? 'BEGIN IMMEDIATE' : "SAVEPOINT {$savepoint}");
+        $this->depth++;
 
         try {
             $result = $work();
-            $pdo->exec('COMMIT');
+            $pdo->exec($savepoint === null ? 'COMMIT' : "RELEASE {$savepoint}");
 
             return $result;
         } catch (\Throwable $exception) {
-            $pdo->exec('ROLLBACK');
+            $pdo->exec($savepoint === null ? 'ROLLBACK' : "ROLLBACK TO {$savepoint}; RELEASE {$savepoint}");
 
             throw $exception;
+        } finally {
+            $this->depth--;
         }
     }
 }

@@ -10,6 +10,7 @@ final readonly class Request
     /**
      * @param  array<array-key, mixed>  $query  as fields() reads it: dotted names kept, brackets nested
      * @param  array<string, string>  $headers  lower-case names
+     * @param  string  $remoteAddress  the peer the backend saw: the TLS front on 127.0.0.1, as every client is local
      */
     public function __construct(
         public string $method,
@@ -17,6 +18,7 @@ final readonly class Request
         public array $query = [],
         public array $headers = [],
         public string $body = '',
+        public string $remoteAddress = '127.0.0.1',
     ) {}
 
     public static function fromGlobals(): self
@@ -41,6 +43,7 @@ final readonly class Request
             self::fields((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_QUERY)),
             $headers,
             (string) file_get_contents('php://input'),
+            (string) ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1'),
         );
     }
 

@@ -136,16 +136,23 @@ test('the username rules come from one table', function (string $username, ?stri
     'taken' => ['alpha', WhmReasons::UNKNOWN],
 ]);
 
-test('a reseller sees, changes and assigns only what it owns or was granted, within its account limit', function () {
+test('a reseller sees, changes and assigns only what it owns, root\'s packages only with viewglobalpackages, within its limit', function () {
     expect(array_column(resellerCall('listaccts')->json('data.acct'), 'user'))->toBe(['bravo'])
         ->and(resellerCall('accountsummary', ['user' => 'alpha'])->json('metadata.result'))->toBe(0)
         ->and(resellerCall('suspendacct', ['user' => 'alpha'], post: true)->json('metadata.result'))->toBe(0)
-        ->and(array_column(resellerCall('listpkgs', ['want' => 'creatable'])->json('data.pkg'), 'name'))->toBe(['reseller1_starter', 'root_basic'])
+        ->and(array_column(resellerCall('listpkgs', ['want' => 'creatable'])->json('data.pkg'), 'name'))->toBe(['reseller1_starter'])
+        ->and(resellerCall('createacct', ['username' => 'shopx', 'domain' => 'shopx.test', 'plan' => 'root_basic', 'password' => 'Fake-Account-Pass-42!'], post: true)->json('metadata.result'))->toBe(0)
+        ->and(resellerCall('createacct', ['username' => 'shopx', 'domain' => 'shopx.test', 'plan' => 'reseller1_starter', 'ip' => 'y', 'password' => 'Fake-Account-Pass-42!'], post: true)->json('metadata.reason'))->toContain('delegated')
         ->and($this->scenario->state()->get('accounts', 'alpha')['suspended'])->toBe(0);
 
     foreach (['shopa', 'shopb'] as $user) {
-        expect(resellerCall('createacct', ['username' => $user, 'domain' => "{$user}.test", 'plan' => 'root_basic', 'password' => 'Fake-Account-Pass-42!'], post: true)->json('metadata.result'))->toBe(1);
+        expect(resellerCall('createacct', ['username' => $user, 'domain' => "{$user}.test", 'plan' => 'reseller1_starter', 'password' => 'Fake-Account-Pass-42!'], post: true)->json('metadata.result'))->toBe(1);
     }
+
+    // With "View Global Packages" on both the reseller and its token, root's packages become usable.
+    $this->scenario->state()->put('users', 'reseller1', [...$this->scenario->state()->get('users', 'reseller1'), 'privileges' => [...WhmSimulator::RESELLER_ACLS, 'viewglobalpackages']]);
+    WhmSimulator::issueToken($this->scenario, 'reseller1', WhmSimulator::RESELLER_TOKEN, [...WhmSimulator::RESELLER_ACLS, 'viewglobalpackages']);
+    expect(array_column(resellerCall('listpkgs', ['want' => 'creatable'])->json('data.pkg'), 'name'))->toBe(['default', 'reseller1_starter', 'root_basic', 'root_pro']);
 
     expect(resellerCall('createacct', ['username' => 'shopc', 'domain' => 'shopc.test', 'plan' => 'root_basic', 'password' => 'Fake-Account-Pass-42!'], post: true)->json('metadata.reason'))->toContain('limit of 3')
         ->and(resellerCall('acctcounts', ['user' => 'reseller1'])->json('data.reseller'))->toMatchArray(['active' => 3, 'limit' => 3])
@@ -166,14 +173,16 @@ test('a kept DNS zone blocks the domain until it is removed; paging counts from 
 
 test('sign-in needs a valid token for its user, or the password; the token never exceeds its ACLs', function () {
     WhmSimulator::issueToken($this->scenario, 'root', 'SIMEXPIRED0TOKEN0LOCAL0SCENARIOX', ['all'], time() - 60);
+    WhmSimulator::issueToken($this->scenario, 'root', 'SIMELSEWHERE0TOKEN0LOCAL0SCENARI', ['all'], whitelist: ['198.51.100.7']);
 
     expect(whmCall('version', token: 'WRONG0TOKEN')->status())->toBe(401)
         ->and(whmCall('version', user: 'reseller1')->status())->toBe(401)
         ->and(whmCall('version', token: 'SIMEXPIRED0TOKEN0LOCAL0SCENARIOX')->status())->toBe(401)
+        ->and(whmCall('version', token: 'SIMELSEWHERE0TOKEN0LOCAL0SCENARI')->body())->toContain('allowed IP addresses')
         ->and(Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->withBasicAuth('root', WhmSimulator::ROOT_PASSWORD)->get($this->scenario->apiUrl().'/json-api/version?api.version=1')->json('data.version'))->toBe('11.124.0.12')
-        ->and(Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->withHeaders(['Authorization' => 'whm root:'.WhmSimulator::ROOT_TOKEN])->get($this->scenario->apiUrl().'/json-api/version')->json('metadata.result'))->toBe(0)
+        ->and(Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->withHeaders(['Authorization' => 'whm root:'.WhmSimulator::ROOT_TOKEN])->get($this->scenario->apiUrl().'/json-api/version')->json())->toBe(['status' => 0, 'statusmsg' => 'WHM API 0 is not simulated; send api.version=1.'])
         ->and(whmCall('nosuchfunction')->json('metadata.result'))->toBe(0)
-        ->and($this->scenario->log()->count('version'))->toBe(5);
+        ->and($this->scenario->log()->count('version'))->toBe(6);
 });
 
 test('a login link works once, in the browser, on the port the client used', function () {

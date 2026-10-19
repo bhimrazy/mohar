@@ -223,9 +223,19 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - a rotated certificate, refused before any request is sent, then trusted again;
     - reseller scoping and a single-use login link.
 - **Recording.** `simulate:record whm` is read-only and anonymises before it redacts. `simulate:scan` and `RecordingScanner` are the secret scan over `recordings/`; it runs in `simulate:record`, in the CI tests, and as an optional pre-commit hook.
+- **After the #100 review.**
+    - Recording is staged and scanned before anything is saved.
+    - Anonymisation is deny-by-default.
+    - Recordings store their unmasked shape.
+    - The payment rule is applied per simulator (`RedactsPayments`).
+    - Live recordings are replayed against the simulator (the drift test).
+    - The request log masks session paths.
+    - Transactions nest.
+    - Login links and `removeacct` are checked under the lock.
+    - WHM is followed more closely: no `user` alias on `removeacct`, token IP allow-lists, API 0 without `api.version`, IP delegation for resellers, and root packages only with `viewglobalpackages`.
 - **Framework changes.**
     - `Request::fields()` keeps dotted names (`api.version`) and nests brackets (`card[number]`).
-    - `StateStore::transaction()`.
+    - `StateStore::transaction()`, nestable.
     - The API kernel logs a committed call before a `commit_then_hang` delay.
 
 ## Limits: what simulators cannot prove

@@ -50,27 +50,31 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **API.** WHM API 1 for the 17 functions the driver calls, plus the login links that `create_user_session` returns, served on the same TLS port.
 - **Seed.** Created on `simulate:start whm`:
     - `root`, with token `WhmSimulator::ROOT_TOKEN` and full access;
-    - `reseller1`, with `RESELLER_TOKEN` and the driver's ACLs only, granted `root_basic`, with a limit of 3 accounts;
+    - `reseller1`, with `RESELLER_TOKEN` and the driver's ACLs only: its own package `reseller1_starter`, a limit of 3 accounts, and no dedicated IPs delegated. Root's packages need the `viewglobalpackages` ACL on both the reseller and the token, as in WHM;
     - four packages, two accounts (`alpha` owned by root, `bravo` owned by the reseller), and two free dedicated IPs.
 - **Rules.**
     - Usernames follow one table (`UsernameRules`).
     - A token never exceeds its user's privileges, and a reseller sees and changes only what it owns.
     - `removeacct keepdns=1` keeps the zone, which blocks the domain.
     - Every refusal happens before anything changes.
+    - A token's `whitelist_ips` is enforced (the seeded tokens allow 127.0.0.1).
+    - A request without `api.version=1` gets an API 0-style body with no metadata envelope, as WHM would answer.
 - **Control actions.** `add_account` (someone else's account), `issue_token` (ACLs, expiry), `set_licence`, `set_usage`.
 - **Using it from the app.** Add a cPanel server with host `127.0.0.1`, the scenario's port and a token. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only). Run Test connection, then "Trust this certificate".
 - **Recording.** `simulate:record whm` makes read-only calls against a real WHM:
     - credentials come from `WHM_RECORD_HOST` and `WHM_RECORD_TOKEN`, and optionally `WHM_RECORD_PORT`, `WHM_RECORD_USER`, `WHM_RECORD_ACCOUNT` and `WHM_RECORD_CA_BUNDLE`;
-    - customer and server values are replaced by placeholders of the same type before the secret redaction;
-    - recordings land in `whm/recordings/`, tagged `source: live`.
+    - anonymisation is deny-by-default: a string is kept only under a known-safe key (WHM's reason, versions, statuses, flags, sizes, ACL names, dates) or when it is a size or a number; every other string becomes a placeholder of its kind (IPv4, IPv6, email, URL, host name, `example`);
+    - everything is written to a private staging directory and scanned, and the files move to `whm/recordings/` (`source: live`) only when the whole run completes and passes, so a failed or leaking run saves nothing;
+    - each recording keeps the shape of the answer taken before masking, so masking never hides a change of type.
+- **Drift.** `tests/Whm/WhmDriftTest.php` replays every live recording against the simulator with the same call, and checks the shape and the refusal kind. It is skipped while no live recording exists.
 - **Docs-sourced shapes.** Until a live recording exists, `tests/Fixtures/Cpanel` (written from the reference) is the `source: docs` set the conformance tests check.
 
 ## Recordings and the secret scan
 
 `simulate:scan` checks every `*/recordings/*.json` file in this package for:
 
-- credentials: WHM, Basic or Bearer authorization values, cPanel tokens, Stripe keys, private keys, JWTs, AWS keys, and unmasked values under sensitive keys;
-- personal data: emails outside example domains, and public IPv4 addresses.
+- credentials: WHM, Basic or Bearer authorization values, cPanel tokens and `cpsess` session paths, Stripe keys, private keys, JWTs, AWS keys, and unmasked values under sensitive keys;
+- personal data: emails and host names outside the example and test domains, and public IPv4 or IPv6 addresses.
 
 `simulate:record` deletes a recording that fails the scan. The framework tests run the same scan in CI. To run it before each commit, add it to `.git/hooks/pre-commit`:
 
@@ -104,5 +108,7 @@ The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working exampl
 ## Limits
 
 - The TLS front frames requests by `Content-Length` only: no `Transfer-Encoding: chunked` and no `Expect: 100-continue`. Laravel's HTTP client (Guzzle with string bodies) never sends those.
-- The request log and recordings apply the kernel `Redactor` default rule, then its payment rule: card numbers, CVCs, expiry, and Luhn-valid digits inside text.
+- The request log applies the kernel `Redactor` default rule, then its payment rule (card numbers, CVCs, expiry, and Luhn-valid digits inside text). It also masks `cpsess` paths and `session=` values.
+- Recordings apply the payment rule only for a simulator that implements `RedactsPayments` (Stripe, Khalti, eSewa), so keys such as `expires_at` keep their values elsewhere.
+- `StateStore::transaction()` nests: inner calls run in savepoints.
 - In a recording's shape check, a masked value matches any type.

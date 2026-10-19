@@ -39,6 +39,9 @@ test('the scan finds credentials and personal data that redaction by key would m
     'an unmasked password' => [['password' => 'hunter2'], 'an unmasked value under "password"'],
     'a customer email' => [['email' => 'anna@alpha-books.com'], 'a real-looking email address under "email"'],
     'a public address' => [['ip' => '8.8.8.8'], 'a public IP address under "ip"'],
+    'a public IPv6 address' => [['ipv6' => ['2001:4860:4860::8888']], 'a public IPv6 address under "0"'],
+    'a real host name' => [['child_nodes' => [['hostname' => 'mx1.alpha-books.com']]], 'a real-looking host name under "hostname"'],
+    'a cPanel session path' => [['url' => 'https://host.example.test:2083/cpsess1234567890/'], 'a cPanel session path'],
 ]);
 
 test('placeholder data passes: example domains, documentation addresses, masked values, versions', function () {

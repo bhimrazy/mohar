@@ -5,6 +5,7 @@ namespace Mohar\Simulators\Console;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Mohar\Simulators\Contracts\RecordsLive;
+use Mohar\Simulators\Contracts\RedactsPayments;
 use Mohar\Simulators\Kernel\Recorder;
 use Mohar\Simulators\Kernel\RecordingScanner;
 use Mohar\Simulators\SimulatorRegistry;
@@ -25,32 +26,40 @@ final class RecordCommand extends SimulatorCommand
             return self::FAILURE;
         }
 
+        // Recorded into a private staging directory first: only a run that completes and whose every file passes the
+        // secret scan is moved into the package, so a failed or leaking run never leaves a file ready to commit.
         $directory = dirname(__DIR__, 2).'/'.$key.'/recordings';
+        $staging = sys_get_temp_dir().'/mohar-sim-recording-'.bin2hex(random_bytes(6));
+        mkdir($staging, 0700);
 
         try {
-            $simulator->recordLive(new Recorder($directory));
-        } catch (Throwable $exception) {
-            $this->components->error($exception->getMessage());
+            $simulator->recordLive(new Recorder($staging, payments: $simulator instanceof RedactsPayments));
+            $findings = (new RecordingScanner)->scan($staging);
 
-            return self::FAILURE;
-        }
-
-        // A recording that fails the secret scan is deleted, never left for a commit.
-        $scanner = new RecordingScanner;
-        $deleted = 0;
-
-        foreach (glob($directory.'/*.json') ?: [] as $file) {
-            $findings = $scanner->scanFile($file);
+            foreach ($findings as $finding) {
+                $this->components->error($finding);
+            }
 
             if ($findings !== []) {
-                unlink($file);
-                $deleted++;
-                $this->components->error(basename($file).' was deleted: '.implode('; ', $findings).'.');
-            }
-        }
+                $this->components->error('Nothing was saved: the recordings above failed the secret scan.');
 
-        if ($deleted > 0) {
+                return self::FAILURE;
+            }
+
+            if (! is_dir($directory)) {
+                mkdir($directory, 0755, true);
+            }
+
+            foreach (glob($staging.'/*.json') ?: [] as $file) {
+                copy($file, $directory.'/'.basename($file));
+            }
+        } catch (Throwable $exception) {
+            $this->components->error($exception->getMessage().' Nothing was saved.');
+
             return self::FAILURE;
+        } finally {
+            array_map('unlink', glob($staging.'/*') ?: []);
+            rmdir($staging);
         }
 
         $this->components->info("Recordings for {$key} written (source: live).");

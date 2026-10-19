@@ -57,14 +57,15 @@ final class WhmApi
     {
         $input = array_map(fn (mixed $value): string => is_scalar($value) ? (string) $value : '', $request->input());
 
-        if (($input['api.version'] ?? null) !== '1') {
-            return $this->answer($function, false, 'This server answers WHM API 1 only: add api.version=1 to the request.');
-        }
-
         $actor = $this->authenticate($request);
 
         if (! is_array($actor)) {
             return new Response(401, ['Content-Type' => 'text/html'], '<!doctype html><title>Access denied</title><p>'.($actor ?? 'Access denied').'</p>');
+        }
+
+        // Without api.version=1 WHM answers in API 0's format, which has no metadata envelope; API 0 is not simulated.
+        if (($input['api.version'] ?? null) !== '1') {
+            return Response::json(['status' => 0, 'statusmsg' => 'WHM API 0 is not simulated; send api.version=1.']);
         }
 
         if (! array_key_exists($function, self::FUNCTIONS)) {
@@ -85,13 +86,23 @@ final class WhmApi
      */
     public function login(string $path, Request $request): Response
     {
-        $session = $this->state->get('sessions', $path);
+        // Checked and spent under the lock, so concurrent follows of one link cannot both sign in.
+        $session = $this->state->transaction(function () use ($path, $request): ?array {
+            $session = $this->state->get('sessions', $path);
 
-        if (! is_array($session) || $session['used'] || $session['expires'] < time() || ! hash_equals((string) $session['session'], (string) ($request->query['session'] ?? ''))) {
+            if (! is_array($session) || $session['used'] || $session['expires'] < time() || ! hash_equals((string) $session['session'], (string) ($request->query['session'] ?? ''))) {
+                return null;
+            }
+
+            $this->state->put('sessions', $path, [...$session, 'used' => true]);
+
+            return $session;
+        });
+
+        if ($session === null) {
             return new Response(403, ['Content-Type' => 'text/html'], '<!doctype html><title>Login link refused</title><p>This login link has expired or was already used.</p>');
         }
 
-        $this->state->put('sessions', $path, [...$session, 'used' => true]);
         $where = $session['service'] === 'whostmgrd' ? 'WHM' : 'cPanel';
 
         return new Response(200, ['Content-Type' => 'text/html'], "<!doctype html><title>{$where}</title><p>Signed in to {$where} as {$session['user']}.</p>");
@@ -291,10 +302,10 @@ final class WhmApi
                 return $this->answer($function, false, $refusal);
             }
 
-            $ip = ($input['ip'] ?? 'n') === 'y' ? $this->takeDedicatedIp() : (string) $this->config('shared_ip');
+            $ip = ($input['ip'] ?? 'n') === 'y' ? $this->takeDedicatedIp($actor) : (string) $this->config('shared_ip');
 
             if ($ip === null) {
-                return $this->answer($function, false, 'No dedicated IP address is free on this server.');
+                return $this->answer($function, false, $actor['user'] === 'root' ? 'No dedicated IP address is free on this server.' : "No free dedicated IP address is delegated to {$actor['user']}.");
             }
 
             $this->state->put('accounts', $username, [
@@ -376,14 +387,16 @@ final class WhmApi
      */
     private function removeacct(string $function, array $input, array $actor): Response
     {
-        $username = $input['username'] ?? $input['user'] ?? '';
-        $account = $this->visibleAccount($actor, $username);
+        $username = $input['username'] ?? '';
 
-        if ($account === null) {
-            return $this->answer($function, false, "The user “{$username}” does not exist.");
-        }
+        // Found and removed under the lock, so two concurrent removes cannot both succeed.
+        $account = $this->state->transaction(function () use ($actor, $username, $input): ?array {
+            $account = $this->visibleAccount($actor, $username);
 
-        $this->state->transaction(function () use ($account, $input): void {
+            if ($account === null) {
+                return null;
+            }
+
             $this->state->delete('accounts', $account['user']);
             $this->state->delete('passwords', $account['user']);
             $this->state->delete('bandwidth', $account['user']);
@@ -395,7 +408,13 @@ final class WhmApi
             if (in_array($account['ip'], $this->config('dedicated_ips'), true)) {
                 $this->state->put('config', 'free_ips', [...$this->config('free_ips'), $account['ip']]);
             }
+
+            return $account;
         });
+
+        if ($account === null) {
+            return $this->answer($function, false, "The user “{$username}” does not exist.");
+        }
 
         return $this->answer($function, true, output: "Removing the account files, mail and databases of {$account['user']}... done.");
     }
@@ -494,6 +513,10 @@ final class WhmApi
             $token = $this->state->get('tokens', hash('sha256', $match[2]));
             $valid = is_array($token) && $token['user'] === $match[1] && ($token['expires_at'] === null || $token['expires_at'] > time());
 
+            if ($valid && $token['whitelist_ips'] !== [] && ! in_array($request->remoteAddress, $token['whitelist_ips'], true)) {
+                return 'Access denied: this API token may only be used from its allowed IP addresses.';
+            }
+
             return $valid ? ['user' => $match[1], 'acls' => $token['acls']] : null;
         }
 
@@ -547,23 +570,33 @@ final class WhmApi
     }
 
     /**
-     * Root may assign every package; a reseller its own and those root granted it.
+     * Root may assign every package; a reseller its own, and root's only with the "View Global Packages" ACL
+     * (`viewglobalpackages`, WHM's reseller privilege list).
      *
      * @param  array{user: string, acls: list<string>}  $actor
      * @return array<string, array<string, mixed>>
      */
     private function usablePackages(array $actor): array
     {
-        $grants = $this->user($actor['user'])['packages'] ?? [];
+        $global = $actor['user'] === 'root' || $this->allowed($actor, 'viewglobalpackages');
 
-        return array_filter($this->state->all('packages'), fn (array $package): bool => $actor['user'] === 'root' || $package['owner'] === $actor['user'] || in_array($package['name'], $grants, true));
+        return array_filter($this->state->all('packages'), fn (array $package): bool => $package['owner'] === $actor['user'] || ($global && $package['owner'] === 'root'));
     }
 
-    private function takeDedicatedIp(): ?string
+    /**
+     * A free dedicated IP: any for root, only one delegated to the reseller otherwise (WHM's IP delegation).
+     *
+     * @param  array{user: string, acls: list<string>}  $actor
+     */
+    private function takeDedicatedIp(array $actor): ?string
     {
         $free = $this->config('free_ips');
-        $ip = array_shift($free);
-        $this->state->put('config', 'free_ips', $free);
+        $allowed = $actor['user'] === 'root' ? $free : array_values(array_intersect($free, (array) ($this->user($actor['user'])['delegated_ips'] ?? [])));
+        $ip = $allowed[0] ?? null;
+
+        if ($ip !== null) {
+            $this->state->put('config', 'free_ips', array_values(array_diff($free, [$ip])));
+        }
 
         return $ip;
     }
