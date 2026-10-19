@@ -11,6 +11,12 @@ final readonly class LookupResult
 
     public const PENDING = 'pending';
 
+    /**
+     * The customer has paid and the provider is still settling (e.g. a card or bank payment "processing"). The
+     * attempt stays open and keeps blocking new payments for the invoice past its session expiry, until it resolves.
+     */
+    public const PROCESSING = 'processing';
+
     public const AMBIGUOUS = 'ambiguous';
 
     public const FAILED = 'failed';
@@ -25,7 +31,7 @@ final readonly class LookupResult
 
     public const PARTIALLY_REFUNDED = 'partially_refunded';
 
-    public const STATUSES = [self::SUCCEEDED, self::PENDING, self::AMBIGUOUS, self::FAILED, self::CANCELLED, self::EXPIRED, self::NOT_FOUND, self::REFUNDED, self::PARTIALLY_REFUNDED];
+    public const STATUSES = [self::SUCCEEDED, self::PENDING, self::PROCESSING, self::AMBIGUOUS, self::FAILED, self::CANCELLED, self::EXPIRED, self::NOT_FOUND, self::REFUNDED, self::PARTIALLY_REFUNDED];
 
     /**
      * @param  int|null  $amount  minor units actually paid, as reported by the provider

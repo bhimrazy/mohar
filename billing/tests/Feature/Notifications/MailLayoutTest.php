@@ -8,6 +8,7 @@ use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\EmailComposer;
 use App\Modules\Notifications\Services\SampleContext;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Modules\Platform\Notifications\StaffInvitationNotification;
 use Illuminate\Auth\Notifications\ResetPassword;
@@ -30,6 +31,7 @@ const COVERED_MAIL_CLASSES = [
     TemplatedMail::class,
     SecurityNotice::class,
     StaffInvitationNotification::class,
+    ClientInvitationNotification::class,
 ];
 
 beforeEach(fn () => app(Settings::class)->set('core.company_name', 'Acme Hosting'));
@@ -95,4 +97,5 @@ it('renders framework and module notifications with the branded layout', functio
     'email verification' => [fn (User $user) => new VerifyEmail],
     'security notice' => [fn (User $user) => new SecurityNotice('Your two-factor authentication was reset', ['An administrator reset it.'])],
     'staff invitation' => [fn (User $user) => new StaffInvitationNotification(StaffInvitation::factory()->create(), 'token')],
+    'client invitation' => [fn (User $user) => new ClientInvitationNotification('Acme Studio', url('/account-invitation/token'), now()->addWeek())],
 ]);

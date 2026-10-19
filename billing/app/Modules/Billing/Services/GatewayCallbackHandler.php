@@ -9,13 +9,17 @@ use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\RecordChargeback;
 use App\Modules\Billing\Actions\RefundTransaction;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
+use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
+use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use Illuminate\Http\Request;
@@ -30,6 +34,9 @@ class GatewayCallbackHandler
 {
     public const MAX_CALLBACK_AGE_SECONDS = 300;
 
+    /** Larger bodies are refused before any signature work (no provider sends callbacks near this size). */
+    public const MAX_BODY_BYTES = 262_144;
+
     public function __construct(
         private GatewayManager $gateways,
         private GatewayLogger $log,
@@ -38,6 +45,7 @@ class GatewayCallbackHandler
         private RefundTransaction $refund,
         private RecordChargeback $chargeback,
         private GatewayAmounts $amounts,
+        private SettlePaymentAttempt $settle,
     ) {}
 
     /**
@@ -45,6 +53,12 @@ class GatewayCallbackHandler
      */
     public function handle(string $gatewayKey, Request $request): array
     {
+        $declared = $request->header('Content-Length');
+
+        if ((is_numeric($declared) && (int) $declared > self::MAX_BODY_BYTES) || strlen($request->getContent()) > self::MAX_BODY_BYTES) {
+            return $this->outcome($gatewayKey, 413, 'payload too large', ['ip' => $request->ip(), 'length' => is_numeric($declared) ? (int) $declared : strlen($request->getContent())]);
+        }
+
         // Nothing from an unverified body is stored: rejections log metadata only.
         $payload = [
             'ip' => $request->ip(),
@@ -91,6 +105,7 @@ class GatewayCallbackHandler
                 CallbackEvent::PAYMENT_FAILED => $this->failure($gatewayKey, $event),
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
                 CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
+                CallbackEvent::ATTEMPT_UPDATED => $this->attemptUpdated($gatewayKey, $event),
                 // Unknown event types are acknowledged and ignored, never booked as money movements.
                 default => $this->outcome($gatewayKey, 200, 'ignored event type', ['type' => $event->type, 'txn_id' => $event->txnId], $event->invoiceId),
             };
@@ -146,6 +161,34 @@ class GatewayCallbackHandler
     }
 
     /**
+     * A hosted attempt changed at the provider: settle it exactly like the return route and the poller do (lookup,
+     * then the guards against the attempt's stored amount, currency and rate). The event's own figures are unused.
+     *
+     * @return Outcome
+     */
+    private function attemptUpdated(string $gatewayKey, CallbackEvent $event): array
+    {
+        $attempt = $event->reference !== null
+            ? PaymentAttempt::query()->where('gateway', $gatewayKey)->where('reference', $event->reference)->first()
+            : null;
+
+        if ($attempt === null) {
+            // Retrying won't create it: acknowledge so the provider stops.
+            return $this->outcome($gatewayKey, 200, 'unknown attempt', ['reference' => $event->reference, ...$event->raw]);
+        }
+
+        $before = $attempt->status;
+        $status = $this->settle->handle($attempt);
+        $result = match (true) {
+            $status === AttemptStatus::Succeeded && $before === AttemptStatus::Succeeded => 'duplicate',
+            $status === AttemptStatus::Succeeded => 'payment recorded',
+            default => 'attempt '.$status->value,
+        };
+
+        return $this->outcome($gatewayKey, 200, $result, ['reference' => $attempt->reference, ...$event->raw], $attempt->invoice_id);
+    }
+
+    /**
      * @return Outcome
      */
     private function failure(string $gatewayKey, CallbackEvent $event): array
@@ -172,6 +215,21 @@ class GatewayCallbackHandler
     {
         if ($this->refund->existing($gatewayKey, $event->txnId) !== null) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
+        }
+
+        // A refund started from our admin names its refund row. Only a row that really recorded it ends here: one
+        // still in flight is retried later, and one marked failed (no answer from the provider, yet the refund
+        // happened) is booked now.
+        $own = $event->reference !== null && ctype_digit($event->reference)
+            ? Transaction::query()->whereKey((int) $event->reference)->where('gateway', $gatewayKey)->where('type', TransactionType::Refund)->first()
+            : null;
+
+        if ($own?->status === TransactionStatus::Succeeded) {
+            return $this->outcome($gatewayKey, 200, 'refund already recorded', $event->raw, $own->invoice_id);
+        }
+
+        if ($own?->status === TransactionStatus::Pending) {
+            return $this->outcome($gatewayKey, 409, 'refund still being recorded', $event->raw, $own->invoice_id);
         }
 
         $parents = $this->parents($gatewayKey, $event);

@@ -4,6 +4,7 @@ namespace App\Modules\Platform\Actions\Clients;
 
 use App\Events\Core\ClientMerged;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Support\Clients\ClientMergeRegistry;
@@ -98,6 +99,9 @@ class MergeClients
         }
 
         DB::table('client_user')->where('client_id', $source->id)->delete();
+        // Open invitations follow the logins that moved; those of logins the target already had end with the source.
+        ClientInvitation::query()->where('client_id', $source->id)->whereNotIn('user_id', $existing)->update(['client_id' => $target->id]);
+        ClientInvitation::query()->where('client_id', $source->id)->delete();
 
         return $moved;
     }

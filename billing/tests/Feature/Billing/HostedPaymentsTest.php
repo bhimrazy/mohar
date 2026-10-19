@@ -281,15 +281,17 @@ test('every hosted driver honours the contract', function (string $key) {
     // The extension drivers (PaymentsNepal) with sandbox credentials; their providers answer "still pending".
     Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
     Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
+    Gateway::query()->create(['key' => 'stripe', 'display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'sk_test_51ContractStripeSecret0000', 'webhook_secret' => 'whsec_ContractStripeWebhook00']]);
     Http::preventStrayRequests();
     Http::fake([
         'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
         'https://rc.esewa.com.np/api/epay/transaction/status/*' => Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => 'inv-0-a1', 'total_amount' => 50.0, 'status' => 'PENDING', 'ref_id' => null]),
+        'https://api.stripe.com/v1/checkout/sessions/cs_test_contract0001*' => Http::response(['id' => 'cs_test_contract0001', 'object' => 'checkout.session', 'client_reference_id' => 'inv-0-a1', 'metadata' => ['mohar_reference' => 'inv-0-a1'], 'mode' => 'payment', 'livemode' => false, 'status' => 'open', 'payment_status' => 'unpaid', 'payment_intent' => null]),
     ]);
     $registry = app(GatewayRegistry::class);
     $driver = $registry->driver($key);
     $config = app(GatewayManager::class)->config($key);
-    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]), providerRef: 'PIDX1');
+    $ref = new PaymentAttemptRef('inv-0-a1', Money::of(5_000, $driver->currencies()[0]), providerRef: $key === 'stripe' ? 'cs_test_contract0001' : 'PIDX1');
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
         ->and($driver->currencies())->not->toBeEmpty()
@@ -308,4 +310,4 @@ test('every hosted driver honours the contract', function (string $key) {
     foreach ($secrets as $secret) {
         expect(json_encode($first->raw))->not->toContain($secret);
     }
-})->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa']);
+})->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe']);

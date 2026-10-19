@@ -187,7 +187,8 @@ class ClientPaymentOptions
         $keep = fn (string $amount): string => str_replace(' ', "\u{00A0}", $amount);
         $label = __('You\'ll pay :amount on :gateway (:one = :rate).', [
             'amount' => $keep($money->format($amount)),
-            'gateway' => $gateway->display_name,
+            // The provider the customer pays on, not the staff-chosen method name.
+            'gateway' => $this->gateways->driver($gateway->key)->name(),
             'one' => $keep($money->amount(100, $from)),
             'rate' => $keep($money->amount($perUnit, $amount->currency)),
         ]);
@@ -222,6 +223,8 @@ class ClientPaymentOptions
                 return [
                     'key' => $gateway->key,
                     'name' => $gateway->display_name,
+                    // The provider the customer is sent to ("Stripe"), whatever staff call the method.
+                    'provider' => $driver->name(),
                     'kind' => $this->kind($gateway->key),
                     'instructions' => $invoice !== null ? $driver->instructions($this->gateways->config($gateway), $invoice->displayNumber()) : null,
                     'vault_url' => $driver->supports(GatewayDriver::REMOTE_INPUT) && Route::has('billing.sandbox.tokens') ? route('billing.sandbox.tokens') : null,

@@ -10,6 +10,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Integrations\Endpoints;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -61,6 +62,33 @@ class PlatformDashboard
         $dashboard->health('admin', 'platform.scheduler', fn (): array => $this->schedulerHealth(), 'core.automation.view', 10);
         $dashboard->health('admin', 'platform.automation', fn (): array => $this->automationHealth(), 'core.automation.view', 11);
         $dashboard->health('admin', 'platform.queue', fn (): array => $this->queueHealth(), 'core.automation.view', 12);
+        $this->registerIntegrationEndpoints($dashboard);
+    }
+
+    /**
+     * Integration endpoint overrides (ADR 0016 §3), a health check only while INTEGRATION_ENDPOINTS is set: red outside a
+     * development environment, where they are ignored, and amber in development, where requests go to simulators.
+     * Keys only; the URLs are never shown.
+     */
+    public function registerIntegrationEndpoints(Dashboard $dashboard): void
+    {
+        $keys = app(Endpoints::class)->configuredKeys();
+
+        if ($keys === []) {
+            return;
+        }
+
+        $development = Endpoints::developmentEnvironment(app());
+
+        $dashboard->health('admin', 'platform.integration_endpoints', fn (): array => [
+            'label' => 'Integration endpoints',
+            'detail' => $development
+                ? 'Requests for '.implode(', ', $keys).' go to the addresses in INTEGRATION_ENDPOINTS.'
+                : 'INTEGRATION_ENDPOINTS is set ('.implode(', ', $keys).') and ignored here. Remove it and INTEGRATION_CA_BUNDLE from the environment.',
+            'value' => $development ? 'Overridden' : 'Remove overrides',
+            'tone' => $development ? 'warning' : 'danger',
+            'icon' => 'Globe',
+        ], 'core.settings.view', 13);
     }
 
     /**
