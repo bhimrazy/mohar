@@ -325,7 +325,7 @@ it('renders secret templates against the allow-list only, with URL-like text rem
         'company' => ['name' => 'Acme Hosting'],
         'user' => ['first_name' => 'Bob'],
         'staff' => ['first_name' => null],
-        'auth' => ['expires_at' => null],
+        'auth' => ['expires_at' => null, 'expires_in' => null],
         'support' => ['email' => 'help@acme.test'],
         'system' => ['today' => null],
     ]);
