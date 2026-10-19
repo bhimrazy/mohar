@@ -63,7 +63,7 @@ a running container).
 | Image, `docker save` (compressed layers) | 162 MB                                                                                                                                                                           |
 | Without the `runtime` stage              | 1,208 MB unpacked (the toolchain of the official PHP image)                                                                                                                      |
 | Build, no cache                          | 428 s on the shared 4-vCPU codespace (`install-php-extensions` compiling the extensions is the largest step)                                                                     |
-| Cold start                               | 1.2–1.6 s from `docker run` to the first `200` on `/up` (includes `php artisan optimize`)                                                                                        |
+| Cold start                               | 1.2–2.1 s (three runs on the shared codespace) from `docker run` to the first `200` on `/up` (includes `php artisan optimize`)                                                   |
 | Smoke test against PostgreSQL 18.6       | read-only root, all capabilities dropped, `no-new-privileges`: migrations and `app:install`, `/up` healthy, sign-in, a queued `RunAutomationJob` processed by a worker container |
 
 ## Not yet

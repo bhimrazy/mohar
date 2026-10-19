@@ -476,7 +476,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
   (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
   a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
-  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start about 1.5 s. `deploy/compose.dev.yaml`
+  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.1 s. `deploy/compose.dev.yaml`
   runs the `dev` target with Vite. The dependency check now also requires digest pins and the 7-day cooldown for
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
