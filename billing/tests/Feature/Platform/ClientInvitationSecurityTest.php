@@ -23,7 +23,7 @@ beforeEach(function () {
     $this->client = Client::factory()->create(['company_name' => 'Acme Studio']);
 });
 
-function probeInvite(Client $client, string $email = 'helper@example.test'): string
+function securityProbeInvite(Client $client, string $email = 'helper@example.test'): string
 {
     app(ManageClientLogins::class)->invite($client, $email, 'Hari Helper', ['billing']);
     $token = '';
@@ -38,13 +38,13 @@ function probeInvite(Client $client, string $email = 'helper@example.test'): str
     return $token;
 }
 
-function probeAccept(string $token, string $password = 'Invite-Passw0rd!x')
+function securityProbeAccept(string $token, string $password = 'Invite-Passw0rd!x')
 {
     return test()->post(route('platform.client-invitations.accept', $token), ['password' => $password, 'password_confirmation' => $password]);
 }
 
 it('stops the invitation link once the login set its own password and turned on two-factor', function () {
-    $token = probeInvite($this->client);
+    $token = securityProbeInvite($this->client);
     $user = User::query()->where('email', 'helper@example.test')->sole();
 
     // The login holder ignores the invitation and uses "Forgot password", then enables 2FA.
@@ -55,7 +55,7 @@ it('stops the invitation link once the login set its own password and turned on 
     expect($status)->toBe(Password::PASSWORD_RESET);
     $user->forceFill(['two_factor_secret' => encrypt('secret'), 'two_factor_recovery_codes' => encrypt(json_encode(['code'])), 'two_factor_confirmed_at' => now()])->save();
 
-    probeAccept($token);
+    securityProbeAccept($token);
 
     // Expected: refused, password unchanged, nobody signed in without the second factor.
     $this->assertGuest();
@@ -63,21 +63,21 @@ it('stops the invitation link once the login set its own password and turned on 
 });
 
 it('never signs a two-factor login in from the invitation page', function () {
-    $token = probeInvite($this->client);
+    $token = securityProbeInvite($this->client);
     User::query()->where('email', 'helper@example.test')->sole()
         ->forceFill(['two_factor_secret' => encrypt('secret'), 'two_factor_recovery_codes' => encrypt(json_encode(['code'])), 'two_factor_confirmed_at' => now()])->save();
 
-    probeAccept($token);
+    securityProbeAccept($token);
 
     $this->assertGuest();
 });
 
 it('stops the invitation link when the login changes its email address', function () {
-    $token = probeInvite($this->client);
+    $token = securityProbeInvite($this->client);
     $user = User::query()->where('email', 'helper@example.test')->sole();
     $user->forceFill(['email' => 'new-address@example.test', 'email_verified_at' => null])->save();
 
-    probeAccept($token);
+    securityProbeAccept($token);
 
     // Expected: the link mailed to the old address no longer sets the password, nor verifies the new address.
     $this->assertGuest();
@@ -95,7 +95,7 @@ it('does not issue an invitation to an existing login, so it cannot reset that l
 });
 
 it('scopes resending to a login of that account', function () {
-    probeInvite($this->client);
+    securityProbeInvite($this->client);
     $other = Client::factory()->create();
     $user = User::query()->where('email', 'helper@example.test')->sole();
     actingAsStaff(['core.users.manage', 'core.clients.view']);
@@ -105,7 +105,7 @@ it('scopes resending to a login of that account', function () {
 });
 
 it('requires the users permission to resend an invitation', function () {
-    probeInvite($this->client);
+    securityProbeInvite($this->client);
     $user = User::query()->where('email', 'helper@example.test')->sole();
     actingAsStaff(['core.clients.view', 'core.*']);
 
@@ -114,7 +114,7 @@ it('requires the users permission to resend an invitation', function () {
 });
 
 it('requires a recent password to resend an invitation', function () {
-    probeInvite($this->client);
+    securityProbeInvite($this->client);
     $user = User::query()->where('email', 'helper@example.test')->sole();
     $before = ClientInvitation::query()->sole()->token_hash;
     actingAsStaff(['core.users.manage', 'core.clients.view']);
@@ -125,10 +125,10 @@ it('requires a recent password to resend an invitation', function () {
 
 it('throttles accept attempts', function () {
     for ($i = 0; $i < 10; $i++) {
-        probeAccept(str_repeat('x', 48));
+        securityProbeAccept(str_repeat('x', 48));
     }
 
-    probeAccept(str_repeat('y', 48))->assertStatus(429);
+    securityProbeAccept(str_repeat('y', 48))->assertStatus(429);
 });
 
 it('serialises concurrent accepts on PostgreSQL: the second waits for the lock and then sees the link used', function () {
