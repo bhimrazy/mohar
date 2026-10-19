@@ -16,8 +16,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $server_id
  * @property int|null $requested_by
  * @property string $status fetching|ready|failed
- * @property list<array<string, mixed>>|null $accounts RemoteAccount fields, in the panel's order (encrypted)
+ * @property list<array<string, mixed>>|null $accounts RemoteAccount fields plus how each matched at fetch time
+ *                                                     (AccountImportMatcher::classify()), in the panel's order (encrypted)
  * @property int $account_count
+ * @property int $proposed_count
+ * @property int $unmatched_count
+ * @property int $reseller_count
+ * @property int $linked_count
+ * @property list<int>|null $missing ids of live services whose account the server did not report
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at
  * @property CarbonImmutable $expires_at
@@ -27,7 +33,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read User|null $requester
  */
 #[Hidden(['accounts'])]
-#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'error', 'fetched_at', 'expires_at'])]
+#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'error', 'fetched_at', 'expires_at'])]
 class ServerAccountImport extends Model
 {
     public const FETCHING = 'fetching';
@@ -47,6 +53,11 @@ class ServerAccountImport extends Model
         return [
             'accounts' => 'encrypted:array',
             'account_count' => 'integer',
+            'proposed_count' => 'integer',
+            'unmatched_count' => 'integer',
+            'reseller_count' => 'integer',
+            'linked_count' => 'integer',
+            'missing' => 'array',
             'fetched_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];

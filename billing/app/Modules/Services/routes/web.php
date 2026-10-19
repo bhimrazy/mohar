@@ -17,7 +17,6 @@ Route::adminArea(function (): void {
 
         // Server credentials are sensitive: changing them needs a recent password confirmation.
         Route::resource('servers', ServerController::class)->only(['index', 'create', 'edit']);
-        Route::get('servers/{server}/import', [ServerImportController::class, 'show'])->name('servers.import.show');
         Route::middleware('password.recent')->group(function (): void {
             Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');

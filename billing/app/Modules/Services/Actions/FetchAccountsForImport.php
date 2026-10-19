@@ -50,17 +50,20 @@ class FetchAccountsForImport
             ]);
         });
 
-        $this->activity->log("Accounts on server {$server->name} fetched for import", $server);
+        $this->activity->log("Fetch of the accounts on server {$server->name} requested for import", $server);
         FetchServerAccounts::dispatch($import->id);
 
         return $import;
     }
 
     /**
-     * The server's list that has not expired, if any.
+     * The server's list that has not expired, if any. An expired list is deleted here, so client emails never outlive
+     * it by more than a read (housekeeping deletes the rest daily).
      */
     public static function latest(Server $server): ?ServerAccountImport
     {
+        ServerAccountImport::query()->where('server_id', $server->id)->where('expires_at', '<=', now())->delete();
+
         return ServerAccountImport::query()
             ->with('requester:id,name')
             ->where('server_id', $server->id)

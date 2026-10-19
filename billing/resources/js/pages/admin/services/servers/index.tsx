@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
 import ServerGroupController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerGroupController';
-import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import { index as servicesIndex } from '@/routes/admin/services';
 import type { SelectOption } from '@/types/app';
 import type { ServerRow } from '@/types/services';
@@ -44,8 +43,6 @@ type Props = {
     groups: GroupRow[];
     drivers: SelectOption[];
     canManage: boolean;
-    /** Driver keys whose servers can list their accounts for import; empty without the import permission. */
-    importDrivers: string[];
 };
 
 function Capacity({ server }: { server: ServerRow }) {
@@ -71,7 +68,6 @@ export default function ServersIndex({
     groups,
     drivers,
     canManage,
-    importDrivers,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
     const [deleting, setDeleting] = useState<ServerRow | null>(null);
@@ -129,7 +125,7 @@ export default function ServersIndex({
                 />
             ),
         },
-        ...(canManage || importDrivers.length > 0
+        ...(canManage
             ? [
                   {
                       key: 'actions',
@@ -148,54 +144,34 @@ export default function ServersIndex({
                                   </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                  {importDrivers.includes(server.driver) && (
-                                      <DropdownMenuItem asChild>
-                                          <Link
-                                              href={ServerImportController.show(
-                                                  server.id,
-                                              )}
-                                          >
-                                              Import accounts
-                                          </Link>
-                                      </DropdownMenuItem>
-                                  )}
-                                  {canManage && (
-                                      <>
-                                          <DropdownMenuItem
-                                              onSelect={() =>
-                                                  router.post(
-                                                      ServerController.test(
-                                                          server.id,
-                                                      ).url,
-                                                      {},
-                                                      { preserveScroll: true },
-                                                  )
-                                              }
-                                          >
-                                              Test connection
-                                          </DropdownMenuItem>
-                                          <DropdownMenuItem asChild>
-                                              <Link
-                                                  href={servicesIndex({
-                                                      query: {
-                                                          server: server.id,
-                                                      },
-                                                  })}
-                                              >
-                                                  View services
-                                              </Link>
-                                          </DropdownMenuItem>
-                                          <DropdownMenuSeparator />
-                                          <DropdownMenuItem
-                                              variant="destructive"
-                                              onSelect={() =>
-                                                  setDeleting(server)
-                                              }
-                                          >
-                                              Delete server
-                                          </DropdownMenuItem>
-                                      </>
-                                  )}
+                                  <DropdownMenuItem
+                                      onSelect={() =>
+                                          router.post(
+                                              ServerController.test(server.id)
+                                                  .url,
+                                              {},
+                                              { preserveScroll: true },
+                                          )
+                                      }
+                                  >
+                                      Test connection
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                      <Link
+                                          href={servicesIndex({
+                                              query: { server: server.id },
+                                          })}
+                                      >
+                                          View services
+                                      </Link>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => setDeleting(server)}
+                                  >
+                                      Delete server
+                                  </DropdownMenuItem>
                               </DropdownMenuContent>
                           </DropdownMenu>
                       ),

@@ -4,8 +4,12 @@ namespace App\Modules\Services\Jobs;
 
 use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Data\Services\Provisioning\RemoteAccount;
+use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Services\ProvisioningSnapshots;
+use App\Modules\Services\Support\AccountImportMatcher;
 use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -13,8 +17,10 @@ use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
 
 /**
- * Reads every account on a server for Import accounts (ListsAccounts) and stores the list on the import row. Read-only
- * on the server. One try: staff fetch again from the page. A failure is stored as our message, with credentials masked.
+ * Reads every account on a server for Import accounts (ListsAccounts), matches them once (AccountImportMatcher) and
+ * stores both on the import row; pages only read what is stored. Read-only on the server. Runs on the provisioning
+ * queue with the longest command timeout (ADR 0014). One try: staff fetch again from the page. A failure is stored as
+ * our message, with credentials masked. The result is audited against the staff member who asked for it.
  */
 class FetchServerAccounts implements ShouldQueue
 {
@@ -22,16 +28,19 @@ class FetchServerAccounts implements ShouldQueue
 
     public int $tries = 1;
 
-    /** Above the driver's own budget for background reads (two minutes for cPanel). */
-    public int $timeout = 180;
+    public int $timeout;
 
     public bool $failOnTimeout = true;
 
-    public function __construct(public int $importId) {}
-
-    public function handle(ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor): void
+    public function __construct(public int $importId)
     {
-        $import = ServerAccountImport::query()->with('server')->find($this->importId);
+        $this->onQueue('provisioning');
+        $this->timeout = (int) config('services.module.max_job_timeout_seconds', 180);
+    }
+
+    public function handle(ProvisioningDriverRegistry $drivers, ProvisioningSnapshots $snapshots, Redactor $redactor, AccountImportMatcher $matcher, ActivityLogger $activity): void
+    {
+        $import = ServerAccountImport::query()->with(['server', 'requester'])->find($this->importId);
 
         if ($import === null || $import->status !== ServerAccountImport::FETCHING) {
             return;
@@ -54,7 +63,7 @@ class FetchServerAccounts implements ShouldQueue
                 'domain' => $account->domain,
                 'plan' => $account->plan,
                 'owner' => $account->owner,
-                'email' => $account->email === null ? null : strtolower($account->email),
+                'email' => $account->email,
                 'ip' => $account->ip,
                 'suspended' => $account->suspended,
                 'suspend_reason' => $account->suspendReason,
@@ -66,16 +75,29 @@ class FetchServerAccounts implements ShouldQueue
             $message = $redactor->maskValues($exception->getMessage(), $connection->secrets());
             report(new \RuntimeException($message));
             $this->markFailed($import, __('The accounts on :server could not be read: :error', ['server' => $server->name, 'error' => $message]));
+            $activity->log("Fetching the accounts on server {$server->name} for import failed", $server, actor: $import->requester);
 
             return;
         }
 
+        // The panel user the connection signs in as, exactly as the driver decides it (a cPanel server without a
+        // username signs in as root).
+        $connectionUser = $driver instanceof CpanelDriver ? WhmClient::connectionUser($connection) : $connection->username;
+        $matched = $matcher->classify($server, $accounts, $connectionUser);
+        $counts = array_count_values(array_column($matched['rows'], 'category'));
+
         $import->update([
             'status' => ServerAccountImport::READY,
-            'accounts' => $accounts,
-            'account_count' => count($accounts),
+            'accounts' => $matched['rows'],
+            'account_count' => count($matched['rows']),
+            'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0,
+            'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
+            'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0,
+            'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
+            'missing' => $matched['missing'],
             'fetched_at' => now(),
         ]);
+        $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => count($matched['rows'])], actor: $import->requester);
     }
 
     /**

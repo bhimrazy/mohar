@@ -8,19 +8,22 @@ use App\Enums\FieldType;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
-use App\Modules\Services\Models\Service;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use stdClass;
 
 /**
- * Sorts the accounts a server reported into what Import accounts can do with them (cPanel spec §10). Read-only: it
- * proposes, staff decide, and nothing here creates a client or changes a service.
+ * Sorts the accounts a server reported into what Import accounts can do with them (cPanel spec §10). It runs once,
+ * when a fetch finishes (FetchServerAccounts), and its answer is stored with the list. Read-only: it proposes, staff
+ * decide, and nothing here creates a client or changes a service.
  *
  * - linked: a live service on this server already holds the username; it is never imported again.
+ * - reseller: owned by another panel user than the one the connection signs in as (a reseller's customer under a root
+ *   connection, or the reseller's own account under a reseller connection); listed apart.
  * - proposed: exactly one open client has the account's contact email, and exactly one product of the driver uses the
  *   account's package on this server (its group, or no group when the server is the driver's default).
  * - unmatched: anything else; the note says why.
- * - reseller: owned by another panel user than the connection's (a reseller under a root connection); listed apart.
  */
 class AccountImportMatcher
 {
@@ -35,110 +38,139 @@ class AccountImportMatcher
     public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
 
     /**
-     * @param  list<array<string, mixed>>  $accounts  ServerAccountImport::$accounts
-     * @return list<array<string, mixed>> each account with category, client, product, service, differences and note
+     * Each account with category, client_id, product_id, service_id, note and differences, ready to store; and the ids
+     * of live services on the server whose account was not reported.
+     *
+     * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
+     * @param  string|null  $connectionUser  the panel user the connection signs in as (null: owners are not compared)
+     * @return array{rows: list<array<string, mixed>>, missing: list<int>}
      */
-    public function classify(Server $server, array $accounts): array
+    public function classify(Server $server, array $accounts, ?string $connectionUser): array
     {
-        $services = $this->liveServices($server)->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+        $services = $this->liveServices($server);
         $clients = $this->clientsByEmail(array_values(array_unique(array_filter(array_map(fn (array $account): ?string => $account['email'] ?? null, $accounts)))));
         $field = $this->packageField($server->driver);
-        $products = collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? []);
-        $offered = $this->productsByPackage($server, $products, $field);
+        $offered = $this->productsByPackage($server, $field);
+        $packages = $field === null ? [] : collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? [])
+            ->mapWithKeys(fn (ProductSummary $product): array => [$product->id => $product->driverConfig[$field] ?? null])->all();
 
-        return array_map(function (array $account) use ($server, $services, $clients, $products, $offered, $field): array {
-            $username = strtolower((string) $account['username']);
-            $service = $services->get($username);
+        $rows = array_map(function (array $account) use ($services, $clients, $offered, $field, $packages, $connectionUser): array {
+            $service = $services->get($account['username']);
 
             if ($service !== null) {
-                return [...$account, 'category' => self::LINKED, 'client' => null, 'product' => null, 'note' => null,
-                    'service' => ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
-                    'differences' => $this->differences($service, $account, $products->firstWhere('id', $service->product_id), $field)];
+                return [...$account, 'category' => self::LINKED, 'client_id' => null, 'product_id' => null, 'service_id' => (int) $service->id, 'note' => null,
+                    'differences' => $this->differences($service, $account, $packages[$service->product_id] ?? null)];
             }
 
             $email = $account['email'] ?? null;
+            $plan = $account['plan'] ?? null;
             $matchedClients = $email === null ? [] : ($clients[$email] ?? []);
-            $matchedProducts = $offered[(string) ($account['plan'] ?? '')] ?? [];
+            $matchedProducts = $offered[(string) $plan] ?? [];
+            $owner = $account['owner'] ?? null;
+            $otherOwner = $connectionUser !== null && $owner !== null && $owner !== $connectionUser;
             $notes = array_filter([
+                $otherOwner ? ($connectionUser === 'root'
+                    ? self::text('Owned by the reseller :owner; import the reseller\'s accounts from a connection signed in as :owner.', ['owner' => $owner])
+                    : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
-                    $email === null => self::text('The server reports no contact email.'),
+                    $email === null => self::text('The server reports no valid contact email.'),
                     $matchedClients === [] => self::text('No client has the email :email.', ['email' => $email]),
                     count($matchedClients) > 1 => self::text(':count clients share this email.', ['count' => count($matchedClients)]),
                     default => null,
                 },
                 match (true) {
                     $field === null => self::text('This driver names no package setting to match products by.'),
-                    ($account['plan'] ?? null) === null => self::text('The server reports no package.'),
-                    $matchedProducts === [] => self::text('No product uses the package :plan on this server.', ['plan' => $account['plan']]),
-                    count($matchedProducts) > 1 => self::text(':count products use the package :plan.', ['count' => count($matchedProducts), 'plan' => $account['plan']]),
+                    $plan === null => self::text('The server reports no package.'),
+                    $matchedProducts === [] => self::text('No product uses the package :plan on this server.', ['plan' => $plan]),
+                    count($matchedProducts) > 1 => self::text(':count products use the package :plan.', ['count' => count($matchedProducts), 'plan' => $plan]),
                     default => null,
                 },
             ]);
-            $client = count($matchedClients) === 1 ? $matchedClients[0] : null;
-            $product = count($matchedProducts) === 1 ? $matchedProducts[0] : null;
-            $owner = $account['owner'] ?? null;
-            $resellerOwned = $owner !== null && $server->username !== null && $owner !== $server->username;
+            // An account owned by another panel user is never proposed onto a client, even when its email matches.
+            $clientId = ! $otherOwner && count($matchedClients) === 1 ? $matchedClients[0] : null;
+            $productId = ! $otherOwner && count($matchedProducts) === 1 ? $matchedProducts[0] : null;
 
             return [...$account,
                 'category' => match (true) {
-                    $resellerOwned => self::RESELLER,
-                    $client !== null && $product !== null => self::PROPOSED,
+                    $otherOwner => self::RESELLER,
+                    $clientId !== null && $productId !== null => self::PROPOSED,
                     default => self::UNMATCHED,
                 },
-                'client' => $client === null ? null : ['id' => $client->id, 'name' => $client->display_name],
-                'product' => $product === null ? null : ['id' => $product->id, 'name' => $product->name],
+                'client_id' => $clientId,
+                'product_id' => $productId,
+                'service_id' => null,
                 'note' => $notes === [] ? null : implode(' ', $notes),
-                'service' => null,
                 'differences' => [],
             ];
         }, $accounts);
+
+        $reported = array_flip(array_column($accounts, 'username'));
+
+        return [
+            'rows' => $rows,
+            'missing' => $services->reject(fn (stdClass $service, string $username): bool => isset($reported[$username]))->map(fn (stdClass $service): int => (int) $service->id)->values()->all(),
+        ];
     }
 
     /**
-     * Live services on the server whose account the server did not report: flagged for staff, never changed.
+     * The driver's products that provision on this server: its groups' products, plus products without a group when
+     * the server is the driver's default.
      *
-     * @param  list<array<string, mixed>>  $accounts
-     * @return Collection<int, Service>
+     * @return array<int, ProductSummary> by id
      */
-    public function missing(Server $server, array $accounts): Collection
+    public function serverProducts(Server $server): array
     {
-        $reported = array_flip(array_map(fn (array $account): string => strtolower((string) $account['username']), $accounts));
+        $groupIds = $server->groups()->pluck('server_groups.id')->map(fn (mixed $id): int => (int) $id)->all();
 
-        return $this->liveServices($server)
-            ->reject(fn (Service $service): bool => isset($reported[strtolower((string) $service->username)]))
-            ->values();
+        return collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? [])
+            ->filter(fn (ProductSummary $product): bool => $product->serverGroupId === null ? $server->is_default : in_array($product->serverGroupId, $groupIds, true))
+            ->keyBy('id')
+            ->all();
     }
 
     /**
-     * @return Collection<int, Service>
+     * A translated sentence (the translator may answer with an array for a group key; these keys are sentences).
+     *
+     * @param  array<string, mixed>  $replace
+     */
+    public static function text(string $key, array $replace = []): string
+    {
+        $text = __($key, $replace);
+
+        return is_string($text) ? $text : $key;
+    }
+
+    /**
+     * Live services on the server by username: one query, plain rows, no models.
+     *
+     * @return Collection<string, stdClass>
      */
     private function liveServices(Server $server): Collection
     {
-        return Service::query()
-            ->with('client:id,first_name,last_name,company_name')
+        return DB::table('services')
             ->where('server_id', $server->id)
             ->whereIn('status', ServiceStatus::occupyingValues())
+            ->whereNull('deleted_at')
             ->whereNotNull('username')
             ->orderBy('id')
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'status', 'domain', 'username']);
+            ->get(['id', 'product_id', 'status', 'domain', 'username', 'driver_data'])
+            ->keyBy(fn (stdClass $service): string => strtolower((string) $service->username));
     }
 
     /**
-     * Open clients by lowercase email (stored lowercase), with every client that shares one.
+     * Open clients' ids by lowercase email (stored lowercase), with every client that shares one.
      *
      * @param  list<string>  $emails
-     * @return array<string, list<Client>>
+     * @return array<string, list<int>>
      */
     private function clientsByEmail(array $emails): array
     {
         $found = [];
 
         foreach (array_chunk($emails, 500) as $chunk) {
-            Client::query()->whereIn('email', $chunk)->where('status', '!=', 'closed')->orderBy('id')
-                ->get(['id', 'first_name', 'last_name', 'company_name', 'email'])
-                ->each(function (Client $client) use (&$found): void {
-                    $found[$client->email][] = $client;
-                });
+            foreach (Client::query()->toBase()->whereIn('email', $chunk)->where('status', '!=', 'closed')->orderBy('id')->get(['id', 'email']) as $client) {
+                $found[(string) $client->email][] = (int) $client->id;
+            }
         }
 
         return $found;
@@ -160,26 +192,19 @@ class AccountImportMatcher
     }
 
     /**
-     * Products that provision on this server, by the package they use.
+     * Ids of the products that provision on this server, by the package they use.
      *
-     * @param  Collection<int, ProductSummary>  $products
-     * @return array<string, list<ProductSummary>>
+     * @return array<string, list<int>>
      */
-    private function productsByPackage(Server $server, Collection $products, ?string $field): array
+    private function productsByPackage(Server $server, ?string $field): array
     {
-        if ($field === null) {
-            return [];
-        }
-
-        $groupIds = $server->groups()->pluck('server_groups.id')->map(fn (mixed $id): int => (int) $id)->all();
         $byPackage = [];
 
-        foreach ($products as $product) {
+        foreach ($field === null ? [] : $this->serverProducts($server) as $product) {
             $package = $product->driverConfig[$field] ?? null;
-            $here = $product->serverGroupId === null ? $server->is_default : in_array($product->serverGroupId, $groupIds, true);
 
-            if ($here && is_string($package) && $package !== '') {
-                $byPackage[$package][] = $product;
+            if (is_string($package) && $package !== '') {
+                $byPackage[$package][] = $product->id;
             }
         }
 
@@ -187,34 +212,25 @@ class AccountImportMatcher
     }
 
     /**
-     * What the server reports differently from the linked service.
+     * What the server reports differently from the linked service: domain, package, suspension and IP (§10).
      *
      * @param  array<string, mixed>  $account
      * @return list<string>
      */
-    private function differences(Service $service, array $account, ?ProductSummary $product, ?string $field): array
+    private function differences(stdClass $service, array $account, mixed $package): array
     {
-        $package = $field === null ? null : ($product?->driverConfig[$field] ?? null);
+        $ip = json_decode((string) $service->driver_data, true)['ip'] ?? null;
+        $suspended = (bool) ($account['suspended'] ?? false);
 
         return array_values(array_filter([
             ($account['domain'] ?? null) !== null && strtolower((string) $service->domain) !== $account['domain']
                 ? self::text('Domain on the server: :domain (here: :local).', ['domain' => $account['domain'], 'local' => $service->domain ?? self::text('none')]) : null,
             is_string($package) && ($account['plan'] ?? null) !== null && $account['plan'] !== $package
                 ? self::text('Package on the server: :plan (the product uses :package).', ['plan' => $account['plan'], 'package' => $package]) : null,
-            (bool) ($account['suspended'] ?? false) !== ($service->status === ServiceStatus::Suspended)
-                ? (($account['suspended'] ?? false) ? self::text('Suspended on the server, not here.') : self::text('Suspended here, not on the server.')) : null,
+            $suspended !== ($service->status === ServiceStatus::Suspended->value)
+                ? ($suspended ? self::text('Suspended on the server, not here.') : self::text('Suspended here, not on the server.')) : null,
+            is_string($ip) && ($account['ip'] ?? null) !== null && $account['ip'] !== $ip
+                ? self::text('IP on the server: :ip (here: :local).', ['ip' => $account['ip'], 'local' => $ip]) : null,
         ]));
-    }
-
-    /**
-     * A translated sentence (the translator may answer with an array for a group key; these keys are sentences).
-     *
-     * @param  array<string, mixed>  $replace
-     */
-    private static function text(string $key, array $replace = []): string
-    {
-        $text = __($key, $replace);
-
-        return is_string($text) ? $text : $key;
     }
 }
