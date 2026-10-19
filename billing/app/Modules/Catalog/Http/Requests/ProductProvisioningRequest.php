@@ -5,6 +5,7 @@ namespace App\Modules\Catalog\Http\Requests;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Modules\Catalog\Http\Requests\Concerns\ValidatesDriverBinding;
 use App\Modules\Catalog\Models\Product;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
@@ -14,7 +15,7 @@ use Illuminate\Validation\Validator;
  */
 class ProductProvisioningRequest extends FormRequest
 {
-    use ValidatesDriverBinding;
+    use KeepsSecretsOutOfOldInput, ValidatesDriverBinding;
 
     public function authorize(): bool
     {

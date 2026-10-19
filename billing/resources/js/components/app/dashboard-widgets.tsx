@@ -1,94 +1,132 @@
 import { Link } from '@inertiajs/react';
-import { ArrowRight, CheckCircle2 } from 'lucide-react';
-import { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
+import { BreakdownCard } from '@/components/app/dashboard/breakdown-card';
+import { ChartCard } from '@/components/app/dashboard/chart-card';
+import { HealthCard } from '@/components/app/dashboard/health-card';
+import { ListGroupCard } from '@/components/app/dashboard/list-group-card';
+import { QuickActionsCard } from '@/components/app/dashboard/quick-actions-card';
+import { useVariant } from '@/components/app/dashboard/reporting-currency';
+import type {
+    BreakdownWidget,
+    ChartWidget,
+    DashboardWidget,
+    HealthCheck,
+    ListWidgetData,
+    StatWidget,
+} from '@/components/app/dashboard/types';
 import { ListWidget } from '@/components/app/list-widget';
-import type { ListWidgetItem } from '@/components/app/list-widget';
 import { NeedsAttention } from '@/components/app/needs-attention';
 import type { TodoItem } from '@/components/app/needs-attention';
 import { StatCard } from '@/components/app/stat-card';
+import { trendSpeech } from '@/components/app/stat-card';
 import type { StatTrend } from '@/components/app/stat-card';
-import { statusTone, TONE_DOT } from '@/components/app/status-badge';
-import type { StatusTone } from '@/components/app/status-badge';
-import { TimeSeriesChart } from '@/components/app/time-series-chart';
-import type { ChartSeries } from '@/components/app/time-series-chart';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { formatMoney } from '@/lib/money';
 import { navIcon } from '@/lib/nav-icons';
 import { cn } from '@/lib/utils';
 
-/** Shapes produced by App\Support\Dashboard\Dashboard::resolveWidgets(). */
-type WidgetBase = { key: string; size: 'sm' | 'md' | 'lg' };
+export type {
+    BreakdownWidget,
+    ChartWidget,
+    DashboardWidget,
+    HealthCheck,
+    ListWidgetData,
+    StatWidget,
+} from '@/components/app/dashboard/types';
 
-export type StatWidget = WidgetBase & {
-    type: 'stat';
-    label: string;
-    /** Plain value, or money in minor units. */
-    value: string | number | { amount: number; currency: string };
-    href?: string;
-    icon?: string;
-    hint?: string;
-    trend?: StatTrend;
-    sparkline?: number[];
-    tone?: 'default' | 'danger' | 'warning';
-};
-
-export type ListWidgetData = WidgetBase & {
-    type: 'list';
-    title: string;
-    items: ListWidgetItem[];
-    href?: string;
-    empty?: string;
-};
-
-export type ChartWidget = WidgetBase & {
-    type: 'chart';
-    title: string;
-    kind?: 'line' | 'bar';
-    currency?: string;
-    series: ChartSeries[];
-    /** Optional per-currency series; enables the currency switch. */
-    currencies?: Record<string, ChartSeries[]>;
-    href?: string;
-};
-
-export type DashboardWidget = StatWidget | ListWidgetData | ChartWidget;
-
-/** Stat cards shown full size; the rest become compact tiles in one row. */
+/** Stat cards flagged `primary` form the KPI row (at most four); without any flag, the first four do. */
 const PRIMARY_STATS = 4;
 
-/** Lists longer than this collapse into a summary + the most urgent rows. */
-const LIST_ROWS = 5;
+/** Rows shown per list card. */
+const LIST_ROWS = 6;
 
-function statValue(value: StatWidget['value']): string | number {
-    return typeof value === 'object' && value !== null
-        ? formatMoney(value.amount, value.currency)
-        : value;
+function statValue(widget: StatWidget): string | number {
+    if (widget.money) {
+        return formatMoney(widget.money.amount, widget.money.currency);
+    }
+
+    return typeof widget.value === 'object' && widget.value !== null
+        ? formatMoney(widget.value.amount, widget.value.currency)
+        : widget.value;
 }
 
-function StatTile({ widget }: { widget: StatWidget }) {
+function PrimaryStat({ widget: base }: { widget: StatWidget }) {
+    const widget = useVariant(base);
+
+    return (
+        <StatCard
+            label={widget.label}
+            value={statValue(widget)}
+            href={widget.href}
+            icon={widget.icon ? navIcon(widget.icon) : undefined}
+            hint={widget.hint}
+            trend={widget.trend}
+            sparkline={widget.sparkline}
+            tone={widget.tone}
+        />
+    );
+}
+
+function TrendText({ trend }: { trend: StatTrend }) {
+    const good =
+        trend.direction === 'flat'
+            ? null
+            : (trend.direction === 'up') === (trend.upIsGood ?? true);
+    const arrow =
+        trend.direction === 'up' ? '↑' : trend.direction === 'down' ? '↓' : '→';
+
+    return (
+        <span
+            className={cn(
+                'font-medium tabular-nums',
+                good === true && 'text-success-text',
+                good === false && 'text-danger-text',
+            )}
+        >
+            <span aria-hidden="true">{arrow}</span>
+            <span className="sr-only">{trendSpeech(trend)}</span>{' '}
+            {trend.value.replace(/^-/, '')}
+        </span>
+    );
+}
+
+/** A compact counter: icon, label and value, with the context line or trend underneath. */
+function StatTile({ widget: base }: { widget: StatWidget }) {
+    const widget = useVariant(base);
     const Icon = widget.icon ? navIcon(widget.icon) : null;
     const body = (
         <>
             {Icon && (
-                <Icon
-                    className="size-4 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                />
+                <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                    <Icon className="size-3.5" aria-hidden="true" />
+                </span>
             )}
-            <span
-                className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
-                title={widget.label}
-            >
-                {widget.label}
+            <span className="min-w-0 flex-1">
+                <span
+                    className="line-clamp-2 block text-xs text-muted-foreground sm:truncate"
+                    title={widget.label}
+                >
+                    {widget.label}
+                </span>
+                {(widget.trend || widget.hint) && (
+                    <span className="block truncate text-[0.6875rem] text-muted-foreground">
+                        {widget.trend ? (
+                            <>
+                                <TrendText trend={widget.trend} /> {widget.hint}
+                            </>
+                        ) : (
+                            widget.hint
+                        )}
+                    </span>
+                )}
             </span>
             <span className="font-numeric text-base font-semibold">
-                {statValue(widget.value)}
+                {statValue(widget)}
             </span>
         </>
     );
     const classes =
-        'flex items-center gap-2.5 rounded-lg border bg-card px-3 py-2.5 text-card-foreground elevation-card';
+        'flex min-h-14 min-w-0 items-center gap-2.5 rounded-lg border bg-card px-3 py-2 text-card-foreground elevation-card';
 
     return widget.href ? (
         <Link
@@ -105,287 +143,223 @@ function StatTile({ widget }: { widget: StatWidget }) {
     );
 }
 
-export function StatWidgets({ widgets }: { widgets: StatWidget[] }) {
+export function StatWidgets({
+    widgets,
+    className,
+}: {
+    widgets: StatWidget[];
+    className?: string;
+}) {
     if (widgets.length === 0) {
         return null;
     }
 
-    const primary = widgets.slice(0, PRIMARY_STATS);
-    const more = widgets.slice(PRIMARY_STATS);
-
     return (
-        <div className="flex flex-col gap-3">
-            <div className="grid grid-cols-2 gap-(--page-gap) xl:grid-cols-4">
-                {primary.map((widget) => (
-                    <StatCard
-                        key={widget.key}
-                        label={widget.label}
-                        value={statValue(widget.value)}
-                        href={widget.href}
-                        icon={widget.icon ? navIcon(widget.icon) : undefined}
-                        hint={widget.hint}
-                        trend={widget.trend}
-                        sparkline={widget.sparkline}
-                        tone={widget.tone}
-                    />
-                ))}
-            </div>
-            {more.length > 0 && (
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-                    {more.map((widget) => (
-                        <StatTile key={widget.key} widget={widget} />
-                    ))}
-                </div>
+        <div
+            className={cn(
+                'grid grid-cols-2 gap-(--page-gap) xl:grid-cols-4',
+                className,
             )}
+        >
+            {widgets.map((widget) => (
+                <PrimaryStat key={widget.key} widget={widget} />
+            ))}
         </div>
     );
 }
 
-function periodCaption(series: ChartSeries[], currency?: string): string {
-    const points = series[0]?.points ?? [];
-
-    if (points.length < 2) {
-        return '';
-    }
-
-    const day = (x: string) => new Date(`${x.slice(0, 10)}T00:00:00`).getTime();
-    const gap = (day(points[1].x) - day(points[0].x)) / 86_400_000;
-    const unit = gap >= 27 ? 'months' : gap >= 6 ? 'weeks' : 'days';
-    const total = points.reduce((sum, point) => sum + point.y, 0);
-    const totalLabel = currency
-        ? formatMoney(total, currency)
-        : total.toLocaleString();
-
-    return `Last ${points.length} ${unit} · ${totalLabel} total`;
-}
-
-function ChartCard({
-    widget,
-    prominent = false,
+function StatStrip({
+    widgets,
     className,
 }: {
-    widget: ChartWidget;
-    prominent?: boolean;
+    widgets: StatWidget[];
     className?: string;
 }) {
-    const codes = Object.keys(widget.currencies ?? {});
-    const [currency, setCurrency] = useState(widget.currency ?? codes[0]);
-    const series = (currency && widget.currencies?.[currency]) || widget.series;
-    // Money over time reads best as a smooth area; counts keep the backend's choice.
-    const kind = widget.currency ? 'line' : widget.kind;
+    if (widgets.length === 0) {
+        return null;
+    }
 
     return (
-        <section
-            className={cn(
-                'flex min-w-0 flex-col rounded-xl border bg-card p-(--stat-p) text-card-foreground elevation-card',
-                className,
-            )}
-        >
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
-                <div className="min-w-0">
-                    <h2 className="font-display text-base">{widget.title}</h2>
-                    <p className="text-xs text-muted-foreground">
-                        {periodCaption(series, currency)}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    {codes.length > 1 && (
-                        <ToggleGroup
-                            type="single"
-                            variant="outline"
-                            size="sm"
-                            value={currency}
-                            onValueChange={(value) =>
-                                value && setCurrency(value)
-                            }
-                            aria-label="Currency"
-                        >
-                            {codes.map((code) => (
-                                <ToggleGroupItem
-                                    key={code}
-                                    value={code}
-                                    className="px-2.5 text-xs"
-                                >
-                                    {code}
-                                </ToggleGroupItem>
-                            ))}
-                        </ToggleGroup>
-                    )}
-                    {widget.href && (
-                        <Link
-                            href={widget.href}
-                            className="inline-flex items-center gap-1 rounded-sm text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-                        >
-                            View all
-                            <ArrowRight
-                                className="size-3.5"
-                                aria-hidden="true"
-                            />
-                        </Link>
-                    )}
-                </div>
-            </div>
-            <TimeSeriesChart
-                label={`${widget.title}${currency ? ` in ${currency}` : ''}`}
-                kind={kind}
-                currency={currency}
-                series={series}
-                showLegend={series.length > 1}
-                className={prominent ? 'h-72' : 'h-56'}
-            />
+        <section aria-label="Counters" className={className}>
+            <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {widgets.map((widget) => (
+                    <li key={widget.key} className="grid min-w-0">
+                        <StatTile widget={widget} />
+                    </li>
+                ))}
+            </ul>
         </section>
     );
 }
 
-const SEVERITY: StatusTone[] = [
-    'danger',
-    'warning',
-    'info',
-    'neutral',
-    'outline',
-    'success',
-];
+type DetailCard =
+    | { kind: 'list'; order: number; list: ListWidgetData }
+    | { kind: 'group'; order: number; lists: ListWidgetData[] };
 
-/** Long status lists (e.g. 17 automation tasks): counts per tone, then the most urgent rows. */
-function CompactList({ widget }: { widget: ListWidgetData }) {
-    const withStatus = widget.items.filter((item) => item.status);
+/** Lists in registry order; lists sharing a `group` merge into one tabbed card at the first member's place. */
+function detailCards(lists: ListWidgetData[]): DetailCard[] {
+    const cards: DetailCard[] = [];
 
-    if (widget.items.length <= LIST_ROWS || withStatus.length === 0) {
-        return (
-            <ListWidget
-                title={widget.title}
-                items={widget.items.slice(0, LIST_ROWS + 1)}
-                href={widget.href}
-                empty={widget.empty}
-            />
+    lists.forEach((list, index) => {
+        if (!list.group) {
+            cards.push({ kind: 'list', order: index, list });
+
+            return;
+        }
+
+        const group = cards.find(
+            (card): card is Extract<DetailCard, { kind: 'group' }> =>
+                card.kind === 'group' && card.lists[0].group === list.group,
         );
-    }
 
-    const rank = (status?: string) =>
-        status ? SEVERITY.indexOf(statusTone(status)) : SEVERITY.length;
-    const sorted = [...widget.items].sort(
-        (a, b) => rank(a.status) - rank(b.status),
-    );
-    const counts = new Map<string, { tone: StatusTone; count: number }>();
+        if (group) {
+            group.lists.push(list);
+        } else {
+            cards.push({ kind: 'group', order: index, lists: [list] });
+        }
+    });
 
-    for (const item of withStatus) {
-        const label = item.status as string;
-        const entry = counts.get(label) ?? {
-            tone: statusTone(label),
-            count: 0,
-        };
-        entry.count += 1;
-        counts.set(label, entry);
-    }
+    return cards;
+}
 
-    const summary = [...counts.entries()].sort(
-        (a, b) => SEVERITY.indexOf(a[1].tone) - SEVERITY.indexOf(b[1].tone),
-    );
-    const hidden = widget.items.length - LIST_ROWS;
-
+function TrendsSkeleton() {
     return (
-        <ListWidget
-            title={widget.title}
-            href={widget.href}
-            empty={widget.empty}
-            items={sorted.slice(0, LIST_ROWS)}
-            summary={
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    {summary.map(([status, { tone, count }]) => (
-                        <span
-                            key={status}
-                            className="inline-flex items-center gap-1.5"
-                        >
-                            <span
-                                aria-hidden="true"
-                                className={cn(
-                                    'size-2 rounded-full',
-                                    TONE_DOT[tone],
-                                )}
-                            />
-                            <span className="font-semibold text-foreground tabular-nums">
-                                {count}
-                            </span>
-                            {status.replace(/[_-]/g, ' ')}
-                        </span>
-                    ))}
-                    <span className="ml-auto">
-                        {hidden} more in the full log
-                    </span>
-                </div>
-            }
-        />
+        <>
+            {[0, 1, 2].map((key) => (
+                <Skeleton key={key} className="h-80 rounded-xl" />
+            ))}
+        </>
     );
 }
 
 /**
- * The admin dashboard body for kernel widgets. Layout policy (independent of registration
- * order): KPI row (4 cards + compact tiles) → the money chart with "Needs attention" beside it →
- * other charts first, then lists, packed into two balanced columns → full-width extras.
+ * The admin dashboard body for kernel widgets. Layout is a policy over widget types, not keys, so a missing
+ * module only removes its own cards: summary (KPIs, counter strip, Needs attention) → the money chart →
+ * trends (other charts and breakdowns) → detail (health, lists, quick actions). On phones Needs attention
+ * comes first.
  */
 export function DashboardWidgets({
     widgets,
     todos,
     deferred,
+    health,
 }: {
     widgets: DashboardWidget[];
     todos: TodoItem[];
     /** Deferred widgets; undefined while loading. */
     deferred?: DashboardWidget[];
+    /** System health checks; undefined while loading. */
+    health?: HealthCheck[];
 }) {
     const all = [...widgets, ...(deferred ?? [])];
     const stats = all.filter(
-        (widget): widget is StatWidget => widget.type === 'stat',
+        (widget): widget is StatWidget =>
+            widget.type === 'stat' && !widget.mirrorsTodo,
     );
     const charts = all.filter(
         (widget): widget is ChartWidget => widget.type === 'chart',
     );
+    const breakdowns = all.filter(
+        (widget): widget is BreakdownWidget => widget.type === 'breakdown',
+    );
     const lists = all.filter(
         (widget): widget is ListWidgetData => widget.type === 'list',
     );
+    const flagged = stats.filter((stat) => stat.primary);
+    const primary = (flagged.length > 0 ? flagged : stats).slice(
+        0,
+        PRIMARY_STATS,
+    );
     const hero = charts.find((chart) => chart.currency) ?? null;
-    const otherCharts = charts.filter((chart) => chart !== hero);
+    // Trends keep registry order across charts and breakdowns (both arrive in order within each prop).
+    const trends = [...charts.filter((chart) => chart !== hero), ...breakdowns];
     const loading = deferred === undefined;
+    const cards = detailCards(lists);
+    const showHealth = health === undefined || health.length > 0;
 
     return (
         <>
-            <StatWidgets widgets={stats} />
-
-            {(hero || loading) && (
-                <div className="grid items-start gap-(--page-gap) lg:grid-cols-3">
-                    {hero ? (
-                        <ChartCard
-                            widget={hero}
-                            prominent
-                            className="lg:col-span-2"
-                        />
-                    ) : (
-                        <Skeleton className="h-[22rem] rounded-xl lg:col-span-2" />
+            <div className="grid gap-(--page-gap) lg:grid-cols-3">
+                <StatWidgets
+                    widgets={primary}
+                    className="order-2 md:order-1 lg:col-span-3"
+                />
+                <StatStrip
+                    widgets={stats.filter((stat) => !primary.includes(stat))}
+                    className="order-4 md:order-2 lg:col-span-3"
+                />
+                {hero ? (
+                    <ChartCard
+                        widget={hero}
+                        prominent
+                        className="order-3 lg:col-span-2"
+                    />
+                ) : (
+                    loading && (
+                        <Skeleton className="order-3 h-[26rem] rounded-xl lg:col-span-2" />
+                    )
+                )}
+                <NeedsAttention
+                    items={todos}
+                    className={cn(
+                        'order-first md:order-4',
+                        !hero && !loading && 'lg:col-span-3',
                     )}
-                    <NeedsAttention items={todos} />
+                />
+            </div>
+
+            {(trends.length > 0 || loading) && (
+                <div className="grid items-stretch gap-(--page-gap) md:grid-cols-2 xl:grid-cols-3">
+                    {loading ? (
+                        <TrendsSkeleton />
+                    ) : (
+                        trends.map((widget) =>
+                            widget.type === 'chart' ? (
+                                <ChartCard key={widget.key} widget={widget} />
+                            ) : (
+                                <BreakdownCard
+                                    key={widget.key}
+                                    widget={widget}
+                                />
+                            ),
+                        )
+                    )}
                 </div>
             )}
 
-            <div className="gap-(--page-gap) lg:columns-2 [&>*]:mb-(--page-gap) [&>*]:break-inside-avoid">
-                {!hero && !loading && <NeedsAttention items={todos} />}
-                {otherCharts.map((chart) => (
-                    <ChartCard key={chart.key} widget={chart} />
-                ))}
-                {lists.map((list) => (
-                    <CompactList key={list.key} widget={list} />
-                ))}
-                {lists.length === 0 &&
-                    otherCharts.length === 0 &&
-                    !loading &&
-                    todos.length === 0 && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <CheckCircle2
-                                className="size-4"
-                                aria-hidden="true"
-                            />
-                            No other widgets are enabled for your role.
-                        </div>
-                    )}
+            <div className="grid items-stretch gap-(--page-gap) md:grid-cols-2 xl:grid-cols-3">
+                {showHealth && <HealthCard checks={health} />}
+                {cards.map((card) =>
+                    card.kind === 'list' ? (
+                        <ListWidget
+                            key={card.list.key}
+                            title={card.list.title}
+                            href={card.list.href}
+                            empty={card.list.empty}
+                            items={card.list.items
+                                .slice(0, LIST_ROWS)
+                                .map((item) => ({
+                                    ...item,
+                                    href: item.href ?? undefined,
+                                    meta: item.meta ?? undefined,
+                                    status: item.status ?? undefined,
+                                }))}
+                        />
+                    ) : (
+                        <ListGroupCard
+                            key={card.lists[0].key}
+                            lists={card.lists}
+                            className="xl:col-span-2"
+                        />
+                    ),
+                )}
+                <QuickActionsCard />
+                {cards.length === 0 && !showHealth && todos.length === 0 && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="size-4" aria-hidden="true" />
+                        No other widgets are enabled for your role.
+                    </div>
+                )}
             </div>
         </>
     );

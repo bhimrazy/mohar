@@ -4,18 +4,18 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
-use App\Contracts\Billing\ProvidesLogo;
+use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\ChargeResult;
-use App\Data\Billing\ConnectionCheck;
 use App\Data\Billing\GatewayConfig;
-use App\Data\Billing\GatewayLogo;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
 use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
+use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\IntegrationLogo;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
@@ -51,9 +51,9 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
     }
 
     /** Khalti's official docs logo (docs/product/payments-nepal.md §8.6), served from public/images/gateways. */
-    public function logo(): GatewayLogo
+    public function logo(): IntegrationLogo
     {
-        return new GatewayLogo(asset('images/gateways/khalti.svg'), __('Pay with Khalti'));
+        return new IntegrationLogo(asset('images/gateways/khalti.svg'), __('Pay with Khalti'));
     }
 
     /**

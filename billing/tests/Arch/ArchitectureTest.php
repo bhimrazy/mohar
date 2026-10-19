@@ -1,18 +1,32 @@
 <?php
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
+
 /*
  * Architecture rules enforced in CI (docs/architecture.md → "Dependency rules").
  * Modules may depend on Core and the shared kernel only; cross-module calls go through
- * App\Contracts, cross-module reactions through App\Events.
+ * App\Contracts, cross-module reactions through App\Events. Hygiene and extension rules are in HygieneTest.php
+ * and ExtensionsTest.php: one file per group keeps the arch plugin's parsed-source cache small (tests/Pest.php).
  */
 
-const FEATURE_MODULES = [
+/** Read models allowed to depend on every module. */
+const READ_MODEL_MODULES = ['Reports'];
+
+/**
+ * Modules that exist on other branches or are planned. Kept next to the glob below so a branch that imports a
+ * module merged elsewhere (or not yet merged) is still caught.
+ */
+const PLANNED_MODULES = [
     'Catalog', 'Orders', 'Billing', 'Services', 'Domains', 'Support',
     'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal', 'PaymentsStripe',
 ];
 
-/** Read models allowed to depend on every module. */
-const READ_MODEL_MODULES = ['Reports'];
+/** Every planned module plus every module directory on this branch, except Core and the read models. */
+define('FEATURE_MODULES', array_values(array_unique(array_diff(
+    [...PLANNED_MODULES, ...array_map('basename', glob(dirname(__DIR__, 2).'/app/Modules/*', GLOB_ONLYDIR) ?: [])],
+    ['Core', ...READ_MODEL_MODULES],
+))));
 
 foreach (FEATURE_MODULES as $module) {
     $others = array_values(array_map(
@@ -33,14 +47,18 @@ arch('contracts are interfaces')
     ->expect('App\Contracts')
     ->toBeInterfaces();
 
+arch('DTOs and events carry data, never Eloquent models')
+    ->expect(['App\Data', 'App\Events'])
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models']);
+
 arch('DTOs and events are final and immutable-by-construction')
     ->expect(['App\Data', 'App\Events'])
     ->toBeFinal();
 
-arch('no debugging leftovers')
-    ->expect(['dd', 'dump', 'ray', 'var_dump', 'print_r', 'die', 'exit'])
-    ->not->toBeUsed();
+arch('every kernel event is a DomainEvent with an occurrence id (ADR 0011)')
+    ->expect('App\Events')
+    ->classes()
+    ->toImplement(DomainEvent::class)
+    ->toUseTrait(IdentifiesOccurrence::class);
 
-arch('controllers do not query other modules or the DB facade directly')
-    ->expect('App\Modules\*\Http\Controllers')
-    ->not->toUse(['Illuminate\Support\Facades\DB']);
+afterAll(fn () => releaseArchCache());

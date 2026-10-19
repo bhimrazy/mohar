@@ -10,7 +10,7 @@ const base = 'https://billing.example.com';
 
 export const company = {
     name: 'Mohar',
-    tagline: 'Web hosting billing, sealed and settled.',
+    tagline: '', // shown only when the host sets one (product standards, 2026-10-18)
     legal: 'Mohar Cloud Pvt. Ltd.',
     address:
         'Office 502, Baner Business Bay, Baner Road, Pune, Maharashtra 411045, India',

@@ -20,6 +20,14 @@ final readonly class Brand
         public string $favicon,
         /** True when the name, tagline or any asset differs from the defaults. */
         public bool $customised = false,
+        /** Deprecated: email uses emailMark or the opt-in email logo (BrandProvider::emailLogoUrl()). Always null. */
+        public ?string $emailLogoDark = null,
+        /** The client theme's primary colour (#RRGGBB) for email buttons and links; null = mail default. */
+        public ?string $accent = null,
+        /** Text colour on the accent (#RRGGBB). */
+        public ?string $accentForeground = null,
+        /** Absolute URL of the host's uploaded mark as PNG/JPEG for email, shown beside the name; null = name only. */
+        public ?string $emailMark = null,
     ) {}
 
     /**

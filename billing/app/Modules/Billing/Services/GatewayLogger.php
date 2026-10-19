@@ -3,14 +3,13 @@
 namespace App\Modules\Billing\Services;
 
 use App\Modules\Billing\Models\GatewayLog;
+use App\Support\Integrations\Redactor;
 
 /**
- * Writes gateway_log rows with sensitive values redacted.
+ * Writes gateway_log rows with sensitive values redacted (App\Support\Integrations\Redactor).
  */
 class GatewayLogger
 {
-    private const SENSITIVE = '/card|pan|number|cvc|cvv|token|secret|signature|password|exp/i';
-
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -44,49 +43,13 @@ class GatewayLogger
     }
 
     /**
-     * Mask card-number-like digit runs (13–19 digits, Luhn-valid) inside free text such as provider messages.
-     */
-    public static function scrubCardNumbers(string $value): string
-    {
-        return (string) preg_replace_callback('/\b(?:\d[ -]?){12,18}\d\b/', function (array $match): string {
-            $digits = (string) preg_replace('/\D/', '', $match[0]);
-
-            return self::luhn($digits) ? '[redacted-pan]' : $match[0];
-        }, $value);
-    }
-
-    private static function luhn(string $digits): bool
-    {
-        if (strlen($digits) < 13 || strlen($digits) > 19) {
-            return false;
-        }
-
-        $sum = 0;
-
-        foreach (array_reverse(str_split($digits)) as $index => $digit) {
-            $doubled = (int) $digit * ($index % 2 === 1 ? 2 : 1);
-            $sum += $doubled > 9 ? $doubled - 9 : $doubled;
-        }
-
-        return $sum % 10 === 0;
-    }
-
-    /**
+     * Gateway payloads go through the kernel payment rule (App\Support\Integrations\Redactor::redactPayment()).
+     *
      * @param  array<array-key, mixed>  $payload
      * @return array<array-key, mixed>
      */
     public static function redact(array $payload): array
     {
-        foreach ($payload as $key => $value) {
-            if (is_array($value)) {
-                $payload[$key] = self::redact($value);
-            } elseif (is_string($key) && $key !== 'txn_id' && $key !== 'parent_txn_id' && preg_match(self::SENSITIVE, $key) === 1) {
-                $payload[$key] = '[redacted]';
-            } elseif (is_string($value)) {
-                $payload[$key] = self::scrubCardNumbers($value);
-            }
-        }
-
-        return $payload;
+        return app(Redactor::class)->redactPayment($payload);
     }
 }

@@ -7,6 +7,7 @@ use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Jobs\RunModuleCommand;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\CommandOutcome;
+use App\Modules\Services\Support\ServiceSettings;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 
 /**
@@ -15,7 +16,11 @@ use Illuminate\Contracts\Cache\LockTimeoutException;
  */
 class ModuleCommandDispatcher
 {
-    public function __construct(private ExecuteModuleCommand $execute) {}
+    public function __construct(
+        private ExecuteModuleCommand $execute,
+        private ServiceDrivers $drivers,
+        private ServiceSettings $settings,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $args
@@ -24,28 +29,36 @@ class ModuleCommandDispatcher
     {
         $this->assertAllowed($service, $command, $args);
 
-        RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator)->afterCommit();
+        RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, timeoutSeconds: $this->drivers->jobTimeoutFor($service))->afterCommit();
     }
 
     /**
-     * Run the first attempt synchronously so staff see the result; retries continue on the queue.
+     * Run the first attempt synchronously so staff see the result; retries continue on the queue. A driver whose
+     * commands may take longer than a page request (services.module.sync_timeout_seconds) is queued instead.
      *
      * @param  array<string, mixed>  $args
      */
     public function runNow(Service $service, ModuleCommandName $command, array $args = [], string $initiator = 'system'): CommandOutcome
     {
         $this->assertAllowed($service, $command, $args);
+        $timeout = $this->drivers->jobTimeoutFor($service);
+
+        if ($timeout > $this->settings->syncTimeoutSeconds()) {
+            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, timeoutSeconds: $timeout)->afterCommit();
+
+            return CommandOutcome::queued('This server can take longer than a page allows; the action was queued.');
+        }
 
         try {
-            $outcome = $this->execute->handle($service->id, $command, $args, $initiator);
+            $outcome = $this->execute->handle($service->id, $command, $args, $initiator, jobTimeout: $timeout);
         } catch (LockTimeoutException) {
-            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator);
+            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, timeoutSeconds: $timeout);
 
             return CommandOutcome::queued('Another action is running for this service; this one was queued.');
         }
 
         if ($outcome->status === CommandOutcome::RETRY) {
-            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, 2)->delay($outcome->retryDelay)->afterCommit();
+            RunModuleCommand::dispatch($service->id, $command->value, $args, $initiator, 2, timeoutSeconds: $timeout)->delay($outcome->retryDelay)->afterCommit();
         }
 
         return $outcome;

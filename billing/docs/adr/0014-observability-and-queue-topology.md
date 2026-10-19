@@ -1,6 +1,6 @@
 # ADR 0014 — Observability baseline and queue topology
 
-- Status: Proposed · 2026-10-18 · Owner: Principal architect
+- Status: Queue topology accepted · 2026-10-19 (CTO, after the 2026-10-19 architecture review); observability sections remain Proposed · Owner: Principal architect. Enforcement and the job-timeout mismatch: issue #82 and ADR 0017.
 - Related: `product-vision.md` (OpenTelemetry), `docs/handoff/state.md` "Tracked gaps", roadmap wave 4 (system health
   and automation watchdog).
 
@@ -105,6 +105,10 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
   `payments,provisioning,registrar,notifications,webhooks,default`. Modules no longer register workers.
 - `docs/devops/production.md` (to be written) describes the production worker set:
     - one worker pool for `payments,provisioning,registrar`, with job timeouts above the drivers' HTTP timeouts;
+    - **invariant (amended 2026-10-18, ADR 0009 PR B):** each connection's `retry_after` exceeds the longest job
+      timeout on any queue it carries plus its lock slack (provisioning: `max_job_timeout_seconds` 180 s + 20 s, so
+      `retry_after` defaults to 240 s); a pool's `--timeout` is at least that cap; on SQS, set the visibility timeout
+      per queue. A dedicated provisioning connection is revisited only if a job needs more than 300 s;
     - one pool for `notifications,webhooks`;
     - one pool for `default`.
 - Every job that calls a provider is `ShouldBeUnique` or protected by a lock, sets `$tries` and `$backoff`, uses

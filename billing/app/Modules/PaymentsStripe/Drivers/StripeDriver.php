@@ -4,14 +4,14 @@ namespace App\Modules\PaymentsStripe\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
-use App\Contracts\Billing\ProvidesLogo;
+use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\CallbackEvent;
 use App\Data\Billing\CallbackRejection;
 use App\Data\Billing\ChargeResult;
-use App\Data\Billing\ConnectionCheck;
+use App\Data\Integrations\ConnectionCheck;
 use App\Data\Billing\GatewayConfig;
-use App\Data\Billing\GatewayLogo;
+use App\Data\Integrations\IntegrationLogo;
 use App\Data\Billing\LookupResult;
 use App\Data\Billing\PaymentAttemptRef;
 use App\Data\Billing\PaymentIntent;
@@ -64,9 +64,9 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
     }
 
     /** Stripe's official wordmark from its brand resources (spec §10), served from public/images/gateways. */
-    public function logo(): GatewayLogo
+    public function logo(): IntegrationLogo
     {
-        return new GatewayLogo(asset('images/gateways/stripe.svg'), __('Pay with Stripe'), darkUrl: asset('images/gateways/stripe-on-dark.svg'));
+        return new IntegrationLogo(asset('images/gateways/stripe.svg'), __('Pay with Stripe'), darkUrl: asset('images/gateways/stripe-on-dark.svg'));
     }
 
     public function capabilities(): array

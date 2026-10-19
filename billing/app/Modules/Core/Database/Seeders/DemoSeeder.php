@@ -16,6 +16,14 @@ abstract class DemoSeeder extends Seeder
     public const PRODUCTION_ERROR = 'Demo seeders never run in production: they create accounts with a known password. '
         .'Install reference data (currencies, system roles) and the first administrator with `php artisan app:install` (docs/devops/install.md).';
 
+    /** True while a demo seeder runs: history it creates (payments, refunds, tickets) must not email anyone. */
+    private static int $running = 0;
+
+    public static function running(): bool
+    {
+        return self::$running > 0;
+    }
+
     /**
      * @param  array<string, mixed>  $parameters
      */
@@ -25,6 +33,12 @@ abstract class DemoSeeder extends Seeder
             throw new RuntimeException(self::PRODUCTION_ERROR);
         }
 
-        return parent::__invoke($parameters);
+        self::$running++;
+
+        try {
+            return parent::__invoke($parameters);
+        } finally {
+            self::$running--;
+        }
     }
 }

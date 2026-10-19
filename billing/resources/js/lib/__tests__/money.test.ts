@@ -4,6 +4,7 @@ import {
     currencySymbol,
     formatMoney,
     formatMoneyCompact,
+    formatNumberCompact,
     labelWithCurrency,
     parseMoneyInput,
     toMinor,
@@ -192,5 +193,14 @@ describe('labelWithCurrency', () => {
         expect(labelWithCurrency('Amount', 'NPR')).toBe('Amount (Rs, NPR)');
         expect(labelWithCurrency('Amount', 'usd')).toBe('Amount ($, USD)');
         expect(labelWithCurrency('Amount', 'XYZ')).toBe('Amount (XYZ)');
+    });
+});
+
+describe('formatNumberCompact', () => {
+    it('compacts counts with the product units, never Intl abbreviations', () => {
+        expect(formatNumberCompact(950)).toBe('950');
+        expect(formatNumberCompact(1200)).toBe('1.2K');
+        expect(formatNumberCompact(3_400_000)).toBe('3.4M');
+        expect(formatNumberCompact(-2500)).toBe('−2.5K');
     });
 });

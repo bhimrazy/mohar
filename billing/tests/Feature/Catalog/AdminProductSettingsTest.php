@@ -9,6 +9,7 @@ use App\Modules\Catalog\Models\Price;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Catalog\Models\ProductCustomField;
 use App\Modules\Core\Models\Currency;
+use Illuminate\Database\QueryException;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Catalog\FakeProvisioningDrivers;
 
@@ -165,6 +166,22 @@ describe('custom fields', function () {
         $this->assertModelMissing($field);
     });
 
+    it('keeps module keys unique per product, so a driver reads one value per key', function () {
+        actingAsStaff(['catalog.products.manage']);
+        $product = Product::factory()->create();
+        $other = Product::factory()->create();
+        $field = ProductCustomField::factory()->create(['product_id' => $product->id, 'module_key' => 'hostname']);
+
+        $this->post(route('admin.catalog.products.fields.store', $product), ['name' => 'Host', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasErrors('module_key');
+        $this->post(route('admin.catalog.products.fields.store', $other), ['name' => 'Host', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasNoErrors();
+        $this->put(route('admin.catalog.products.fields.update', [$product, $field]), ['name' => 'Hostname', 'type' => 'text', 'module_key' => 'hostname'])
+            ->assertSessionHasNoErrors();
+
+        expect(fn () => ProductCustomField::factory()->create(['product_id' => $product->id, 'module_key' => 'hostname']))->toThrow(QueryException::class);
+    });
+
     it('rejects invalid patterns and dropdowns without choices', function () {
         actingAsStaff(['catalog.products.manage']);
         $product = Product::factory()->create();
@@ -223,6 +240,20 @@ it('refuses a product as its own upgrade target', function () {
         ->assertSessionHasErrors(['target_ids.0' => 'A product can\'t be an upgrade of itself.']);
 });
 
+it('never flashes secret driver settings into the session when a provisioning save fails', function () {
+    actingAsStaff(['catalog.products.manage']);
+    FakeProvisioningDrivers::withLogDriver();
+    $product = Product::factory()->create();
+
+    $this->put(route('admin.catalog.products.provisioning.update', $product), [
+        'provisioning_driver' => 'log',
+        'driver_config' => [['key' => 'plan', 'value' => ''], ['key' => 'api_token', 'value' => 'Declared-S3cret'], ['key' => 'reseller_password', 'value' => 'Named-S3cret'], ['key' => 'region', 'value' => 'eu']],
+    ])->assertSessionHasErrors('driver_settings.plan');
+
+    expect(json_encode(session()->all()))->not->toContain('S3cret')
+        ->and(session()->getOldInput('driver_config.3.value'))->toBe('eu');
+});
+
 it('stores the provisioning binding as given', function () {
     actingAsStaff(['catalog.products.manage']);
     $product = Product::factory()->create();
@@ -261,7 +292,7 @@ it('offers the installed drivers on the edit page', function () {
     FakeProvisioningDrivers::withLogDriver();
 
     $this->get(route('admin.catalog.products.edit', Product::factory()->create()))
-        ->assertInertia(fn (Assert $page) => $page->where('drivers.0.key', 'log')->where('drivers.0.config_fields.0.key', 'plan'));
+        ->assertInertia(fn (Assert $page) => $page->where('drivers.0.key', 'log')->where('drivers.0.fields.0.key', 'plan'));
 });
 
 it('validates the provisioning binding', function () {

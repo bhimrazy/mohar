@@ -2,11 +2,14 @@
 
 namespace App\Modules\Core;
 
+use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Currencies\CurrencyDirectory;
+use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Notifications\SystemMailer;
 use App\Contracts\Orders\PaymentGuard;
 use App\Contracts\Services\CatalogUsage;
 use App\Contracts\Services\ClientServiceDirectory;
@@ -19,15 +22,19 @@ use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Core\Support\CoreDashboard;
+use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
+use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientServiceDirectory;
+use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
 use App\Modules\Core\Support\NullInvoiceQueries;
 use App\Modules\Core\Support\NullPaymentGuard;
 use App\Modules\Core\Support\NullProvisioningDrivers;
+use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
@@ -49,6 +56,9 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
+        // One currency-table read per request for every dashboard widget that converts or formats money.
+        $this->app->scoped(CurrencyRollup::class);
+
         $this->app->singleton(Settings::class);
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
@@ -63,6 +73,9 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(GatewayDirectory::class, NullGatewayDirectory::class);
         $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
         $this->app->bindIf(BrandProvider::class, DefaultBrandProvider::class);
+        $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
+        $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
+        $this->app->bindIf(SystemMailer::class, NullSystemMailer::class);
     }
 
     protected function schedule(Schedule $schedule): void

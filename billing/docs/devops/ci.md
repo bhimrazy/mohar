@@ -6,14 +6,14 @@ jobs, setup work and pointless runs.
 
 ## When it runs
 
-| Event                                         | Runs?                                                       |
-| --------------------------------------------- | ----------------------------------------------------------- |
-| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled           |
-| Draft PR                                      | no — runs when marked ready for review (`ready_for_review`) |
-| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)     |
-| Push to `develop`/`main` (merges)             | yes, never cancelled                                        |
-| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting)     |
-| Manual                                        | `workflow_dispatch`                                         |
+| Event                                         | Runs?                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled                                           |
+| Draft PR                                      | only when labelled `ci`; otherwise runs when marked ready for review                        |
+| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)                                     |
+| Push to `develop`/`main` (merges)             | yes, never cancelled                                                                        |
+| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main` |
+| Manual                                        | `workflow_dispatch`                                                                         |
 
 ## One job
 
@@ -32,7 +32,7 @@ the dependency policy runs **before** anything is installed (no package code —
 | 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 2                   |
 | 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)         | 2                   |
 | 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | ~19                 |
-| 7   | `vp check` (format + lint) — the only step on docs-only PRs                                          | 6                   |
+| 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                               | 6                   |
 | 8   | Pint · tsc · Vitest (`npm test`)                                                                     | 8 + ~3              |
 | 9   | PHPStan (result cache restored)                                                                      | 6                   |
 | 10  | Pest on SQLite (`--parallel`)                                                                        | 3                   |
@@ -48,6 +48,14 @@ Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm 
 `pest --parallel` uses one process per core (2 on the standard runner, and on the 2-core Codespace where it
 is exercised by `composer ci`); every process gets its own SQLite in-memory database or its own
 `billing_test_test_<n>` PostgreSQL database, so it is reliable.
+
+Each worker is one PHP process that runs about half the suite, so memory a test file leaves behind (static
+caches, singletons) adds up against the 1 GB `memory_limit` in `phpunit.xml`. The largest such cache is the arch
+plugin's: it keeps the parsed source of every namespace a rule touches and never frees it (about 0.7 MB per file
+in `app/`). Every file in `tests/Arch` therefore ends with `afterAll(fn () => releaseArchCache());` (checked by
+`tests/Unit/ArchCacheReleaseTest.php`), and the rules are split across files so no single file parses everything.
+When a worker crashes with "Allowed memory size exhausted", the line in the message is only where the limit was
+reached: log `memory_get_usage()` per test from `TestCase::tearDown()` to find the file that grows.
 
 ## Billable minutes per PR run
 

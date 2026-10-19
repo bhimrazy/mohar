@@ -32,6 +32,7 @@ class DefaultBrandProvider implements BrandProvider
 
     public function emailLogoUrl(): ?string
     {
-        return is_file(public_path('brand/logo.png')) ? asset('brand/logo.png') : null;
+        // Customer mail shows the host's name, never the product's own logo.
+        return null;
     }
 }

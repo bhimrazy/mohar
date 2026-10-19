@@ -64,7 +64,7 @@ class CatalogServiceProvider extends ModuleServiceProvider
             return $this->app->make(Settings::class)->get('catalog.auto_convert_prices', false)
                 ? $this->app->make(ConvertPrices::class)->handle()
                 : 'disabled';
-        });
+        }, label: 'Convert product prices', description: 'Recalculates prices in other currencies from the default currency at current rates (when automatic conversion is on).');
     }
 
     private function registerNavigation(): void

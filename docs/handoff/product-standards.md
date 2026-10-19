@@ -50,6 +50,8 @@ every item.
 
 - Mail that carries a secret (reset links, verification, invitations, 2FA) is never copied (no CC, BCC
   or manual copies), and settings that redirect mail are in the sensitive permission tier. (2026-10-18)
+- A private link reaches only its owner: it is never in the subject, staff-written text or CC copies, and
+  mail that carried one cannot be resent (the action says to send a new link). (2026-10-18)
 - Account-recovery endpoints give the same response for known and unknown accounts and are rate
   limited. (2026-10-18)
 
@@ -69,6 +71,14 @@ every item.
 
 ## Brand and visuals
 
+- Customer-facing surfaces (emails, PDFs, the public site, the client area and its login) never show the product's
+  own name, mark or tagline unless the host chose them: they use the host's brand settings, with an empty tagline
+  and no product mark by default. The product identity (Mohar name, seal, "Web hosting billing, sealed and
+  settled.") appears only on staff surfaces such as the admin login. (2026-10-18)
+- The public site speaks for the host, not for the billing software. Storefront headlines and copy come from
+  the host's own settings, never from the product's own tagline or marketing. Every public page (home, store,
+  help, announcements, status) shares one header and footer, and the header lists what the host sells (Catalog
+  product groups, domains, support). (2026-10-18)
 - The product name and logo come from `BrandProvider` and are configurable; nothing hard-codes
   "Mohar" or "Laravel". (2026-10-17)
 - Colours are calm and easy on the eyes. No neon or harsh contrast, and both light and dark modes
@@ -78,6 +88,8 @@ every item.
 - Every email (auth, billing, orders, services, domains, support, notifications) uses one branded,
   modern template: brand logo and name from `BrandProvider`, theme accent, clear key facts and one
   primary action, responsive, readable in dark mode, with a plain-text alternative. (2026-10-18)
+- Every email the system sends uses an editable template; mail sent outside the template system (framework
+  notifications included) is a bug. Plain-text parts are written text, never raw Markdown or HTML. (2026-10-18)
 - Every email can be answered: Reply-To is a real, monitored department or support address (never
   noreply), and the footer shows the support address as text. Security emails add "If this wasn't you,
   contact …". Only company or department addresses, never staff members' personal addresses.
@@ -93,6 +105,12 @@ every item.
   plain language without system jargon, polite and calm reminders, and a way to get help. (2026-10-18)
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
+
+## Simulators and test doubles
+
+- Simulators of third-party services never change or weaken product behaviour: no production footprint, no
+  "simulator mode" branches in drivers, overrides only from the environment and refused in production, and the
+  full security checks (address guard, pinning, signatures, lookup) stay on against them. (2026-10-18)
 
 ## Work products
 

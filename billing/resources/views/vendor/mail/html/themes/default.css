@@ -1,0 +1,134 @@
+/* Direction A mail theme, inlined by CssToInlineStyles after render. The layout's own blocks carry their styles
+   inline; these rules cover the operator's text in the .prose cells. Colours are the light tokens of
+   App\Modules\Notifications\Mail\MailPalette (its dark rules override them); keep the two in step. */
+
+body {
+    margin: 0;
+    padding: 0;
+    width: 100% !important;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+img {
+    border: 0;
+    outline: none;
+    text-decoration: none;
+    -ms-interpolation-mode: bicubic;
+}
+
+.prose p,
+.prose ul,
+.prose ol,
+.prose blockquote {
+    margin: 0 0 16px;
+    font-size: 16px;
+    line-height: 24px;
+    color: #323a4e;
+    text-align: left;
+}
+
+.prose li {
+    margin: 0 0 4px;
+    font-size: 16px;
+    line-height: 24px;
+    color: #323a4e;
+}
+
+.prose ul,
+.prose ol {
+    padding-left: 22px;
+}
+
+.prose h1,
+.prose h2,
+.prose h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    line-height: 26px;
+    font-weight: 700;
+    color: #1a2133;
+}
+
+.prose strong {
+    color: #1a2133;
+}
+
+.prose a {
+    color: #4f4bc4;
+    font-weight: 600;
+    text-decoration: underline;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.prose blockquote {
+    padding: 2px 0 2px 14px;
+    border-left: 3px solid #4b8bc9;
+}
+
+.prose pre,
+.prose code {
+    font-family:
+        ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+        monospace;
+    font-size: 14px;
+    line-height: 21px;
+    color: #1a2133;
+    background-color: #f1f2f6;
+}
+
+.prose pre {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.prose hr {
+    margin: 8px 0 16px;
+    border: 0;
+    border-top: 1px solid #e4e7ee;
+}
+
+.prose table {
+    width: 100%;
+    margin: 0 0 16px;
+}
+
+.prose td,
+.prose th {
+    padding: 6px 12px 6px 0;
+    font-size: 15px;
+    line-height: 22px;
+    color: #323a4e;
+    text-align: left;
+    vertical-align: top;
+}
+
+.prose-notes p,
+.prose-notes li {
+    font-size: 14px;
+    line-height: 21px;
+    color: #5b6478;
+}
+
+.subcopy p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 20px;
+    color: #5b6478;
+}
+
+.subcopy a {
+    color: #4f4bc4;
+}
+
+.break-all {
+    word-break: break-all;
+}

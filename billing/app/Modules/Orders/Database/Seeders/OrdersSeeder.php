@@ -3,9 +3,11 @@
 namespace App\Modules\Orders\Database\Seeders;
 
 use App\Contracts\Catalog\PriceBook;
+use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Orders\Actions\AcceptOrder;
 use App\Modules\Orders\Actions\CancelOrder;
 use App\Modules\Orders\Actions\MarkOrderFraud;
@@ -13,6 +15,11 @@ use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CartItem;
 use App\Modules\Orders\Data\CheckoutData;
 use App\Modules\Orders\Enums\CartItemKind;
+use App\Modules\Orders\Enums\FraudDecision;
+use App\Modules\Orders\Enums\OrderItemStatus;
+use App\Modules\Orders\Enums\OrderItemType;
+use App\Modules\Orders\Enums\OrderKind;
+use App\Modules\Orders\Enums\OrderStatus;
 use App\Modules\Orders\Enums\PromotionType;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\Promotion;
@@ -37,8 +44,91 @@ class OrdersSeeder extends DemoSeeder
         $this->seedPromotions();
 
         if (Order::query()->doesntExist()) {
+            // Placed orders first: their new-client promotions must see clients without order history.
             $this->seedOrders();
+            $this->seedHistory();
         }
+    }
+
+    /** Monthly list prices in USD cents per demo product slug, and the share of orders each takes. */
+    private const HISTORY_MIX = [
+        'starter' => [399, 22], 'pro' => [799, 16], 'business' => [1499, 10],
+        'vps-s' => [1200, 12], 'vps-m' => [2400, 7], 'ssl-dv' => [2900, 8], 'domain' => [1299, 25],
+    ];
+
+    /**
+     * Demo order history for the dashboard's "New orders" chart: 30 days of accepted (and a few cancelled) orders
+     * across product types. Rows are written directly (no invoices or services); demo installs only.
+     */
+    private function seedHistory(): void
+    {
+        $clients = Client::query()->where('status', 'active')->orderBy('id')->get(['id', 'currency']);
+        $usd = Currency::query()->where('code', 'USD')->first();
+
+        if (app()->isProduction() || $clients->isEmpty()) {
+            return;
+        }
+
+        mt_srand(2027);
+        $currencies = Currency::query()->get()->keyBy('code');
+        $products = collect(self::HISTORY_MIX)->except('domain')
+            ->map(fn (array $plan, string $slug): ?ProductSummary => app(PriceBook::class)->productBySlug($slug))->filter();
+
+        for ($daysAgo = 30; $daysAgo >= 1; $daysAgo--) {
+            $day = now()->subDays($daysAgo);
+            $count = $day->isWeekend() ? mt_rand(0, 3) : mt_rand(2, 7);
+
+            for ($n = 0; $n < $count; $n++) {
+                $slug = $this->pickWeighted();
+                $product = $products->get($slug);
+                $client = $clients[mt_rand(0, $clients->count() - 1)];
+                $target = $currencies->get($client->currency);
+                $amount = $usd !== null && $target !== null ? $usd->convertTo(self::HISTORY_MIX[$slug][0], $target) : self::HISTORY_MIX[$slug][0];
+                $at = $day->setTime(mt_rand(7, 22), mt_rand(0, 59));
+                $status = mt_rand(1, 100) <= 8 ? OrderStatus::Cancelled : OrderStatus::Active;
+
+                if ($slug !== 'domain' && $product === null) {
+                    continue;
+                }
+
+                $order = new Order;
+                $order->forceFill([
+                    'number' => (string) mt_rand(1_000_000_000, 9_999_999_999),
+                    'client_id' => $client->id, 'kind' => OrderKind::New, 'status' => $status, 'currency' => $client->currency,
+                    'subtotal' => $amount, 'total' => $amount, 'payment_gateway' => 'bank_transfer',
+                    'ip_address' => '198.51.100.'.mt_rand(2, 250), 'fraud_provider' => 'rules', 'fraud_score' => 0, 'fraud_decision' => FraudDecision::Pass,
+                    'accepted_at' => $status === OrderStatus::Active ? $at->addHours(2) : null,
+                    'cancelled_at' => $status === OrderStatus::Cancelled ? $at->addDay() : null,
+                    'created_at' => $at, 'updated_at' => $at,
+                ])->save();
+
+                $domain = 'demo-'.Str::lower(Str::random(6)).'.com';
+                $order->items()->create([
+                    'item_type' => $slug === 'domain' ? OrderItemType::Domain : OrderItemType::Service,
+                    'product_id' => $product?->id,
+                    'status' => $status === OrderStatus::Active ? OrderItemStatus::Active : OrderItemStatus::Cancelled,
+                    'description' => $slug === 'domain' ? "Domain registration: {$domain}" : $product?->name,
+                    'domain' => $domain,
+                    'cycle' => $slug === 'domain' || $slug === 'ssl-dv' ? null : BillingCycle::Monthly,
+                    'first_amount' => $amount, 'recurring_amount' => $slug === 'ssl-dv' ? 0 : $amount,
+                ]);
+            }
+        }
+
+        mt_srand();
+    }
+
+    private function pickWeighted(): string
+    {
+        $roll = mt_rand(1, 100);
+
+        foreach (self::HISTORY_MIX as $slug => [, $weight]) {
+            if (($roll -= $weight) <= 0) {
+                return $slug;
+            }
+        }
+
+        return 'starter';
     }
 
     private function seedPromotions(): void

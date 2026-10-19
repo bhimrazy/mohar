@@ -14,6 +14,7 @@ The shared kernel is `app/Contracts`, `app/Data`, `app/Events`, `app/Enums` and 
 `app/Support`; `tests/Arch` enforces module boundaries.
 
 Review for:
+
 - **Boundaries.** Modules depend only on the kernel; no reach into another module's internals; every
   module works when siblings are absent (`MODULES=` filter). Is each new contract in the kernel because
   more than one module needs it, and is it the smallest interface that works?

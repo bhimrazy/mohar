@@ -7,12 +7,15 @@ use App\Data\Catalog\PriceQuote;
 use App\Data\Catalog\ProductSelection;
 use App\Data\Catalog\ProductSummary;
 use App\Enums\BillingCycle;
+use Tests\Fakes\Concerns\FakesModuleInputs;
 
 /**
  * In-memory PriceBook for Services tests: products, per-cycle prices and upgrade paths.
  */
 class FakePriceBook implements PriceBook
 {
+    use FakesModuleInputs;
+
     /** @var array<int, ProductSummary> */
     public array $products = [];
 

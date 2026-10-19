@@ -26,7 +26,7 @@ continue.
 
 - Serve the branch under review (or `develop` for a sweep): `php artisan migrate:fresh --seed -n`,
   build through `/workspaces/whmcs/scripts/heavy.sh npm run build`, `php artisan serve --port=<port from
-  the brief>`. Log in as admin@example.com / password and demo@example.com / password. Walk every
+the brief>`. Log in as admin@example.com / password and demo@example.com / password. Walk every
   page in scope with headless Playwright at 1440px and 390px, light and dark. Capture screenshots to a
   scratch directory. Stop the server by port PID afterwards; never `pkill -f`.
 - Classify each finding: **owner-blocking** (the owner would reject it), **polish**, or **idea**.
@@ -35,7 +35,7 @@ continue.
 ## Fixing
 
 - On a PR review: you are read-only. Post one review with `gh pr review <n> --comment --body-file
-  <file>`, headed `## Product review — <VERDICT: Owner-ready | Changes requested>`.
+<file>`, headed `## Product review — <VERDICT: Owner-ready | Changes requested>`.
 - On a sweep: fix small, contained problems yourself (copy, formatting, a missing label or empty state,
   a raw code next to an amount) on the branch named in the brief, with tests where behaviour changes
   and all gates green. Do not touch areas owned by an active workstream listed in

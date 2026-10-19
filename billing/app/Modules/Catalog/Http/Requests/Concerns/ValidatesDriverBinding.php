@@ -56,7 +56,7 @@ trait ValidatesDriverBinding
 
         $config = $this->driverConfig();
 
-        foreach ($driver['config_fields'] as $field) {
+        foreach ($driver['fields'] as $field) {
             if ($field['required'] && trim($config[$field['key']] ?? '') === '') {
                 $validator->errors()->add("driver_settings.{$field['key']}", __('Enter :label.', ['label' => $field['label']]));
             }
@@ -78,6 +78,35 @@ trait ValidatesDriverBinding
     protected function driverConfig(): array
     {
         return app(DriverSecrets::class)->merge((string) $this->input('provisioning_driver'), $this->submittedDriverConfig(), $this->storedDriverConfig());
+    }
+
+    /**
+     * The values of submitted driver settings that are secret (declared secret by the driver, or named like a
+     * credential), so a failed save never flashes them into the session (KeepsSecretsOutOfOldInput).
+     *
+     * @return list<string>
+     */
+    protected function secretInputPaths(): array
+    {
+        $rows = (array) $this->input('driver_config', []);
+        $keys = [];
+
+        foreach ($rows as $row) {
+            if (is_array($row) && is_string($row['key'] ?? null)) {
+                $keys[$row['key']] = '';
+            }
+        }
+
+        $secret = app(DriverSecrets::class)->secretKeys((string) $this->input('provisioning_driver'), $keys);
+        $paths = [];
+
+        foreach ($rows as $index => $row) {
+            if (! is_array($row) || ! is_string($row['key'] ?? null) || in_array($row['key'], $secret, true)) {
+                $paths[] = "driver_config.{$index}.value";
+            }
+        }
+
+        return $paths;
     }
 
     /**

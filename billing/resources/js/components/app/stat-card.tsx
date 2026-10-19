@@ -38,7 +38,16 @@ type StatCardProps = {
     className?: string;
 };
 
-function trendIsGood(trend: StatTrend): boolean | null {
+/** Screen-reader prefix for a trend, e.g. "Up, good, " (colour alone must not carry good or bad). */
+export function trendSpeech(trend: StatTrend): string {
+    if (trend.direction === 'flat') {
+        return 'No change, ';
+    }
+
+    return `${trend.direction === 'up' ? 'Up' : 'Down'}, ${trendIsGood(trend) ? 'good' : 'needs attention'}, `;
+}
+
+export function trendIsGood(trend: StatTrend): boolean | null {
     if (trend.direction === 'flat') {
         return null;
     }
@@ -58,20 +67,14 @@ function TrendBadge({ trend }: { trend: StatTrend }) {
     return (
         <span
             className={cn(
-                'inline-flex items-center gap-0.5 rounded-badge px-1.5 py-0.5 text-xs font-medium tabular-nums',
+                'inline-flex shrink-0 items-center gap-0.5 rounded-badge px-1.5 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums',
                 isGood === true && 'bg-success-subtle text-success-text',
                 isGood === false && 'bg-danger-subtle text-danger-text',
                 isGood === null && 'bg-muted text-muted-foreground',
             )}
         >
             <Icon className="size-3.5" aria-hidden="true" />
-            <span className="sr-only">
-                {trend.direction === 'flat'
-                    ? 'No change'
-                    : trend.direction === 'up'
-                      ? 'Up'
-                      : 'Down'}
-            </span>
+            <span className="sr-only">{trendSpeech(trend)}</span>
             {trend.value}
         </span>
     );
@@ -95,10 +98,8 @@ export function StatCard({
     tone = 'default',
     className,
 }: StatCardProps) {
-    const sparkColor =
-        trend && trendIsGood(trend) === false
-            ? 'var(--danger)'
-            : 'var(--chart-1)';
+    // The pill says whether a change is good; the line stays calm unless the card itself is money at risk.
+    const sparkColor = tone === 'danger' ? 'var(--danger)' : 'var(--chart-1)';
 
     const body = (
         <>

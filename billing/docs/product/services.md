@@ -157,17 +157,22 @@ amount_due        = charge − credit
 
 ## 7. Provisioning driver contract (MUST unless tagged)
 
-`interface ProvisioningDriver`:
+The contract is in the kernel (ADR 0009): `App\Contracts\Services\Provisioning\ProvisioningDriver` plus capability
+interfaces, registered with `App\Support\Services\ProvisioningDriverRegistry::register()`.
 
-- `metadata(): DriverMetadata` — key, display name, `requires_server`, default ports (plain/TLS), capability flags (`change_package, change_password, usage, sso_service, sso_server, renew, list_accounts, custom_actions`), product config field schema, server field schema.
-- `testConnection(Server): Result`
-- `create(ServiceContext): Result` (returns username/password/IP/driver_data), `suspend(ServiceContext, reason)`, `unsuspend`, `terminate`,
-  `changePackage(ServiceContext, previous)`, `changePassword(ServiceContext, newPassword)`, `renew` (SHOULD).
-- `usage(Server): array<accountKey, UsageRow>` per **server**, daily (SHOULD).
-- `serviceSsoUrl(ServiceContext)` / `serverSsoUrl(Server)` → short-lived URL (SHOULD).
-- `listAccounts(Server)` for reconciliation (COULD); `customActions()` admin/client buttons (COULD).
-- `ServiceContext` contains: service, client (minimal), product driver_config, option `module_key → module_value`, custom fields by `module_key`, server with credentials decrypted lazily.
-- `Result{success, message, retryable, data}`; drivers throw `RetryableProvisioningException` for transient faults. Drivers must be idempotent where the panel allows (e.g., `create` for an existing identical account → success).
+- Core: `key()`, `name()`, `metadata(): DriverMetadata` (`requires_server`, default ports, product and server settings
+  as `SettingField`s, optional `UsernamePolicy` and command timeout), `create`, `suspend(context, reason)`,
+  `unsuspend`, `terminate`, each taking a `ProvisioningContext` snapshot (service, server connection with decrypted
+  credentials, client summary, product settings, options and custom fields by `module_key`) and returning a
+  `DriverResult` (completed, rejected, retryable or unknown).
+- Capabilities (detected with `instanceof`, listed for the UI by the registry): `ChangesPackage`, `ChangesPassword`,
+  `ReportsUsage` (per server, daily, SHOULD), `TestsServerConnection`, `ProvidesServiceSso` / `ProvidesServerSso`
+  (SHOULD), `ListsAccounts` (COULD), `RenewsAccounts` (SHOULD), `ProvidesFieldOptions` (remote-filled selects),
+  `ReconcilesCommands` (settle unknown outcomes). `customActions()` admin/client buttons stay COULD.
+- Drivers are stateless, never read or write the host's tables, report changes only through `DriverResult::$data`, throw
+  `RetryableProvisioningException` only when the request provably did not run, and are idempotent where the panel allows
+  (e.g., `create` for an existing identical account → success). Every driver passes
+  `tests/Support/Contracts/ProvisioningDriverContract.php`.
 - Ship drivers: `none` (manual: status changes only, welcome email), `log` (demo: records calls, configurable failure injection for tests).
 
 ## 8. Command execution, logging, retries
@@ -175,7 +180,7 @@ amount_due        = charge − credit
 - Every command runs as queued job `RunModuleCommand` on queue `provisioning`, unique per `(subject, command)` and serialized per subject with a lock (suspend/unsuspend/terminate never overlap). Staff-triggered commands run synchronously with timeout `services.module.sync_timeout_seconds: 60` and fall back to queued. **MUST**
 - Retries: retryable failures up to `services.module.max_attempts: 3` with backoff `[60, 300, 900]` s; non-retryable fail immediately. After final failure: `module_queue` entry (open), event `ModuleCommandFailed`, staff notification; service status unchanged. **MUST**
 - Retry / Mark resolved / Dismiss in the queue UI; a later successful run of the same command auto-resolves open entries. **MUST**
-- Logging: every attempt logged in `module_commands` with request/response **redacted** (keys matching `password|secret|token|api_key|hash|authorization` and the current credential values replaced by `***`). Retention `services.module_log.retention_days: 30` (daily prune). **MUST**
+- Logging: every attempt logged in `module_commands` with request/response **redacted** (through `App\Support\Integrations\Redactor`: keys naming a secret, including `password`, `secret`, `token`, `api_key`, `hash` and `authorization` in any spelling, and the current credential values, replaced by `[redacted]`). Retention `services.module_log.retention_days: 30` (daily prune). **MUST**
 - Username generation: from domain: lowercase letters/digits, starts with a letter, max 8 chars **including** any numeric suffix, unique per server (truncate and append digits on collision); `services.random_usernames: false`. Password: 16 chars, mixed classes. Generation is overridable by driver. **MUST**
 
 ## 9. Servers & server groups
@@ -263,7 +268,7 @@ and `Addon*` equivalents (`AddonActivated`, `AddonSuspended`, …).
 28. Given fill_sequentially with S1 (100/100) and S2 (0/50), then S2 is picked; with both full, create fails "no server capacity".
 29. Given a driver throwing a retryable error twice then succeeding, then 3 attempts are logged and no module queue entry remains open.
 30. Given a non-retryable failure, then one attempt is logged, a module queue entry is open and status is unchanged.
-31. Given a module call whose request contains the server password, then the stored log contains `***` instead of it.
+31. Given a module call whose request contains the server password, then the stored log contains `[redacted]` instead of it.
 32. Given suspend and terminate dispatched concurrently for one service, then they execute sequentially.
 33. Given domain "example-shop.com" on a server where "examples" exists, then the generated username is "example1" (8 chars, unique on that server).
 34. Given recurring_cycles_limit 3, after 3 renewals invoiced no 4th is generated and the service becomes completed after the last period ends.

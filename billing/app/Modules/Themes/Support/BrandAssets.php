@@ -7,6 +7,7 @@ use App\Data\Branding\Brand;
 use App\Modules\Core\Support\Settings;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 /**
  * The brand (BrandProvider): name and tagline from settings, logos/mark/favicon from uploads
@@ -18,7 +19,7 @@ use Illuminate\Support\Facades\Storage;
  */
 class BrandAssets implements BrandProvider
 {
-    public const KINDS = ['logo-light', 'logo-dark', 'mark', 'favicon'];
+    public const KINDS = ['logo-light', 'logo-dark', 'mark', 'favicon', 'logo-email'];
 
     public const DISK = 'objects';
 
@@ -40,7 +41,24 @@ class BrandAssets implements BrandProvider
             mark: $this->url('mark') ?? $this->defaultUrl('mark'),
             favicon: $this->url('favicon') ?? $this->defaultUrl('favicon'),
             customised: ! $default || $this->tagline() !== $this->defaultTagline() || array_filter(array_map($this->path(...), self::KINDS)) !== [],
+            accent: $this->accent('primary'),
+            accentForeground: $this->accent('primary-foreground'),
+            emailMark: in_array(self::mime((string) $this->path('mark')), ['image/png', 'image/jpeg'], true) ? $this->url('mark') : null,
         );
+    }
+
+    /**
+     * A light-mode colour token of the client area's theme (emails follow the client-facing brand).
+     */
+    private function accent(string $token): ?string
+    {
+        try {
+            $value = app(ThemeManager::class)->resolve('client')->tokens['light'][$token] ?? null;
+        } catch (Throwable) {
+            return null;
+        }
+
+        return is_string($value) && preg_match('/^#[0-9a-fA-F]{6}$/', $value) ? $value : null;
     }
 
     public function logoDataUri(bool $dark = false): ?string
@@ -71,14 +89,9 @@ class BrandAssets implements BrandProvider
 
     public function emailLogoUrl(): ?string
     {
-        // Email clients render PNG/JPEG reliably; WebP and SVG often not.
-        if (in_array(self::mime((string) $this->path('logo-light')), ['image/png', 'image/jpeg'], true)) {
-            return $this->url('logo-light');
-        }
-
-        $default = (string) config('themes.defaults.logo-email');
-
-        return $this->name() === $this->defaultName() && $default !== '' && is_file(public_path($default)) ? asset($default) : null;
+        // Opt-in: the host uploads an email logo (flattened onto white when uploaded). The product's own logo is
+        // never used in customer mail.
+        return $this->url('logo-email');
     }
 
     public function name(): string

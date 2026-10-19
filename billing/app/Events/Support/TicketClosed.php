@@ -2,11 +2,13 @@
 
 namespace App\Events\Support;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
-final class TicketClosed
+final class TicketClosed implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     /**
      * @param  string  $closedBy  client|staff|system

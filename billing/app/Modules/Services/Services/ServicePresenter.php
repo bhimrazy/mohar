@@ -2,10 +2,11 @@
 
 namespace App\Modules\Services\Services;
 
+use App\Contracts\Services\Provisioning\ChangesPackage;
+use App\Contracts\Services\Provisioning\ChangesPassword;
+use App\Contracts\Services\Provisioning\ProvisioningDriver;
 use App\Enums\BillingCycle;
 use App\Modules\Services\Actions\QuoteServiceChange;
-use App\Modules\Services\Drivers\Provisioning\DriverMetadata;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
 use App\Modules\Services\Enums\ModuleCommandName;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Exceptions\ServiceActionException;
@@ -21,15 +22,24 @@ class ServicePresenter
 {
     public function __construct(
         private Catalog $catalog,
-        private DriverRegistry $drivers,
+        private ServiceDrivers $drivers,
         private QuoteServiceChange $quotes,
     ) {}
 
-    public function driver(Service $service): DriverMetadata
+    /**
+     * The service's driver (the manual driver when its own is not installed), for capability checks.
+     */
+    public function driver(Service $service): ProvisioningDriver
     {
-        $key = $this->catalog->product($service->product_id)->provisioningDriver ?? $service->server->driver ?? 'none';
+        return $this->drivers->displayDriverFor($service);
+    }
 
-        return $this->drivers->has($key) ? $this->drivers->get($key)->metadata() : $this->drivers->get('none')->metadata();
+    /**
+     * @return array{key: string, name: string, requires_server: bool, capabilities: list<string>}
+     */
+    public function driverProps(Service $service): array
+    {
+        return $this->drivers->present($service);
     }
 
     /**
@@ -49,8 +59,8 @@ class ServicePresenter
         };
 
         $commands = array_filter($commands, fn (ModuleCommandName $command): bool => match ($command) {
-            ModuleCommandName::ChangePackage => $driver->supports(DriverMetadata::CHANGE_PACKAGE),
-            ModuleCommandName::ChangePassword => $driver->supports(DriverMetadata::CHANGE_PASSWORD),
+            ModuleCommandName::ChangePackage => $driver instanceof ChangesPackage,
+            ModuleCommandName::ChangePassword => $driver instanceof ChangesPassword,
             default => true,
         });
 

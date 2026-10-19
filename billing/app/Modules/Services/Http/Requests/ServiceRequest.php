@@ -2,13 +2,18 @@
 
 namespace App\Modules\Services\Http\Requests;
 
+use App\Data\Services\Provisioning\UsernamePolicy;
 use App\Enums\BillingCycle;
+use App\Modules\Services\Models\Service;
+use App\Modules\Services\Services\ServiceDrivers;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Validator;
 
 /**
- * Staff edit of a service. Money fields are integer minor units.
+ * Staff edit of a service. Money fields are integer minor units. A changed username must pass the username policy
+ * of the service's driver, when the driver declares one.
  */
 class ServiceRequest extends FormRequest
 {
@@ -50,5 +55,32 @@ class ServiceRequest extends FormRequest
             'payment_gateway' => ['nullable', 'string', 'max:50'],
             'admin_notes' => ['nullable', 'string', 'max:5000'],
         ];
+    }
+
+    /**
+     * @return list<callable(Validator): void>
+     */
+    public function after(ServiceDrivers $drivers): array
+    {
+        return [function (Validator $validator) use ($drivers): void {
+            $service = $this->route('service');
+            $username = $this->string('username')->toString();
+
+            if (! $service instanceof Service || $username === '' || $username === $service->username) {
+                return;
+            }
+
+            // Only a driver that declares a policy constrains staff-typed usernames; manual services stay free-form.
+            $policy = $drivers->displayDriverFor($service)->metadata()->usernamePolicy;
+            $reason = $policy?->violation($username);
+
+            if ($reason !== null) {
+                $validator->errors()->add('username', match ($reason) {
+                    UsernamePolicy::TOO_LONG => __('The username can be at most :max characters on this server.', ['max' => $policy->maxLength]),
+                    UsernamePolicy::INVALID_CHARACTERS => __('The username contains characters this server does not accept.'),
+                    default => __('This username is reserved on the server; choose another.'),
+                });
+            }
+        }];
     }
 }

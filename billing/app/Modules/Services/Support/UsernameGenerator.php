@@ -2,29 +2,44 @@
 
 namespace App\Modules\Services\Support;
 
+use App\Data\Services\Provisioning\UsernamePolicy;
+use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Service;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
- * Hosting account usernames: lowercase letters/digits taken from the domain, starting with a
- * letter, at most 8 characters including a numeric suffix added on collision (unique per server).
+ * Hosting account usernames: lowercase letters/digits taken from the domain, starting with a letter, with a numeric
+ * suffix added on collision (unique per server). The driver's UsernamePolicy decides the length and the reserved
+ * names, prefixes and suffixes; without one the host default applies (8 characters).
  */
 class UsernameGenerator
 {
-    public const MAX_LENGTH = 8;
+    /** Suffixes tried on one base before a random base is used. */
+    private const SUFFIX_ATTEMPTS = 100;
 
     public function __construct(private ServiceSettings $settings) {}
 
-    public function generate(?string $domain, ?int $serverId, ?int $exceptServiceId = null): string
+    public function generate(?string $domain, ?int $serverId, ?int $exceptServiceId = null, ?UsernamePolicy $policy = null): string
     {
-        $base = $this->settings->randomUsernames() ? $this->randomBase() : $this->baseFrom($domain);
-        $candidate = substr($base, 0, self::MAX_LENGTH);
+        $policy ??= new UsernamePolicy;
+        $base = $this->settings->randomUsernames() ? $this->randomBase($policy->maxLength) : $this->baseFrom($domain, $policy->maxLength);
 
-        for ($suffix = 1; $this->taken($candidate, $serverId, $exceptServiceId); $suffix++) {
-            $candidate = substr($base, 0, self::MAX_LENGTH - strlen((string) $suffix)).$suffix;
+        for ($round = 0; $round < 10; $round++) {
+            $candidate = substr($base, 0, $policy->maxLength);
+
+            for ($suffix = 1; $suffix <= self::SUFFIX_ATTEMPTS; $suffix++) {
+                if ($policy->violation($candidate) === null && ! $this->taken($candidate, $serverId, $exceptServiceId)) {
+                    return $candidate;
+                }
+
+                $candidate = substr($base, 0, $policy->maxLength - strlen((string) $suffix)).$suffix;
+            }
+
+            $base = $this->randomBase($policy->maxLength);
         }
 
-        return $candidate;
+        throw new RuntimeException('No free username fits the driver\'s username policy.');
     }
 
     /**
@@ -45,22 +60,25 @@ class UsernameGenerator
         return implode('', $characters);
     }
 
-    private function baseFrom(?string $domain): string
+    private function baseFrom(?string $domain, int $length): string
     {
         $label = Str::before(Str::lower((string) $domain), '.');
         $clean = ltrim((string) preg_replace('/[^a-z0-9]/', '', $label), '0123456789');
 
-        return $clean !== '' ? $clean : $this->randomBase();
+        return $clean !== '' ? $clean : $this->randomBase($length);
     }
 
-    private function randomBase(): string
+    private function randomBase(int $length): string
     {
-        return chr(random_int(97, 122)).Str::lower(Str::random(self::MAX_LENGTH - 1));
+        return chr(random_int(97, 122)).Str::lower(Str::random(max(1, min($length, 8) - 1)));
     }
 
     private function taken(string $username, ?int $serverId, ?int $exceptServiceId): bool
     {
-        return Service::withTrashed()
+        // Only services that hold an account count (the unique index covers the same set); a terminated service's
+        // name is free again, and the server's own check is the final word.
+        return Service::query()
+            ->whereIn('status', ServiceStatus::occupyingValues())
             ->where('username', $username)
             ->when($serverId !== null, fn ($query) => $query->where('server_id', $serverId), fn ($query) => $query->whereNull('server_id'))
             ->when($exceptServiceId !== null, fn ($query) => $query->whereKeyNot($exceptServiceId))

@@ -37,16 +37,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $currency
  * @property string|null $datacenter
  * @property string|null $status_url
+ * @property array<string, mixed>|null $settings driver-declared server settings (encrypted; may hold secrets)
  * @property int|null $active_accounts_count
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
 #[UseFactory(ServerFactory::class)]
-#[Hidden(['password', 'api_token', 'access_hash'])]
+#[Hidden(['password', 'api_token', 'access_hash', 'settings'])]
 #[Fillable([
     'name', 'hostname', 'ip_address', 'assigned_ips', 'driver', 'username', 'password', 'api_token', 'access_hash',
     'secure', 'port', 'max_accounts', 'is_active', 'is_default', 'nameservers', 'monthly_cost', 'currency',
-    'datacenter', 'status_url',
+    'datacenter', 'status_url', 'settings',
 ])]
 class Server extends Model
 {
@@ -59,6 +60,7 @@ class Server extends Model
             'password' => 'encrypted',
             'api_token' => 'encrypted',
             'access_hash' => 'encrypted',
+            'settings' => 'encrypted:array',
             'assigned_ips' => 'array',
             'nameservers' => 'array',
             'secure' => 'boolean',

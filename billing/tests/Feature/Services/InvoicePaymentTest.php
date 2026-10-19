@@ -170,7 +170,7 @@ test('the registry provisions and cancels pending services', function () {
         ->and($toProvision->refresh()->status)->toBe(ServiceStatus::Active)
         ->and($toCancel->refresh()->status)->toBe(ServiceStatus::Fraud)
         ->and($addon->refresh()->status)->toBe(ServiceStatus::Fraud)
-        ->and($this->kit->driver->wasCalledFor($toCancel, 'terminate'))->toBeFalse();
+        ->and($this->kit->driver->wasCalledFor($toCancel->id, 'terminate'))->toBeFalse();
 });
 
 test('the registry reports failed provisioning and refuses to cancel active services', function () {

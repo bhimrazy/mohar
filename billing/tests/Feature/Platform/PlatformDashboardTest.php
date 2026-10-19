@@ -5,6 +5,10 @@ use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Models\StaffInvitation;
+use App\Support\Automation\Automation;
+use App\Support\Dashboard\Dashboard;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /**
@@ -43,21 +47,40 @@ test('to-dos are hidden without the matching permission', function () {
     expect(dashboardTodos())->toBe([]);
 });
 
-test('the automation health and staff sign-in widgets list the latest state', function () {
+test('the automation health check summarises each task\'s latest run, and sign-ins list the latest state', function () {
+    $this->freezeTime(); // the "last run" text is relative to now; a slow run must not change it
     $agent = User::factory()->staff(['support.*'])->create(['name' => 'Sam Support']);
     $agent->forceFill(['last_login_at' => now()->subHour()])->save();
     AutomationRun::query()->create(['run_date' => today()->subDay(), 'task' => 'platform.prune_invitations', 'status' => 'failed']);
     AutomationRun::query()->create(['run_date' => today(), 'task' => 'platform.prune_invitations', 'status' => 'success']);
     actingAsStaff(['core.automation.view', 'core.staff.view']);
+    $tasks = count(app(Automation::class)->ordered());
 
     $this->get(route('admin.dashboard'))->assertInertia(fn (Assert $page) => $page
         ->where('widgets', function ($widgets) {
             $widgets = collect($widgets)->keyBy('key');
-            $automation = collect($widgets['platform.automation']['items'])->keyBy('title');
 
-            return $widgets['platform.automation']['type'] === 'list'
-                && $automation['platform.prune_invitations']['status'] === 'success'
-                && $automation['platform.prune_activity_log']['status'] === 'pending'
-                && $widgets['platform.staff.logins']['items'][0]['title'] === 'Sam Support';
-        }));
+            return ! $widgets->has('platform.automation')
+                && $widgets['platform.staff.logins']['items'][0]['title'] === 'Sam Support'
+                && $widgets['platform.staff.logins']['group'] === 'activity';
+        })
+        ->loadDeferredProps(fn (Assert $page) => $page->where('health', function ($health) use ($tasks) {
+            $automation = collect($health)->firstWhere('key', 'platform.automation');
+
+            return $automation['detail'] === "{$tasks} tasks: 1 succeeded, ".($tasks - 1).' not run yet · last run '.now()->diffForHumans()
+                && $automation['value'] === '1 / '.$tasks
+                && $automation['tone'] === 'warning';
+        })));
+});
+
+test('a failed task makes the automation health check fail, and the queue check reports failed jobs', function () {
+    AutomationRun::query()->create(['run_date' => today(), 'task' => 'platform.prune_invitations', 'status' => 'failed']);
+    DB::table('failed_jobs')->insert(['uuid' => (string) Str::uuid(), 'connection' => 'database', 'queue' => 'default', 'payload' => '{}', 'exception' => 'x', 'failed_at' => now()]);
+    $health = collect(app(Dashboard::class)->resolveHealth('admin', actingAsStaff(['core.automation.view'])))->keyBy('key');
+
+    expect($health['platform.automation'])->toMatchArray(['value' => '1 failed', 'tone' => 'danger'])
+        ->and($health['platform.automation']['detail'])->toContain('1 failed (Delete old staff invitations)')
+        ->and($health['platform.automation']['detail'])->not->toContain('platform.prune_invitations')
+        ->and($health['platform.queue'])->toMatchArray(['value' => '1 failed', 'tone' => 'danger'])
+        ->and(collect(app(Dashboard::class)->resolveHealth('admin', actingAsStaff(['core.clients.view'])))->pluck('key')->filter(fn (string $key): bool => str_starts_with($key, 'platform.')))->toBeEmpty();
 });

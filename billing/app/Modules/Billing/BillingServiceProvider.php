@@ -9,19 +9,18 @@ use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
 use App\Models\User;
 use App\Modules\Billing\Drivers\Gateways\BankTransferDriver;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
-use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
-use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\BillingAutomation;
@@ -30,9 +29,11 @@ use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Services\Tax\TaxEngine;
+use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
@@ -127,12 +128,12 @@ class BillingServiceProvider extends ModuleServiceProvider
         $automation = $this->app->make(Automation::class);
         $tasks = fn (): BillingAutomation => $this->app->make(BillingAutomation::class);
 
-        $automation->task('billing.late_fees', Automation::LATE_FEES, fn (CarbonImmutable $today): int => $tasks()->lateFees($today));
-        $automation->task('billing.auto_capture', Automation::AUTO_CHARGE, fn (CarbonImmutable $today): int => $tasks()->autoCapture($today));
-        $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today));
-        $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run());
-        $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today));
-        $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today));
+        $automation->task('billing.late_fees', Automation::LATE_FEES, fn (CarbonImmutable $today): int => $tasks()->lateFees($today), label: 'Apply late fees', description: 'Adds the late fee once to invoices that are overdue by the configured number of days.');
+        $automation->task('billing.auto_capture', Automation::AUTO_CHARGE, fn (CarbonImmutable $today): int => $tasks()->autoCapture($today), label: 'Charge saved cards', description: 'Charges saved payment methods before the due date, then retries failed charges on schedule.');
+        $automation->task('billing.reminders', Automation::REMINDERS, fn (CarbonImmutable $today): int => $tasks()->reminders($today), label: 'Send invoice reminders', description: 'Marks invoices overdue and sends the before-due and overdue reminders, once a day at most.');
+        $automation->task('billing.payment_reconciliation', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(PaymentReconciler::class)->run(), label: 'Reconcile gateway payments', description: 'Looks up pending and unclear gateway payments whose customer never returned.');
+        $automation->task('billing.auto_cancel', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => $tasks()->autoCancel($today), label: 'Cancel unpaid overdue invoices', description: 'Cancels overdue invoices that have no payments and no credit applied.');
+        $automation->task('billing.housekeeping', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $tasks()->housekeeping($today), label: 'Expire old quotes', description: 'Marks quotes past their validity date as expired.');
     }
 
     private function registerNavigation(): void
@@ -166,111 +167,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     private function registerDashboard(): void
     {
         $dashboard = $this->app->make(Dashboard::class);
-        $currency = fn (): string => Currency::default()->code;
-
-        $dashboard->card('admin', 'billing.income', function (?User $user) use ($currency): array {
-            $code = $currency();
-            $start = CarbonImmutable::now()->startOfMonth();
-            $income = (int) Transaction::query()->where('currency', $code)->where('occurred_at', '>=', $start)
-                ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome])->sum('amount_in');
-            $out = (int) Transaction::query()->where('currency', $code)->where('occurred_at', '>=', $start)
-                ->whereIn('type', [TransactionType::Refund, TransactionType::Chargeback])->sum('amount_out');
-
-            return ['label' => 'Income this month', ...self::moneyValue(Money::of($income - $out, $code)), 'href' => route('admin.billing.transactions.index'), 'icon' => 'TrendingUp'];
-        }, 'billing.transactions.view', 10);
-
-        $dashboard->card('admin', 'billing.unpaid', fn (?User $user): array => [
-            'label' => 'Unpaid invoices',
-            ...self::moneyValue(Money::of((int) Invoice::query()->where('currency', $currency())->whereIn('status', InvoiceStatus::payable())->sum('balance'), $currency())),
-            'hint' => Invoice::query()->whereIn('status', InvoiceStatus::payable())->count().' invoices',
-            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
-            'icon' => 'Receipt',
-        ], 'billing.invoices.view', 20);
-
-        $dashboard->card('admin', 'billing.overdue', fn (?User $user): array => [
-            'label' => 'Overdue invoices',
-            'value' => Invoice::query()->overdue()->count(),
-            'href' => route('admin.billing.invoices.index', ['status' => 'overdue']),
-            'icon' => 'AlertTriangle',
-        ], 'billing.invoices.view', 30);
-
-        $dashboard->widget('admin', 'billing.income_chart', 'chart', function (?User $user) use ($currency): array {
-            $code = $currency();
-            $start = CarbonImmutable::today()->subDays(29);
-            // Net income per currency and day; the dashboard offers a currency switch when several have activity.
-            $daily = Transaction::query()
-                ->where('occurred_at', '>=', $start)
-                ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome, TransactionType::Refund, TransactionType::Chargeback])
-                ->get(['currency', 'occurred_at', 'amount_in', 'amount_out'])
-                ->groupBy('currency')
-                ->map(fn ($rows) => $rows
-                    ->groupBy(fn (Transaction $transaction): string => $transaction->occurred_at->toDateString())
-                    ->map(fn ($day): int => (int) $day->sum(fn (Transaction $transaction): int => $transaction->amount_in - $transaction->amount_out)));
-            $series = fn (string $currencyCode): array => [['name' => 'Net income', 'points' => array_map(
-                fn (int $offset): array => ['x' => $date = $start->addDays($offset)->toDateString(), 'y' => $daily->get($currencyCode)?->get($date) ?? 0],
-                range(0, 29),
-            )]];
-            $codes = array_values(array_unique([$code, ...$daily->keys()->map(fn ($key): string => (string) $key)->all()]));
-
-            return [
-                'title' => 'Income, last 30 days',
-                'kind' => 'line',
-                'currency' => $code,
-                'series' => $series($code),
-                'currencies' => array_combine($codes, array_map($series, $codes)),
-                'href' => route('admin.billing.transactions.index'),
-            ];
-        }, 'billing.transactions.view', 40, 'lg', deferred: true);
-
-        $dashboard->widget('admin', 'billing.recent_payments', 'list', fn (?User $user): array => [
-            'title' => 'Recent payments',
-            'items' => array_values(Transaction::query()
-                ->with(['client:id,first_name,last_name,company_name', 'invoice:id,number,proforma_number'])
-                ->whereIn('type', [TransactionType::Payment, TransactionType::ManualIncome])
-                ->where('amount_in', '>', 0)
-                ->orderByDesc('occurred_at')->orderByDesc('id')
-                ->limit(5)
-                ->get()
-                ->map(fn (Transaction $transaction): array => [
-                    'title' => $transaction->client->display_name,
-                    'subtitle' => $transaction->invoice?->displayNumber() ?? 'Account credit',
-                    'href' => $transaction->invoice_id !== null ? route('admin.billing.invoices.show', $transaction->invoice_id) : route('admin.billing.transactions.index'),
-                    'meta' => app(MoneyFormatter::class)->format(Money::of($transaction->amount_in, $transaction->currency)),
-                    'money' => ['amount' => $transaction->amount_in, 'currency' => $transaction->currency],
-                    'date' => $transaction->occurred_at->toIso8601String(),
-                ])->all()),
-            'href' => route('admin.billing.transactions.index'),
-            'empty' => 'No payments yet.',
-        ], 'billing.transactions.view', 50, 'md');
-
-        $dashboard->todo('admin', 'billing.overdue', fn (?User $user): array => [
-            'label' => 'Overdue invoices',
-            'count' => Invoice::query()->overdue()->count(),
-            'href' => route('admin.billing.invoices.index', ['status' => 'overdue']),
-            'tone' => 'danger',
-        ], 'billing.invoices.view', 10);
-
-        $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
-            'label' => 'Unpaid invoices due today',
-            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', CarbonImmutable::today()->toDateString())->count(),
-            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
-            'tone' => 'warning',
-        ], 'billing.invoices.view', 11);
-
-        $dashboard->todo('admin', 'billing.failed_captures', fn (?User $user): array => [
-            'label' => 'Failed automatic card charges',
-            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereNotNull('first_capture_failure_on')->count(),
-            'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
-            'tone' => 'danger',
-        ], 'billing.invoices.view', 12);
-
-        $dashboard->todo('admin', 'billing.payment_review', fn (?User $user): array => [
-            'label' => 'Gateway payments to review',
-            'count' => PaymentAttempt::query()->where('status', AttemptStatus::Ambiguous)
-                ->where('updated_at', '<=', now()->subMinutes($this->app->make(BillingSettings::class)->int('gateways.ambiguous_alert_minutes', 30)))->count(),
-            'href' => route('admin.billing.payment-attempts.index', ['status' => 'ambiguous']),
-            'tone' => 'danger',
-        ], 'billing.payments.manage', 13);
+        $this->app->make(BillingDashboard::class)->register($dashboard);
 
         $dashboard->card('client', 'billing.unpaid', function (?User $user, Client $client): array {
             $unpaid = Invoice::query()->where('client_id', $client->id)->whereIn('status', InvoiceStatus::payable());
@@ -423,28 +320,74 @@ class BillingServiceProvider extends ModuleServiceProvider
             ])->all()), 'billing.invoices.view');
     }
 
+    /**
+     * The oldest payable invoice past its due date with a live line for the item, as merge fields; [] when none.
+     *
+     * @return array<string, mixed>
+     */
+    private function overdueInvoiceFor(BillableType $type, int $billableId): array
+    {
+        $invoice = Invoice::query()->with('items')
+            ->whereIn('status', array_map(fn (InvoiceStatus $status): string => $status->value, InvoiceStatus::payable()))
+            ->whereDate('due_date', '<', app(BusinessCalendar::class)->today()->toDateString())
+            ->whereHas('items', fn ($items) => $items->where('type', $type->value)->where('billable_id', $billableId)->whereNull('cancelled_at'))
+            ->orderBy('due_date')->orderBy('id')->first();
+
+        return $invoice === null ? [] : $this->invoiceMergeFields($invoice);
+    }
+
+    /**
+     * The invoice as email merge fields: amounts formatted in its currency, and the lines, discount and taxes for the
+     * "what you're paying for" block.
+     *
+     * @return array<string, mixed>
+     */
+    private function invoiceMergeFields(Invoice $invoice): array
+    {
+        $money = fn (int $amount): string => app(MoneyFormatter::class)->format(Money::of($amount, $invoice->currency));
+        $rate = fn (string $value): string => rtrim(rtrim($value, '0'), '.');
+
+        return [
+            'client_id' => $invoice->client_id,
+            'id' => $invoice->id,
+            'number' => $invoice->displayNumber(),
+            'status' => $invoice->displayStatus(),
+            'currency' => $invoice->currency,
+            'total' => $money($invoice->total),
+            'balance' => $money($invoice->balance),
+            'balance_minor' => $invoice->balance,
+            'amount_paid' => $money($invoice->amount_paid),
+            'amount_paid_minor' => $invoice->amount_paid,
+            'subtotal' => $money($invoice->subtotal),
+            'discount' => $invoice->discount_total > 0 ? $money(-$invoice->discount_total) : null,
+            'credit_applied' => $invoice->credit_applied > 0 ? $money($invoice->credit_applied) : null,
+            'taxes' => array_values(array_filter([
+                $invoice->tax1_amount !== 0 && $invoice->tax1_name ? ['label' => $invoice->tax1_name.' '.$rate($invoice->tax1_rate).'%', 'amount' => $money($invoice->tax1_amount)] : null,
+                $invoice->tax2_amount !== 0 && $invoice->tax2_name ? ['label' => $invoice->tax2_name.' '.$rate($invoice->tax2_rate).'%', 'amount' => $money($invoice->tax2_amount)] : null,
+            ])),
+            'items' => $invoice->items->whereNull('cancelled_at')->sortBy('sort_order')->map(fn (InvoiceItem $item): array => [
+                'description' => $item->description,
+                'period_start' => $item->period_start?->toDateString(),
+                'period_end' => $item->period_end?->toDateString(),
+                'amount' => $money($item->amount),
+            ])->values()->all(),
+            'issue_date' => $invoice->issue_date?->toDateString(),
+            'due_date' => $invoice->due_date?->toDateString(),
+            'payment_gateway' => $invoice->payment_gateway,
+            'url' => route('client.invoices.show', $invoice),
+            'pdf_url' => route('client.invoices.pdf', $invoice),
+        ];
+    }
+
     private function registerMergeFields(): void
     {
         $registry = $this->app->make(MergeFieldRegistry::class);
 
-        $registry->register('invoice', function (int $id): array {
-            $invoice = Invoice::query()->findOrFail($id);
+        $registry->register('invoice', fn (int $id): array => $this->invoiceMergeFields(Invoice::query()->with('items')->findOrFail($id)));
 
-            return [
-                'client_id' => $invoice->client_id,
-                'id' => $invoice->id,
-                'number' => $invoice->displayNumber(),
-                'status' => $invoice->displayStatus(),
-                'currency' => $invoice->currency,
-                'total' => app(MoneyFormatter::class)->format(Money::of($invoice->total, $invoice->currency)),
-                'balance' => app(MoneyFormatter::class)->format(Money::of($invoice->balance, $invoice->currency)),
-                'amount_paid' => app(MoneyFormatter::class)->format(Money::of($invoice->amount_paid, $invoice->currency)),
-                'issue_date' => $invoice->issue_date?->toDateString(),
-                'due_date' => $invoice->due_date?->toDateString(),
-                'payment_gateway' => $invoice->payment_gateway,
-                'url' => route('client.invoices.show', $invoice),
-            ];
-        });
+        // The oldest overdue invoice that bills a service or one of its add-ons (for the suspension email); [] when none.
+        $registry->register('service_overdue_invoice', fn (int $serviceId): array => $this->overdueInvoiceFor(BillableType::Service, $serviceId));
+        $registry->register('service_addon_overdue_invoice', fn (int $addonId): array => $this->overdueInvoiceFor(BillableType::ServiceAddon, $addonId));
 
         $registry->register('quote', function (int $id): array {
             $quote = Quote::query()->findOrFail($id);

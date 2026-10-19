@@ -19,7 +19,8 @@ class ProductCustomFieldFactory extends Factory
         return [
             'product_id' => Product::factory(),
             'name' => ucfirst(fake()->word().' '.fake()->word()),
-            'module_key' => fake()->slug(1),
+            // Module keys are unique per product; set one explicitly with withModuleKey().
+            'module_key' => null,
             'type' => CustomFieldType::Text,
             'options' => null,
             'description' => null,
@@ -30,6 +31,11 @@ class ProductCustomFieldFactory extends Factory
             'show_on_invoice' => false,
             'sort_order' => 0,
         ];
+    }
+
+    public function withModuleKey(?string $key = null): static
+    {
+        return $this->state(fn (): array => ['module_key' => $key ?? 'field_'.fake()->unique()->numberBetween(1, 1_000_000)]);
     }
 
     public function adminOnly(): static

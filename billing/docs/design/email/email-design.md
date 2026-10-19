@@ -1,7 +1,8 @@
 # Email design review
 
-Status: proposal for the owner to choose a direction (2026-10-18). Nothing here is implemented yet. The
-Notifications engineer builds the chosen direction.
+Status: the owner chose direction A (2026-10-18); it is implemented in PR #72. Host brand only: the mockups show the
+product's mark as a placeholder, but mail shows the host's opt-in email logo, else the host's uploaded mark beside the
+name as live text, else the name alone, and a tagline only when the host sets one (product standards, 2026-10-18).
 
 - **Review page:** [`index.html`](index.html). Open it locally. It shows the current emails next to directions A, B and C for each of the five emails, with switches for desktop, 375 and 320 px and for light, dark and forced inversion.
 - **Reference HTML:** `directions/<a|b|c>/<email>.html`. These are real, sendable email HTML files: table-based, inline styles, a maximum width (A 640 px, B and C 600 px), fluid below it, and a fixed MSO table for Outlook.
@@ -46,7 +47,7 @@ The emails are clean and correct in intent: one card, one button, a facts table,
 | **Dark-mode footer brand name is unreadable** (`#111827` on `#0F1115`, 1.07:1).                                                                                                                                                                 | `strong` in the footer is not covered by the dark rules.                                              | Give every text element a class with a dark override (see the class map in §9).                                              |
 | Footer text fails contrast in light mode (`#8A909C` on `#F4F5F7`, 2.94:1).                                                                                                                                                                      | `themes/default.css` `.footer p`                                                                      | Use `#5B6478` (5.40:1).                                                                                                      |
 | **The logo is broken.** It loads `http://localhost:8000/brand/logo.png`, and the dark variant `/brand/logo-dark.png` does not exist (only `logo-dark.svg`). The `img` has no `width` attribute, so Outlook may render it at its natural 206 px. | `BrandProvider::emailLogoUrl()`, `public/brand`                                                       | Use absolute PNG URLs for light, dark and mark, with explicit `width` and `height`. SVG does not render in Gmail or Outlook. |
-| Old tagline "Billing in good order." in the sample brand.                                                                                                                                                                                       | Seeded setting                                                                                        | The default is "Web hosting billing, sealed and settled."                                                                    |
+| Old tagline "Billing in good order." in the sample brand.                                                                                                                                                                                       | Seeded setting                                                                                        | The default tagline is empty: customer mail shows a tagline only when the host sets one (product standards, 2026-10-18).     |
 | Receipt sample: "Still due $28.98" equals the amount paid.                                                                                                                                                                                      | `SampleContext`                                                                                       | Fix the sample so the balance after payment is right.                                                                        |
 | Ticket reply: "Sam from Support from Technical Support replied".                                                                                                                                                                                | Template copy and context                                                                             | Use "{{ reply.author_first_name }} from {{ ticket.department }} replied".                                                    |
 | The sample is all USD, even for an INR client.                                                                                                                                                                                                  | `SampleContext`                                                                                       | Use the client's currency and Money formatting (₹, Rs lakh grouping).                                                        |
@@ -237,7 +238,7 @@ All three use the Calm Fintech tokens (indigo accent `#4F4BC4`), system fonts on
 
 - **Layout:**
     - A warm-grey page.
-    - The brand mark and name, left-aligned above the cards.
+    - The host's brand, left-aligned above the cards: its opt-in email logo (opaque), else its uploaded mark and name as live text, else the name alone. Never the product's own mark or tagline.
     - **Card 1, the summary:**
         - a muted label ("Receipt from Mohar Cloud Pvt. Ltd.", "Account security", "Reply from Technical Support");
         - a 48 px amount, or a 30 px title;

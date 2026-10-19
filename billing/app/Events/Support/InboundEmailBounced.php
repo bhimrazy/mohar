@@ -2,14 +2,16 @@
 
 namespace App\Events\Support;
 
+use App\Contracts\Events\DomainEvent;
+use App\Support\Events\IdentifiesOccurrence;
 use Illuminate\Foundation\Events\Dispatchable;
 
 /**
  * An inbound email must be answered with a bounce template (ticket.closed_bounce, ...).
  */
-final class InboundEmailBounced
+final class InboundEmailBounced implements DomainEvent
 {
-    use Dispatchable;
+    use Dispatchable, IdentifiesOccurrence;
 
     public function __construct(
         public int $inboundEmailId,

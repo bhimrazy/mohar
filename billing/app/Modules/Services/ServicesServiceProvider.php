@@ -12,6 +12,7 @@ use App\Events\Billing\InvoicePaid;
 use App\Events\Orders\OrderPlaced;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Services\Actions\CompleteLimitedServices;
 use App\Modules\Services\Actions\ExpireUnpaidChanges;
 use App\Modules\Services\Actions\GenerateRenewals;
@@ -20,7 +21,7 @@ use App\Modules\Services\Actions\PruneModuleLog;
 use App\Modules\Services\Actions\SuspendOverdueServices;
 use App\Modules\Services\Actions\SyncUsage;
 use App\Modules\Services\Actions\TerminateOverdueServices;
-use App\Modules\Services\Drivers\Provisioning\DriverRegistry;
+use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\LogDriver;
 use App\Modules\Services\Drivers\Provisioning\NoneDriver;
 use App\Modules\Services\Enums\CancellationStatus;
@@ -36,6 +37,7 @@ use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -43,9 +45,11 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Event;
 
@@ -58,13 +62,6 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function registerModule(): void
     {
-        $this->app->singleton(DriverRegistry::class, function ($app): DriverRegistry {
-            $registry = new DriverRegistry($app);
-            $registry->register('none', NoneDriver::class);
-            $registry->register('log', LogDriver::class);
-
-            return $registry;
-        });
         $this->app->singleton(LogDriver::class);
         $this->app->bind(ServiceRegistry::class, EloquentServiceRegistry::class);
         $this->app->bind(CatalogUsage::class, EloquentCatalogUsage::class);
@@ -74,6 +71,11 @@ class ServicesServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $drivers = $this->app->make(ProvisioningDriverRegistry::class);
+        $drivers->register('none', NoneDriver::class);
+        $drivers->register('log', LogDriver::class);
+        $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
+
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
@@ -89,17 +91,23 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $this->registerSearchAndMergeFields();
     }
 
+    protected function schedule(Schedule $schedule): void
+    {
+        // Unknown outcomes (a create that timed out) settle themselves when the server shows the command ran.
+        $schedule->command('services:verify-unknown')->everyFiveMinutes()->withoutOverlapping(15)->onOneServer();
+    }
+
     private function registerAutomation(): void
     {
         $automation = $this->app->make(Automation::class);
-        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => app(GenerateRenewals::class)->handle($today));
-        $automation->task('services.cancellations', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ProcessCancellations::class)->handle($today));
-        $automation->task('services.upgrade-expiry', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ExpireUnpaidChanges::class)->handle($today));
-        $automation->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today): int => app(SuspendOverdueServices::class)->handle($today));
-        $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today));
-        $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today));
-        $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today));
-        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today));
+        $automation->task('services.renewals', Automation::RENEWALS, fn (CarbonImmutable $today): int|string => app(GenerateRenewals::class)->handle($today), label: 'Generate renewal invoices', description: 'Invoices services whose next invoice date has come.');
+        $automation->task('services.cancellations', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ProcessCancellations::class)->handle($today), label: 'Process cancellations', description: 'Ends services whose cancellation is due, including those set to end at the period end.');
+        $automation->task('services.upgrade-expiry', Automation::CANCELLATIONS, fn (CarbonImmutable $today): int => app(ExpireUnpaidChanges::class)->handle($today), label: 'Expire unpaid upgrades', description: 'Cancels upgrades and downgrades that were not paid in time, with their invoices.');
+        $automation->task('services.suspensions', Automation::SUSPENSIONS, fn (CarbonImmutable $today): int => app(SuspendOverdueServices::class)->handle($today), label: 'Suspend overdue services', description: 'Suspends services whose invoices are overdue past the suspension threshold.');
+        $automation->task('services.terminations', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(TerminateOverdueServices::class)->handle($today), label: 'Terminate overdue services', description: 'Terminates services that stayed overdue past the termination threshold.');
+        $automation->task('services.complete-limited', Automation::TERMINATIONS, fn (CarbonImmutable $today): int => app(CompleteLimitedServices::class)->handle($today), label: 'Complete fixed-term services', description: 'Marks services with a renewal limit as completed after their last paid period.');
+        $automation->task('services.usage-sync', Automation::SYNC, fn (CarbonImmutable $today): int => app(SyncUsage::class)->handle($today), label: 'Sync usage from servers', description: 'Records one usage snapshot per service from each server.');
+        $automation->task('services.module-log-prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => app(PruneModuleLog::class)->handle($today), label: 'Prune the module log', description: 'Deletes provisioning module log entries older than the retention period.');
     }
 
     private function registerNavigation(): void
@@ -108,7 +116,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $navigation->add('admin', new NavItem('Services', 'admin.services.index', 'Server', 'Services', 10, 'services.services.view', 'admin.services.services.*'));
         $navigation->add('admin', new NavItem('Servers', 'admin.services.servers.index', 'Boxes', 'Services', 20, 'services.servers.view', 'admin.services.serve*'));
         $navigation->add('admin', new NavItem('Cancellation requests', 'admin.services.cancellations.index', 'Inbox', 'Services', 30, 'services.cancellations.manage', 'admin.services.cancellations.*',
-            badge: fn (?User $user): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count()));
+            badge: fn (?User $user): int => RequestMemo::remember('services.open_cancellations', fn (): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count())));
         $navigation->add('admin', new NavItem('Module log', 'admin.services.module-log.index', 'Activity', 'Services', 40, 'services.module_log.view', 'admin.services.module-log.*'));
         $navigation->add('client', new NavItem('My services', 'client.services.index', 'Server', 'Services', 10, activePattern: 'client.services.*'));
         $navigation->add('admin-client', new NavItem('Services', 'admin.services.index', 'Server', order: 20, permission: 'services.services.view'));
@@ -125,25 +133,28 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'icon' => 'Server',
         ], 'services.services.view', 30);
 
+        $this->app->make(ServicesDashboard::class)->register($dashboard);
+
         $dashboard->card('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Pending provisioning',
             'value' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
             'href' => route('admin.services.index', ['status' => 'pending']),
             'icon' => 'Package',
-        ], 'services.services.view', 31);
+        ], 'services.services.view', 31, mirrorsTodo: true);
 
         $dashboard->card('admin', 'services.failed', fn (?User $user): array => [
             'label' => 'Failed module actions',
             'value' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
-        ], 'services.module_log.view', 32);
+        ], 'services.module_log.view', 32, mirrorsTodo: true);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Services waiting for provisioning',
             'count' => Service::query()->where('status', ServiceStatus::Pending->value)->count(),
             'href' => route('admin.services.index', ['status' => 'pending']),
             'tone' => 'warning',
+            'icon' => 'Package',
         ], 'services.services.view', 30);
 
         $dashboard->todo('admin', 'services.failed', fn (?User $user): array => [
@@ -151,13 +162,15 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'count' => ModuleQueueItem::query()->where('status', QueueStatus::Open->value)->count(),
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'tone' => 'danger',
+            'icon' => 'Server',
         ], 'services.module_log.view', 31);
 
         $dashboard->todo('admin', 'services.cancellations', fn (?User $user): array => [
             'label' => 'Cancellation requests to review',
-            'count' => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count(),
+            'count' => RequestMemo::remember('services.open_cancellations', fn (): int => CancellationRequest::query()->where('status', CancellationStatus::Open->value)->count()),
             'href' => route('admin.services.cancellations.index'),
             'tone' => 'warning',
+            'icon' => 'Inbox',
         ], 'services.cancellations.manage', 32);
 
         $dashboard->widget('admin', 'services.renewals', 'list', function (?User $user): array {
@@ -181,12 +194,14 @@ class ServicesServiceProvider extends ModuleServiceProvider
                         'subtitle' => $service->client->display_name,
                         'href' => route('admin.services.services.show', $service),
                         'meta' => $service->next_due_date?->toDateString(),
+                        'date' => $service->next_due_date?->toDateString(),
+                        'money' => ['amount' => $service->recurring_amount, 'currency' => $service->currency],
                         'status' => $service->status->value,
                     ])->values()->all(),
                 'href' => route('admin.services.index', ['status' => 'active']),
                 'empty' => 'No renewals due in the next 7 days.',
             ];
-        }, 'services.services.view', 40, 'md');
+        }, 'services.services.view', 54, 'md');
 
         $dashboard->card('client', 'services.active', fn (?User $user, Client $client): array => [
             'label' => 'Active services',
@@ -283,6 +298,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
                 'registration_date' => $service->registration_date->toDateString(),
                 'next_due_date' => $service->next_due_date?->toDateString(),
                 'suspension_reason' => $service->suspension_reason,
+                'addon_ids' => $service->addons()->pluck('id')->all(),
                 'dedicated_ip' => $service->dedicated_ip,
                 'server_hostname' => $service->server?->hostname,
                 'server_ip' => $service->server?->ip_address,

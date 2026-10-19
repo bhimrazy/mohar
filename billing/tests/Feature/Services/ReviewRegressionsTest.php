@@ -28,7 +28,6 @@ use App\Modules\Services\Enums\CancellationStatus;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\InvoiceLinkStatus;
 use App\Modules\Services\Enums\ServiceStatus;
-use App\Modules\Services\Exceptions\RetryableProvisioningException;
 use App\Modules\Services\Exceptions\ServiceActionException;
 use App\Modules\Services\Jobs\RunModuleCommand;
 use App\Modules\Services\Models\ModuleCommand;
@@ -38,6 +37,7 @@ use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceAddon;
 use App\Modules\Services\Models\ServiceInvoice;
+use App\Support\Services\RetryableProvisioningException;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\Cache;
@@ -182,13 +182,16 @@ test('create is not called again when a previous attempt never reported back', f
 test('only a staff retry of the verify item creates the account after an unknown outcome', function () {
     actingAsStaff(['services.module_log.view', 'services.module_log.manage']);
     $this->kit->priceBook->addProduct(11, 'Starter');
-    $service = Service::factory()->pending()->create(['product_id' => 11, 'server_id' => Server::factory()->create()->id]);
+    // An attempt that died mid-call had its username assigned already (the host does that before the first call).
+    $service = Service::factory()->pending()->create(['product_id' => 11, 'server_id' => Server::factory()->create()->id, 'username' => 'shop1']);
     ModuleCommand::query()->create(['service_id' => $service->id, 'driver' => 'log', 'command' => 'create', 'initiator' => 'system', 'success' => false, 'status' => ModuleCommand::RUNNING]);
     RunModuleCommand::dispatch($service->id, 'create');
 
     RunModuleCommand::dispatch($service->id, 'create', lockRetries: 1);
     expect($this->kit->driver->callsFor('create'))->toBeEmpty();
 
+    // The driver can check the server, so "Create again" waits until the check finds no account.
+    $this->post(route('admin.services.module-log.check', ModuleQueueItem::query()->sole()))->assertSessionHasNoErrors();
     $this->post(route('admin.services.module-log.retry', ModuleQueueItem::query()->sole()))->assertSessionHasNoErrors();
 
     expect($service->refresh()->status)->toBe(ServiceStatus::Active)
@@ -373,7 +376,7 @@ test('ServiceActivated carries the next due date', function () {
     Event::assertDispatched(ServiceActivated::class, fn (ServiceActivated $event) => $event->nextDueDate === $service->next_due_date->toDateString());
 });
 
-test('drivers receive custom fields by module key and password fields are redacted', function () {
+test('drivers receive custom fields by module key only, and password fields are redacted even without one', function () {
     $this->kit->priceBook->addProduct(11, 'Starter');
     $this->kit->priceBook->customFields[11] = [
         ['id' => 5, 'name' => 'Root access', 'type' => 'text', 'required' => false, 'options' => [], 'module_key' => 'root'],
@@ -389,8 +392,23 @@ test('drivers receive custom fields by module key and password fields are redact
 
     RunModuleCommand::dispatch($service->id, 'create');
 
-    expect($seen)->toBe(['root' => 'yes', 'panel_pin' => 'pin-998877'])
-        ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toBe('failed with ***');
+    expect($seen)->toBe(['root' => 'yes'])
+        ->and(ModuleCommand::query()->where('service_id', $service->id)->value('error'))->toBe('failed with [redacted]');
+});
+
+test('drivers receive configurable options by module key, never install ids', function () {
+    $this->kit->priceBook->addProduct(12, 'VPS');
+    $this->kit->priceBook->moduleOptions[12] = [31 => ['key' => 'os', 'values' => [301 => 'ubuntu-2404']], 32 => ['key' => 'region', 'values' => [321 => 'eu']]];
+    $service = Service::factory()->pending()->onServer()->create(['product_id' => 12]);
+    $service->syncConfigOptions([31 => 301, 32 => 999]);
+    $seen = null;
+    $this->kit->driver->whileRunning = function (string $command, $context) use (&$seen) {
+        $seen = $context?->configOptions;
+    };
+
+    RunModuleCommand::dispatch($service->id, 'create');
+
+    expect($seen)->toBe(['os' => 'ubuntu-2404']);
 });
 
 test('product suspend overrides apply when the service has none', function () {

@@ -120,6 +120,20 @@ describe('accept', function () {
         Event::assertDispatched(OrderAccepted::class, fn (OrderAccepted $event) => $event->orderId === $order->id);
     });
 
+    it('reports provisioning that runs on the queue as queued, never as failed', function () {
+        actingAsStaff(['orders.orders.view', 'orders.orders.accept']);
+        $order = placeAdminTestOrder($this->client);
+        $item = $order->items()->sole();
+        $this->fakes->services->outcomes[$item->item_id] = new ProvisionResult(false, 'Provisioning queued.', pending: true);
+
+        $this->post(route('admin.orders.accept', $order))
+            ->assertSessionHasNoErrors()
+            ->assertInertiaFlash('toast', ['type' => 'success', 'message' => "Order {$order->number} accepted. Provisioning queued for: {$item->description}"]);
+
+        expect($order->fresh()->status)->toBe(OrderStatus::Active)
+            ->and($item->fresh()->status)->toBe(OrderItemStatus::Pending);
+    });
+
     it('keeps the acceptance when provisioning throws', function () {
         actingAsStaff(['orders.orders.accept']);
         $order = placeAdminTestOrder($this->client);
