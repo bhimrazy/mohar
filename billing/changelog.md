@@ -473,6 +473,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Payments — Stripe
 
+- Not yet verified against a live Stripe account: tested with recorded Stripe API fixtures and, once ADR 0016 S3
+  lands, the Stripe simulator. The live sandbox smoke run (`docs/devops/install.md` go-live checklist) is required
+  before a host takes real card payments.
 - Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
   invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
   PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
