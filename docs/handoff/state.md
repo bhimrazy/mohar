@@ -42,7 +42,9 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   page (`feature/storefront-home`).
 - Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
 - Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe #58 waits only for CI.
-- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews").
+- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews"). Round 1 ran 2026-10-19 13:20 UTC
+  (`docs/reviews/2026-10-19-*.md`); the 14:20 round was skipped because only S0 (#77, already reviewed) and docs had
+  merged since. Next round at the 02:17 slot.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
