@@ -1,8 +1,8 @@
 import { Link, setLayoutProps } from '@inertiajs/react';
-import { CalendarClock, UserRoundSearch } from 'lucide-react';
+import { UserRoundSearch } from 'lucide-react';
 import { useState } from 'react';
-import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
+import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -11,47 +11,67 @@ import { Head } from '@/components/app/head';
 import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
+import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
-import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
-import type { ImportChoice } from '@/components/services/import-choice-dialog';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import type { SelectOption } from '@/types/app';
 import { cycleLabel } from '@/types/services';
 
 type Row = {
     username: string;
     domain: string | null;
     suspended: boolean;
-    decision: ImportChoice & { amount: number | null; problems: string[] };
-};
-
-const BLANK: ImportChoice = {
-    client: null,
-    product: null,
-    cycle: null,
-    next_due_date: null,
+    decision: {
+        client: { id: number; name: string; currency: string } | null;
+        product: { id: number; name: string } | null;
+        cycle: string | null;
+        next_due_date: string | null;
+        amount: number | null;
+        problems: string[];
+    };
 };
 
 type Props = {
     server: { id: number; name: string; hostname: string };
     rows: Row[];
-    totals: { currency: string; amount: number }[];
-    cycles: SelectOption[];
+    page: { current: number; last: number };
+    counts: { ready: number; excluded: number; clients: number };
+    totals: {
+        currency: string;
+        cycle: string;
+        amount: number;
+        accounts: number;
+    }[];
+    digest: string;
 };
+
+const plural = (count: number, noun: string) =>
+    `${count} ${noun}${count === 1 ? '' : 's'}`;
+
+function Account({ row }: { row: Row }) {
+    return (
+        <span className="flex flex-col">
+            <span className="font-mono">{row.username}</span>
+            <span className="text-xs font-normal text-muted-foreground">
+                {row.domain ?? 'No domain'}
+            </span>
+        </span>
+    );
+}
 
 export default function ServerImportReview({
     server,
     rows,
+    page,
+    counts,
     totals,
-    cycles,
+    digest,
 }: Props) {
     const [confirming, setConfirming] = useState(false);
-    const [bulk, setBulk] = useState(false);
-    const ready = rows.filter((row) => row.decision.problems.length === 0);
-    const blocked = rows.length - ready.length;
-    const clients = new Set(ready.map((row) => row.decision.client?.id)).size;
     const back = ServerImportController.show(server.id);
+    const ready = rows.filter((row) => row.decision.problems.length === 0);
+    const excluded = rows.filter((row) => row.decision.problems.length > 0);
+    const pageLink = (to: number) =>
+        ServerImportController.review(server.id, { query: { page: to } });
 
     setLayoutProps({
         breadcrumbs: [
@@ -68,65 +88,63 @@ export default function ServerImportReview({
                 <PageHeader
                     back={{ href: back, label: 'Import accounts' }}
                     title="Review import"
-                    meta={
-                        <>
-                            <span>{server.name}</span>
-                            <span aria-hidden="true">·</span>
-                            <span className="font-mono">{server.hostname}</span>
-                        </>
-                    }
+                    meta={<span className="font-mono">{server.hostname}</span>}
                     description="Check every row: matches come from the contact email the server reports, which the account holder can change. Each account becomes a service for its client, active or suspended as on the server. No invoice, welcome email or server change follows; clients set a password themselves."
                     actions={
-                        <>
-                            <Button
-                                variant="outline"
-                                disabled={rows.length === 0}
-                                onClick={() => setBulk(true)}
-                            >
-                                <CalendarClock />
-                                Set cycle and due date
-                            </Button>
-                            <Button
-                                disabled={ready.length === 0}
-                                title={
-                                    ready.length === 0
-                                        ? 'No account is ready to import.'
-                                        : undefined
-                                }
-                                onClick={() => setConfirming(true)}
-                            >
-                                Import {ready.length} accounts
-                            </Button>
-                        </>
+                        <Button
+                            disabled={counts.ready === 0}
+                            title={
+                                counts.ready === 0
+                                    ? 'No account is ready to import.'
+                                    : undefined
+                            }
+                            onClick={() => setConfirming(true)}
+                        >
+                            Import {plural(counts.ready, 'account')}
+                        </Button>
                     }
                 />
 
-                {blocked > 0 && (
-                    <Alert variant="destructive">
-                        <AlertDescription>
-                            {blocked}{' '}
-                            {blocked === 1 ? 'account is' : 'accounts are'} left
-                            out until the problem shown on its row is fixed.
-                        </AlertDescription>
-                    </Alert>
-                )}
-
                 {totals.length > 0 && (
                     <p className="text-sm text-muted-foreground">
-                        Recurring total:{' '}
+                        Recurring:{' '}
                         {totals.map((total, index) => (
-                            <span key={total.currency}>
-                                {index > 0 && ' + '}
+                            <span key={`${total.currency}:${total.cycle}`}>
+                                {index > 0 && ' · '}
                                 <Money
                                     amount={total.amount}
                                     currency={total.currency}
                                     className="font-medium text-foreground"
-                                />
+                                />{' '}
+                                {cycleLabel(total.cycle).toLowerCase()} (
+                                {plural(total.accounts, 'account')})
                             </span>
-                        ))}{' '}
-                        across {clients} {clients === 1 ? 'client' : 'clients'},
-                        each at its own cycle.
+                        ))}
+                        , for {plural(counts.clients, 'client')}.
                     </p>
+                )}
+
+                {excluded.length > 0 && (
+                    <SectionCard
+                        title={`${counts.excluded} not imported`}
+                        description="These ticked accounts are left out until the reason shown is fixed on the import page or in the catalog."
+                    >
+                        <ul className="grid gap-2 text-sm">
+                            {excluded.map((row) => (
+                                <li
+                                    key={row.username}
+                                    className="flex flex-col gap-0.5 sm:flex-row sm:gap-3"
+                                >
+                                    <span className="font-mono sm:w-32">
+                                        {row.username}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                        {row.decision.problems.join(' ')}
+                                    </span>
+                                </li>
+                            ))}
+                        </ul>
+                    </SectionCard>
                 )}
 
                 <DataTable
@@ -136,29 +154,16 @@ export default function ServerImportReview({
                             key: 'account',
                             header: 'Account',
                             primary: true,
-                            cell: (row) => (
-                                <span className="flex flex-col">
-                                    <span className="font-mono">
-                                        {row.username}
-                                    </span>
-                                    <span className="text-xs font-normal text-muted-foreground">
-                                        {row.domain ?? 'No domain'}
-                                    </span>
-                                </span>
-                            ),
+                            cell: (row) => <Account row={row} />,
                         },
                         {
                             key: 'client',
                             header: 'Client and product',
                             cell: (row) => (
                                 <span className="flex min-w-0 flex-col whitespace-normal">
-                                    <span>
-                                        {row.decision.client?.name ??
-                                            'No client'}
-                                    </span>
+                                    <span>{row.decision.client?.name}</span>
                                     <span className="text-xs text-muted-foreground">
-                                        {row.decision.product?.name ??
-                                            'No product'}
+                                        {row.decision.product?.name}
                                     </span>
                                 </span>
                             ),
@@ -177,46 +182,41 @@ export default function ServerImportReview({
                         {
                             key: 'billing',
                             header: 'Billing',
-                            cell: (row) =>
-                                row.decision.problems.length > 0 ? (
-                                    <span className="block max-w-xs text-sm whitespace-normal text-destructive">
-                                        {row.decision.problems.join(' ')}
+                            cell: (row) => (
+                                <span className="flex flex-col">
+                                    <span>
+                                        <Money
+                                            amount={row.decision.amount ?? 0}
+                                            currency={
+                                                row.decision.client?.currency ??
+                                                'USD'
+                                            }
+                                        />{' '}
+                                        {cycleLabel(
+                                            row.decision.cycle ?? '',
+                                        ).toLowerCase()}
                                     </span>
-                                ) : (
-                                    <span className="flex flex-col">
-                                        <span>
-                                            <Money
-                                                amount={
-                                                    row.decision.amount ?? 0
-                                                }
-                                                currency={
-                                                    row.decision.client
-                                                        ?.currency ?? 'USD'
-                                                }
-                                            />{' '}
-                                            {cycleLabel(
-                                                row.decision.cycle ?? '',
-                                            ).toLowerCase()}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                            Next due{' '}
-                                            <DateTime
-                                                value={
-                                                    row.decision.next_due_date
-                                                }
-                                            />
-                                        </span>
+                                    <span className="text-xs text-muted-foreground">
+                                        Next due{' '}
+                                        <DateTime
+                                            value={row.decision.next_due_date}
+                                        />
                                     </span>
-                                ),
+                                </span>
+                            ),
                         },
                     ]}
-                    rows={rows}
+                    rows={ready}
                     getRowKey={(row) => row.username}
                     empty={
                         <EmptyState
                             icon={UserRoundSearch}
-                            title="No accounts ticked"
-                            description="Tick the accounts to import on the import page first."
+                            title={
+                                counts.ready === 0
+                                    ? 'Nothing ready to import'
+                                    : 'No ready accounts on this page'
+                            }
+                            description="Tick accounts with a matched client and product on the import page."
                             action={
                                 <Button size="sm" variant="outline" asChild>
                                     <Link href={back}>Choose accounts</Link>
@@ -224,27 +224,59 @@ export default function ServerImportReview({
                             }
                         />
                     }
+                    footer={
+                        page.last > 1 && (
+                            <div className="flex items-center justify-between px-4 py-3 text-sm">
+                                <span className="text-muted-foreground">
+                                    Page {page.current} of {page.last}
+                                </span>
+                                <span className="flex gap-2">
+                                    {page.current > 1 && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            asChild
+                                        >
+                                            <Link
+                                                href={pageLink(
+                                                    page.current - 1,
+                                                )}
+                                            >
+                                                Previous
+                                            </Link>
+                                        </Button>
+                                    )}
+                                    {page.current < page.last && (
+                                        <Button
+                                            size="sm"
+                                            variant="outline"
+                                            asChild
+                                        >
+                                            <Link
+                                                href={pageLink(
+                                                    page.current + 1,
+                                                )}
+                                            >
+                                                Next
+                                            </Link>
+                                        </Button>
+                                    )}
+                                </span>
+                            </div>
+                        )
+                    }
                 />
             </Page>
-
-            <ImportChoiceDialog
-                serverId={server.id}
-                usernames={rows.map((row) => row.username)}
-                initial={bulk ? BLANK : null}
-                onClose={() => setBulk(false)}
-                productOptions={[]}
-                cycles={cycles}
-                datesOnly
-            />
 
             <ConfirmDialog
                 open={confirming}
                 onOpenChange={setConfirming}
-                title={`Import ${ready.length} accounts from ${server.name}?`}
-                description={`This creates ${ready.length} services for ${clients} ${clients === 1 ? 'client' : 'clients'}, billed from their next due dates. No invoices or emails are sent and nothing changes on the server. Imported services can be deleted later; the accounts stay on the server.`}
-                confirmLabel={`Import ${ready.length} accounts`}
+                title={`Import ${plural(counts.ready, 'account')} from ${server.name}?`}
+                description={`This creates ${plural(counts.ready, 'service')} for ${plural(counts.clients, 'client')}, billed from their next due dates, exactly as reviewed here. No invoices or emails are sent and nothing changes on the server. The import runs in the background; the import page shows its progress and report.`}
+                confirmLabel={`Import ${plural(counts.ready, 'account')}`}
                 destructive={false}
                 action={ServerImportController.apply(server.id)}
+                data={{ digest }}
             />
         </>
     );

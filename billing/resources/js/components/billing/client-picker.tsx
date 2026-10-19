@@ -12,8 +12,6 @@ type ClientPickerProps = {
     onChange: (client: ClientOption | null) => void;
     invalid?: boolean;
     placeholder?: string;
-    /** Search endpoint for the term; defaults to the billing client search. */
-    searchUrl?: (query: string) => string;
 };
 
 /**
@@ -25,7 +23,6 @@ export function ClientPicker({
     onChange,
     invalid = false,
     placeholder = 'Search by name, company or email…',
-    searchUrl = (q) => ClientSearchController.url({ query: { q } }),
 }: ClientPickerProps) {
     const [query, setQuery] = useState('');
     const [results, setResults] = useState<ClientOption[]>([]);
@@ -42,13 +39,16 @@ export function ClientPicker({
         }
 
         timeout.current = setTimeout(async () => {
-            const response = await fetch(searchUrl(query), {
-                credentials: 'same-origin',
-                headers: {
-                    Accept: 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
+            const response = await fetch(
+                ClientSearchController.url({ query: { q: query } }),
+                {
+                    credentials: 'same-origin',
+                    headers: {
+                        Accept: 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
                 },
-            });
+            );
 
             setResults(
                 response.ok ? ((await response.json()) as ClientOption[]) : [],

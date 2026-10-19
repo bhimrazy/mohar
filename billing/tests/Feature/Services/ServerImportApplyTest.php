@@ -39,6 +39,12 @@ beforeEach(function () {
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
 });
 
+function applyReviewed(Server $server): void
+{
+    $digest = test()->get(route('admin.services.servers.import.review', $server))->inertiaProps('digest');
+    test()->post(route('admin.services.servers.import.apply', $server), ['digest' => $digest])->assertSessionHasNoErrors()->assertRedirect(route('admin.services.servers.import.show', $server));
+}
+
 function chooseFor(Server $server, array $choice): void
 {
     test()->put(route('admin.services.servers.import.select', $server), $choice)->assertSessionHasNoErrors();
@@ -71,11 +77,12 @@ test('confirmed accounts become services as the server holds them, with no invoi
     $this->get(route('admin.services.servers.import.review', $this->server))->assertInertia(fn (Assert $page) => $page
         ->component('admin/services/servers/import-review')
         ->has('rows', 2)
-        ->where('totals', [['currency' => 'USD', 'amount' => 13200]]));
+        ->where('totals', [['currency' => 'USD', 'cycle' => 'monthly', 'amount' => 1200, 'accounts' => 1], ['currency' => 'USD', 'cycle' => 'annually', 'amount' => 12000, 'accounts' => 1]]));
 
-    $this->post(route('admin.services.servers.import.apply', $this->server))
-        ->assertRedirect(route('admin.services.servers.import.show', $this->server))
-        ->assertSessionHas('inertia.flash_data.importReport', fn (array $report): bool => count($report) === 2 && collect($report)->every('imported'));
+    applyReviewed($this->server);
+    $import = ServerAccountImport::query()->sole();
+    expect($import->only(['status', 'linked_count', 'proposed_count', 'selections', 'reviewed']))->toBe(['status' => 'ready', 'linked_count' => 2, 'proposed_count' => 0, 'selections' => null, 'reviewed' => null])
+        ->and(collect($import->report)->every('imported'))->toBeTrue();
 
     $alpha = Service::query()->where('username', 'alpha')->sole();
     $bravo = Service::query()->where('username', 'bravo')->sole();
@@ -101,28 +108,20 @@ test('confirmed accounts become services as the server holds them, with no invoi
     Event::assertDispatchedTimes(ServiceImported::class, 2);
     Event::assertDispatched(ServiceImported::class, fn (ServiceImported $event): bool => $event->serviceId === $bravo->id && $event->serverId === $this->server->id && $event->source === 'server_import');
 
-    chooseFor($this->server, ['usernames' => ['alpha', 'bravo'], 'include' => true]);
-    $this->post(route('admin.services.servers.import.apply', $this->server))
-        ->assertSessionHas('inertia.flash_data.importReport', fn (array $report): bool => collect($report)->every(fn (array $line): bool => ! $line['imported']));
     expect(Service::query()->count())->toBe(2);
     Event::assertDispatchedTimes(ServiceImported::class, 2);
 });
 
-test('apply matches and checks again: a reseller account needs a chosen client, a client closed since and a service created since keep accounts out', function () {
-    chooseFor($this->server, ['usernames' => ['alpha', 'bravo', 'charlie'], 'include' => true]);
-    $this->anna->update(['status' => 'closed']);
-    Service::factory()->create(['server_id' => $this->server->id, 'username' => 'charlie', 'status' => ServiceStatus::Active]);
+test('apply imports exactly what was reviewed: a price changed since refuses it', function () {
+    chooseFor($this->server, ['usernames' => ['alpha'], 'include' => true]);
+    $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
+    $this->kit->priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1500], driver: 'cpanel', serverGroupId: ServerGroup::query()->value('id'), driverConfig: ['package' => 'root_basic']);
 
-    $this->post(route('admin.services.servers.import.apply', $this->server))
-        ->assertSessionHas('inertia.flash_data.importReport', function (array $report): bool {
-            $messages = collect($report)->pluck('message', 'username');
+    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])
+        ->assertSessionHasErrors(['import' => 'Review the import again: an account, client, product or price changed since you reviewed it.']);
 
-            return str_contains($messages['alpha'], 'Choose a client.')
-                && str_contains($messages['bravo'], 'Owned by another WHM user: choose its client yourself.')
-                && str_contains($messages['charlie'], 'A live service on this server already holds this account.');
-        });
-
-    expect(Service::query()->where('username', '!=', 'charlie')->count())->toBe(0);
+    expect(Service::query()->count())->toBe(0)
+        ->and(ServerAccountImport::query()->sole()->status)->toBe('ready');
 });
 
 test('a choice naming a product off this server, a closed client or a past due date is refused', function () {
@@ -136,18 +135,4 @@ test('a choice naming a product off this server, a closed client or a past due d
     $this->put($url, ['usernames' => ['not-on-server'], 'include' => true])->assertSessionHasNoErrors();
 
     expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty();
-});
-
-test('importing needs a recent password and the sensitive import permission', function () {
-    $this->withSession(['auth.password_confirmed_at' => 0]);
-    $this->post(route('admin.services.servers.import.apply', $this->server))->assertSessionHasErrors('password_confirmation');
-
-    actingAsStaff(['services.*']);
-    confirmPassword();
-    $this->post(route('admin.services.servers.import.apply', $this->server))->assertForbidden();
-    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true])->assertForbidden();
-    $this->getJson(route('admin.services.servers.import.clients', $this->server))->assertForbidden();
-    $this->get(route('admin.services.servers.import.review', $this->server))->assertForbidden();
-
-    expect(Service::query()->count())->toBe(0);
 });

@@ -68,6 +68,8 @@ class ServerImportController extends Controller
                 'fetched_at' => $import->fetched_at?->toIso8601String(),
                 'expires_at' => $import->expires_at->toIso8601String(),
                 'running' => $import->isRunning(),
+                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => count($import->report ?? []), 'total' => count($import->reviewed['rows'] ?? [])] : null,
+                'report' => $import->status === ServerAccountImport::IMPORTING ? null : $import->report,
             ],
             'counts' => $ready ? [
                 'all' => $import->account_count,
@@ -81,8 +83,6 @@ class ServerImportController extends Controller
             'filters' => ['tab' => $tab, 'search' => $search],
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
-            'productOptions' => $ready ? $plan->productOptions($server) : [],
-            'cycles' => self::cycles(),
         ]);
     }
 
@@ -173,42 +173,43 @@ class ServerImportController extends Controller
     }
 
     /**
-     * Every ticked account as it would be imported, matched and checked again against today, with totals.
+     * Every ticked account as it would be imported (a page at a time, the ones left out first), with totals per currency
+     * and cycle. Showing it pins each matched client and records the importable rows' digest, which apply must send.
      */
-    public function review(Server $server, AccountImportPlan $plan): Response
+    public function review(Request $request, Server $server, AccountImportPlan $plan): Response
     {
         $this->authorize('services.servers.import');
 
-        $rows = $plan->rows($server, $this->ready($server));
-        $totals = [];
-
-        foreach ($rows as $row) {
-            if ($row['decision']['problems'] === []) {
-                $currency = $row['decision']['client']['currency'];
-                $totals[$currency] = ($totals[$currency] ?? 0) + (int) $row['decision']['amount'];
-            }
-        }
+        $review = $plan->review($server, $this->ready($server), $request->user()?->id);
+        $rows = collect($review['rows'])->sortBy(fn (array $row): int => $row['decision']['problems'] === [] ? 1 : 0)->values();
+        [$ready, $excluded] = $rows->partition(fn (array $row): bool => $row['decision']['problems'] === []);
+        $totals = $ready->groupBy(fn (array $row): string => $row['decision']['client']['currency'].':'.$row['decision']['cycle'])
+            ->map(fn ($group, string $key): array => ['currency' => explode(':', $key)[0], 'cycle' => explode(':', $key)[1], 'amount' => (int) $group->sum('decision.amount'), 'accounts' => $group->count()])
+            ->values();
+        $page = max(1, $request->integer('page', 1));
 
         return Inertia::render('admin/services/servers/import-review', [
             'server' => ['id' => $server->id, 'name' => $server->name, 'hostname' => $server->hostname],
-            'rows' => $rows,
-            'totals' => array_map(fn (string $currency, int $amount): array => ['currency' => $currency, 'amount' => $amount], array_keys($totals), $totals),
+            'rows' => $rows->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values(),
+            'page' => ['current' => $page, 'last' => max(1, (int) ceil($rows->count() / self::PER_PAGE))],
+            'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
+            'totals' => $totals,
+            'digest' => $review['digest'],
             'cycles' => self::cycles(),
         ]);
     }
 
     /**
-     * Create the services (ImportServerAccounts) and show the per-row report on the import page.
+     * Start the import of exactly the reviewed accounts on the queue (ImportServerAccounts::start()); the page shows its
+     * progress, then the report.
      */
     public function apply(Request $request, Server $server, ImportServerAccounts $importer): RedirectResponse
     {
         $this->authorize('services.servers.import');
 
-        $report = $importer->handle($server, $this->ready($server), $request->user());
-        $imported = count(array_filter($report, fn (array $line): bool => $line['imported']));
-
-        Inertia::flash('importReport', $report);
-        Inertia::flash('toast', ['type' => $imported === count($report) ? 'success' : 'info', 'message' => __(':imported of :total accounts imported from :server.', ['imported' => $imported, 'total' => count($report), 'server' => $server->name])]);
+        $digest = (string) $request->validate(['digest' => ['required', 'string', 'size:64']], ['digest.required' => __('Review the import before confirming it.')])['digest'];
+        $count = $importer->start($server, $digest, $request->user());
+        Inertia::flash('toast', ['type' => 'info', 'message' => __('Importing :count accounts from :server. This page shows the progress.', ['count' => $count, 'server' => $server->name])]);
 
         return to_route('admin.services.servers.import.show', $server);
     }

@@ -28,6 +28,9 @@ class AccountImportPlan
     /** @var array<string, list<BillingCycle>> */
     private array $cycles = [];
 
+    /** @var array<string, int|null> */
+    private array $prices = [];
+
     public function __construct(private AccountImportMatcher $matcher, private Catalog $catalog) {}
 
     /**
@@ -50,7 +53,7 @@ class AccountImportPlan
         $fresh = $this->matcher->classify($server, array_map(fn (array $row): array => array_diff_key($row, $keys), $accounts), $import->connection_user)['rows'];
         $products = $this->matcher->serverProducts($server);
         $clientIds = array_map(fn (array $row): int => (int) ($selections[$row['username']]['client_id'] ?? $row['client_id'] ?? 0), $fresh);
-        $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status'])->keyBy('id');
+        $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
         $today = CarbonImmutable::today();
 
         return array_map(function (array $row) use ($selections, $products, $clients, $today): array {
@@ -59,9 +62,9 @@ class AccountImportPlan
             $product = $products[$choice['product_id'] ?? $row['product_id'] ?? 0] ?? null;
             $cycle = BillingCycle::tryFrom((string) ($choice['cycle'] ?? '')) ?? $this->defaultCycle($product, $client);
             $due = isset($choice['next_due_date']) ? CarbonImmutable::parse($choice['next_due_date']) : $this->defaultDue($row['created_at'] ?? null, $cycle, $today);
-            $amount = $client !== null && $product !== null && $cycle !== null
-                ? $this->catalog->priceBook()?->quote(new ProductSelection($product->id, $cycle, $client->currency, clientId: $client->id))?->recurring
-                : null;
+            // The account's renewal day, kept for short months (a 31st renews on the 30th in November, then the 31st).
+            $anchor = isset($choice['next_due_date']) || ($row['created_at'] ?? null) === null ? $due?->day : CarbonImmutable::parse($row['created_at'])->day;
+            $amount = $client !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client) : null;
 
             $problems = array_values(array_filter([
                 $row['category'] === AccountImportMatcher::LINKED ? AccountImportMatcher::text('A live service on this server already holds this account.') : null,
@@ -77,10 +80,95 @@ class AccountImportPlan
                 'product' => $product === null ? null : ['id' => $product->id, 'name' => $product->name],
                 'cycle' => $cycle?->value,
                 'next_due_date' => $due?->toDateString(),
+                'anchor_day' => $anchor,
                 'amount' => $amount,
                 'problems' => $problems,
             ]];
         }, $fresh);
+    }
+
+    /**
+     * The review page: every ticked account as rows() shows it, with the matched client pinned on the account (apply
+     * never matches by email again), and the exact rows that can be imported recorded with their digest. Apply imports
+     * only those rows, and only while they still hold (stillReviewed()).
+     *
+     * @return array{rows: list<array<string, mixed>>, digest: string}
+     */
+    public function review(Server $server, ServerAccountImport $import, ?int $staffId): array
+    {
+        $rows = $this->rows($server, $import);
+        $selections = $import->selections ?? [];
+
+        foreach ($rows as $row) {
+            if ($row['decision']['problems'] === [] && ! isset($selections[$row['username']]['client_id'])) {
+                $selections[$row['username']]['client_id'] = $row['decision']['client']['id'];
+            }
+        }
+
+        $reviewed = self::snapshot($rows);
+        $import->update(['selections' => $selections, 'reviewed' => ['digest' => self::digest($reviewed), 'rows' => $reviewed, 'staff_id' => $staffId]]);
+
+        return ['rows' => $rows, 'digest' => self::digest($reviewed)];
+    }
+
+    /**
+     * Why the reviewed rows no longer hold, or null when apply may import exactly them: the same accounts, clients,
+     * products, cycles, dates and prices as the review page showed.
+     */
+    public function stillReviewed(Server $server, ServerAccountImport $import, string $digest): ?string
+    {
+        $reviewed = $import->reviewed;
+
+        if ($reviewed === null || ! hash_equals($reviewed['digest'], $digest)) {
+            return AccountImportMatcher::text('Review the import again: the accounts to import are not the ones you reviewed.');
+        }
+
+        $usernames = array_flip(array_column($reviewed['rows'], 'username'));
+        $now = array_values(array_filter(self::snapshot($this->rows($server, $import)), fn (array $row): bool => isset($usernames[$row['username']])));
+
+        return hash_equals($reviewed['digest'], self::digest($now)) ? null
+            : AccountImportMatcher::text('Review the import again: an account, client, product or price changed since you reviewed it.');
+    }
+
+    /**
+     * The importable rows as the digest covers them.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int}>
+     */
+    private static function snapshot(array $rows): array
+    {
+        return array_values(array_map(fn (array $row): array => [
+            'username' => (string) $row['username'],
+            'client_id' => (int) $row['decision']['client']['id'],
+            'product_id' => (int) $row['decision']['product']['id'],
+            'cycle' => (string) $row['decision']['cycle'],
+            'next_due_date' => (string) $row['decision']['next_due_date'],
+            'anchor_day' => (int) $row['decision']['anchor_day'],
+            'amount' => (int) $row['decision']['amount'],
+        ], array_filter($rows, fn (array $row): bool => $row['decision']['problems'] === [])));
+    }
+
+    /**
+     * @param  list<array<string, int|string>>  $rows
+     */
+    private static function digest(array $rows): string
+    {
+        return hash('sha256', (string) json_encode($rows));
+    }
+
+    /**
+     * The recurring price, asked once per product, cycle, currency and client group (prices differ only by those).
+     */
+    private function price(ProductSummary $product, BillingCycle $cycle, Client $client): ?int
+    {
+        $key = "{$product->id}:{$cycle->value}:{$client->currency}:{$client->client_group_id}";
+
+        if (! array_key_exists($key, $this->prices)) {
+            $this->prices[$key] = $this->catalog->priceBook()?->quote(new ProductSelection($product->id, $cycle, $client->currency, clientId: $client->id))?->recurring;
+        }
+
+        return $this->prices[$key];
     }
 
     /**
