@@ -31,7 +31,7 @@ and get the security reviewer's sign-off.
 - `PermissionGuard::canGrant()` applies the same rule. Staff can grant only what they hold, and sensitive permissions
   only if they hold them explicitly.
 - Every route that mutates something behind a sensitive permission uses the `password.recent` middleware. The
-  password must have been confirmed within `platform.password_confirmation_seconds` (default 900). Pages that edit
+  password must have been confirmed within `auth.password_timeout` (`AUTH_PASSWORD_TIMEOUT`, default 900). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
 - Seeded roles list their permissions explicitly. Seeders update existing system roles; they don't only

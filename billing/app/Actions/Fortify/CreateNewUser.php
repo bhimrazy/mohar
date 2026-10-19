@@ -4,54 +4,49 @@ namespace App\Actions\Fortify;
 
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
-use App\Events\Core\ClientRegistered;
+use App\Data\Core\NewClientAccount;
 use App\Models\User;
-use App\Modules\Core\Models\Client;
-use App\Modules\Core\Models\Currency;
-use Illuminate\Support\Facades\DB;
+use App\Modules\Core\Actions\RegisterClientAccount;
+use App\Modules\Core\Support\Settings;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
 
 class CreateNewUser implements CreatesNewUsers
 {
     use PasswordValidationRules, ProfileValidationRules;
 
+    public function __construct(private RegisterClientAccount $register, private Settings $settings) {}
+
     /**
-     * Validate and create a newly registered user.
+     * Validate and create a newly registered user, with the client account it owns.
      *
      * @param  array<string, string>  $input
+     *
+     * @throws ValidationException when sign-up is closed (security.client_signup_enabled)
      */
     public function create(array $input): User
     {
+        if (! self::signupOpen($this->settings)) {
+            throw ValidationException::withMessages(['email' => __('Sign-up is closed. Contact us if you need an account.')]);
+        }
+
         Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),
         ])->validate();
 
-        $email = Str::lower($input['email']);
-
-        [$user, $client] = DB::transaction(function () use ($input, $email): array {
-            $user = User::create([
-                'name' => $input['name'],
-                'email' => $email,
-                'password' => $input['password'],
-            ]);
-
-            $client = Client::query()->create([
-                'first_name' => Str::before($input['name'], ' '),
-                'last_name' => Str::contains($input['name'], ' ') ? Str::after($input['name'], ' ') : '',
-                'email' => $email,
-                'currency' => Currency::default()->code,
-                'status' => 'active',
-            ]);
-            $client->users()->attach($user, ['is_owner' => true]);
-
-            return [$user, $client];
-        });
-
-        ClientRegistered::dispatch($client->id, $user->id);
+        // Fortify's register controller dispatches Registered itself.
+        [$user] = $this->register->handle(NewClientAccount::fromName($input['name'], $input['email'], $input['password'], announceRegistered: false));
 
         return $user;
+    }
+
+    /**
+     * Whether visitors may create a client account themselves: /register and sign-in providers, not checkout.
+     */
+    public static function signupOpen(Settings $settings): bool
+    {
+        return filter_var($settings->get('security.client_signup_enabled', true), FILTER_VALIDATE_BOOL);
     }
 }

@@ -10,9 +10,6 @@ return [
     /** Maximum length of a login-as-client session in minutes (spec §10: 60). */
     'impersonation_minutes' => 60,
 
-    /** Seconds a password confirmation unlocks sensitive actions (step-up authentication). */
-    'password_confirmation_seconds' => 900,
-
     /** Minutes the signed "enter impersonation" link is valid for. */
     'impersonation_link_minutes' => 2,
 

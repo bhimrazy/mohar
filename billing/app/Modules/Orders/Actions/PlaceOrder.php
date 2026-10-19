@@ -7,14 +7,15 @@ use App\Contracts\Catalog\PriceBook;
 use App\Contracts\Domains\DomainRegistry;
 use App\Contracts\Services\ServiceRegistry;
 use App\Data\Billing\InvoiceDraft;
+use App\Data\Core\NewClientAccount;
 use App\Data\Domains\DomainDraft;
 use App\Data\Services\AddonDraft;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillingCycle;
-use App\Events\Core\ClientRegistered;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
 use App\Models\User;
+use App\Modules\Core\Actions\RegisterClientAccount;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Orders\Data\CheckoutData;
@@ -42,7 +43,6 @@ use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderNumberGenerator;
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Events\Registered;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -70,7 +70,7 @@ class PlaceOrder
         private FraudScreening $fraud,
         private PromotionEligibility $eligibility,
         private MarkOrderFraud $markFraud,
-        private RegisterCheckoutClient $registerClient,
+        private RegisterClientAccount $registerClient,
         private CompanyClock $clock,
         private Settings $settings,
     ) {}
@@ -113,11 +113,7 @@ class PlaceOrder
 
         [$order, $user, $hadActiveService, $decision] = $result;
 
-        if ($user !== null) {
-            ClientRegistered::dispatch($order->client_id, $user->id);
-            event(new Registered($user));
-        }
-
+        // A new account's ClientRegistered and Registered are dispatched by RegisterClientAccount after commit.
         if ($decision === FraudDecision::Fail) {
             OrderMarkedFraud::dispatch($order->id, $order->client_id);
         }
@@ -241,7 +237,16 @@ class PlaceOrder
                 throw ValidationException::withMessages(['email' => __('Log in or create an account to place your order.')]);
             }
 
-            [$user, $client] = $this->registerClient->handle($data->registration, $data->currency);
+            $registration = $data->registration;
+            [$user, $client] = $this->registerClient->handle(new NewClientAccount(
+                $registration['first_name'],
+                $registration['last_name'],
+                $registration['email'],
+                $registration['password'],
+                currency: $data->currency,
+                companyName: $registration['company_name'] ?? null,
+                country: $registration['country'] ?? null,
+            ));
         }
 
         $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides);

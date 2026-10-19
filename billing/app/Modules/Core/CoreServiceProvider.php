@@ -43,6 +43,10 @@ use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
+use App\Contracts\Auth\SignInGate;
+use App\Contracts\Auth\SignInMethodCounter;
+use App\Modules\Core\Support\AllowAllSignInGate;
+use App\Modules\Core\Support\CoreSignInMethodCounter;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
@@ -78,6 +82,8 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(EmailTemplates::class, NullEmailTemplates::class);
         $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
         $this->app->bindIf(SystemMailer::class, NullSystemMailer::class);
+        $this->app->bindIf(SignInGate::class, AllowAllSignInGate::class);
+        $this->app->singletonIf(SignInMethodCounter::class, CoreSignInMethodCounter::class);
     }
 
     protected function schedule(Schedule $schedule): void

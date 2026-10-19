@@ -11,7 +11,7 @@ use Symfony\Component\HttpFoundation\Response;
 /**
  * Step-up authentication for sensitive mutations ("password.recent", ADR 0018 §4): the only step-up mechanism. The
  * user must have confirmed their password (Fortify confirm-password, which alone sets auth.password_confirmed_at)
- * within platform.password_confirmation_seconds. It lives in the kernel so every module's sensitive routes resolve
+ * within auth.password_timeout (AUTH_PASSWORD_TIMEOUT, default 900 s), the same window the password.confirm pages use. It lives in the kernel so every module's sensitive routes resolve
  * whichever modules are installed.
  *
  * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request: JSON
@@ -69,6 +69,6 @@ class RequireRecentPasswordConfirmation
 
     public static function timeout(): int
     {
-        return (int) config('platform.password_confirmation_seconds', 900);
+        return (int) config('auth.password_timeout', 900);
     }
 }
