@@ -76,7 +76,7 @@ class ClientController extends Controller
         $user = $request->user();
         $can = fn (string $permission): bool => $user?->hasPermission($permission) ?? false;
 
-        $invitations = ClientInvitation::query()->where('client_id', $client->id)->get()->keyBy('user_id');
+        $invitations = ClientInvitation::query()->where('client_id', $client->id)->get(['user_id', 'expires_at', 'accepted_at'])->keyBy('user_id');
 
         return Inertia::render('admin/clients/show', [
             'client' => new ClientResource($client->load('group')),

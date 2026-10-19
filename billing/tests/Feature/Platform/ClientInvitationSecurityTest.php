@@ -5,10 +5,13 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Platform\Actions\Clients\AcceptClientInvitation;
 use App\Modules\Platform\Actions\Clients\ManageClientLogins;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Password;
+use Illuminate\Validation\ValidationException;
 
 /*
  * Security review of #78 (client invitation tokens). An invitation is a one-time way to set the first password of a
@@ -91,7 +94,7 @@ it('does not issue an invitation to an existing login, so it cannot reset that l
 
     expect(ClientInvitation::query()->count())->toBe(0);
     expect(fn () => app(ManageClientLogins::class)->resendInvitation($this->client, $existing))
-        ->toThrow(Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('scopes resending to a login of that account', function () {
@@ -144,7 +147,7 @@ it('serialises concurrent accepts on PostgreSQL: the second waits for the lock a
     $clientId = $other->table('clients')->insertGetId([...Client::factory()->raw(), 'created_at' => now(), 'updated_at' => now()]);
     $other->table('client_user')->insert(['client_id' => $clientId, 'user_id' => $userId, 'is_owner' => false, 'permissions' => '[]']);
     $token = 'race'.$suffix.str_repeat('a', 36);
-    $invitationId = $other->table('client_invitations')->insertGetId(['client_id' => $clientId, 'user_id' => $userId, 'token_hash' => ClientInvitation::hashToken($token), 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
+    $invitationId = $other->table('client_invitations')->insertGetId(['client_id' => $clientId, 'user_id' => $userId, 'token_hash' => ClientInvitation::hashToken($token), 'email' => "race-{$suffix}@example.test", 'sent_at' => now(), 'expires_at' => now()->addDay(), 'created_at' => now(), 'updated_at' => now()]);
 
     try {
         // The other request is mid-accept: it holds the row lock and has marked the link used, not yet committed.
@@ -156,7 +159,7 @@ it('serialises concurrent accepts on PostgreSQL: the second waits for the lock a
         $blocked = false;
         try {
             DB::transaction(fn () => ClientInvitation::query()->lockForUpdate()->findOrFail($invitationId));
-        } catch (Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             $blocked = str_contains($e->getMessage(), 'lock timeout');
         }
         expect($blocked)->toBeTrue();
@@ -164,9 +167,9 @@ it('serialises concurrent accepts on PostgreSQL: the second waits for the lock a
         $other->commit();
         DB::statement('SET lock_timeout = 0');
 
-        expect(fn () => app(App\Modules\Platform\Actions\Clients\AcceptClientInvitation::class)
+        expect(fn () => app(AcceptClientInvitation::class)
             ->handle(ClientInvitation::query()->findOrFail($invitationId), 'Second-Passw0rd!x'))
-            ->toThrow(Illuminate\Validation\ValidationException::class);
+            ->toThrow(ValidationException::class);
     } finally {
         if ($other->transactionLevel() > 0) {
             $other->rollBack();

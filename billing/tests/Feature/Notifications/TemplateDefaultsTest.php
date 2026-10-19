@@ -52,7 +52,7 @@ it('offers the new default for edited text, side by side, and keeps the edited t
     welcomeText()->update(['body' => 'Our own wording.', 'default_hash' => 'an-older-default']);
 
     $this->actingAs($staff)->get(route('admin.notifications.templates.edit', $template))
-        ->assertInertia(fn ($page) => $page->where('newDefault.body', app(TemplateCatalog::class)->find('client.welcome')['body'])->where('translation.previous_text', null));
+        ->assertInertia(fn ($page) => $page->where('newDefault.status', 'changed')->where('newDefault.text.body', app(TemplateCatalog::class)->find('client.welcome')['body'])->where('translation.previous_text', null));
 
     $this->actingAs($staff)->withSession(['auth.password_confirmed_at' => time()])
         ->post(route('admin.notifications.templates.restore', $template))->assertRedirect();
@@ -67,5 +67,32 @@ it('does not offer a new default to text edited from the current default', funct
     seedEmailTemplates();
     welcomeText()->update(['body' => 'Our own wording.']);
 
-    expect(app(TemplateCatalog::class)->hasNewDefault(welcomeText(), 'client.welcome'))->toBeFalse();
+    expect(app(TemplateCatalog::class)->newDefaultStatus(welcomeText(), 'client.welcome'))->toBeNull();
+});
+
+it('offers only a comparison for text edited before tracking, and only where this release changed the default', function () {
+    seedEmailTemplates();
+    $catalog = app(TemplateCatalog::class);
+    welcomeText()->update(['body' => 'Our own wording.', 'default_hash' => null]);
+    $invitation = EmailTemplate::query()->where('key', 'auth.user_invitation')->sole()->translations()->sole();
+    $invitation->update(['body' => 'Our own invitation wording.', 'default_hash' => null]);
+
+    expect($catalog->newDefaultStatus(welcomeText(), 'client.welcome'))->toBeNull()
+        ->and($catalog->newDefaultStatus($invitation->fresh(), 'auth.user_invitation'))->toBe('untracked');
+});
+
+it('counts whitespace changes as edits, except line endings and trailing whitespace', function () {
+    $text = ['subject' => 'Hi', 'preheader' => null, 'heading' => null, 'body' => "Line one\nLine two", 'action_label' => null];
+
+    expect(TemplateCatalog::hash([...$text, 'body' => "Line one\r\nLine two\n\n"]))->toBe(TemplateCatalog::hash($text))
+        ->and(TemplateCatalog::hash([...$text, 'body' => "Line one\n\nLine two"]))->not->toBe(TemplateCatalog::hash($text))
+        ->and(TemplateCatalog::hash([...$text, 'body' => "  Line one\nLine two"]))->not->toBe(TemplateCatalog::hash($text));
+});
+
+it('does not let a view-only user use the new default', function () {
+    seedEmailTemplates();
+    $template = EmailTemplate::query()->where('key', 'client.welcome')->sole();
+
+    $this->actingAs(User::factory()->staff(['notifications.templates.view'])->create())->withSession(['auth.password_confirmed_at' => time()])
+        ->post(route('admin.notifications.templates.restore', $template))->assertForbidden();
 });

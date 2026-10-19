@@ -18,7 +18,7 @@ class TemplateCatalog
     /** @var array<string, array{key: string, type: string, audience: string, name: string, subject: string, body: string, preheader?: string|null, heading?: string, action_label?: string}>|null */
     private ?array $definitions = null;
 
-    /** @var array<string, list<string>>|null */
+    /** @var array{previous_release: string, fingerprints: array<string, array<string, string>>}|null */
     private ?array $previous = null;
 
     /**
@@ -90,23 +90,31 @@ class TemplateCatalog
     {
         $current = self::hash($translation->text());
 
-        return $current === $translation->default_hash || in_array($current, $this->previousDefaults()[$key] ?? [], true);
+        return $current === $translation->default_hash || in_array($current, $this->previousDefaults()['fingerprints'][$key] ?? [], true);
     }
 
     /**
-     * The shipped default changed since this (edited) text was based on it: the editor offers it.
+     * Whether the editor offers the current default for this (edited) text: "changed" when the default this text was
+     * based on has since changed; "untracked" for text edited before defaults were tracked, when this release changed
+     * the template's default (it is listed under the previous release) — the editor then offers a comparison without
+     * claiming the text was based on the old wording; null otherwise.
      */
-    public function hasNewDefault(EmailTemplateTranslation $translation, string $key): bool
+    public function newDefaultStatus(EmailTemplateTranslation $translation, string $key): ?string
     {
         $definition = $this->find($key);
 
         if ($definition === null) {
-            return false;
+            return null;
         }
 
         $shipped = self::hash(self::shippedText($definition));
 
-        return self::hash($translation->text()) !== $shipped && $translation->default_hash !== $shipped;
+        return match (true) {
+            self::hash($translation->text()) === $shipped => null,
+            $translation->default_hash !== null => $translation->default_hash !== $shipped ? 'changed' : null,
+            isset($this->previousDefaults()['fingerprints'][$key][$this->previousDefaults()['previous_release']]) => 'untracked',
+            default => null,
+        };
     }
 
     /**
@@ -119,19 +127,20 @@ class TemplateCatalog
     }
 
     /**
-     * A fingerprint of a template text: line endings and surrounding whitespace don't count.
+     * A fingerprint of a template text. Only line endings (CRLF or LF) and whitespace at the end of each field are
+     * ignored, which editors and browsers add or drop on their own; any other whitespace change counts as an edit.
      *
      * @param  array{subject: string, preheader: string|null, heading: string|null, body: string, action_label: string|null}  $text
      */
     public static function hash(array $text): string
     {
-        $normal = array_map(fn (?string $value): string => trim(str_replace("\r\n", "\n", (string) $value)), [$text['subject'], $text['preheader'], $text['heading'], $text['body'], $text['action_label']]);
+        $normal = array_map(fn (?string $value): string => rtrim(str_replace("\r\n", "\n", (string) $value)), [$text['subject'], $text['preheader'], $text['heading'], $text['body'], $text['action_label']]);
 
         return hash('sha256', json_encode($normal, JSON_THROW_ON_ERROR));
     }
 
     /**
-     * @return array<string, list<string>> key => hashes of defaults shipped before this release
+     * @return array{previous_release: string, fingerprints: array<string, array<string, string>>}
      */
     private function previousDefaults(): array
     {

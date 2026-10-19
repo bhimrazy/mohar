@@ -64,7 +64,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Client-login invitations have their own link.** A new `client_invitations` table holds a single-use invitation
   token (stored hashed) instead of a password-reset token. Links work for "Invitation links work for (days)"
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
-  before the upgrade were password-reset links and expire as before.
+  before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
+  use the new "Send a password reset" action for them instead of "Send a new invitation".
 
 ### Platform foundation
 
@@ -375,6 +376,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   number of days; the email says how long and until when. Sending a new invitation (client page → login actions →
   "Send a new invitation", shown with an "Invited" or "Invitation expired" badge) or removing the login revokes the
   old link. Expired, used and unknown links get a clear message. Staff invitations state their expiry the same way.
+  An invitation only ever activates a never-used login: its link stops working once the login changes its email
+  address, gets a password another way (for example "Forgot your password?"), turns on two-factor authentication,
+  signs in, or loses access to the account, and such a login can't be invited again ("Send a password reset" instead).
+  Accepting never signs in past two-factor authentication. A client merge moves open invitations with their logins.
 
 ### Currencies
 

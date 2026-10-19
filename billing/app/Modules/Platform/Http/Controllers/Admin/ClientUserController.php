@@ -64,6 +64,17 @@ class ClientUserController extends Controller
         return to_route('admin.clients.show', $client);
     }
 
+    public function sendPasswordReset(Client $client, User $user, ManageClientLogins $logins): RedirectResponse
+    {
+        $this->authorize('core.users.manage');
+        $this->ensureAttached($client, $user);
+
+        $logins->sendPasswordReset($client, $user);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('A password reset link was sent to :email.', ['email' => $user->email])]);
+
+        return to_route('admin.clients.show', $client);
+    }
+
     public function resetTwoFactor(Request $request, Client $client, User $user, ManageClientLogins $logins): RedirectResponse
     {
         $this->authorize('core.users.reset_2fa');

@@ -43,6 +43,12 @@ class ClientInvitationController extends Controller
         abort_if($invitation === null, 404);
 
         $user = $accept->handle($invitation, $request->string('password')->toString());
+
+        // Never a session past the second factor: such a login goes through the normal login and challenge.
+        if ($user->two_factor_confirmed_at !== null || $user->two_factor_secret !== null) {
+            return to_route('login')->with('status', __('Your password is set. Log in to continue.'));
+        }
+
         Auth::login($user);
         $request->session()->regenerate();
 

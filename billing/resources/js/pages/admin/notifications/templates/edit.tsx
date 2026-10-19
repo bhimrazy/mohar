@@ -97,7 +97,10 @@ export default function TemplateEditor({
     /** Client ticket email: the system adds the ticket button; only its label is editable. */
     systemAction: boolean;
     /** Edited system text whose shipped default changed since: the new default, for the compare view. */
-    newDefault: TemplateText | null;
+    newDefault: {
+        status: 'changed' | 'untracked';
+        text: TemplateText;
+    } | null;
 }) {
     const form = useForm({
         key: 'custom.',

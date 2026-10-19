@@ -11,10 +11,11 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Support\AccountMail;
+use App\Modules\Platform\Support\InvitationExpiry;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -87,8 +88,16 @@ class ManageClientLogins
     {
         $invitation = ClientInvitation::query()->where('client_id', $client->id)->where('user_id', $user->id)->first();
 
-        if ($invitation === null || $invitation->accepted_at !== null) {
-            throw ValidationException::withMessages(['user' => __('This login has already accepted its invitation.')]);
+        // An invitation only ever activates a never-used login. Anything else gets a password reset instead.
+        $refusal = match (true) {
+            $invitation === null => __('This login has no open invitation (it may have been invited before invitations had their own link, or set its password already). Send a password reset instead.'),
+            $invitation->accepted_at !== null => __('This login has already accepted its invitation. Send a password reset instead.'),
+            $invitation->isVoid() => __('This login already has a password, two-factor authentication or a sign-in, so it can\'t be invited again. Send a password reset instead.'),
+            default => null,
+        };
+
+        if ($refusal !== null) {
+            throw ValidationException::withMessages(['user' => $refusal]);
         }
 
         if (($problem = AccountLinks::problem()) !== null) {
@@ -97,6 +106,21 @@ class ManageClientLogins
 
         $this->sendInvitation($user, $client);
         $this->activity->log('Invitation sent again', $user, $client->id, ['email' => $user->email], 'client.invitation_resent');
+    }
+
+    /**
+     * Staff send the login a password-reset link (the normal reset email, through AuthMailer), for logins that can't
+     * be invited again.
+     */
+    public function sendPasswordReset(Client $client, User $user): void
+    {
+        $status = Password::broker()->sendResetLink(['email' => $user->email]);
+
+        if ($status !== Password::RESET_LINK_SENT) {
+            throw ValidationException::withMessages(['user' => __($status)]);
+        }
+
+        $this->activity->log('Password reset sent by staff', $user, $client->id, ['email' => $user->email], 'client.password_reset_sent');
     }
 
     /**
@@ -111,17 +135,16 @@ class ManageClientLogins
     private function sendInvitation(User $user, Client $client): void
     {
         $token = Str::random(48);
-        $days = max(1, (int) app(Settings::class)->get('platform.invitation_expiry_days', 7));
-        $expiresAt = now()->addDays($days);
+        $expiresAt = now()->addDays(InvitationExpiry::days());
         ClientInvitation::query()->updateOrCreate(
             ['client_id' => $client->id, 'user_id' => $user->id],
-            ['token_hash' => ClientInvitation::hashToken($token), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => auth()->id()],
+            ['token_hash' => ClientInvitation::hashToken($token), 'email' => mb_strtolower($user->email), 'sent_at' => now(), 'expires_at' => $expiresAt, 'accepted_at' => null, 'invited_by' => auth()->id()],
         );
         $url = AccountLinks::withAppOrigin(fn (): string => route('platform.client-invitations.show', $token));
 
         $outcome = $this->mailer->send('auth.user_invitation', $user, [
             'user' => ['first_name' => Str::before(trim($user->name), ' '), 'email' => $user->email],
-            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => trans_choice(':count day|:count days', $days, ['count' => $days])],
+            'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
         ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
 
         if ($outcome === SystemMailOutcome::Refused) {

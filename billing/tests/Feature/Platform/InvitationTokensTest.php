@@ -12,6 +12,7 @@ use App\Modules\Platform\Actions\Clients\ManageClientLogins;
 use App\Modules\Platform\Actions\Staff\InviteStaff;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\ValidationException;
 use Inertia\Testing\AssertableInertia as Assert;
 
 /*
@@ -157,4 +158,28 @@ it('revokes a staff invitation link when it is sent again or cancelled', functio
 
     $invitation->delete();
     $this->get(route('platform.invitations.show', $second))->assertInertia(fn (Assert $page) => $page->where('state', 'invalid'));
+});
+
+it('refuses to invite again a login that was invited before the upgrade, or that has been used, and offers a password reset', function () {
+    $legacy = User::factory()->create(['email' => 'legacy@example.test']);
+    $this->client->users()->attach($legacy, ['is_owner' => false, 'permissions' => '[]']);
+    inviteLogin($this->client);
+    $used = User::query()->where('email', 'helper@example.test')->sole();
+    $used->forceFill(['last_login_at' => now()])->saveQuietly();
+    $logins = app(ManageClientLogins::class);
+
+    expect(fn () => $logins->resendInvitation($this->client, $legacy))->toThrow(ValidationException::class, 'This login has no open invitation')
+        ->and(fn () => $logins->resendInvitation($this->client, $used))->toThrow(ValidationException::class, 'Send a password reset instead.');
+
+    actingAsStaff(['core.users.manage', 'core.clients.view']);
+    $this->withSession(['auth.password_confirmed_at' => time()])
+        ->post(route('admin.platform.clients.users.password-reset', [$this->client, $legacy]))->assertRedirect()->assertSessionHasNoErrors();
+    expect(EmailMessage::query()->where('template_key', 'auth.password_reset')->where('recipient', 'legacy@example.test')->exists())->toBeTrue();
+});
+
+it('voids the link when the login loses access to the account', function () {
+    $token = inviteLogin($this->client);
+    DB::table('client_user')->where('client_id', $this->client->id)->delete();
+
+    $this->get(route('platform.client-invitations.show', $token))->assertInertia(fn (Assert $page) => $page->where('state', 'void'));
 });

@@ -29,10 +29,10 @@ const PARTS: { key: keyof TemplateText; label: string }[] = [
     { key: 'action_label', label: 'Button label' },
 ];
 
-function TextColumn({ title, text }: { title: string; text: TemplateText }) {
+function TextColumn({ title, text }: { title?: string; text: TemplateText }) {
     return (
         <div className="min-w-0 space-y-3">
-            <h3 className="text-sm font-semibold">{title}</h3>
+            {title && <h3 className="text-sm font-semibold">{title}</h3>}
             {PARTS.filter(({ key }) => (text[key] ?? '') !== '').map(
                 ({ key, label }) => (
                     <div key={key} className="space-y-1">
@@ -60,7 +60,7 @@ export function TemplateDefaultCompare({
 }: {
     templateId: number;
     current: TemplateText;
-    newDefault: TemplateText | null;
+    newDefault: { status: 'changed' | 'untracked'; text: TemplateText } | null;
     previous: (TemplateText & { replaced_at: string }) | null;
     canManage: boolean;
 }) {
@@ -73,10 +73,15 @@ export function TemplateDefaultCompare({
             {newDefault && (
                 <Alert>
                     <Sparkles />
-                    <AlertTitle>New default available</AlertTitle>
+                    <AlertTitle>
+                        {newDefault.status === 'changed'
+                            ? 'New default available'
+                            : 'Compare with the current default'}
+                    </AlertTitle>
                     <AlertDescription className="flex flex-wrap items-center gap-3">
-                        This release ships new wording for this email. Your
-                        edited text is unchanged until you choose.
+                        {newDefault.status === 'changed'
+                            ? 'This release ships new wording for this email. Your edited text is unchanged until you choose.'
+                            : 'You edited this email before defaults were tracked, and its default wording has changed since. Your text is unchanged until you choose.'}
                         <Dialog>
                             <DialogTrigger asChild>
                                 <Button
@@ -104,7 +109,7 @@ export function TemplateDefaultCompare({
                                     />
                                     <TextColumn
                                         title="New default"
-                                        text={newDefault}
+                                        text={newDefault.text}
                                     />
                                 </div>
                                 {canManage && (
@@ -155,7 +160,7 @@ export function TemplateDefaultCompare({
                                         editor.
                                     </DialogDescription>
                                 </DialogHeader>
-                                <TextColumn title="" text={previous} />
+                                <TextColumn text={previous} />
                             </DialogContent>
                         </Dialog>
                     </AlertDescription>

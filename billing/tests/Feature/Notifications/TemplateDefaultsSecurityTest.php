@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Notifications\Support\SecretTemplatePolicy;
 
 require_once __DIR__.'/helpers.php';
 
@@ -60,5 +61,5 @@ it('keeps an edited secret template through an upgrade and restores only shipped
     expect($translation->fresh()->body)->toBe('Our own invitation wording.');
 
     $definition = app(TemplateCatalog::class)->find('auth.user_invitation');
-    expect(App\Modules\Notifications\Support\SecretTemplatePolicy::violations('auth.user_invitation', TemplateCatalog::shippedText($definition)))->toBe([]);
+    expect(SecretTemplatePolicy::violations('auth.user_invitation', TemplateCatalog::shippedText($definition)))->toBe([]);
 });
