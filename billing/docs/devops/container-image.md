@@ -31,16 +31,19 @@ Every `FROM` and `COPY --from=` image is `<name>:<tag>@sha256:<digest>` and at l
 
 ## Runtime contract
 
-| Item              | Value                                                                                                                                           |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| User              | `app`, UID/GID 10001; code is owned by root and read-only to it                                                                                 |
-| Port              | 8080, plain HTTP (`SERVER_NAME=:8080`); TLS belongs to the edge proxy. No capability is needed (the binary's `cap_net_bind_service` is removed) |
-| Writable paths    | `/app/storage` (a volume), and on a read-only root filesystem tmpfs for `/tmp`, `/app/bootstrap/cache`, `/data` and `/config` (Caddy state)     |
-| Defaults baked in | `APP_ENV=production`, `APP_DEBUG=false`, `LOG_CHANNEL=stderr` with the JSON formatter, `INERTIA_SSR_ENABLED=false`                              |
-| Required from you | `APP_KEY`, `APP_URL`, `DB_*`, mail and object-storage settings (`install.md`), `TRUSTED_PROXIES` behind a proxy                                 |
-| Entrypoint        | recreates the storage skeleton, runs `php artisan optimize` (config embeds the environment, so at start, not build), then runs the command      |
-| Health            | `HEALTHCHECK` runs `app-healthcheck`: `GET /up` on port 8080 with `APP_URL`'s host, because TrustHosts rejects other hosts                      |
-| Logs              | everything on stderr: Laravel as JSON lines, Caddy as JSON                                                                                      |
+| Item                 | Value                                                                                                                                                                                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| User                 | `app`, UID/GID 10001; code is owned by root and read-only to it                                                                                                                                                                                                                                     |
+| Port                 | 8080, plain HTTP (`SERVER_NAME=:8080`); TLS belongs to the edge proxy. No capability is needed (the binary's `cap_net_bind_service` is removed)                                                                                                                                                     |
+| Writable paths       | `/app/storage` (a volume, shared by the containers of one version and the next), and on a read-only root filesystem tmpfs for `/tmp`, `/app/bootstrap/cache`, `/data` and `/config` (Caddy state)                                                                                                   |
+| Per-container caches | config, routes, events, packages and services in `bootstrap/cache`, compiled views in `VIEW_COMPILED_PATH=/app/bootstrap/cache/views`: never in the shared volume, so two versions side by side (blue-green) never read each other's                                                                |
+| Defaults baked in    | `APP_ENV=production`, `APP_DEBUG=false`, `LOG_CHANNEL=stderr` with the JSON formatter, `INERTIA_SSR_ENABLED=false`, `SSL_CERT_FILE` (with `openssl.cafile` and `curl.cainfo`) pointing at the CA bundle, which the slim base lacks                                                                  |
+| Required from you    | `APP_KEY`, `APP_URL`, `DB_*`, mail and object-storage settings (`install.md`), `TRUSTED_PROXIES` behind a proxy                                                                                                                                                                                     |
+| Entrypoint           | recreates the storage skeleton, runs `php artisan optimize` (config embeds the environment, so at start, not build), then runs the command                                                                                                                                                          |
+| Health               | `HEALTHCHECK` runs `app-healthcheck`: `GET /up` on port 8080 with `APP_URL`'s host, because TrustHosts rejects other hosts. Workers and the scheduler run no web server, so their service definition must replace it (a process check; a disabled check breaks `compose up --wait` on Compose 2.38) |
+| Process              | run with an init process (`init: true`, `docker run --init`) so background tasks of the scheduler are reaped; FrankenPHP finishes in-flight requests for up to 8 s on SIGTERM                                                                                                                       |
+| Edge proxy           | must forward the original `Host` (Caddy and Traefik do; nginx needs `proxy_set_header Host $host`) and the four `X-Forwarded-*` headers (`local-setup.md`)                                                                                                                                          |
+| Logs                 | everything on stderr: Laravel as JSON lines, Caddy as JSON                                                                                                                                                                                                                                          |
 
 `APP_OPTIMIZE=0` skips the cache step for a one-off command. The same image runs every service:
 
@@ -63,7 +66,7 @@ a running container).
 | Image, `docker save` (compressed layers) | 162 MB                                                                                                                                                                           |
 | Without the `runtime` stage              | 1,208 MB unpacked (the toolchain of the official PHP image)                                                                                                                      |
 | Build, no cache                          | 428 s on the shared 4-vCPU codespace (`install-php-extensions` compiling the extensions is the largest step)                                                                     |
-| Cold start                               | 1.2–2.1 s (three runs on the shared codespace) from `docker run` to the first `200` on `/up` (includes `php artisan optimize`)                                                   |
+| Cold start                               | 1.2–2.8 s (five runs on the shared codespace, varying with its load) from `docker run` to the first `200` on `/up` (includes `php artisan optimize`)                             |
 | Smoke test against PostgreSQL 18.6       | read-only root, all capabilities dropped, `no-new-privileges`: migrations and `app:install`, `/up` healthy, sign-in, a queued `RunAutomationJob` processed by a worker container |
 
 ## Not yet

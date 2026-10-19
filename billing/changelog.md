@@ -476,11 +476,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
   (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
   a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
-  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.1 s. `deploy/compose.dev.yaml`
+  non-root, read-only root filesystem, OPcache, `/up` healthcheck, cold start 1.2–2.8 s. `deploy/compose.dev.yaml`
   runs the `dev` target with Vite. The dependency check now also requires digest pins and the 7-day cooldown for
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
-  means none, as before; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+  means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
+  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
 - Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
   rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
   skipped. Set it to `true` once an SSR entry exists.

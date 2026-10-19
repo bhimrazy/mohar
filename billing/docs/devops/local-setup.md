@@ -143,8 +143,21 @@ TRUSTED_PROXIES=172.18.0.0/16
 ```
 
 Only requests that arrive from those addresses may set the client IP, scheme, host and port; the
-`X-Forwarded-Prefix` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value is read per request,
-so it also works with a cached configuration.
+`X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value
+is read per request, so it also works with a cached configuration. Unset means no proxy at all, including on
+`*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework would otherwise trust every proxy: set
+`TRUSTED_PROXIES` there too.
+
+Two more things the proxy setup relies on:
+
+- **TrustHosts stays on outside `local`.** It rejects any `Host` or trusted `X-Forwarded-Host` that is not
+  `APP_URL`'s host (a 400), and generated links always use `APP_URL` (#59). Never run production with
+  `APP_ENV=local`.
+- **The proxy forwards the original `Host`.** Caddy and Traefik do by default; nginx needs
+  `proxy_set_header Host $host;`. A proxy that rewrites `Host` to the upstream name (`app:8080`) gets a 400 on
+  every request, even with a correct `X-Forwarded-Host`.
+
+`tests/Feature/Security/TrustedProxiesTest.php` covers these cases.
 
 Without it, `request()->ip()` is the proxy's address and `isSecure()` is false. So:
 
