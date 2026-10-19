@@ -29,7 +29,9 @@ permissions:
 concurrency:
     # Draft and ready runs use separate groups: a skipped draft run (e.g. a push landing just after
     # "Ready for review") must never cancel the real run.
-    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'ci')) && 'draft' || 'ready' }}
+    # Adding any other label (e.g. deploy-smoke) starts a run that is skipped; it gets a group of its own so it never
+    # cancels the real run.
+    group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' && github.event.label.name != 'ci') && format('label-{0}', github.run_id) || ((github.event.pull_request.draft && !contains(github.event.pull_request.labels.*.name, 'ci')) && 'draft' || 'ready') }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
