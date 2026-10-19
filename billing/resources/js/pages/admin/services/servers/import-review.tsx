@@ -1,7 +1,8 @@
-import { Link } from '@inertiajs/react';
+import { Link, setLayoutProps } from '@inertiajs/react';
 import { CalendarClock, UserRoundSearch } from 'lucide-react';
 import { useState } from 'react';
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
+import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -52,9 +53,17 @@ export default function ServerImportReview({
     const clients = new Set(ready.map((row) => row.decision.client?.id)).size;
     const back = ServerImportController.show(server.id);
 
+    setLayoutProps({
+        breadcrumbs: [
+            { title: 'Servers', href: ServerController.index().url },
+            { title: server.name, href: ServerController.edit(server.id).url },
+            { title: 'Import accounts', href: back.url },
+        ],
+    });
+
     return (
         <>
-            <Head title={`Review import · ${server.name}`} />
+            <Head title="Review import" />
             <Page>
                 <PageHeader
                     back={{ href: back, label: 'Import accounts' }}
