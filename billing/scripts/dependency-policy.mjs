@@ -226,6 +226,18 @@ export function dockerfileImages(text) {
 }
 
 /**
+ * Whether a repository path is a Compose file whose `image:` lines the dependency check pins: the production
+ * stack under deploy/ and the load-test overlay under loadtest/ (its k6 image). billing/compose.yaml and the
+ * workflows are listed separately.
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+export function isComposeFile(path) {
+    return /^(deploy|loadtest)\/.*\.ya?ml$/.test(path);
+}
+
+/**
  * Whether a repository path is a Dockerfile or Containerfile (`Dockerfile`, `Dockerfile.prod`, `worker.Dockerfile`,
  * `Containerfile`), not its `.dockerignore`.
  *

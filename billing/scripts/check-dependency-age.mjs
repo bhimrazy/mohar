@@ -6,8 +6,9 @@
  *   - Composer packages  (billing/composer.lock     → repo.packagist.org/p2 "time")
  *   - npm packages       (billing/package-lock.json → registry.npmjs.org time[version])
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
- *   - Docker images      (billing/compose.yaml, workflow and deploy/*.yaml `image:`; `# syntax=`, `FROM` and
- *                         `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest required)
+ *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; `# syntax=`,
+ *                         `FROM` and `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest
+ *                         required)
  *   - Tools              (billing/.nvmrc → nodejs.org; setup-php `tools: composer:X` → GitHub release)
  * and when anything is not pinned or not bound to what is checked: action SHA = tag, image digest published
  * under its tag (index or platform digest), npm tarball URL + integrity = registry tarball of that name@version,
@@ -38,6 +39,7 @@ import {
     composerDistProblems,
     digestBelongsToTag,
     dockerfileImages,
+    isComposeFile,
     isDockerfile,
     isExcepted,
     npmEntryProblems,
@@ -92,7 +94,7 @@ const errors = [];
  * @typedef {{kind: 'composer'|'npm'|'action'|'image'|'tool', name: string, version: string, ref?: string, file: string, integrity?: string, dist?: object, source?: object}} Item
  * @param {(path: string) => string|null} read  file reader relative to the repository root
  * @param {() => string[]} listWorkflowFiles
- * @param {() => string[]} listRepoFiles  every repository path (Dockerfiles anywhere, compose files in deploy/)
+ * @param {() => string[]} listRepoFiles  every repository path (Dockerfiles anywhere, compose files in deploy/ and loadtest/)
  * @returns {Item[]}
  */
 function collect(read, listWorkflowFiles, listRepoFiles) {
@@ -138,7 +140,7 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
     for (const file of [
         `${appDir}/compose.yaml`,
         ...listWorkflowFiles(),
-        ...repoFiles.filter((path) => /^deploy\/.*\.ya?ml$/.test(path)),
+        ...repoFiles.filter(isComposeFile),
     ]) {
         const text = read(file);
         if (text === null) {

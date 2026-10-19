@@ -3,6 +3,7 @@ import {
     composerDistProblems,
     digestBelongsToTag,
     dockerfileImages,
+    isComposeFile,
     isDockerfile,
     isExcepted,
     npmEntryProblems,
@@ -225,5 +226,21 @@ describe('isDockerfile', () => {
             'tools/worker.Dockerfile',
             'Containerfile',
         ]);
+    });
+});
+
+describe('isComposeFile', () => {
+    it('matches the production and load-test compose files, not docs or other YAML', () => {
+        expect(
+            [
+                'deploy/compose.prod.yaml',
+                'deploy/compose.dev.yaml',
+                'loadtest/compose.loadtest.yaml',
+                'loadtest/profiles/small.env',
+                'billing/compose.yaml',
+                '.github/workflows/load-test.yml',
+                'docs/loadtest/compose.yaml',
+            ].filter(isComposeFile),
+        ).toEqual(['deploy/compose.prod.yaml', 'deploy/compose.dev.yaml', 'loadtest/compose.loadtest.yaml']);
     });
 });
