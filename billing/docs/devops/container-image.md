@@ -3,7 +3,8 @@
 One image runs every process of the app: web, queue workers, the scheduler and migrations. It is built from
 `deploy/Dockerfile` with the repository root as the context (narrowed by `deploy/Dockerfile.dockerignore` to
 `billing/` and the runtime files in `deploy/`). Why this design: [deployment-options.md](deployment-options.md).
-The production compose stack, blue-green deploys and the build workflow come in later PRs (D2, D3).
+The production stack that runs it is described in [production.md](production.md); blue-green deploys and the
+build workflow come in later PRs.
 
 ```sh
 docker build -f deploy/Dockerfile --target prod -t billing:local .   # from the repository root

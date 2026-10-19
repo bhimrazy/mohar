@@ -473,6 +473,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
+  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools, the scheduler, a one-shot
+  migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
+  resource limits. Runbook: `docs/devops/production.md` (install, update, backup, restore, rollback, Traefik
+  variant); settings: `deploy/.env.production.example`. `deploy/bin/smoke` and the manual "Deploy smoke" workflow
+  (`workflow_dispatch` or the `deploy-smoke` PR label, never automatic) install the stack on a GitHub runner and
+  check `/up`, sign-in and a queued job through Caddy.
+
 - Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
   (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
   a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),

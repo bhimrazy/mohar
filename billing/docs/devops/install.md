@@ -3,6 +3,9 @@
 How to install the billing app on a new server, from an empty database to a signed-in administrator, and how to
 upgrade it later. For a development machine with demo data, use [local-setup.md](local-setup.md) instead.
 
+This page installs the app on the host itself (PHP, a web server, systemd or Supervisor). To run everything in
+containers on one Docker host, behind Caddy, follow [production.md](production.md) instead.
+
 The install is a CLI step, `php artisan app:install`. A web installer is not part of v1.
 
 ## What you need
@@ -27,7 +30,7 @@ data in the `postgres-data` and `rustfs-data` volumes. Set strong values for `DB
 volume is created. The compose file also creates an empty `billing_test` database for the test suite, which
 production does not use. The file is written for local infrastructure: it also turns on the RustFS web console
 (`RUSTFS_CONSOLE_ENABLE`, port 9001 on `127.0.0.1`). In production set that to `'false'` or keep the port off any
-public interface. There is no application image yet, so the app itself runs on the host (step 2).
+public interface. With this option the app itself runs on the host (step 2); the all-container stack is in [production.md](production.md).
 
 **Bare metal or managed services.** Create a PostgreSQL database and a user that owns it, and a private bucket
 with an access key limited to that bucket. Put the connection details in `.env` (step 3).
