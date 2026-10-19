@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-18 14:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-19 11:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
@@ -23,18 +23,20 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests (merge order: #69, then 1b, 2, 3; email direction A and #58 independent)
 
-| PR  | Workstream              | Status                                                                                                                                                                                                                                                       |
-| --- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| #69 | cPanel/WHM driver PR 1a | Driver, fixtures, contract, smoke command. Architect: changes requested (kernel changelog entries, setting key name, form/driver refused ports). Review board and security review running. 1b (checklist, Trust this certificate, verify sweep) being built. |
-| —   | Email direction A       | Owner chose A (two-card receipt). Engineer building it on `feature/mail-direction-a` with the product sweep fixes (framework mail through templates, text parts, invitations, suspension reasons, action buttons).                                           |
-| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                                                          |
+| PR  | Workstream              | Status                                                                                                                                                                                                                           |
+| --- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #69 | cPanel/WHM driver PR 1a | All reviews passed (account adoption only with proof, one deadline per job, live-only unique usernames). Blocked on CI: a test worker exceeds 1 GB in Support attachment tests; DevOps agent fixing on `feature/ci-test-memory`. |
+| —   | Email direction A       | PR #72. Security, board and product reviews requested changes (fallback must not bypass the secret policy, button never inferred from content, security mail always sent, host brand only, Paid row). Engineer fixing.           |
+| #73 | cPanel/WHM driver PR 1b | Connection checklist, "Trust this certificate" (sensitive + step-up), generic verify sweep. Stacked on #69. Security, review board (with database) and product reviews running.                                                  |
+| #58 | Stripe gateway          | Round-1 fixes pushed; short re-check pending. Merge needs the owner's Stripe test keys for the sandbox run. Saved methods (PR 2) built after merge.                                                                              |
 
 ## Design and research in progress
 
-| Workstream                | Branch                         | State                                                                                                                     |
-| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                 |
-| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it. |
+| Workstream                | Branch                         | State                                                                                                                                                                                                                                                                                                            |
+| ------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                                                                                                                                                                                                        |
+| Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
+| Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
@@ -55,7 +57,7 @@ is a switch blocker in the parity studies.
 ## Decisions pending from the owner
 
 - Approve deferring social sign-in, Affiliates and the client dashboard/profile work behind the switch blockers.
-- Test accounts: a WHM/cPanel server, a Stripe test account, a Khalti merchant sandbox (to verify the refund unit).
+- Test accounts: not available (owner, 2026-10-18). Integrations are verified against local simulators; real smoke runs wait for real accounts.
 - Repository settings: branch protection and required checks on `develop` and `main`.
 - Business: licence and price model, support model, published security policy, trademark search for "Mohar".
 

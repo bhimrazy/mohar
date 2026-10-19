@@ -79,6 +79,13 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - Tokens in URLs (invitations, password resets) are hashed at rest, single-use, expiring, and served with
   `Referrer-Policy: no-referrer`.
 
+## 7. External accounts and resources
+
+- A driver adopts an existing remote resource (hosting account, domain, mailbox) only with proof that this service
+  created it: an earlier attempt whose outcome is unknown, with the exact identifiers stored before sending, and a
+  remote creation time at or after that attempt. A matching name, domain or owner alone is never proof; anything
+  else is a conflict for staff. (Added 2026-10-18 from the #69 security review.)
+
 ## Go-live checklist
 
 - [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
