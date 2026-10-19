@@ -1,8 +1,12 @@
-# Production stack on one Docker host (billing/docs/devops/production.md).
+# Production stack on one Docker host, deployed blue-green (billing/docs/devops/production.md).
 #
 #   cp deploy/.env.production.example deploy/.env && chmod 600 deploy/.env    # then fill it in
-#   docker compose -f deploy/compose.prod.yaml build                            # or set APP_IMAGE to a pushed image
-#   docker compose -f deploy/compose.prod.yaml up -d --wait
+#   deploy/bin/deploy                                                           # build, migrate, start, switch
+#
+# Two colours of the app run the same image roles: `app-<colour>` (web), three worker pools and the scheduler,
+# behind the `blue` and `green` profiles. deploy/bin/deploy starts the new colour beside the live one, switches
+# Caddy's upstream (deploy/state/live/upstream.caddy) with a graceful reload once it is healthy, drains the old
+# workers and keeps the old web container for `deploy/bin/deploy rollback`. Use the script, not `up` on a colour.
 #
 # Compose reads deploy/.env for the ${...} values below, and the PHP services read the same file (env_file).
 # One image runs web, workers, scheduler and migrations (deploy/Dockerfile, docs/devops/container-image.md).
@@ -20,12 +24,6 @@ x-logging: &logging
         max-file: '5'
 
 x-php: &php
-    # Our own image, not a third-party dependency: built from deploy/Dockerfile, or a tag you pushed.
-    image: ${APP_IMAGE:-mohar-app:local} # own image
-    build:
-        context: ..
-        dockerfile: deploy/Dockerfile
-        target: prod
     # deploy/.env by default; the smoke test (deploy/bin/smoke) points this at its own generated file.
     env_file:
         - ${APP_ENV_FILE:-.env}
@@ -56,8 +54,10 @@ x-php: &php
         - backend
         - egress
     depends_on:
-        migrate:
-            condition: service_completed_successfully
+        postgres:
+            condition: service_healthy
+        rustfs:
+            condition: service_healthy
 
 x-worker: &worker
     <<: *php
@@ -70,6 +70,92 @@ x-worker: &worker
         timeout: 5s
         retries: 3
         start_period: 30s
+
+# The roles each colour runs. ADR 0014 pools: --timeout is at least the provisioning cap (180 s + 20 s lock slack)
+# and stays below the queue's retry_after (240 s); stop_grace_period lets a running job finish when the deploy
+# script drains a colour (SIGTERM: the worker finishes its current job, then exits, so no job runs twice).
+x-app: &app
+    <<: *php
+    networks:
+        - edge
+        - backend
+    stop_grace_period: 30s
+    deploy:
+        resources:
+            limits:
+                cpus: '1.0'
+                memory: 512M
+
+x-worker-critical: &worker-critical
+    <<: *worker
+    command:
+        [
+            'php',
+            'artisan',
+            'queue:work',
+            '--queue=payments,provisioning,registrar',
+            '--tries=3',
+            '--timeout=200',
+            '--max-time=3600',
+        ]
+    stop_grace_period: 210s
+    deploy:
+        resources:
+            limits:
+                cpus: '0.5'
+                memory: 384M
+
+x-worker-notifications: &worker-notifications
+    <<: *worker
+    command:
+        [
+            'php',
+            'artisan',
+            'queue:work',
+            '--queue=notifications,webhooks',
+            '--tries=3',
+            '--timeout=90',
+            '--max-time=3600',
+        ]
+    stop_grace_period: 100s
+    deploy:
+        resources:
+            limits:
+                cpus: '0.5'
+                memory: 384M
+
+x-worker-default: &worker-default
+    <<: *worker
+    command:
+        [
+            'php',
+            'artisan',
+            'queue:work',
+            '--queue=default',
+            '--tries=3',
+            '--timeout=90',
+            '--max-time=3600',
+        ]
+    stop_grace_period: 100s
+    deploy:
+        resources:
+            limits:
+                cpus: '0.5'
+                memory: 384M
+
+# Exactly one scheduler runs at a time: the deploy script stops the old colour's before starting the new one.
+x-scheduler: &scheduler
+    <<: *worker
+    command: ['php', 'artisan', 'schedule:work']
+    healthcheck:
+        <<: *process-alive
+        test: ['CMD-SHELL', 'grep -qsa "schedule[:]work" /proc/[0-9]*/cmdline']
+    stop_grace_period: 60s
+    deploy:
+        resources:
+            limits:
+                cpus: '0.5'
+                memory: 256M
 
 services:
     caddy:
@@ -84,6 +170,8 @@ services:
             CADDY_TLS: ${CADDY_TLS:-}
         volumes:
             - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            # The live colour's upstream, written by deploy/bin/deploy before each graceful reload.
+            - ${DEPLOY_STATE_DIR:-./state}/live:/etc/caddy/live:ro
             # Certificates and ACME account keys: must persist, or every restart requests new certificates.
             - caddy-data:/data
             - caddy-config:/config
@@ -100,102 +188,21 @@ services:
         logging: *logging
         networks:
             - edge
-        depends_on:
-            app:
-                condition: service_healthy
         deploy:
             resources:
                 limits:
                     cpus: '0.5'
                     memory: 128M
 
-    app:
-        <<: *php
-        networks:
-            - edge
-            - backend
-        stop_grace_period: 30s
-        deploy:
-            resources:
-                limits:
-                    cpus: '1.0'
-                    memory: 512M
-
-    # ADR 0014 pools. --timeout is at least the provisioning cap (180 s + 20 s lock slack) and stays below the
-    # queue's retry_after (240 s); stop_grace_period lets a running job finish before the container is killed.
-    worker-critical:
-        <<: *worker
-        command:
-            - php
-            - artisan
-            - queue:work
-            - --queue=payments,provisioning,registrar
-            - --tries=3
-            - --timeout=200
-            - --max-time=3600
-        stop_grace_period: 210s
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.5'
-                    memory: 384M
-
-    worker-notifications:
-        <<: *worker
-        command:
-            [
-                'php',
-                'artisan',
-                'queue:work',
-                '--queue=notifications,webhooks',
-                '--tries=3',
-                '--timeout=90',
-                '--max-time=3600',
-            ]
-        stop_grace_period: 100s
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.5'
-                    memory: 384M
-
-    worker-default:
-        <<: *worker
-        command:
-            [
-                'php',
-                'artisan',
-                'queue:work',
-                '--queue=default',
-                '--tries=3',
-                '--timeout=90',
-                '--max-time=3600',
-            ]
-        stop_grace_period: 100s
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.5'
-                    memory: 384M
-
-    # Exactly one scheduler: it runs the minute heartbeat and the daily automation pipeline.
-    scheduler:
-        <<: *worker
-        command: ['php', 'artisan', 'schedule:work']
-        healthcheck:
-            <<: *process-alive
-            test: ['CMD-SHELL', 'grep -qsa "schedule[:]work" /proc/[0-9]*/cmdline']
-        stop_grace_period: 60s
-        deploy:
-            resources:
-                limits:
-                    cpus: '0.5'
-                    memory: 256M
-
-    # One-shot, before anything else starts: migrations, the bucket, reference data (all idempotent). On the
-    # first install create the administrator first (production.md); afterwards every deploy runs this unchanged.
+    # One-shot, run by the deploy script with the new image before the new colour starts: migrations (expand only,
+    # docs/architecture.md), the bucket, reference data (all idempotent). It also builds the image.
     migrate:
         <<: *worker
+        image: ${APP_IMAGE:-mohar-app:local} # own image
+        build:
+            context: ..
+            dockerfile: deploy/Dockerfile
+            target: prod
         command:
             - sh
             - -c
@@ -204,16 +211,55 @@ services:
         # A one-shot: nothing to probe while it runs.
         healthcheck:
             test: ['CMD', 'true']
-        depends_on:
-            postgres:
-                condition: service_healthy
-            rustfs:
-                condition: service_healthy
         deploy:
             resources:
                 limits:
                     cpus: '1.0'
                     memory: 512M
+
+    # ---------------------------------------------------------------- blue
+    app-blue:
+        <<: *app
+        image: ${APP_IMAGE_BLUE:-mohar-app:local} # own image
+        profiles: [blue]
+    worker-critical-blue:
+        <<: *worker-critical
+        image: ${APP_IMAGE_BLUE:-mohar-app:local} # own image
+        profiles: [blue]
+    worker-notifications-blue:
+        <<: *worker-notifications
+        image: ${APP_IMAGE_BLUE:-mohar-app:local} # own image
+        profiles: [blue]
+    worker-default-blue:
+        <<: *worker-default
+        image: ${APP_IMAGE_BLUE:-mohar-app:local} # own image
+        profiles: [blue]
+    scheduler-blue:
+        <<: *scheduler
+        image: ${APP_IMAGE_BLUE:-mohar-app:local} # own image
+        profiles: [blue]
+
+    # ---------------------------------------------------------------- green
+    app-green:
+        <<: *app
+        image: ${APP_IMAGE_GREEN:-mohar-app:local} # own image
+        profiles: [green]
+    worker-critical-green:
+        <<: *worker-critical
+        image: ${APP_IMAGE_GREEN:-mohar-app:local} # own image
+        profiles: [green]
+    worker-notifications-green:
+        <<: *worker-notifications
+        image: ${APP_IMAGE_GREEN:-mohar-app:local} # own image
+        profiles: [green]
+    worker-default-green:
+        <<: *worker-default
+        image: ${APP_IMAGE_GREEN:-mohar-app:local} # own image
+        profiles: [green]
+    scheduler-green:
+        <<: *scheduler
+        image: ${APP_IMAGE_GREEN:-mohar-app:local} # own image
+        profiles: [green]
 
     postgres:
         image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873

@@ -19,17 +19,9 @@
 	# Empty by default; `tls internal` forces the internal CA for a non-public test name.
 	{$CADDY_TLS:}
 
-	reverse_proxy app:8080 {
-		# Caddy ignores X-Forwarded-* sent by clients and sets its own: the app trusts only this proxy's network
-		# (TRUSTED_PROXIES), so a client cannot spoof its IP or scheme.
-		health_uri /up
-		health_interval 10s
-		health_headers {
-			Host {$APP_DOMAIN}
-		}
-		# A restarting app container is retried for a few seconds instead of answering 502 at once.
-		lb_try_duration 5s
-	}
+	# The live colour: deploy/bin/deploy writes this file (reverse_proxy to app-blue or app-green, with health checks
+	# and the upstream in the access log), then reloads Caddy gracefully. Caddy refuses to start without it.
+	import live/upstream.caddy
 
 	log {
 		output stdout

@@ -244,6 +244,28 @@ PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0
 8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
 9. Booleans as `where('flag', true)`; no explicit ids in seeders.
 
+### Migrations during blue-green deploys (expand, then contract)
+
+Production deploys are blue-green (`deploy/bin/deploy`, `docs/devops/production.md`): the new release's
+migrations run first, then the new version starts beside the old one, and traffic moves only when it is healthy.
+The old version keeps serving, and stays ready for a rollback, against the **new** schema. So every release's
+migrations must be ones the previous release can run against:
+
+1. **Expand only** in the release that needs the change: add tables, nullable columns or columns with a default,
+   indexes and foreign keys that existing rows satisfy. New code writes both the old and the new shape while it
+   matters (a renamed column: write both, read the new one, backfill in a queued job, not in the migration).
+2. **Contract later**, in a release after the one where no code reads or writes the old schema: drop the old
+   column or table, or tighten a constraint. Tag that migration `@contract` with the release that stopped using
+   it.
+3. **Never in one step:** drop, rename (`renameColumn`, `Schema::rename`), change a column's type or nullability
+   (`->change()`), or raw `DROP`/`RENAME` SQL. An in-place change the previous release demonstrably tolerates
+   (widening a `decimal` or `varchar`) is tagged `@compatible` with the reason.
+4. **Jobs too:** a queued job's payload must stay readable by both versions, because old workers drain while new
+   ones start. Add properties with defaults; remove them a release later.
+
+`php artisan deploy:check-migrations` enforces rules 1 to 3: `--since=origin/develop` locally before a pull request,
+and `--pending` in the new image before every deploy (the deploy script stops on a finding). It is not part of CI.
+
 ## Testing (Pest)
 
 - Feature tests per behaviour in `tests/Feature/<Module>/`; unit tests for pure calculation (proration, tax).
