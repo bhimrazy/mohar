@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Account import, step 1.** A migration adds the `server_account_imports` table (one fetched account list per
+  server, encrypted, deleted after 24 hours by the new housekeeping task "Discard expired account imports"). The new
+  permission `services.servers.import` is sensitive: wildcards such as `services.*` never grant it, and fetching needs
+  a recent password. Grant it explicitly to staff who bring existing accounts in. Fetches run on the `default` queue.
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -89,6 +93,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (Admin → Servers → server menu → Import accounts): staff fetch every account on a server
+  that can list them (cPanel/WHM) and see each one matched before anything is imported. An account is proposed when
+  exactly one open client has its contact email and exactly one product uses its package on that server; otherwise
+  it is unmatched with the reason. Reseller-owned accounts on a root connection are listed apart, accounts a live
+  service already holds are shown as linked with any differences (domain, package, suspension), and live services
+  whose account is missing on the server are flagged. Nothing is created or changed, on the server or here; each
+  fetch is recorded in the activity log. Importing the selected accounts follows in step 2.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
