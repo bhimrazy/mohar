@@ -240,8 +240,13 @@ jobs:
                   # The suite is round-trip bound on PostgreSQL (workers mostly wait on the database), so it runs more
                   # workers than the 2 vCPUs; each stays under the 1 GB memory_limit in phpunit.xml.
                   PEST_PROCESSES: '4'
+                  DB_PGSQL_DISABLE_PREPARES: 'true'
               run: |
+                  read -r _ u1 n1 s1 i1 w1 _ < /proc/stat
                   composer test:pgsql -- --log-junit="$RUNNER_TEMP/pgsql.xml"
+                  read -r _ u2 n2 s2 i2 w2 _ < /proc/stat
+                  busy=$(( (u2 + n2 + s2) - (u1 + n1 + s1) )); idle=$(( (i2 + w2) - (i1 + w1) ))
+                  echo "CPU busy during the suite: $(( 100 * busy / (busy + idle) ))% of $(nproc) vCPUs"
                   node scripts/slowest-tests.mjs "$RUNNER_TEMP/pgsql.xml"
 
             - name: Build

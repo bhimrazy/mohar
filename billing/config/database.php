@@ -97,6 +97,12 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // DB_PGSQL_DISABLE_PREPARES=true sends each query with its parameters in one round trip (PQexecParams)
+            // instead of prepare, execute and deallocate. Parameters stay server-side bound. CI enables it because the
+            // test suite is bound by round trips; see docs/devops/ci.md.
+            'options' => extension_loaded('pdo_pgsql') && env('DB_PGSQL_DISABLE_PREPARES', false)
+                ? [Pdo\Pgsql::ATTR_DISABLE_PREPARES => true]
+                : [],
         ],
 
         'sqlsrv' => [
