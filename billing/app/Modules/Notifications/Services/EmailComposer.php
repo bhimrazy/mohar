@@ -124,7 +124,7 @@ class EmailComposer
         $renderedSubject = $this->engine->render($subject, $context, false, $options);
         $html = $this->engine->render(EmailBody::markActions($body, $actionToken), $context, true, $options);
         $bodyHtml = EmailBody::html($html->output);
-        $preview = $this->preheader((string) $preheader, $context, $options) ?? EmailBody::preheader($bodyHtml);
+        $preview = $this->preheader((string) $preheader, $context, $options) ?? EmailBody::preheader($bodyHtml, $actionToken);
         $frame = $this->framer->frame($templateKey, $context, $locale);
         $url = $action instanceof SensitiveValue ? $action->value : (is_string($action) ? $action : '');
         $warnings = array_values(array_unique([...$renderedSubject->warnings, ...$html->warnings]));

@@ -114,6 +114,18 @@ it('shows only the host brand in email: the name alone by default, no product ma
         ->not->toContain('brand/mark', 'brand/logo', 'sealed and settled', ' · </');
 });
 
+it('accepts only a PNG or JPEG email logo on the server', function (string $name, string $content) {
+    actingAsStaff(['themes.manage']);
+
+    $this->post(route('admin.appearance.brand.store', 'logo-email'), ['file' => UploadedFile::fake()->createWithContent($name, $content)])
+        ->assertSessionHasErrors(['file' => 'The email logo must be a PNG or JPEG image (other formats, including WebP and SVG, are not accepted).']);
+
+    expect(app(BrandAssets::class)->path('logo-email'))->toBeNull();
+})->with([
+    'WebP' => ['logo.webp', base64_decode('UklGRiQAAABXRUJQVlA4IBgAAAAwAQCdASoBAAEAAwA0JaQAA3AA/vuUAAA=')],
+    'SVG' => ['logo.svg', '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'],
+]);
+
 it('uses the host\'s uploaded mark beside the name, and the opt-in email logo instead of both', function () {
     actingAsStaff(['themes.manage']);
     $this->post(route('admin.appearance.brand.store', 'mark'), ['file' => fakePng('mark.png', 128, 128)])->assertRedirect();

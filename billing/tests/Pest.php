@@ -5,6 +5,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Pest\Arch\Repositories\ObjectsRepository;
 use Tests\TestCase;
 
 /*
@@ -104,4 +105,19 @@ function fakePng(string $name, int $width, int $height, bool $noise = false): Up
         .$chunk('IEND', '');
 
     return UploadedFile::fake()->createWithContent($name, $png);
+}
+
+/**
+ * Release the arch plugin's parsed-source cache. The plugin keeps every namespace a rule touches (target and
+ * dependency layers, as ASTs) in a process-wide singleton it never clears: about 0.7 MB per file in app/, 770 MB
+ * for one file of rules in October 2026. A parallel worker then carried that memory to the end of the run and hit
+ * memory_limit. Every file in tests/Arch calls this from afterAll(); a global afterAll in this file would not run
+ * (Pest 5.3 flushes global afterAll hooks in each test's tearDown). The rules are split across files so the
+ * per-file peak stays well below the limit.
+ */
+function releaseArchCache(): void
+{
+    (fn () => self::$instance = null)->bindTo(null, ObjectsRepository::class)();
+    gc_collect_cycles();
+    gc_mem_caches();
 }

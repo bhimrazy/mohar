@@ -307,8 +307,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - The email log shows template names instead of keys.
 - A button comes only from the template's own action line or from the system: a link in a client's message or in
   a merged value never becomes the main button. Staff ticket mail puts the "Open ticket" button first and quotes the
-  client's message below it. Names and ticket subjects never turn into links (web addresses in them are shown as
-  `example[.]com`).
+  client's message below it. Links typed into names and ticket subjects are shown inert (`https[:]//evil[.]example/pay`);
+  names such as "Example.com Ltd" stay as typed.
 - An invitation whose link fails the security check is not sent by any other path: staff see "Invitation not sent"
   on the form and a security event is logged. Laravel's own notification is used only when the Notifications module
   is absent, with its link built on `APP_URL`.
@@ -425,6 +425,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   with a known password); production reference data comes from the install path in #47.
 
 ### DevOps
+
+- Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
+  about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
+  the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
+  peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
 
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.

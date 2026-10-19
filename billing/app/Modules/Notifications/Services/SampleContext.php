@@ -60,7 +60,7 @@ class SampleContext
             'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7')],
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',
-                'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
+                'balance' => '$18.98', 'balance_minor' => 1898, 'amount_paid' => '$10.00', 'amount_paid_minor' => 1000, 'subtotal' => '$28.98', 'discount' => null, 'credit_applied' => null,
                 'taxes' => [], 'issue_date' => $today, 'due_date' => $due,
                 'items' => [
                     ['description' => 'Starter Hosting — example.com', 'period_start' => $period[0], 'period_end' => $period[1], 'amount' => '$18.99'],

@@ -142,9 +142,12 @@ final class EmailBody
         return trim($text, "\n ");
     }
 
-    public static function preheader(string $html): ?string
+    /**
+     * The opening line as inbox preview text; the action token on the template's links never shows in it.
+     */
+    public static function preheader(string $html, ?string $actionToken = null): ?string
     {
-        $parts = self::parts($html);
+        $parts = self::parts($html, $actionToken);
         $text = trim((string) preg_replace('/\s+/', ' ', self::toText($parts['intro'])));
 
         return $text === '' ? null : mb_strimwidth($text, 0, 140, '…');
