@@ -830,7 +830,9 @@ export default function Website({
                                 ) : (
                                     'Billing tax rules'
                                 )}{' '}
-                                for your default country.
+                                for the market each currency is priced for (NPR:
+                                Nepal, INR: India); other currencies show a
+                                neutral note.
                             </>
                         }
                     >
@@ -963,14 +965,15 @@ export default function Website({
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="auto">
-                                            Automatic: a link per group up to 4
+                                            Automatic: a link per group up to 3
                                             groups, then one menu
                                         </SelectItem>
                                         <SelectItem value="menu">
                                             Always one menu
                                         </SelectItem>
                                         <SelectItem value="links">
-                                            Always a link for each group
+                                            A link for each group (one menu
+                                            above 3 groups)
                                         </SelectItem>
                                     </SelectContent>
                                 </Select>
