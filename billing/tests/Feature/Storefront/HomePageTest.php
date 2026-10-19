@@ -52,8 +52,7 @@ it('shows a neutral headline on a fresh install, never the product tagline', fun
             ->component('public/storefront/home')
             ->where('hero.headline', 'Hosting and domains from Acme Hosting')
             ->where('brand.hasUploadedLogo', false)
-            ->where('brand.hasUploadedMark', false)
-            ->where('preview', false));
+            ->where('brand.hasUploadedMark', false));
 });
 
 it('renders the title, description, canonical and Organization data in the first HTML response', function (): void {

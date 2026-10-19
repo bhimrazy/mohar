@@ -34,16 +34,13 @@ class SiteData
     ) {}
 
     /**
-     * @param  array<string, mixed>|null  $draft  content to render instead of the published version (staff preview)
      * @return array<string, mixed>
      */
-    public function forRequest(Request $request, ?array $draft = null): array
+    public function forRequest(Request $request): array
     {
         $currency = $this->shopper->currency($request);
         $signedIn = $request->user() !== null;
-        $shared = $draft !== null
-            ? $this->build($currency, $draft, $signedIn)
-            : $this->cache->remember("site.{$currency}.".(int) $signedIn, fn (): array => $this->build($currency, $this->store->published(), $signedIn));
+        $shared = $this->cache->remember("site.{$currency}.".(int) $signedIn, fn (): array => $this->build($currency, $this->store->published(), $signedIn));
 
         return [
             ...$shared,

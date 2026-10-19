@@ -8,13 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
-- **Public website (Storefront module).** A migration adds `storefront_revisions`. Two new permissions,
-  `storefront.content.manage` (edit and preview the website draft) and `storefront.publish` (make it live); grant
-  them to staff who maintain the site (wildcards `storefront.*` cover both). Until a version is published, the home
-  page shows the placeholder headline "Hosting and domains from {company name}" and Admin → Website marks it "Needs
-  your text". The `/` route moved from `routes/web.php` to the Storefront module, and unknown public URLs now return
-  the public 404 page (still HTTP 404). Footer company details read Settings → Company and the invoice seller
-  details (legal name, address, phone, PAN, VAT number, GSTIN).
+- **Public website (Storefront module).** A migration adds `storefront_revisions`. Until a version is published, the
+  home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
+  `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
+  other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
+  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -71,7 +69,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Storefront
 
-- New home page (direction A): the host's own headline and text, domain search with featured extensions and their
+- New home page (direction A): the host's own headline and text from the published website content, domain search with featured extensions and their
   first-year and renewal prices, the most popular plan (the catalog's Featured flag), and sections the host turns on
   and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
   network status, ways to pay. The product's own name and tagline never appear.
@@ -83,11 +81,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
 - Price cards show the per-month price, the amount billed, "Renews at" and any setup fee; the tax statement comes
   from Billing's tax rules for the company's default country ("+13% VAT at checkout"). Showing prices with tax
-  included is a per-currency choice in Admin → Website, off by default; the note can be reworded per currency.
-- Admin → Website: headline, text, sections on/off and order, why-us points, featured groups and first billing
-  cycle, news counts, header product menu, legal links, page title and description, and price display. Changes are
-  saved as a draft, previewed at a signed staff-only link (60 minutes, not indexed) and published after a dialog that
-  lists the changes; publishing is audit-logged and fires `StorefrontPublished`.
+  included is a per-currency choice, off by default.
+- Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
+  never the product's own logo or mark.
 - `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
   "Transfer a domain" opens the domain search with transfer preselected.
 - Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
