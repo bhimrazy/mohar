@@ -8,9 +8,9 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
   Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72).
-- Progress toward "a product a host would switch to": about 52/100 (independent Fable review said 50 on 2026-10-18; +2 for the install path). Core
-  logic is strong (251/287 P0 parity items built or partial), but there are no control-panel drivers, no real
-  registrars, no international gateway, no production install, and nothing has run outside the codespace.
+- Progress toward "a product a host would switch to": 55/100 by evidence (CEO review, 2026-10-19,
+  `docs/reviews/2026-10-19-ceo.md`): the score moves only when work is merged and proven. Built-but-unproven work
+  (simulators, the image, Stripe) is tracked separately; including it gives about 62.
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
   account created from an order, paid through Stripe, on a server the owner provides.
 
@@ -34,6 +34,13 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | Home page directions      | `design/home-page`             | Owner prefers A (Storefront), 2026-10-18. Designer revises A once against the marketing spec; then build.                                                                                                                                                                                                        |
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
+
+## Running now (2026-10-19 13:20 UTC)
+
+- Builds: email follow-up (template auto-update, invitation token); deployment D1; simulators S1 (stacked on #77);
+  cPanel PR 2 (`feature/provisioning-cpanel-2`); storefront home page direction A (remote agent, `feature/storefront-home`).
+- Reviews: #77 S0 re-check; #58 Stripe re-review; periodic round 1 (CEO, CTO, security, architecture → `docs/reviews/`).
+- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews").
 
 ## Next (in order, from the Fable review and the parity roadmap)
 

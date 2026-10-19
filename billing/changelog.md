@@ -15,7 +15,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   your text". The `/` route moved from `routes/web.php` to the Storefront module, and unknown public URLs now return
   the public 404 page (still HTTP 404). Footer company details read Settings → Company and the invoice seller
   details (legal name, address, phone, PAN, VAT number, GSTIN).
-
+- **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
+  unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
+  reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -93,6 +95,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   home page, store, domain prices, public knowledge-base articles and live announcements.
 
 ### Platform foundation
+
+- `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
+  They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
+  fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
+  logged as critical at boot. No integration uses them yet.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
