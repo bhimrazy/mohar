@@ -29,8 +29,9 @@ updates:
 
     # Base images in the FROM lines of deploy/Dockerfile (tag@digest). GitHub's docs do not say whether
     # COPY --from=<image> lines are updated too: check the composer image (only used that way) and the dev stage's
-    # node copies by hand when bumping (the dependency check covers them either way). Bump the FrankenPHP and
-    # Debian slim images together: the runtime stage reuses shared libraries built against that Debian snapshot.
+    # node copies by hand when bumping (the dependency check covers them either way). The FrankenPHP and Debian
+    # slim images move in one PR: the runtime stage reuses shared libraries built against that Debian snapshot,
+    # and the prod build fails (php -m check) if the two drift apart.
     - package-ecosystem: docker
       directory: /deploy
       target-branch: develop
@@ -38,6 +39,11 @@ updates:
           interval: weekly
       cooldown:
           default-days: 14
+      groups:
+          runtime-base:
+              patterns:
+                  - dunglas/frankenphp
+                  - debian
 
     - package-ecosystem: composer
       directory: /billing

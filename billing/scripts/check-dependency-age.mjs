@@ -6,8 +6,8 @@
  *   - Composer packages  (billing/composer.lock     → repo.packagist.org/p2 "time")
  *   - npm packages       (billing/package-lock.json → registry.npmjs.org time[version])
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
- *   - Docker images      (billing/compose.yaml, workflow and deploy/*.yaml `image:`, deploy/ Dockerfile `FROM` and
- *                         `--from=` → Docker Hub tag push date; digest required)
+ *   - Docker images      (billing/compose.yaml, workflow and deploy/*.yaml `image:`; `# syntax=`, `FROM` and
+ *                         `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest required)
  *   - Tools              (billing/.nvmrc → nodejs.org; setup-php `tools: composer:X` → GitHub release)
  * and when anything is not pinned or not bound to what is checked: action SHA = tag, image digest published
  * under its tag (index or platform digest), npm tarball URL + integrity = registry tarball of that name@version,
@@ -38,6 +38,7 @@ import {
     composerDistProblems,
     digestBelongsToTag,
     dockerfileImages,
+    isDockerfile,
     isExcepted,
     npmEntryProblems,
     npmIntegrityProblem,
@@ -91,10 +92,10 @@ const errors = [];
  * @typedef {{kind: 'composer'|'npm'|'action'|'image'|'tool', name: string, version: string, ref?: string, file: string, integrity?: string, dist?: object, source?: object}} Item
  * @param {(path: string) => string|null} read  file reader relative to the repository root
  * @param {() => string[]} listWorkflowFiles
- * @param {() => string[]} listDeployFiles  files under deploy/ (Dockerfiles and compose files)
+ * @param {() => string[]} listRepoFiles  every repository path (Dockerfiles anywhere, compose files in deploy/)
  * @returns {Item[]}
  */
-function collect(read, listWorkflowFiles, listDeployFiles) {
+function collect(read, listWorkflowFiles, listRepoFiles) {
     const items = [];
     const composerLock = parseJson(read(`${appDir}/composer.lock`));
     for (const pkg of [
@@ -133,11 +134,11 @@ function collect(read, listWorkflowFiles, listDeployFiles) {
         });
     }
 
-    const deployFiles = listDeployFiles();
+    const repoFiles = listRepoFiles();
     for (const file of [
         `${appDir}/compose.yaml`,
         ...listWorkflowFiles(),
-        ...deployFiles.filter((path) => /\.ya?ml$/.test(path)),
+        ...repoFiles.filter((path) => /^deploy\/.*\.ya?ml$/.test(path)),
     ]) {
         const text = read(file);
         if (text === null) {
@@ -175,11 +176,9 @@ function collect(read, listWorkflowFiles, listDeployFiles) {
         }
     }
 
-    for (const file of deployFiles.filter((path) =>
-        /(^|\/)Dockerfile[^/]*$/.test(path),
-    )) {
+    for (const file of repoFiles.filter(isDockerfile)) {
         const text = read(file);
-        if (text === null || file.endsWith('.dockerignore')) {
+        if (text === null) {
             continue;
         }
         for (const image of new Set(dockerfileImages(text))) {
@@ -220,9 +219,14 @@ const headItems = collect(
             ),
         ),
     () =>
-        readdirRecursive(join(repoRoot, 'deploy')).map((path) =>
-            relative(repoRoot, path),
-        ),
+        (
+            git(
+                ['ls-files', '--cached', '--others', '--exclude-standard'],
+                repoRoot,
+            ) ?? ''
+        )
+            .split('\n')
+            .filter(Boolean),
 );
 
 let baseLabel = 'all locked items';
@@ -234,15 +238,15 @@ if (!checkAll) {
         git(['ls-tree', '-r', '--name-only', base, '--', '.github'], repoRoot)
             ?.split('\n')
             .filter(Boolean) ?? [];
-    const baseDeployFiles =
-        git(['ls-tree', '-r', '--name-only', base, '--', 'deploy'], repoRoot)
+    const baseRepoFiles =
+        git(['ls-tree', '-r', '--name-only', base], repoRoot)
             ?.split('\n')
             .filter(Boolean) ?? [];
     const baseKeys = new Set(
         collect(
             (path) => git(['show', `${base}:${path}`], repoRoot, true),
             () => workflowFiles(baseFiles),
-            () => baseDeployFiles,
+            () => baseRepoFiles,
         ).map(key),
     );
     candidates = headItems.filter((item) => !baseKeys.has(key(item)));

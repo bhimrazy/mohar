@@ -156,8 +156,8 @@ function normalise(name, version) {
 }
 
 /**
- * External images a Dockerfile builds from, for the pinning and cooldown checks: `FROM <image>` (not `scratch`,
- * not an earlier stage) and `--from=<image>` in `COPY` / `RUN --mount`. Stage names and numeric stage indexes
+ * External images a Dockerfile builds from, for the pinning and cooldown checks: a `# syntax=<image>` parser
+ * directive, `FROM <image>` (not `scratch`, not an earlier stage) and `--from=<image>` in `COPY` / `RUN --mount`. Stage names and numeric stage indexes
  * are skipped. Line continuations are joined and comments ignored. A reference that uses a build argument
  * (`$VAR`) is returned unchanged, so it fails the digest check instead of escaping it.
  *
@@ -167,6 +167,19 @@ function normalise(name, version) {
 export function dockerfileImages(text) {
     const stages = new Set();
     const images = [];
+
+    // Parser directives (`# syntax=<frontend image>`) are only valid before the first instruction or comment;
+    // BuildKit pulls the syntax frontend as an image, so it is checked like a FROM.
+    for (const line of text.split(/\r?\n/)) {
+        const directive = line.match(/^#\s*([a-z]+)\s*=\s*(\S+)\s*$/i);
+        if (!directive) {
+            break;
+        }
+        if (directive[1].toLowerCase() === 'syntax') {
+            images.push(directive[2]);
+        }
+    }
+
     const lines = text
         .replace(/\\[ \t]*\r?\n/g, ' ')
         .split(/\r?\n/)
@@ -210,4 +223,21 @@ export function dockerfileImages(text) {
     }
 
     return images;
+}
+
+/**
+ * Whether a repository path is a Dockerfile or Containerfile (`Dockerfile`, `Dockerfile.prod`, `worker.Dockerfile`,
+ * `Containerfile`), not its `.dockerignore`.
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+export function isDockerfile(path) {
+    const name = path.split('/').pop() ?? '';
+    return (
+        !name.endsWith('.dockerignore') &&
+        /^(Dockerfile|Containerfile)([.-].+)?$|\.(Dockerfile|Containerfile)$/.test(
+            name,
+        )
+    );
 }

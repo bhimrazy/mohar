@@ -3,6 +3,7 @@ import {
     composerDistProblems,
     digestBelongsToTag,
     dockerfileImages,
+    isDockerfile,
     isExcepted,
     npmEntryProblems,
     npmIntegrityProblem,
@@ -191,5 +192,38 @@ describe('dockerfileImages', () => {
                 'ARG PHP=8.4\nFROM php:${PHP}-cli\nFROM debian:trixie-slim',
             ),
         ).toEqual(['php:${PHP}-cli', 'debian:trixie-slim']);
+    });
+});
+
+describe('dockerfileImages parser directives', () => {
+    it('checks a # syntax= frontend like a FROM, only before the first instruction', () => {
+        const dockerfile = [
+            '# syntax=docker/dockerfile:1',
+            '# escape=\\',
+            'FROM scratch',
+            '# syntax=ignored/after:instructions',
+        ].join('\n');
+
+        expect(dockerfileImages(dockerfile)).toEqual(['docker/dockerfile:1']);
+    });
+});
+
+describe('isDockerfile', () => {
+    it('matches Dockerfile and Containerfile names anywhere, not their ignore files', () => {
+        expect(
+            [
+                'deploy/Dockerfile',
+                'deploy/Dockerfile.prod',
+                'tools/worker.Dockerfile',
+                'Containerfile',
+                'deploy/Dockerfile.dockerignore',
+                'billing/docs/dockerfile-notes.md',
+            ].filter(isDockerfile),
+        ).toEqual([
+            'deploy/Dockerfile',
+            'deploy/Dockerfile.prod',
+            'tools/worker.Dockerfile',
+            'Containerfile',
+        ]);
     });
 });
