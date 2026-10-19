@@ -426,6 +426,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Fixed: a parallel test worker ran out of memory (1 GB) once #69 added about 400 tests. Pest's arch plugin cached
+  about 770 MB of parsed source in the worker that ran `tests/Arch` and never freed it. Each Arch file now releases
+  the cache (`releaseArchCache()` in `tests/Pest.php`), and the rules are split across three files. The worst worker
+  peak with #69 merged fell from 1,019 MB to about 330 MB of PHP memory (#75).
+
 - PostgreSQL 18.6 (alpine, digest-pinned) in `compose.yaml` next to RustFS, with a `billing_test` database;
   `.env.example` documents switching `DB_CONNECTION=pgsql`. SQLite stays the default for dev and tests.
 - CI moved to the repository root (`.github/workflows/ci.yml`, the kit's `billing/.github` workflow was
