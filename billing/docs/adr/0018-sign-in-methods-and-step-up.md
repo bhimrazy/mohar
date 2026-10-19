@@ -103,10 +103,10 @@ registers its key with `EmailTemplates`, and Core's fallback renders the same su
 
 A login always keeps at least one way to sign in:
 
-| Method          | Counts when                                                        |
-| --------------- | ------------------------------------------------------------------ |
-| Password        | `hasPassword()`                                                    |
-| Passkey         | at least one registered passkey                                    |
+| Method          | Counts when                                                            |
+| --------------- | ---------------------------------------------------------------------- |
+| Password        | `hasPassword()`                                                        |
+| Passkey         | at least one registered passkey                                        |
 | Social identity | its provider is enabled now, and staff sign-in is on for a staff login |
 
 - `App\Contracts\Auth\SignInMethodCounter::count(User): int` is a kernel contract. Core counts passwords and
@@ -120,16 +120,17 @@ A login always keeps at least one way to sign in:
 ## Consequences
 
 - PR 0 (kernel, CTO) lands before the social sign-in module. It contains:
-  - `SignInMethods` and `SignInMethod`;
-  - `SignInGate` (Platform implementation, Core null);
-  - `CompleteSignIn`;
-  - `password.recent` in the kernel;
-  - `users.password` nullable and `hasPassword()`;
-  - `RegisterClientAccount` (replacing two copies);
-  - `SecurityNotice` in Core;
-  - `SignInMethodCounter`.
+    - `SignInMethods` and `SignInMethod`;
+    - `SignInGate` (Platform implementation, Core null);
+    - `CompleteSignIn`;
+    - `password.recent` in the kernel;
+    - `users.password` nullable and `hasPassword()`;
+    - `RegisterClientAccount` (replacing two copies);
+    - `SecurityNotice` in Core;
+    - `SignInMethodCounter`.
 
-  It closes #81.
+    It closes #81.
+
 - Platform keeps the lockout policy, staff 2FA enforcement and the settings UI. It loses the step-up middleware and
   the notice class.
 - Contract evolution follows ADR 0010. `SignInMethod` gains only trailing defaulted fields. A new kind of method
