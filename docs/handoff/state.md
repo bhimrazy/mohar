@@ -42,8 +42,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
 - Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe (#58, fixture-tested, not live-verified) and deployment D1 (#79) merged; CI limit 25 min (#93).
 - Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews"). Round 1 ran 2026-10-19 13:20 UTC
-  (`docs/reviews/2026-10-19-*.md`); the 14:20 round was skipped because only S0 (#77, already reviewed) and docs had
-  merged since. Next round at the 02:17 slot.
+  (`docs/reviews/2026-10-19-*.md`); the 14:20 and 14:47 rounds were skipped: everything merged since round 1 (S0 #77, Stripe #58,
+  deployment D1 #79, CI timeout #93, docs) had its own security and architecture or board review before merging. Next round at the 02:17 slot.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
