@@ -133,18 +133,18 @@ Locally (`artisan serve`, Vite) there is no proxy, and no proxies are trusted, s
 Keep it that way unless a proxy really sits in front of the app: trusting `X-Forwarded-For` from anyone would let
 clients spoof their IP.
 
-Behind a load balancer or reverse proxy (production, or a local Traefik/nginx), configure trusted proxies in
-`bootstrap/app.php`. Use the proxy's address range, never `*` on a public network:
+Behind a load balancer or reverse proxy (production, or a local Traefik/nginx), set `TRUSTED_PROXIES` to the
+proxy's address or range, comma-separated (`config/trustedproxy.php`). Never use `*` on a network others can
+reach:
 
-```php
-->withMiddleware(function (Middleware $middleware): void {
-    $middleware->trustProxies(
-        at: ['10.0.0.0/8'], // the load balancer's private range
-        headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST
-            | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO,
-    );
-})
+```dotenv
+# The compose network of the edge proxy, or the load balancer's private range
+TRUSTED_PROXIES=172.18.0.0/16
 ```
+
+Only requests that arrive from those addresses may set the client IP, scheme, host and port; the
+`X-Forwarded-Prefix` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value is read per request,
+so it also works with a cached configuration.
 
 Without it, `request()->ip()` is the proxy's address and `isSecure()` is false. So:
 
@@ -154,6 +154,14 @@ Without it, `request()->ip()` is the proxy's address and `isSecure()` is false. 
 
 Check after deploying: sign in, then confirm that the activity log shows your real IP and the response has
 `Strict-Transport-Security`.
+
+## Containerised development (optional)
+
+`deploy/compose.dev.yaml` runs the app from the image's `dev` target with `billing/` bind-mounted, plus Vite
+for HMR, as your own user: `HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose -f deploy/compose.dev.yaml up
+--build app vite`, then http://localhost:8080 (`APP_PORT` changes the port). It reads `billing/.env`; the
+PostgreSQL and RustFS services of `billing/compose.yaml` are included and start with a plain `up`. The image
+itself is described in [container-image.md](container-image.md).
 
 ## Worktree workflow
 
