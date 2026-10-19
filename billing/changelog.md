@@ -109,8 +109,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   us, and the phone menu lists the cart. Log-in and sign-up pages link back to the website.
 - Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
   never the product's own logo or mark.
-- Admin → Website: headline, text, sections on/off and order, why-us points, featured groups and first billing
-  cycle, news counts, header product menu, legal links, page title and description, and price display per currency
+- Admin → Website: headline, text, sections on/off and order, trust facts, why-us points, the call-to-action band,
+  featured groups and first billing cycle, news counts, header product menu, legal links, page title and description, and price display per currency
   (tax included or not, and the tax note's wording). Changes are saved as a draft, previewed at a signed staff-only
   link under `/admin/website/preview` (60 minutes, not indexed, no Referer, admin sign-in checks) and published after a
   dialog that lists the changes. Publishing refuses a draft that was saved again after the dialog opened, is

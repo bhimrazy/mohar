@@ -38,7 +38,8 @@ it('requires the website permission to view or edit the draft', function (): voi
         ->component('admin/storefront/website')
         ->where('needs_text', true)
         ->where('draft', null)
-        ->where('can_publish', false));
+        ->where('can_publish', false)
+        ->where('options.currencies', fn ($currencies) => collect($currencies)->pluck('market', 'code')->all() === ['USD' => null, 'NPR' => 'NP']));
 });
 
 it('keeps the live page until the draft is published, then lists the changes and records the publish', function (): void {
@@ -84,7 +85,8 @@ it('accepts plain text only, visible groups, known currencies and https legal li
         'featured' => ['group_ids' => [$hidden->id]],
         'legal' => ['terms_url' => 'http://example.com/terms'],
         'prices' => ['tax_inclusive' => ['EUR']],
-    ]))->assertSessionHasErrors(['hero.headline', 'featured.group_ids.0', 'legal.terms_url', 'prices.tax_inclusive.0']);
+        'trust_facts' => [['label' => '<b>Since</b>', 'value' => '2014']],
+    ]))->assertSessionHasErrors(['hero.headline', 'featured.group_ids.0', 'legal.terms_url', 'prices.tax_inclusive.0', 'trust_facts.0.label']);
 
     expect(Revision::query()->exists())->toBeFalse();
 });

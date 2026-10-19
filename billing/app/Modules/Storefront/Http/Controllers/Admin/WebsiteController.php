@@ -61,6 +61,8 @@ class WebsiteController extends Controller
                 'sections' => SiteContent::SECTIONS,
                 'currencies' => array_map(fn (string $code): array => [
                     'code' => $code,
+                    // Only a currency priced for one market (storefront.tax_markets) can show prices with tax.
+                    'market' => config("storefront.tax_markets.{$code}"),
                     'exclusive_note' => $prices->forCurrency($code, $withoutNotes)['note'],
                     'inclusive_note' => $prices->forCurrency($code, $allInclusive)['note'],
                 ], $codes),
