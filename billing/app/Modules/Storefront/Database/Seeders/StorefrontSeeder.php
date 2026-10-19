@@ -31,6 +31,11 @@ class StorefrontSeeder extends DemoSeeder
             ['icon' => 'refresh', 'title' => 'Free site transfer', 'text' => 'We move your website and email from your current host.'],
             ['icon' => 'card', 'title' => 'Pay your way', 'text' => 'Pay by card, bank transfer or local wallets, in your currency.'],
         ];
+        $content['trust_facts'] = [
+            ['label' => 'Hosting since', 'value' => '2014'],
+            ['label' => 'Data centres', 'value' => 'Kathmandu, Frankfurt'],
+            ['label' => 'Support', 'value' => 'Every day'],
+        ];
         $content['seo']['description'] = 'Web hosting, domains and SSL with clear prices, local payment options and support every day.';
 
         Revision::query()->create([

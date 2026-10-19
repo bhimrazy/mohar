@@ -90,7 +90,7 @@ it('lists up to three product groups as header links and more in one menu, witho
         ->where('site.currency', 'NPR')
         ->where('site.products.groups.3', fn ($group) => $group['name'] === 'Dedicated'
             && $group['tagline'] === 'Dedicated for everyone'
-            && $group['from'] === ['amount' => 900_000, 'cycle' => 'monthly', 'per_month' => false]));
+            && $group['from'] === ['amount' => 900_000, 'cycle' => 'monthly', 'per_month' => false, 'setup' => 0]));
 });
 
 it('prices plan cards per month with the billed total and renewal for the selected cycle', function (): void {
@@ -104,10 +104,13 @@ it('prices plan cards per month with the billed total and renewal for the select
         ->where('hero.plan.plan.featured', true));
 });
 
-it('states tax per currency and shows tax-inclusive prices only where the host turned it on', function (): void {
+it('states tax per currency for its own market and shows tax-inclusive prices only where the host turned it on', function (): void {
     app(Settings::class)->set('billing.tax.enabled', true);
-    app(Settings::class)->set('core.default_country', 'NP');
     TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
+    TaxRule::factory()->create(['name' => 'GST', 'country' => 'IN', 'rate' => '18.000']);
+    Currency::factory()->inr()->create();
+    $this->get('/')->assertInertia(fn (Assert $page) => $page->where('site.tax_note', 'Tax added at checkout where applicable'));
+    $this->withSession([CartManager::SESSION_CURRENCY => 'INR'])->get('/')->assertInertia(fn (Assert $page) => $page->where('site.tax_note', '+18% GST at checkout'));
     storefrontPlan(amount: 1000);
     $this->withSession([CartManager::SESSION_CURRENCY => 'NPR']);
 
@@ -137,13 +140,31 @@ it('shows eSewa and Khalti only to visitors paying in NPR, with their official l
             && collect($marks)->firstWhere('key', 'bank_transfer')['logo'] === null));
 });
 
-it('keeps network status off the home page for guests while it requires login', function (): void {
+it('keeps incident details off the home page for guests while network status requires login', function (): void {
     Announcement::factory()->create(['is_published' => true, 'published_at' => now()->subDay()]);
 
     $this->get('/')->assertInertia(fn (Assert $page) => $page
         ->where('news.status', null)
         ->has('news.announcements', 1)
-        ->where('site.support', fn ($links) => ! collect($links)->contains('label', 'Network status')));
+        ->where('site.support', fn ($links) => collect($links)->firstWhere('label', 'Network status')['badge'] === null));
+});
+
+it('fills the footer from Settings → Company and shows the trust facts and call to action band', function (): void {
+    foreach (['core.company_email' => 'help@acme.test', 'core.support_hours' => 'Sunday–Friday, 9:00–18:00', 'core.whatsapp' => '+977 9800000000',
+        'core.registration_number' => '123456/78', 'core.social_facebook' => 'https://facebook.com/acme', 'billing.seller.vat_number' => '600000001'] as $key => $value) {
+        app(Settings::class)->set($key, $value);
+    }
+    storefrontPlan(amount: 1000);
+    publishContent(['trust_facts' => [['label' => 'Hosting since', 'value' => '2014']]]);
+
+    $this->get('/')->assertInertia(fn (Assert $page) => $page
+        ->where('site.company.hours', 'Sunday–Friday, 9:00–18:00')
+        ->where('site.company.whatsapp', '+977 9800000000')
+        ->where('site.company.social', [['label' => 'Facebook', 'url' => 'https://facebook.com/acme']])
+        ->where('site.company.ids', fn ($ids) => collect($ids)->pluck('kind')->all() === ['vat', 'registration'])
+        ->where('site.support', fn ($links) => collect($links)->firstWhere('label', 'Contact us')['url'] === 'mailto:help@acme.test')
+        ->where('sections', fn ($sections) => $sections[0] === 'trust_facts' && in_array('cta_band', $sections->all(), true))
+        ->where('cta_band.from.amount', 1000));
 });
 
 it('answers unknown public URLs with the public 404 page and noindex', function (): void {

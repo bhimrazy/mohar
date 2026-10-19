@@ -1,6 +1,12 @@
 /** Shapes sent by the Storefront module. Amounts are integer minor units, already in the visitor's price display. */
 
-export type FromPrice = { amount: number; cycle: string; per_month: boolean };
+export type FromPrice = {
+    amount: number;
+    cycle: string;
+    per_month: boolean;
+    /** One-time setup fee on that price (0 when none). */
+    setup: number;
+};
 
 export type SiteLink = { label: string; url: string; badge: number | null };
 
@@ -25,7 +31,11 @@ export type CompanyDetails = {
     address: string | null;
     email: string | null;
     phone: string | null;
+    whatsapp: string | null;
+    /** Support hours as the host wrote them. */
+    hours: string | null;
     ids: { kind: string; label: string; value: string }[];
+    social: { label: string; url: string }[];
 };
 
 /** The shared `site` prop on public pages (public layout header and footer). */
@@ -52,6 +62,7 @@ export type Site = {
         login_url: string | null;
         register_url: string | null;
         reset_url: string | null;
+        invoices_url: string | null;
     };
 };
 

@@ -15,6 +15,7 @@ import {
     DomainSearch,
     FromPriceText,
     PaymentMarks,
+    PeriodSuffix,
     PlanCard,
     TaxNote,
 } from '@/components/storefront/pricing';
@@ -53,7 +54,14 @@ type Props = {
         pricing_url: string;
     };
     sections: string[];
+    trust_facts: { label: string; value: string }[];
     why_us: { icon: string; title: string; text: string }[];
+    cta_band: {
+        headline: string;
+        button: string;
+        from: FromPrice;
+        url: string | null;
+    } | null;
     featured_plans: FeaturedGroup[];
     more_products: {
         name: string;
@@ -89,6 +97,16 @@ type Props = {
 };
 
 const shell = 'mx-auto w-full max-w-6xl px-4 md:px-6';
+
+/** Cycle switch labels short enough for one row at 375px; the full name is the accessible label. */
+const SHORT_CYCLES: Record<string, string> = {
+    monthly: 'Monthly',
+    quarterly: '3 months',
+    semiannually: '6 months',
+    annually: 'Yearly',
+    biennially: '2 years',
+    triennially: '3 years',
+};
 
 /** Public home page, direction A "Storefront" (docs/design/home/home-page.md). */
 export default function Home(props: Props) {
@@ -217,6 +235,20 @@ export default function Home(props: Props) {
                         );
                     case 'payments':
                         return <WaysToPay key={key} currency={currency} />;
+                    case 'trust_facts':
+                        return (
+                            <TrustFacts key={key} facts={props.trust_facts} />
+                        );
+                    case 'cta_band':
+                        return (
+                            props.cta_band && (
+                                <CtaBand
+                                    key={key}
+                                    band={props.cta_band}
+                                    currency={currency}
+                                />
+                            )
+                        );
                     default:
                         return null;
                 }
@@ -400,15 +432,16 @@ function PlanGroup({
                         value={cycle ?? undefined}
                         onValueChange={(value) => value && setCycle(value)}
                         aria-label="Billing cycle"
-                        className="flex-wrap bg-card"
+                        className="max-w-full overflow-x-auto bg-card"
                     >
                         {cycles.map((value) => (
                             <ToggleGroupItem
                                 key={value}
                                 value={value}
-                                className="h-10 px-3"
+                                aria-label={cycleLabel(value)}
+                                className="h-10 px-2.5 text-sm sm:px-3"
                             >
-                                {cycleLabel(value)}
+                                {SHORT_CYCLES[value] ?? cycleLabel(value)}
                             </ToggleGroupItem>
                         ))}
                     </ToggleGroup>
@@ -476,6 +509,15 @@ function MoreProducts({
                                             currency={currency}
                                         />
                                     )}
+                                    {item.from && item.from.setup > 0 && (
+                                        <span className="w-full text-xs text-muted-foreground">
+                                            Setup fee{' '}
+                                            <Money
+                                                amount={item.from.setup}
+                                                currency={currency}
+                                            />
+                                        </span>
+                                    )}
                                     <span className="text-xs text-muted-foreground">
                                         {item.count}{' '}
                                         {item.name === 'Domains'
@@ -513,6 +555,7 @@ const HELP_TILES: Record<string, { icon: LucideIcon; description: string }> = {
         icon: LifeBuoy,
         description: 'Ask our team about anything.',
     },
+    'Contact us': { icon: Mail, description: 'Questions before you buy.' },
 };
 
 function Help() {
@@ -522,8 +565,6 @@ function Help() {
         return null;
     }
 
-    const email = site.company.email;
-
     return (
         <section className="py-14">
             <div className={shell}>
@@ -532,57 +573,46 @@ function Help() {
                     description="Answers, news and a way to reach us."
                 />
                 <ul className="grid grid-cols-2 gap-3 md:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
-                    {[
-                        ...site.support.map((link) => ({
+                    {site.support
+                        .map((link) => ({
                             ...link,
                             ...HELP_TILES[link.label],
                             href: link.url,
-                        })),
-                        ...(email
-                            ? [
-                                  {
-                                      label: 'Contact us',
-                                      badge: null,
-                                      icon: Mail,
-                                      description: 'Questions before you buy.',
-                                      href: `mailto:${email}`,
-                                  },
-                              ]
-                            : []),
-                    ].map((tile) => {
-                        const Icon = tile.icon ?? LifeBuoy;
+                        }))
+                        .map((tile) => {
+                            const Icon = tile.icon ?? LifeBuoy;
 
-                        return (
-                            <li key={tile.label}>
-                                <a
-                                    href={tile.href}
-                                    className="flex h-full flex-col gap-2 rounded-xl border bg-card p-4 elevation-card transition-colors hover:border-primary focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-                                >
-                                    <Icon
-                                        className="size-5 text-primary"
-                                        aria-hidden="true"
-                                    />
-                                    <span className="font-medium">
-                                        {tile.label}
-                                    </span>
-                                    <span className="text-sm text-muted-foreground">
-                                        {tile.description}
-                                    </span>
-                                    {tile.badge && (
-                                        <Badge
-                                            variant="secondary"
-                                            className="w-fit bg-warning-subtle text-warning-text"
-                                        >
-                                            {tile.badge} open{' '}
-                                            {tile.badge === 1
-                                                ? 'issue'
-                                                : 'issues'}
-                                        </Badge>
-                                    )}
-                                </a>
-                            </li>
-                        );
-                    })}
+                            return (
+                                <li key={tile.label}>
+                                    <a
+                                        href={tile.href}
+                                        className="flex h-full flex-col gap-2 rounded-xl border bg-card p-4 elevation-card transition-colors hover:border-primary focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                                    >
+                                        <Icon
+                                            className="size-5 text-primary"
+                                            aria-hidden="true"
+                                        />
+                                        <span className="font-medium">
+                                            {tile.label}
+                                        </span>
+                                        <span className="text-sm text-muted-foreground">
+                                            {tile.description}
+                                        </span>
+                                        {tile.badge && (
+                                            <Badge
+                                                variant="secondary"
+                                                className="w-fit bg-warning-subtle text-warning-text"
+                                            >
+                                                {tile.badge} open{' '}
+                                                {tile.badge === 1
+                                                    ? 'issue'
+                                                    : 'issues'}
+                                            </Badge>
+                                        )}
+                                    </a>
+                                </li>
+                            );
+                        })}
                 </ul>
             </div>
         </section>
@@ -728,6 +758,66 @@ function News({ news }: { news: NonNullable<Props['news']> }) {
                         )}
                     </NewsCard>
                 )}
+            </div>
+        </section>
+    );
+}
+
+/** Short facts the host states ("Hosting since 2014"), under the headline. */
+function TrustFacts({ facts }: { facts: Props['trust_facts'] }) {
+    return (
+        <section aria-label="About us" className="border-b">
+            <dl className={cn(shell, 'flex flex-wrap gap-x-10 gap-y-3 py-5')}>
+                {facts.map((fact) => (
+                    <div key={fact.label}>
+                        <dt className="text-xs text-muted-foreground">
+                            {fact.label}
+                        </dt>
+                        <dd className="font-semibold">{fact.value}</dd>
+                    </div>
+                ))}
+            </dl>
+        </section>
+    );
+}
+
+function CtaBand({
+    band,
+    currency,
+}: {
+    band: NonNullable<Props['cta_band']>;
+    currency: string;
+}) {
+    return (
+        <section className="pb-14">
+            <div className={cn(shell)}>
+                <div className="flex flex-col gap-4 rounded-2xl bg-accent px-6 py-8 text-accent-foreground sm:flex-row sm:items-center sm:justify-between md:px-10">
+                    <div className="space-y-1">
+                        <h2 className="font-display text-2xl font-semibold tracking-tight">
+                            {band.headline}
+                        </h2>
+                        <p className="text-sm">
+                            Hosting from{' '}
+                            <Money
+                                amount={band.from.amount}
+                                currency={currency}
+                                className="font-semibold"
+                            />
+                            <PeriodSuffix
+                                cycle={band.from.cycle}
+                                perMonth={band.from.per_month}
+                            />
+                        </p>
+                    </div>
+                    {band.url && (
+                        <Button asChild size="lg">
+                            <Link href={band.url}>
+                                {band.button}
+                                <ArrowRight aria-hidden="true" />
+                            </Link>
+                        </Button>
+                    )}
+                </div>
             </div>
         </section>
     );

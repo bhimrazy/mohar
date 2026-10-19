@@ -141,7 +141,7 @@ class BillingSeeder extends DemoSeeder
         ]);
         if (self::sandboxAllowed()) {
             Gateway::query()->firstOrCreate(['key' => SandboxCardDriver::KEY], [
-                'display_name' => 'Card (sandbox)', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0,
+                'display_name' => 'Card', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0,
                 'config' => ['webhook_secret' => 'whsec_demo', 'fee_percent' => '2.9'],
             ]);
         }

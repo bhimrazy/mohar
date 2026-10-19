@@ -5,23 +5,24 @@ namespace App\Modules\Storefront\Services;
 use App\Contracts\Billing\TaxCalculator;
 use App\Data\Billing\InvoiceLineData;
 use App\Enums\BillableType;
-use App\Modules\Core\Support\Settings;
 
 /**
  * How prices read on public pages in one currency (spec §5.4): with or without tax, and the tax statement shown under
- * every price group and in the footer. Rates come from Billing's tax rules for the company's default country, so the
- * statement matches what checkout charges a visitor there. Showing prices with tax is a per-currency choice, off by
- * default; when Billing already prices tax-inclusive, amounts are shown as they are.
+ * every price group and in the footer. Each currency is priced for its own market (`storefront.tax_markets`: NPR for
+ * Nepal, INR for India), and the rates come from Billing's tax rules for that country: "+13% VAT at checkout" for NPR,
+ * "+18% GST at checkout" for INR. A currency sold across markets (USD) gets the neutral statement. Showing prices with
+ * tax is a per-currency choice, off by default; when Billing already prices tax-inclusive, amounts are shown as they
+ * are. Until the TaxDisplay contract (spec K6) exists this probes TaxCalculator with one taxable line.
  */
 class PriceDisplay
 {
     private const BASE = 1_000_000;
 
-    public function __construct(private Settings $settings) {}
+    public const NEUTRAL_NOTE = 'Tax added at checkout where applicable';
 
     /**
      * @param  array<string, mixed>  $content  normalised site content
-     * @return array{multiplier: int, note: string|null, inclusive: bool}
+     * @return array{multiplier: int, note: string, inclusive: bool}
      */
     public function forCurrency(string $currency, array $content): array
     {
@@ -33,7 +34,7 @@ class PriceDisplay
 
         $note = $content['prices']['notes'][$currency] ?? null;
         $note ??= match (true) {
-            $taxes === [] => null,
+            $taxes === [] => self::NEUTRAL_NOTE,
             $inclusive => "Prices include {$label}",
             default => "+{$label} at checkout",
         };
@@ -64,8 +65,13 @@ class PriceDisplay
             return [[], self::BASE];
         }
 
-        $country = $this->settings->get('core.default_country');
-        $totals = app(TaxCalculator::class)->calculate([new InvoiceLineData('Price', self::BASE, billableType: BillableType::Service)], $currency, is_string($country) ? $country : null, null);
+        $country = config('storefront.tax_markets.'.strtoupper($currency));
+
+        if (! is_string($country) || $country === '') {
+            return [[], self::BASE];
+        }
+
+        $totals = app(TaxCalculator::class)->calculate([new InvoiceLineData('Price', self::BASE, billableType: BillableType::Service)], $currency, $country, null);
         $taxes = array_values(array_filter($totals->taxes, fn (array $tax): bool => $tax['rate'] > 0));
 
         return [array_map(fn (array $tax): array => ['name' => $tax['name'], 'rate' => (float) $tax['rate']], $taxes), $totals->total];

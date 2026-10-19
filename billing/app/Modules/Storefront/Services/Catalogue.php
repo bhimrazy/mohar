@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Route;
  * on. Both are read through Settings until the TaxDisplay contract (spec K6) exists.
  *
  * @phpstan-type Plan array{id: int, name: string, tagline: string|null, features: list<string>, featured: bool, taxable: bool, in_stock: bool, url: string, pricing: list<array{cycle: string, recurring: int, setup: int, monthly: int|null}>}
- * @phpstan-type Group array{id: int, name: string, slug: string, tagline: string|null, url: string, taxable: bool, from: array{amount: int, cycle: string, per_month: bool}|null, plans: list<Plan>}
+ * @phpstan-type Group array{id: int, name: string, slug: string, tagline: string|null, url: string, taxable: bool, from: array{amount: int, cycle: string, per_month: bool, setup: int}|null, plans: list<Plan>}
  */
 class Catalogue
 {
@@ -93,7 +93,7 @@ class Catalogue
         $description = $this->text($product['description'] ?? null);
         $tagline = $this->text($product['tagline'] ?? null);
         $features = $description !== null && mb_strlen($description) <= 240 && ! str_contains($description, '#')
-            ? array_slice(array_values(array_filter(array_map(trim(...), preg_split('/\s*(?:,|·|•|\R)\s*/u', $description) ?: []))), 0, 6)
+            ? array_slice(array_values(array_filter(array_map(fn (string $feature): string => mb_ucfirst(trim($feature)), preg_split('/\s*(?:,|·|•|\R)\s*/u', $description) ?: []))), 0, 6)
             : [];
 
         return [
@@ -124,7 +124,7 @@ class Catalogue
      * amount a visitor can pay for any cycle.
      *
      * @param  list<Plan>  $plans
-     * @return array{amount: int, cycle: string, per_month: bool}|null
+     * @return array{amount: int, cycle: string, per_month: bool, setup: int}|null
      */
     private function from(array $plans): ?array
     {
@@ -133,8 +133,8 @@ class Catalogue
         foreach ($plans as $plan) {
             foreach ($plan['pricing'] as $row) {
                 $candidate = $row['monthly'] !== null
-                    ? ['amount' => $row['monthly'], 'cycle' => $row['cycle'], 'per_month' => true]
-                    : ['amount' => $row['recurring'], 'cycle' => $row['cycle'], 'per_month' => false];
+                    ? ['amount' => $row['monthly'], 'cycle' => $row['cycle'], 'per_month' => true, 'setup' => $row['setup']]
+                    : ['amount' => $row['recurring'], 'cycle' => $row['cycle'], 'per_month' => false, 'setup' => $row['setup']];
 
                 if ($best === null || ($candidate['per_month'] && ! $best['per_month']) || ($candidate['per_month'] === $best['per_month'] && $candidate['amount'] < $best['amount'])) {
                     $best = $candidate;

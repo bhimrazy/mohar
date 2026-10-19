@@ -54,6 +54,7 @@ class SiteData
                 'login_url' => $this->url('login'),
                 'register_url' => $this->url('register'),
                 'reset_url' => $this->url('password.request'),
+                'invoices_url' => $this->url('client.invoices.index'),
             ],
         ];
     }
@@ -89,8 +90,10 @@ class SiteData
                     ['Knowledge base', 'support.kb.index'],
                     ['Announcements', 'support.announcements.index'],
                 ]),
-                ...($status === null ? [] : $this->links([['Network status', 'support.network.index']], $open)),
+                // Always listed; while network status needs login the link leads to sign-in and shows no count.
+                ...$this->links([['Network status', 'support.network.index']], $open),
                 ...$this->links([['Open a ticket', 'support.tickets.create']]),
+                ...($company['email'] === null ? [] : [['label' => 'Contact us', 'url' => 'mailto:'.$company['email'], 'badge' => null]]),
             ],
             'company' => $company,
             'payments' => $this->paymentMarks($currency),
@@ -107,14 +110,14 @@ class SiteData
      * Company details for the footer and the Organization markup. Read from Settings → Company and the invoice
      * seller details until the company profile (spec K1) replaces both.
      *
-     * @return array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, ids: list<array{kind: string, label: string, value: string}>}
+     * @return array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, whatsapp: string|null, hours: string|null, ids: list<array{kind: string, label: string, value: string}>, social: list<array{label: string, url: string}>}
      */
     public function company(): array
     {
         $text = fn (string $key): ?string => is_string($value = $this->settings->get($key)) && trim($value) !== '' ? trim($value) : null;
         $ids = [];
 
-        foreach (['pan' => ['PAN', 'billing.seller.pan'], 'vat' => ['VAT no.', 'billing.seller.vat_number'], 'gstin' => ['GSTIN', 'billing.seller.gstin']] as $kind => [$label, $key]) {
+        foreach (['pan' => ['PAN', 'billing.seller.pan'], 'vat' => ['VAT no.', 'billing.seller.vat_number'], 'gstin' => ['GSTIN', 'billing.seller.gstin'], 'registration' => ['Company reg. no.', 'core.registration_number']] as $kind => [$label, $key]) {
             if (($value = $text($key)) !== null) {
                 $ids[] = ['kind' => $kind, 'label' => $label, 'value' => $value];
             }
@@ -126,7 +129,14 @@ class SiteData
             'address' => $text('billing.seller.address'),
             'email' => $text('billing.seller.email') ?? $text('core.company_email'),
             'phone' => $text('billing.seller.phone'),
+            'whatsapp' => $text('core.whatsapp'),
+            'hours' => $text('core.support_hours'),
             'ids' => $ids,
+            'social' => array_values(array_filter(array_map(
+                fn (string $label, string $key): ?array => ($url = $text($key)) !== null && str_starts_with($url, 'https://') ? ['label' => $label, 'url' => $url] : null,
+                ['Facebook', 'Instagram', 'LinkedIn', 'X'],
+                ['core.social_facebook', 'core.social_instagram', 'core.social_linkedin', 'core.social_x'],
+            ))),
         ];
     }
 

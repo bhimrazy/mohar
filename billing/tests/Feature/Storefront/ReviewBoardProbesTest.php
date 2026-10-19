@@ -120,7 +120,7 @@ it('[404] a 404 thrown inside a public route renders the public page; a PUT-only
 it('[tax] Billing in inclusive mode: amounts unchanged and "Prices include" note', function (): void {
     app(Settings::class)->set('billing.tax.enabled', true);
     app(Settings::class)->set('billing.tax.mode', 'inclusive');
-    app(Settings::class)->set('core.default_country', 'NP');
+    config(['storefront.tax_markets.USD' => 'NP']); // these probes price in USD for the Nepal market
     TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
     rbProbePlan(BillingCycle::Monthly, 1130);
     app(StorefrontCache::class)->flush();
@@ -132,7 +132,7 @@ it('[tax] Billing in inclusive mode: amounts unchanged and "Prices include" note
 
 it('[tax] tax-inclusive display leaves untaxed products and untaxed domains at their checkout price', function (): void {
     app(Settings::class)->set('billing.tax.enabled', true);
-    app(Settings::class)->set('core.default_country', 'NP');
+    config(['storefront.tax_markets.USD' => 'NP']); // these probes price in USD for the Nepal market
     app(Settings::class)->set('orders.domains_taxable', false);
     TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
     $product = rbProbePlan(BillingCycle::Monthly, 1000);

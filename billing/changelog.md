@@ -12,7 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
   `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
   other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
-  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists.
+  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists. Settings → Company gains support
+  hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
+  empty fields are not shown. The demo "Card (sandbox)" gateway is now named "Card" (its public name).
 - **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
   server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
   housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
@@ -92,9 +94,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
   area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
   visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
-- Price cards show the per-month price, the amount billed, "Renews at" and any setup fee; the tax statement comes
-  from Billing's tax rules for the company's default country ("+13% VAT at checkout"). Showing prices with tax
-  included is a per-currency choice, off by default.
+- Price cards show the cycle price, "Renews at" and any setup fee; with `catalog.show_monthly_breakdown` on they lead
+  with the per-month price and "Billed …". Each currency states tax for its own market from Billing's tax rules
+  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR; "Tax added at checkout
+  where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
+  default, and adds tax only to taxed products (and to domains while domains are taxed).
+- Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
+  with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,
+  registration and tax numbers, social links and "Pay an invoice"; the Support menu lists network status and Contact
+  us, and the phone menu lists the cart. Log-in and sign-up pages link back to the website.
 - Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
   never the product's own logo or mark.
 - `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.

@@ -67,7 +67,9 @@ class HomePage
             }
         }
 
+        $cheapest = $this->cheapest($groups);
         $sections = [
+            'trust_facts' => $content['trust_facts'],
             'why_us' => $content['why_us'],
             'featured_plans' => array_map(fn (array $group): array => [
                 ...$group,
@@ -82,6 +84,12 @@ class HomePage
             ],
             'help' => true,
             'news' => $this->news($content['news'], $signedIn),
+            'cta_band' => $cheapest === null || trim((string) $content['cta']['headline']) === '' ? null : [
+                'headline' => $content['cta']['headline'],
+                'button' => $content['cta']['button'],
+                'from' => $cheapest,
+                'url' => Route::has('store.index') ? route('store.index') : null,
+            ],
             'payments' => true,
         ];
 
@@ -110,13 +118,29 @@ class HomePage
                 'pricing_url' => route('storefront.domain-pricing'),
             ],
             'sections' => $order,
+            'trust_facts' => $sections['trust_facts'],
             'why_us' => $sections['why_us'],
+            'cta_band' => $sections['cta_band'],
             'featured_plans' => $sections['featured_plans'],
             'more_products' => $sections['more_products'],
             'news' => $sections['news'],
             'tax_note' => $display['note'],
             'currency' => $currency,
         ];
+    }
+
+    /**
+     * The lowest "from" price across groups, preferring per-month figures (the band's "Hosting from …").
+     *
+     * @param  list<array{from: array{amount: int, cycle: string, per_month: bool, setup: int}|null}>  $groups
+     * @return array{amount: int, cycle: string, per_month: bool, setup: int}|null
+     */
+    private function cheapest(array $groups): ?array
+    {
+        $froms = array_values(array_filter(array_column($groups, 'from')));
+        usort($froms, fn (array $a, array $b): int => [$b['per_month'], $a['amount']] <=> [$a['per_month'], $b['amount']]);
+
+        return $froms[0] ?? null;
     }
 
     /**
@@ -139,7 +163,7 @@ class HomePage
 
     /**
      * @param  list<array{tld: string, register: int|null}>  $domains
-     * @return list<array{name: string, tagline: string, url: string|null, from: array{amount: int, cycle: string, per_month: bool}|null, count: int}>
+     * @return list<array{name: string, tagline: string, url: string|null, from: array{amount: int, cycle: string, per_month: bool, setup: int}|null, count: int}>
      */
     private function domainProduct(array $domains): array
     {
@@ -153,7 +177,7 @@ class HomePage
             'name' => 'Domains',
             'tagline' => 'Register or transfer '.implode(', ', array_slice(array_column($domains, 'tld'), 0, 5)),
             'url' => Route::has('store.domains') ? route('store.domains') : null,
-            'from' => ['amount' => min($prices), 'cycle' => 'annually', 'per_month' => false],
+            'from' => ['amount' => min($prices), 'cycle' => 'annually', 'per_month' => false, 'setup' => 0],
             'count' => count($domains),
         ]];
     }
