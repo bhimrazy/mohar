@@ -57,6 +57,7 @@ Route::clientArea(function (): void {
         Route::get('{service}', [ClientServiceController::class, 'show'])->whereNumber('service')->name('show');
         Route::post('{service}/cancel', [ClientServiceActionController::class, 'cancel'])->whereNumber('service')->name('cancel');
         Route::post('{service}/change', [ClientServiceActionController::class, 'change'])->whereNumber('service')->name('change');
-        Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->name('password');
+        // Each change is a synchronous call to the shared panel server (security review 2026-10-19, L3).
+        Route::post('{service}/password', [ClientServiceActionController::class, 'password'])->whereNumber('service')->middleware('throttle:6,1')->name('password');
     });
 });
