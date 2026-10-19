@@ -72,12 +72,37 @@ final class StateStore
      */
     public function increment(string $namespace, string $key): int
     {
+        return $this->transaction(function () use ($namespace, $key): int {
+            $value = (int) $this->get($namespace, $key, 0) + 1;
+            $this->put($namespace, $key, $value);
+
+            return $value;
+        });
+    }
+
+    /**
+     * Run $work under a write lock held across processes (BEGIN IMMEDIATE), so a check and the change it guards cannot
+     * interleave with another worker's: two creates for one username, for example.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $work
+     * @return T
+     */
+    public function transaction(\Closure $work): mixed
+    {
         $pdo = $this->pdo();
         $pdo->exec('BEGIN IMMEDIATE');
-        $value = (int) $this->get($namespace, $key, 0) + 1;
-        $this->put($namespace, $key, $value);
-        $pdo->exec('COMMIT');
 
-        return $value;
+        try {
+            $result = $work();
+            $pdo->exec('COMMIT');
+
+            return $result;
+        } catch (\Throwable $exception) {
+            $pdo->exec('ROLLBACK');
+
+            throw $exception;
+        }
     }
 }

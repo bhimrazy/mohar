@@ -35,19 +35,10 @@ final readonly class Request
             }
         }
 
-        parse_str((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_QUERY), $parsed);
-        $query = [];
-
-        foreach ($parsed as $key => $value) {
-            if (is_string($key) && is_scalar($value)) {
-                $query[$key] = (string) $value;
-            }
-        }
-
         return new self(
             strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
             (string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH),
-            $query,
+            self::fields((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_QUERY)),
             $headers,
             (string) file_get_contents('php://input'),
         );
@@ -67,10 +58,28 @@ final readonly class Request
     {
         $decoded = json_decode($this->body, true);
 
-        if (! is_array($decoded)) {
-            parse_str($this->body, $decoded);
+        return [...$this->query, ...(is_array($decoded) ? $decoded : self::fields($this->body))];
+    }
+
+    /**
+     * Query-string or form fields as sent: names keep their dots (`api.version`, which parse_str would turn into
+     * `api_version`), and a repeated name keeps its last value.
+     *
+     * @return array<string, string>
+     */
+    public static function fields(string $encoded): array
+    {
+        $fields = [];
+
+        foreach (explode('&', $encoded) as $pair) {
+            if ($pair === '') {
+                continue;
+            }
+
+            [$name, $value] = array_pad(explode('=', $pair, 2), 2, '');
+            $fields[urldecode($name)] = urldecode($value);
         }
 
-        return [...$this->query, ...$decoded];
+        return $fields;
     }
 }
