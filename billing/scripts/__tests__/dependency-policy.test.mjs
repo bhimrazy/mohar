@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+    composeImages,
     composerDistProblems,
     digestBelongsToTag,
     dockerfileImages,
@@ -224,6 +225,51 @@ describe('isDockerfile', () => {
             'deploy/Dockerfile.prod',
             'tools/worker.Dockerfile',
             'Containerfile',
+        ]);
+    });
+});
+
+describe('composeImages', () => {
+    const pinned = `postgres:18.6-alpine@${POSTGRES_INDEX}`;
+
+    it('returns every image line, with own set only for the marked app image', () => {
+        const compose = [
+            `    image: ${pinned}`,
+            '    image: ${APP_IMAGE:-mohar-app:local} # own image',
+            '    image: ${APP_IMAGE_BLUE} # own image',
+            "    image: 'nginx:latest'",
+            '    image: ${OTHER_IMAGE:-x}',
+        ].join('\n');
+
+        expect(composeImages(compose)).toEqual([
+            { image: pinned, own: false },
+            { image: '${APP_IMAGE:-mohar-app:local}', own: true },
+            { image: '${APP_IMAGE_BLUE}', own: true },
+            { image: 'nginx:latest', own: false },
+            { image: '${OTHER_IMAGE:-x}', own: false },
+        ]);
+    });
+
+    it('never treats a third-party default or a plain image as own, even when marked', () => {
+        expect(
+            composeImages(
+                [
+                    '    image: ${APP_IMAGE:-nginx:latest} # own image',
+                    '    image: nginx:latest # own image',
+                    '    image: ${APP_IMAGE:-ghcr.io/x/y:1} # own image',
+                ].join('\n'),
+            ).map((entry) => entry.own),
+        ).toEqual([false, false, false]);
+    });
+
+    it('still finds an image line with CRLF endings or trailing text', () => {
+        expect(
+            composeImages(
+                'services:\r\n  a:\r\n    image: nginx:latest\r\n  b:\r\n    image: redis:7 trailing text\r\n',
+            ),
+        ).toEqual([
+            { image: 'nginx:latest', own: false },
+            { image: 'redis:7', own: false },
         ]);
     });
 });
