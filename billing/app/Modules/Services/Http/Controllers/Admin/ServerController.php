@@ -2,6 +2,7 @@
 
 namespace App\Modules\Services\Http\Controllers\Admin;
 
+use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Contracts\Services\Provisioning\TestsServerConnection;
 use App\Data\Integrations\ConnectionCheckStep;
 use App\Data\Integrations\SettingField;
@@ -41,6 +42,9 @@ class ServerController extends Controller
             ]),
             'drivers' => $this->driverOptions($drivers),
             'canManage' => request()->user()?->hasPermission('services.servers.manage') ?? false,
+            'importDrivers' => request()->user()?->hasPermission('services.servers.import')
+                ? array_values(array_filter($drivers->keys(), fn (string $key): bool => $drivers->get($key) instanceof ListsAccounts))
+                : [],
         ]);
     }
 
@@ -164,7 +168,7 @@ class ServerController extends Controller
         $this->authorize('services.servers.manage');
 
         $fingerprint = (string) $request->validate([
-            'fingerprint' => ['required', 'string', 'regex:#^[A-Za-z0-9+/]{43}=$#'],
+            'fingerprint' => ['required', 'string', 'regex:#^[A-Za-z0-9+/]{43}=\z#'],
         ])['fingerprint'];
         $offered = $request->session()->pull(self::offeredPinKey($server));
 

@@ -17,8 +17,11 @@ Route::adminArea(fn () => Route::prefix('domains')->name('domains.')->group(func
     Route::put('tlds/{tld}/prices', [TldController::class, 'prices'])->name('tlds.prices');
 
     Route::get('registrars', [RegistrarController::class, 'index'])->name('registrars.index');
-    Route::put('registrars/{registrar}', [RegistrarController::class, 'update'])->name('registrars.update');
-    Route::post('registrars/{registrar}/test', [RegistrarController::class, 'test'])->name('registrars.test');
+    // Registrar credentials are sensitive: changing or using them needs a recent password confirmation.
+    Route::middleware('password.recent')->group(function (): void {
+        Route::put('registrars/{registrar}', [RegistrarController::class, 'update'])->name('registrars.update');
+        Route::post('registrars/{registrar}/test', [RegistrarController::class, 'test'])->middleware('throttle:6,1')->name('registrars.test');
+    });
 
     Route::get('/', [AdminDomainController::class, 'index'])->name('index');
     Route::get('{domain}', [AdminDomainController::class, 'show'])->whereNumber('domain')->name('show');

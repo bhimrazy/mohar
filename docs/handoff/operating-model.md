@@ -169,8 +169,12 @@ session (CronCreate, every 12 hours) and is recreated by the `resume-session` sk
 
 ## Session restarts
 
+The codespace reboots without warning (four times on 2026-10-19; the last stop ran overnight, 16:09 to 06:36 UTC). Engineers commit and push work in progress at
+least every 30 minutes; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
+
 Background agents and shell jobs stop when the Claude Code process exits, but agent transcripts survive
-on the same machine. On restart: audit worktrees (commits ahead, dirty files), check open PRs and CI,
+on the same machine. On restart: audit worktrees (commits ahead, dirty files), push unpushed commits and
+snapshot uncommitted work to `wip/<branch>-snapshot`, merge green PRs whose watchers died, check open PRs and CI,
 then resume each agent with SendMessage to its id, telling it what state its worktree is in. On a new
 device the transcripts are not available: relaunch from the agent definitions and the brief template,
 pointing the agent at the existing branch and PR. The `resume-session` skill covers both.
