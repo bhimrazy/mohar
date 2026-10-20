@@ -11,6 +11,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\RegistrarException;
@@ -21,6 +22,7 @@ use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Support\Nameservers;
+use App\Modules\Domains\Support\RemoteIds;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -31,7 +33,8 @@ use Throwable;
  *  - The domain is claimed under a row lock (registrar_meta.submission) before anything is sent, so the
  *    payment job, a staff command and Orders' process() can never submit the same domain twice.
  *  - A claim that is still present on entry means an earlier attempt's outcome is unknown (crash, lost
- *    response): it is verified through `info` (registrations) or left to transfer sync, never re-sent.
+ *    response): it is verified with the driver's `findSubmission` (capability `reconcile`), else through `info`
+ *    (registrations), and never re-sent. SyncDomains sweeps claims that no job will come back for (issue #12).
  *  - Timeout / unknown result → `pending_registration` / `pending_transfer` flagged needs_review.
  *  - Explicit registrar error → stays `pending`, RegistrarActionFailed, staff task; the claim is released.
  *  - Retryable errors (known not executed) release the claim and are re-thrown for the queue to retry.
@@ -169,16 +172,27 @@ class SubmitToRegistrar
     }
 
     /**
-     * An earlier attempt left its claim: verify with the registrar instead of submitting again.
+     * An earlier attempt left its claim: verify with the registrar instead of submitting again (registrars.md C2).
      */
     private function reconcile(Domain $domain, ?int $staffId): ProvisionResult
     {
+        if ($this->gateway->supports($domain, 'reconcile')) {
+            $lookup = $this->lookup($domain, $staffId);
+
+            return match ($lookup->status) {
+                'executed' => $this->succeeded($domain, new RegistrarResult('completed', $lookup->expiryDate, 'Found at the registrar; not re-submitted.', remote: $lookup->remote), $staffId),
+                'in_progress' => $this->succeeded($domain, new RegistrarResult('pending', message: 'The registrar is still processing the earlier submission; not re-submitted.', remote: $lookup->remote), $staffId),
+                'absent' => $this->unknownOutcome($domain, 'The registrar has no record of the earlier submission. To submit it again, set the status to Pending, then register it.', $lookup->remote),
+                default => $this->unknownOutcome($domain, $lookup->message ?? 'The registrar could not confirm the earlier submission; verify it there before retrying.', $lookup->remote),
+            };
+        }
+
         if ($domain->type === 'register' && $this->gateway->supports($domain, 'info')) {
             try {
                 $info = $this->gateway->forDomain($domain, 'info', fn (Registrar $registrar): DomainInfo => $registrar->info($domain), staffId: $staffId);
 
                 if ($info->status === 'active') {
-                    return $this->succeeded($domain, new RegistrarResult('completed', $info->expiryDate, 'Found at the registrar; not re-submitted.'), $staffId);
+                    return $this->succeeded($domain, new RegistrarResult('completed', $info->expiryDate, 'Found at the registrar; not re-submitted.', remote: $info->remote), $staffId);
                 }
             } catch (Throwable) {
                 // Unverifiable right now: fall through to staff review.
@@ -188,10 +202,28 @@ class SubmitToRegistrar
         return $this->unknownOutcome($domain, 'An earlier submission did not finish; verify at the registrar before retrying.');
     }
 
+    private function lookup(Domain $domain, ?int $staffId): SubmissionLookup
+    {
+        $command = $domain->type === 'transfer' ? 'transfer' : 'register';
+        $submittedAt = CarbonImmutable::parse((string) ($domain->registrar_meta['submission'] ?? now()->toIso8601String()));
+
+        try {
+            return $this->gateway->forDomain(
+                $domain,
+                'reconcile',
+                fn (Registrar $registrar): SubmissionLookup => $registrar->findSubmission($domain, $command, $submittedAt),
+                ['command' => $command, 'submitted_at' => $submittedAt->toIso8601String()],
+                $staffId,
+            );
+        } catch (Throwable) {
+            return new SubmissionLookup('unknown');
+        }
+    }
+
     private function succeeded(Domain $domain, RegistrarResult $result, ?int $staffId = null): ProvisionResult
     {
         $today = CarbonImmutable::today();
-        $meta = $domain->registrar_meta ?? [];
+        $meta = RemoteIds::merge($domain->registrar_meta, $result->remote) ?? [];
         unset($meta['submission']);
         $resolved = ['last_error' => null, 'needs_review' => false, 'registrar_meta' => $meta ?: null, 'registrar_key' => $domain->registrar_key];
 
@@ -226,11 +258,17 @@ class SubmitToRegistrar
     /**
      * The registrar may or may not have executed the command: park the domain for sync / staff verification.
      * The claim stays in place so nothing re-submits automatically.
+     *
+     * @param  array<string, string|int>  $remote  ids a lookup found on the way
      */
-    private function unknownOutcome(Domain $domain, string $message): ProvisionResult
+    private function unknownOutcome(Domain $domain, string $message, array $remote = []): ProvisionResult
     {
         $status = $domain->type === 'transfer' ? DomainStatus::PendingTransfer : DomainStatus::PendingRegistration;
-        $this->states->transition($domain, $status, 'Registrar outcome unknown; awaiting verification', ['last_error' => $message, 'needs_review' => true]);
+        $this->states->transition($domain, $status, 'Registrar outcome unknown; awaiting verification', [
+            'last_error' => $message,
+            'needs_review' => true,
+            'registrar_meta' => RemoteIds::merge($domain->registrar_meta, $remote),
+        ]);
         $this->activity->log("Staff task: verify the {$domain->type} of {$domain->name}; the next sync or \"Sync now\" resolves it", $domain, $domain->client_id);
 
         return new ProvisionResult(false, $message);

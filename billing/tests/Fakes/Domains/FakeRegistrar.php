@@ -8,11 +8,13 @@ use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\Domain;
+use Carbon\CarbonImmutable;
 use Closure;
 use Throwable;
 
@@ -21,8 +23,8 @@ use Throwable;
  */
 class FakeRegistrar implements Registrar
 {
-    /** @var list<string> */
-    public array $capabilities = Registrar::CAPABILITIES;
+    /** @var list<string> every capability except `reconcile`, which tests opt into (it replaces the info check) */
+    public array $capabilities = ['availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock', 'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync'];
 
     /** @var list<array{command: string, domain: string|null}> */
     public array $calls = [];
@@ -142,6 +144,11 @@ class FakeRegistrar implements Registrar
     public function transferSync(Domain $domain): TransferSyncResult
     {
         return $this->record('transfer_sync', $domain, new TransferSyncResult(false));
+    }
+
+    public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
+    {
+        return $this->record('reconcile', $domain, new SubmissionLookup('unknown'));
     }
 
     public function testConnection(): array

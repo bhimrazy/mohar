@@ -8,6 +8,7 @@ use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -29,6 +30,8 @@ use InvalidArgumentException;
  *  - contains "slow"     → registration accepted asynchronously (pending)
  *  - contains "email"    → EPP code is emailed to the registrant instead of returned
  *  - contains "gone"     → sync reports the domain transferred away
+ * After a lost outcome, findSubmission reports a "timeout" registration as executed (a transfer as in progress), a
+ * "slow" one as in progress, a renewal as executed and anything else as absent.
  * The "simulate" setting forces every write command to fail ("error") or time out ("timeout").
  */
 class LogRegistrar implements Registrar
@@ -44,7 +47,7 @@ class LogRegistrar implements Registrar
 
     public function capabilities(): array
     {
-        return ['availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock', 'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync'];
+        return ['availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock', 'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync', 'reconcile'];
     }
 
     public function settingsSchema(): array
@@ -220,6 +223,18 @@ class LogRegistrar implements Registrar
         $base = $domain->expiry_date ?? CarbonImmutable::today();
 
         return new TransferSyncResult(completed: true, expiryDate: $base->addYearsNoOverflow(1));
+    }
+
+    public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
+    {
+        $this->log('reconcile', ['domain' => $domain->name, 'command' => $command]);
+
+        return match (true) {
+            $command === 'renew' => new SubmissionLookup('executed'),
+            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup('executed', CarbonImmutable::today()->addYearsNoOverflow($domain->period_years)),
+            str_contains($domain->sld, 'timeout') || str_contains($domain->sld, 'slow') => new SubmissionLookup('in_progress'),
+            default => new SubmissionLookup('absent'),
+        };
     }
 
     public function testConnection(): array
