@@ -61,7 +61,8 @@ The per-client "Export Client Data" tool produces JSON for one client and is not
 
 We ship a mapping **preset** named "WHMCS clients export" that recognises likely headers. The exact column headers of that
 export are not in the public docs: **verify** against a sample export with fake data (Q11). The preset only suggests
-mappings; staff can change each one.
+mappings; staff can change each one. **Status (2026-10-20, #162): the preset's headers are unverified until a sample
+export arrives.** It maps `ID` to External ID and otherwise relies on the generic header words.
 
 ### 3.2 The WHMCS External API (phase 2a, MUST)
 
