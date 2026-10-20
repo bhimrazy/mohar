@@ -8,9 +8,12 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
   Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72), Stripe (#58), deployment D1 (#79), invitations and template defaults (#78), the periodic-review security fixes (#89), the WHM simulator and the cPanel driver against it (S2, #100), the cPanel import page (step 3a-2, #101), the storefront marketing spec (#104), the home page design (#105), ADR 0018 sign-in methods (#106) and the simulator command fix (#109).
-- Progress toward "a product a host would switch to": 55/100 by evidence (CEO review, 2026-10-19,
-  `docs/reviews/2026-10-19-ceo.md`): the score moves only when work is merged and proven. Built-but-unproven work
-  (simulators, the image, Stripe) is tracked separately; including it gives about 62.
+- Progress toward "a product a host would switch to": 46/100 by evidence (CEO review round 2, 2026-10-20,
+  `docs/reviews/2026-10-20-ceo.md`), the weighted sum of its rubric. Correction: the 55 reported on 2026-10-19 did not
+  match its own table, which sums to 38; the like-for-like movement since is +8 (cPanel driver proven against the WHM
+  simulator, the deploy smoke runs, the import page, a first load test). One number from now on: the weighted sum.
+- Load test (50k clients, #108): far off the p95 200 ms target. Admin dashboard p50 28.5 s, invoice search 3.8 s,
+  renewals 20/s; the billing day took 546 s, so #82 (automation job redelivered after 240 s) is a go-live bug.
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
   account created from an order, paid through Stripe, on a server the owner provides.
 
@@ -36,8 +39,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | #112 | Sign-in PR 0: kernel methods and step-up         | Draft, conflicts with develop. Architect and security review running.                |
 
 Not in a PR yet: simulators S4 end-to-end (`feature/simulators-s4`), cPanel PR 2 (SSO, package select, server health).
-Parked, no owner: `fix/automation-redelivery` (ADR 0017 scheduler WIP) and `feature/payments-stripe-saved-methods`
-(design revision 3). A branch audit (Fable) decides whether to keep them.
+Kept: `fix/automation-redelivery` (#82 WIP, ADR 0017) and `feature/payments-stripe-saved-methods` (design revision 3, to
+be ported to develop in a small docs PR before the Stripe saved-cards work).
 
 ## Design and research in progress
 
@@ -47,16 +50,19 @@ Parked, no owner: `fix/automation-redelivery` (ADR 0017 scheduler WIP) and `feat
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
-## Running now (2026-10-20 06:55 UTC)
+## Running now (2026-10-20 07:30 UTC; budget 4 agents: 2 code, 2 review)
 
-- The session stopped overnight (2026-10-19 16:09 to 2026-10-20 06:36 UTC). On resume: pushed two worktrees'
-  unpushed commits, snapshotted the import engineer's staged work to `wip/import-apply-v2-snapshot`, merged #100 and
-  #101, retargeted #113, and resumed the seven interrupted agents.
-- Builds: storefront #94/#99 fixes, import 3b #95, simulators S4, deployment D3 #111, CI speed-up #91.
-- Reviews: #80 (board, security), #112 (architect + security), #113 (architect + security); a Fable branch audit
-  of the 83 GitHub branches (52 already merged into develop).
-- Periodic review round 2: CEO and CTO (Fable) running; security and architecture skipped because every PR merged
-  since round 1 had its own security and architecture or board review. Schedule recreated at 02:17 and 14:17.
+- Code: storefront fixes (#94, then #99, then #82 on `fix/automation-redelivery`); #82 automation redelivery fix.
+- Review: post-merge re-review of #101 (it merged with unverified blockers); board review of #91.
+- Queue, in order: #95 re-review and security re-check (then its fixes, then 3b-2 PR); #80 board and security;
+  #113 architect and security; #112 cut to the #81 fix (owner deferred social sign-in); simulators S4; deployment
+  D3 (#111) and D4 (paused: CEO review calls them ahead of an unmerged D2); load-test profiles (#108); a client
+  importer spec (CSV, then WHMCS), which comes before cPanel PR 2 (owner, 2026-10-20); a performance workstream from
+  the load test.
+- Owner actions asked: enable "Allow auto-merge" and "Automatically delete head branches" and require the CI check
+  on `develop`; approve the GitHub branch cleanup (Fable audit: 54 delete, 6 archive as tags, 16 keep).
+- Periodic review round 2 done: `docs/reviews/2026-10-20-ceo.md` and `-cto.md`; security and architecture skipped
+  (each merged PR had its own). Schedule at 02:17 and 14:17.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
@@ -86,7 +92,7 @@ is a switch blocker in the parity studies.
 
 ## Open issues worth knowing
 
-Go-live blockers: #47 (install path), #25 (key rotation). Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
+Go-live blockers: #25 (key rotation), #82 (automation job redelivery), the load-test performance findings. Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
 #27 (Nepal follow-ups), #29 (PDF attachments), #30 (Support contract), #44 (credential reveal), #45 (historical
 rates), #55 (TLD race). Tests and CI: #21, #24, #54. Full list: `gh issue list`.
 
