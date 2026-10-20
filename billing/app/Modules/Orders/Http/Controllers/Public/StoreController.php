@@ -36,8 +36,20 @@ class StoreController extends Controller
         return Inertia::render('public/store/index', [
             'groups' => $this->priceBook->storefront($currency),
             'currency' => $currency,
+            'existingDomain' => $this->existingDomain($request),
             ...$this->carts->storeProps($request),
         ]);
+    }
+
+    /**
+     * A domain the visitor already owns, passed on from the domain search ("I already have it", e.g. a .np name
+     * registered at the registry), to preselect "Use a domain I own".
+     */
+    private function existingDomain(Request $request): ?string
+    {
+        $domain = strtolower(trim($request->string('domain')->toString()));
+
+        return DomainGuard::isValidName($domain) && DomainGuard::registryLevelError($domain) === null ? $domain : null;
     }
 
     public function show(Request $request, int $product, CustomerResolver $customers): Response
@@ -82,6 +94,7 @@ class StoreController extends Controller
                 'addon_ids' => $editing->addonIds,
             ] : null,
             'signed_in' => $clientId !== null,
+            'existing_domain' => $this->existingDomain($request),
             ...$this->carts->storeProps($request),
         ]);
     }
