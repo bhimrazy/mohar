@@ -78,7 +78,8 @@ test('a confirmed account becomes a service as the server holds it, with no invo
 
     $this->get(route('admin.services.servers.import.review', $this->server))->assertInertia(fn (Assert $page) => $page
         ->component('admin/services/servers/import-review')
-        ->has('rows', 1));
+        ->has('rows', 1)
+        ->where('totals', [['currency' => 'USD', 'cycle' => 'monthly', 'amount' => 1200, 'accounts' => 1]]));
     applyReviewed($this->server);
     $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
     $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasErrors('import');

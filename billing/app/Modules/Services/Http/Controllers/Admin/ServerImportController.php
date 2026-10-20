@@ -135,8 +135,9 @@ class ServerImportController extends Controller
     }
 
     /**
-     * Every ticked account as it would be imported (a page at a time, the ones left out first). Showing it records the
-     * importable rows, each with its matched client, and their digest, which apply must send.
+     * Every ticked account as it would be imported (a page at a time, the ones left out first), with totals per
+     * currency and cycle. Showing it records the importable rows, each with its matched client, and their digest,
+     * which apply must send.
      */
     public function review(Request $request, Server $server, AccountImportPlan $plan): Response
     {
@@ -145,6 +146,9 @@ class ServerImportController extends Controller
         $review = $plan->review($server, $this->ready($server), $request->user()?->id);
         $rows = collect($review['rows'])->sortBy(fn (array $row): int => $row['decision']['problems'] === [] ? 1 : 0)->values();
         [$ready, $excluded] = $rows->partition(fn (array $row): bool => $row['decision']['problems'] === []);
+        $totals = $ready->groupBy(fn (array $row): string => $row['decision']['client']['currency'].':'.$row['decision']['cycle'])
+            ->map(fn ($group, string $key): array => ['currency' => explode(':', $key)[0], 'cycle' => explode(':', $key)[1], 'amount' => (int) $group->sum('decision.amount'), 'accounts' => $group->count()])
+            ->values();
         $page = max(1, $request->integer('page', 1));
 
         return Inertia::render('admin/services/servers/import-review', [
@@ -152,6 +156,7 @@ class ServerImportController extends Controller
             'rows' => $rows->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values(),
             'page' => ['current' => $page, 'last' => max(1, (int) ceil($rows->count() / self::PER_PAGE))],
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
+            'totals' => $totals,
             'digest' => $review['digest'],
         ]);
     }

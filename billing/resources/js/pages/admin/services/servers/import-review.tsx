@@ -35,6 +35,12 @@ type Props = {
     rows: Row[];
     page: { current: number; last: number };
     counts: { ready: number; excluded: number; clients: number };
+    totals: {
+        currency: string;
+        cycle: string;
+        amount: number;
+        accounts: number;
+    }[];
     digest: string;
 };
 
@@ -57,6 +63,7 @@ export default function ServerImportReview({
     rows,
     page,
     counts,
+    totals,
     digest,
 }: Props) {
     const [confirming, setConfirming] = useState(false);
@@ -97,6 +104,25 @@ export default function ServerImportReview({
                         </Button>
                     }
                 />
+
+                {totals.length > 0 && (
+                    <p className="text-sm text-muted-foreground">
+                        Recurring:{' '}
+                        {totals.map((total, index) => (
+                            <span key={`${total.currency}:${total.cycle}`}>
+                                {index > 0 && ' · '}
+                                <Money
+                                    amount={total.amount}
+                                    currency={total.currency}
+                                    className="font-medium text-foreground"
+                                />{' '}
+                                {cycleLabel(total.cycle).toLowerCase()} (
+                                {plural(total.accounts, 'account')})
+                            </span>
+                        ))}
+                        , for {plural(counts.clients, 'client')}.
+                    </p>
+                )}
 
                 {excluded.length > 0 && (
                     <SectionCard
