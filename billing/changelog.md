@@ -8,6 +8,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
+  by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
+  encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new
+  sensitive permission `support.inbound_webhook.manage`, and a change needs a recent password. `support.*` no longer
+  reaches it; grant the permission explicitly to staff who manage the mail relay. After upgrading, enter a new secret
+  of at least 32 characters and set it on the relay: mail signed with the old one stops being accepted.
+- **Changing where a server connects clears its stored credentials.** A new hostname, IP address, port, TLS setting
+  or driver needs the API token or password entered again in the same save; the stored ones and any trusted
+  certificate are removed, and the move is recorded in the activity log as "Server connection address changed".
+  Server audit entries now read "Server settings changed", with the server name in the properties.
+- **Registration and password reset are rate-limited.** `POST /register`: 10 an hour per IP and 5 an hour per email
+  address. `POST /reset-password`: 5 a minute per IP (no per-address limit, so failures from elsewhere cannot block
+  a valid link). Over the limit the answer is 429.
+- **More step-up confirmations.** Creating, editing and deleting server groups, capturing an authorised invoice
+  charge, and saving or testing a registrar now need a recent password. `domains.registrars.manage` is sensitive:
+  wildcards such as `domains.*` no longer grant it, so grant it explicitly. Registrar tests allow 6 a minute.
+  Sensitive settings sections ask for the password before they validate the form, like every other step-up route.
+- **Clients can change a hosting password 6 times a minute.**
+- **Webhook deliveries ignore `HTTPS_PROXY`.** They connect directly to the vetted address, and also refuse the
+  addresses the kernel outbound guard refuses (documentation, tunnelled and non-canonical forms). In local
+  development a loopback receiver needs `OUTBOUND_ALLOW_LOOPBACK=true` (the default when `APP_ENV=local`).
+- **New installs encrypt sessions** (`SESSION_ENCRYPT=true` in `.env.example`). Existing installs keep their
+  setting; turning it on signs everyone out once.
+- **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
+  server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
+  housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
+  wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
+  who bring existing accounts in. Fetches run on the `provisioning` queue.
+  A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
+  without the owner check until fetched again.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -78,12 +108,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
   a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
   uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
-- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+- Developers get `php artisan simulate:list|start|stop|clean|record|scan` (ADR 0016) from the dev-only `mohar/simulators`
   package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
   CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
-  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
-  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+  commit, a reset before commit, certificate rotation) and signed callbacks. The first provider simulator is `whm`;
+  `stripe` follows. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
 --no-dev` build contains neither the commands nor the package (checked in CI).
+- Developers get a `whm` simulator (`php artisan simulate:start whm`), a stateful cPanel & WHM server. Point a cPanel
+  server at it (host 127.0.0.1, the printed port and token), run Test connection and trust its certificate, and the
+  real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
+  including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
+  comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -117,6 +152,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
+  on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
+  finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
+  that server; unmatched with the reason otherwise; listed apart when another WHM user owns it (a reseller's customer
+  on a root connection, which signs in as root when no username is set); linked when a live service already holds it,
+  with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
+  recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
+  server or here; the request and its result are recorded in the activity log.
+- Import accounts page (Admin → Servers → server menu → Import accounts): summary cards, tabs with counts, search and
+  pages over the stored match. The rows shown are re-checked against today (a service created since links the account,
+  a client closed since is dropped, as is a product that no longer provisions there). "Match again" re-matches on the
+  queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
+  asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
+  server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
@@ -487,6 +536,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- Security review 2026-10-19 fixes: the inbound email webhook secret is encrypted at rest, never sent to the browser,
+  masked in the audit log and behind a sensitive permission; stored server credentials are never sent to a host
+  other than the one they were saved for, and the server form warns before an address change removes them;
+  registration, password reset and client hosting-password changes are throttled; a failed password reset shows
+  the same message whether or not the address has an account; webhook deliveries are pinned through the kernel
+  outbound guard. Two tests now guard every future change: one fails when a route behind a sensitive permission
+  lacks step-up, the other when a credential-like setting is not a secret.
 - Password-reset and verification links no longer take their host from the request. Outside `local`, every generated
   URL, including queued mail, uses `APP_URL`, and production rejects requests for foreign hosts with 400.
 
