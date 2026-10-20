@@ -25,6 +25,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $match_client_id
  * @property list<array{severity: string, code: string, message: string, field?: string|null, row?: int|null}>|null $problems
  * @property list<string>|null $changes
+ * @property string|null $outcome created|updated|unchanged|skipped|failed, once applied
+ * @property int|null $target_id the client the row created or updated
+ * @property array<string, mixed>|null $before the changed fields' previous values (for undo)
  * @property CarbonImmutable|null $applied_at
  * @property-read MigrationRun $run
  * @property-read Client|null $matchedClient
@@ -41,6 +44,7 @@ class MigrationRecord extends Model
             'normalized' => 'encrypted:array',
             'problems' => 'array',
             'changes' => 'array',
+            'before' => 'encrypted:array',
             'applied_at' => 'immutable_datetime',
         ];
     }

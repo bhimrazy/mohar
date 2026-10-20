@@ -118,7 +118,9 @@ test('a re-run with an External ID updates a changed email and the owner login o
         ->and(User::query()->where('email', 'a.new@example.com')->exists())->toBeTrue()
         ->and(User::query()->where('email', 'b@example.com')->exists())->toBeTrue()
         ->and(array_column($rows[1]->problems, 'code'))->toContain('login_email_kept')
-        ->and($rows[0]->changes)->toBe(['email']);
+        ->and($rows[0]->changes)->toBe(['email'])
+        ->and($rows[0]->before)->toBe(['email' => 'a@example.com'])
+        ->and((string) DB::table('migration_records')->where('id', $rows[0]->id)->value('before'))->not->toContain('a@example.com');
 });
 
 test('a re-run of the same file is unchanged everywhere and leaves updated_at alone', function () {
