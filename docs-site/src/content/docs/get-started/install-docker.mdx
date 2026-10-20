@@ -23,7 +23,9 @@ the root of the release you are installing.
     - `APP_DOMAIN`, the name clients will use, for example `billing.example.com`;
     - `APP_URL`, the same name with `https://` in front and no slash at the end;
     - `DB_PASSWORD`, `OBJECTS_ACCESS_KEY` and `OBJECTS_SECRET_KEY`, each a long random value;
-    - the `MAIL_` settings for your SMTP account or mail service.
+    - the `MAIL_` settings for your SMTP account or mail service;
+    - `CADDY_GLOBAL_OPTIONS="email <your address>"`, with a real address (remove the `#` in front of the line).
+      Let's Encrypt refuses `example.com` addresses. With an email set, Caddy can also fall back to ZeroSSL.
 
     To make a random value:
 
@@ -87,9 +89,12 @@ the root of the release you are installing.
 | `app`                                                                    | the web application                                        |
 | `worker-critical`, `worker-notifications`, `worker-default`              | background jobs: payments, provisioning, email, webhooks   |
 | `worker-automation`                                                      | runs **Run now** requests from **Setup → Automation**      |
-| `scheduler`                                                              | runs scheduled work, including the daily automation        |
+| `scheduler`                                                              | runs scheduled work, including the daily automation run    |
 | `migrate`                                                                | runs database changes before the app starts, then exits    |
 | `postgres`, `rustfs`                                                     | the database and object storage                            |
+
+Only Caddy publishes ports. PostgreSQL and object storage have no route to the internet. The PHP containers run as
+an unprivileged user on a read-only file system.
 
 To read the logs of a service:
 
@@ -97,12 +102,19 @@ To read the logs of a service:
 docker compose -f deploy/compose.prod.yaml logs -f app
 ```
 
+Caddy's logs replace the one-time tokens in password-reset and invitation links with `REDACTED`, so logs can be shared
+for support without handing out working links.
+
 ## If you change `deploy/.env` later
 
-The containers read it when they start. Recreate the PHP services after an edit:
+The containers read it when they start. Recreate the services that read it after an edit (Caddy reads the domain and
+the `CADDY_` settings):
 
 ```bash
-docker compose -f deploy/compose.prod.yaml up -d --force-recreate app worker-critical worker-notifications worker-default worker-automation scheduler
+docker compose -f deploy/compose.prod.yaml up -d --force-recreate caddy app worker-critical worker-notifications worker-default worker-automation scheduler
 ```
+
+Like an upgrade, this waits for an automation run in progress, up to an hour (see
+[Upgrade](../../operate/upgrade/)).
 
 Next: [Sign in for the first time](../first-sign-in/).

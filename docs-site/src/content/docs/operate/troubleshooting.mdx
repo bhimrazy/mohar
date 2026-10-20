@@ -18,13 +18,31 @@ scheduler has run for a minute.
 
 ## Docker Compose
 
-| Symptom                                       | Where to look                                                                                                      |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `up` stops at `migrate`                       | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means the install step was skipped |
-| 502 error from the site                       | `docker compose -f deploy/compose.prod.yaml ps`: `app` must be `healthy`. `logs app` says why it is not             |
-| Certificate errors                            | DNS for your domain must point at the host, and ports 80 and 443 must be open. Check `logs caddy`                  |
-| Activity log shows one IP address for everyone | the app does not trust the proxy: `EDGE_SUBNET` in `deploy/.env` must match the edge network's range              |
-| Jobs are not processed                        | `logs worker-default`, or the worker for that queue. **Run now** in Automation uses `worker-automation`            |
+| Symptom                                         | Where to look                                                                                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up` stops at `migrate`                         | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means the install step was skipped               |
+| 502 error from the site                         | `docker compose -f deploy/compose.prod.yaml ps`: `app` must be `healthy`. `logs app` says why it is not                                          |
+| Certificate errors                              | DNS for your domain must point at the host, ports 80 and 443 must be open, and `CADDY_GLOBAL_OPTIONS` must hold a real email. Check `logs caddy` |
+| No HSTS header, or one IP address for everyone  | the app does not trust the proxy: `EDGE_SUBNET` in `deploy/.env` must match the edge network's range                                            |
+| Jobs are not processed                          | `logs worker-default`, or the worker for that queue. **Run now** in Automation uses `worker-automation`                                         |
+
+### An automation run was stopped part-way
+
+A host reboot, running out of memory, or a stop that ran out of time can end an automation run early. The day's
+remaining tasks did not run, and **Run now** says another run is in progress while the stopped run's locks remain.
+
+1. Check **Setup → Automation** that no run is in progress.
+2. Clear the scheduler's lock and the automation locks:
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan schedule:clear-cache
+    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan automation:release-locks --force
+    ```
+
+3. Select **Run now**. Tasks that already succeeded that day are skipped.
+
+Without Docker, step 2 is `php artisan automation:release-locks`, run from the `billing/` folder; it asks before it
+releases anything.
 
 ## Any install
 

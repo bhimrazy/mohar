@@ -1,15 +1,17 @@
-# Docs site — tool choice, publishing and v1 content
+# Docs site — tool choice, deployment and v1 content
 
-Status: v1 built in `docs-site/` (draft PR) · Owner: CTO session · Research read 2026-10-20
-Scope: the public documentation for hosts who install and run the app. Internal process documents (`docs/handoff`,
+Status: v1 built in `docs-site/` (draft PR), not published · Owner: CTO session · Research read 2026-10-20
+Owner decision (2026-10-20): the site stays in this repository and unpublished for now; where it is deployed, and
+how hosts get the code, are decided later.
+Scope: the documentation for hosts who install and run the app. Internal process documents (`docs/handoff`,
 `docs/reviews`, ADRs, specs) never go on it. No WHMCS documentation text is used; every page is written from our own
 docs and the running app.
 
 ## 1. Decision
 
 **Astro Starlight 0.42.6 on Astro 7.3.8**, in `docs-site/` at the repository root with its own `package.json`,
-lockfile and `.npmrc`. It is built on a workstation and pushed to a `gh-pages` branch, so building costs no Actions
-minutes. Publishing is one command: `npm run publish:pages -- --push` (§6).
+lockfile and `.npmrc`. It builds on a workstation to a static `dist/` that any static host can serve; nothing is
+published yet. When it is, a local build pushed to a branch costs no CI minutes (§6).
 
 Pinned direct dependencies, each published at least 7 days before 2026-10-20:
 
@@ -106,6 +108,9 @@ Dependency counts are entries in a lockfile resolved on 2026-10-20 with `npm ins
 
 ## 2. GitHub Pages facts (read 2026-10-20)
 
+Research for the owner's decision. The decision was to keep the site unpublished for now (header), so none of this is
+set up.
+
 - **Plans.** Pages from a **private** repository needs GitHub Pro, Team or Enterprise; GitHub Free allows Pages only
   from public repositories. Pro lists "GitHub Pages" among its private-repository features.
 - **Visibility.** A Pages site is public on the internet even when its repository is private. Access-controlled
@@ -120,14 +125,14 @@ Dependency counts are entries in a lockfile resolved on 2026-10-20 with `npm ins
   **Whether that costs minutes on a private repository is unclear**: the current Actions billing page lists use "for
   GitHub Pages" among the free uses without a public-repository qualifier, while GitHub's August 2022 announcement
   said Pages builds on private repositories consume minutes. A pushed static build with `.nojekyll` skips Jekyll, so
-  the run is short either way. Check the account's usage report after the first publish.
+  the run is short either way. Check the account's usage report if Pages is ever used.
 - **`.nojekyll`.** Without it, Jekyll drops folders starting with `_`, which would remove Astro's `_astro/` assets.
-  The publish script writes it.
+  The deploy script writes it.
 - **Base path.** A project site is served at `https://<owner>.github.io/<repo>/`, so the build needs `base: '/<repo>'`
-  (our default is `/whmcs`, overridable with `DOCS_BASE`). A user site (`<owner>.github.io` repository) or a custom
+  (our build reads `DOCS_BASE`; the default is `/`). A user site (`<owner>.github.io` repository) or a custom
   domain serves from `/`.
-- **Custom domain.** For branch publishing, a `CNAME` file in the branch carries the domain (our script writes it from
-  `DOCS_CNAME`); for Actions publishing the file is ignored and the domain is set in settings. DNS: a `CNAME` record to
+- **Custom domain.** For branch publishing, a `CNAME` file in the branch carries the domain (our deploy script writes
+  it from `DOCS_CNAME`); for Actions publishing the file is ignored and the domain is set in settings. DNS: a `CNAME` record to
   `<owner>.github.io` for a subdomain, or `A` records 185.199.108.153, .109.153, .110.153, .111.153 (and the matching
   `AAAA` records) for an apex. Verify the domain under the account's Pages settings (a `TXT` record) to stop takeover,
   avoid wildcard DNS records, and turn on "Enforce HTTPS" once the certificate is issued.
@@ -145,8 +150,8 @@ docs-site/
   src/components/Screenshot.astro
   src/assets/mark.svg, src/assets/screenshots/*.png
   src/content/docs/**.mdx the pages
-  scripts/publish.sh      local build → gh-pages
-  README.md               how to work on it and publish
+  scripts/deploy-branch.sh  local build → a branch a static host serves (for later)
+  README.md               how to work on it and deploy it later
 ```
 
 It sits outside `billing/` so the app's dependency tree, CI and Dependabot entries are untouched.
@@ -155,10 +160,11 @@ It sits outside `billing/` so the app's dependency tree, CI and Dependabot entri
 
 The name is not final (trademark pending). It is written once, in `docs-site/src/product.mjs`. The site title, the
 page text (`{product.name}` in MDX) and therefore the search index read it. Screenshots show a host's own brand
-("Example Hosting"), which is what a host sees in the app, so they need no retake on rename. PR #80's
-`deploy/compose.prod.yaml` sets the compose project `name: mohar`, so its volumes are called `mohar_*`; the backup
-page finds the volume with `docker volume ls --filter name=_rustfs-data` instead of naming it. Renaming the product
-should also rename that project (a one-line change in #80, plus a volume migration for existing installs).
+("Example Hosting"), which is what a host sees in the app, so they need no retake on rename.
+`deploy/compose.prod.yaml` sets the compose project `name: mohar`, so its volumes and networks are called `mohar_*`.
+The pages never name them: backups and restores go through `docker compose run ... rustfs`, as in `production.md`.
+Renaming the product should also rename that project (one line in the compose file, plus a volume migration for
+existing installs).
 
 ## 5. Look
 
@@ -167,31 +173,31 @@ light, `#8B8FEA` dark, from `app/Modules/Themes/Resources/presets/calm.json`), I
 brand mark from `public/brand/mark.svg` with the product name removed from its SVG title. No hero, no feature cards,
 no gradients, no emoji. The landing page is a short intro, a numbered "where to start" list and a list of guides.
 
-## 6. Publishing flow (zero Actions minutes for the build)
+## 6. Deploying later (no CI minutes for the build)
+
+Nothing is published. When the owner picks a place:
 
 1. Build and check locally: `cd docs-site && npm ci --ignore-scripts && npm run build` (through `scripts/heavy.sh` in
-   the codespace). `npm run preview` serves the build on port 8141, with search.
-2. Dry run: `npm run publish:pages`. It builds and prints what it would push.
-3. Publish: `npm run publish:pages -- --push`. It writes `.nojekyll` (and `CNAME` when `DOCS_CNAME` is set) and
-   force-pushes `dist/` as a single commit to `gh-pages` on `DOCS_REMOTE` (default `origin`). The branch never grows.
-4. Once, by the owner: Settings → Pages → Deploy from a branch → `gh-pages`, `/ (root)`.
+   the codespace), with `DOCS_SITE` (and `DOCS_BASE` if it lives under a path) set to its address. `npm run preview`
+   serves the build on port 8141, with search.
+2. Copy `dist/` to any static host, or push it to a branch the host serves:
+   `DOCS_REMOTE=<remote or URL> npm run deploy:branch` is a dry run, and adding `-- --push` force-pushes `dist/` as a
+   single commit to `gh-pages` (or `DOCS_BRANCH`). It writes `.nojekyll`, and `CNAME` when `DOCS_CNAME` is set.
+   There is no default remote, so nothing is pushed by accident.
 
-Not done in this PR: Pages is not turned on and nothing was pushed to `gh-pages`. The site would be public.
-
-**Alternative that avoids the open questions:** publish to a separate public repository (for example
-`<owner>/<name>-docs`) by setting `DOCS_REMOTE` to its URL. Pages on a public repository works on any plan, the
-private repository stays as it is, and the URL does not contain `whmcs` (§10, Q2).
+GitHub Pages from this private repository would make the site public (§2); a separate public repository or another
+static host avoids putting the repository's name in the address.
 
 ## 7. v1 content
 
 Host-facing only. Every page was written for this site from our own docs and the running app; commands were checked
-against the repository (develop at `3fda1bb8`, and PR #80's branch at `4cbb2be9` for the Docker pages), and the copy
+against the repository (develop at `43298452`, which includes #80's `deploy/` and `devops/production.md`), and the copy
 was reviewed by a separate slop check whose findings are fixed.
 
 | Page                               | Draws from                                                                         | Screenshots (light / dark)                                                                                |
 | ---------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Introduction                       | `product-vision.md`, `feature-map.md`                                              | dashboard (new, both)                                                                                     |
-| Get started → Requirements         | `devops/install.md`, `devops/deployment-options.md`, `devops/production.md` (#80)  | none                                                                                                      |
+| Get started → Requirements         | `devops/install.md`, `devops/deployment-options.md`, `devops/production.md`        | none                                                                                                      |
 | Install with Docker Compose        | `devops/production.md`, `deploy/.env.production.example` (#80)                     | none                                                                                                      |
 | Install on a server without Docker | `devops/install.md` §1–6, `devops/local-setup.md` (trusted proxies)                | none                                                                                                      |
 | Sign in for the first time         | `devops/install.md` §7                                                             | dashboard (new, both)                                                                                     |
@@ -218,8 +224,9 @@ Hosting", at 1280 px. Two were cropped from existing captures (sidebar removed, 
 Still to take: the client's payment pages for eSewa and Khalti (the existing ones in `screenshots/payments-nepal/`
 show the old brand), the Stripe Checkout redirect, and the import step once 3b (#95, #133) merges.
 
-**Depends on PR #80.** The Docker pages and the Docker tabs of Upgrade and Backups document `deploy/compose.prod.yaml`,
-which is in #80. Merge this PR after #80, or hold those pages back.
+The Docker pages and the Docker tabs of Upgrade, Backups and Troubleshooting follow `devops/production.md` and
+`deploy/` as merged in #80 (sizing, the Caddy email, four workers and the scheduler's stop grace, the backup
+commands, the automation recovery).
 
 ## 8. Style guide
 
@@ -240,28 +247,26 @@ which is in #80. Merge this PR after #80, or hold those pages back.
 
 - MUST: `npm ci --ignore-scripts && npm run build` succeeds in `docs-site/` with no network service at runtime.
 - MUST: every direct and locked dependency is pinned and at least 7 days old; no install scripts are needed.
-- MUST: no file under `billing/` changes except this spec and its screenshots.
+- MUST: no file under `billing/` changes except this spec, its screenshots, and the PHP extension list in
+  `devops/install.md` (aligned with `deploy/Dockerfile`).
 - MUST: search works in the built site without an external service.
 - MUST: light and dark mode, desktop and phone, render without horizontal page scroll.
 - MUST: the product name appears only in `src/product.mjs` in the site's sources.
 - MUST: every internal link resolves (checked on the build: 0 broken).
-- MUST: publishing is one documented command and needs no Actions minutes to build.
+- MUST: the site is not published; deploying it later is one documented command and needs no CI minutes to build.
 - SHOULD: screenshots match the reader's theme where a dark capture exists, and zoom on click.
-- SHOULD: Dependabot or the dependency check covers `docs-site/` (follow-up, §10 Q5).
+- SHOULD: Dependabot or the dependency check covers `docs-site/` (follow-up, §10 Q1).
 
 ## 10. Questions for the owner
 
-1. **Publish publicly now?** A Pages site from this private repository is public. Confirm before anyone turns Pages on.
-2. **Where should it live?** The project URL would be `bhimrazy.github.io/whmcs/`, which puts a competitor's trademark
-   in our docs address. Options: a custom domain (for example `docs.<product domain>`), or a separate public
-   repository named after the product. Both work with the same script.
-3. **How do hosts get the code?** The install pages say "the release you are installing". The repository is private;
-   is there a download, a public mirror, or an image registry for hosts?
-4. **Minutes check.** After the first publish, check Settings → Billing → Actions usage for `pages-build-deployment`.
-   If it does count, the separate public repository (Q2) avoids it.
-5. **Dependency coverage.** `billing/scripts/check-dependency-age.mjs` and Dependabot read only `billing/`. Extend
+Decided 2026-10-20: the site stays in this repository and unpublished; where it is deployed and how hosts get the code
+are decided later. Until then the install pages say "the release you are installing".
+
+Still open:
+
+1. **Dependency coverage.** `billing/scripts/check-dependency-age.mjs` and Dependabot read only `billing/`. Extend
    them to `docs-site/` (CTO change), or accept a manual check on each docs dependency bump?
-6. **Nepali.** When should the docs get a Nepali version? It needs translated pages and a Starlight UI string file.
+2. **Nepali.** When should the docs get a Nepali version? It needs translated pages and a Starlight UI string file.
 
 ## 11. Out of scope (v1)
 

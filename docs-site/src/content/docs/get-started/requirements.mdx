@@ -11,10 +11,12 @@ Everything runs in containers on one Linux host: the app, its workers and schedu
 a web server that gets the TLS certificate for you.
 
 - A Linux host with Docker Engine and the Docker Compose v2 plugin.
-- At least 2 vCPU and 4 GB of memory.
+- At least 2 vCPU and 6 GB of memory; 8 GB is recommended. 4 GB is not enough: the containers together can use more
+  than that, and the host would stop them.
 - A domain name for the app, such as `billing.example.com`, with DNS `A` (and `AAAA` for IPv6) records pointing at
   the host.
 - Ports 80 and 443 open to the internet (TCP), and 443 over UDP for HTTP/3.
+- An email address for the TLS certificate. Let's Encrypt sends expiry notices to it.
 - An SMTP account or a mail service. Without it, password resets, invoices and security notices are not sent.
 - Somewhere off the host to keep backups.
 

@@ -13,7 +13,8 @@ See [Backups](../backups/).
 
 <Steps>
 
-1. Back up the database.
+1. Check **Setup → Automation**: if the daily run or a **Run now** is in progress, wait for it to finish. Then back
+   up the database.
 
 2. Get the new release into the install folder (for example check out its tag), then build the new image.
 
@@ -28,8 +29,8 @@ See [Backups](../backups/).
     ```
 
     The `migrate` service applies the database changes before the new app and workers start. The site is unavailable
-    for the few seconds the new app takes to pass its health check. Workers finish their current job first; if a
-    **Run now** automation run is in progress, the update waits for it, up to an hour.
+    for the few seconds the new app takes to pass its health check. Workers and the scheduler finish their current
+    work first: while an automation run is in progress, this command waits for it, up to an hour.
 
 </Steps>
 

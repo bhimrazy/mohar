@@ -10,15 +10,15 @@ The install is a CLI step, `php artisan app:install`. A web installer is not par
 
 ## What you need
 
-| Component      | Version / notes                                                                                                           |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| PHP            | 8.4 with `pdo_pgsql`, `pgsql`, `mbstring`, `openssl`, `curl`, `dom`, `zlib`; php-fpm behind nginx (or another web server) |
-| Composer       | 2.10.x                                                                                                                    |
-| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                             |
-| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                    |
-| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                   |
-| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                      |
-| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                       |
+| Component      | Version / notes                                                                                                                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PHP            | 8.4 with `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip`, `mbstring`, `openssl`, `curl`, `dom`, `zlib` and OPcache (the image's list, `deploy/Dockerfile`); php-fpm behind nginx (or another web server) |
+| Composer       | 2.10.x                                                                                                                                                                                                                |
+| Node / npm     | the version in `billing/.nvmrc` (24.21.0), only to build the front-end assets                                                                                                                                         |
+| PostgreSQL     | 18 (CI runs on `postgres:18.6-alpine`). SQLite is for development only                                                                                                                                                |
+| Object storage | any S3-compatible bucket for the `objects` disk (RustFS, AWS S3, MinIO)                                                                                                                                               |
+| Mail           | an SMTP account or a supported mail API. Security notices, invoices and password resets depend on it                                                                                                                  |
+| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                                                                                                                   |
 
 ## 1. Infrastructure
 

@@ -4,10 +4,11 @@ import { defineConfig } from 'astro/config';
 import starlightImageZoom from 'starlight-image-zoom';
 import { product } from './src/product.mjs';
 
-// Where the site is served. GitHub Pages project sites live at https://<owner>.github.io/<repo>/.
-// For a custom domain, build with DOCS_SITE=https://docs.example.com DOCS_BASE=/ (see README.md).
-const site = process.env.DOCS_SITE ?? 'https://bhimrazy.github.io';
-const base = process.env.DOCS_BASE ?? '/whmcs';
+// The site is not published yet (owner decision, 2026-10-20). When it is deployed, set its address at build time:
+// DOCS_SITE=https://docs.example.com (adds canonical links and a sitemap) and DOCS_BASE=/sub/path when it is not at
+// the root of its domain. See README.md.
+const site = process.env.DOCS_SITE || undefined;
+const base = process.env.DOCS_BASE ?? '/';
 
 export default defineConfig({
     site,

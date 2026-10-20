@@ -14,9 +14,9 @@ binaries as optional platform packages.
 ```bash
 cd docs-site
 npm ci --ignore-scripts
-npm run dev        # http://localhost:8140/whmcs/
+npm run dev        # http://localhost:8140/
 npm run build      # writes dist/
-npm run preview    # serves dist/ on http://localhost:8141/whmcs/ (search works only in a build)
+npm run preview    # serves dist/ on http://localhost:8141/ (search works only in a build)
 ```
 
 Use `/workspaces/whmcs/scripts/heavy.sh npm run build` in the shared codespace.
@@ -35,22 +35,22 @@ Pages are MDX files in `src/content/docs/`. The sidebar order is in `astro.confi
 - **Links:** use relative links (`../stripe/`), so the site works under any base path.
 - **Commands:** every command must exist in the repository at the commit being documented.
 
-## Publish
+## Deploying (later)
 
-Publishing is a local build pushed to a `gh-pages` branch; it uses no GitHub Actions minutes for the build.
-
-```bash
-npm run publish:pages              # dry run: builds and says what it would push
-npm run publish:pages -- --push    # builds and force-pushes dist/ to gh-pages
-```
-
-For a custom domain, build at the root and write the `CNAME` file:
+The site is not published (owner decision, 2026-10-20). `npm run build` writes a static site to `dist/` that any
+static host can serve. Build it with the address it will have:
 
 ```bash
-DOCS_SITE=https://docs.example.com DOCS_BASE=/ DOCS_CNAME=docs.example.com npm run publish:pages -- --push
+DOCS_SITE=https://docs.example.com npm run build                       # at the root of a domain
+DOCS_SITE=https://example.com DOCS_BASE=/docs npm run build            # under a path
 ```
 
-To publish from a separate public repository instead, set `DOCS_REMOTE` to its URL.
+To push the build to a branch a static host serves (no CI minutes for the build):
 
-GitHub Pages itself is turned on once, by the repository owner: Settings → Pages → Build and deployment → Deploy from
-a branch → `gh-pages`, `/ (root)`. A Pages site is public even when the repository is private.
+```bash
+DOCS_REMOTE=<remote or URL> npm run deploy:branch              # dry run: builds and says what it would push
+DOCS_REMOTE=<remote or URL> npm run deploy:branch -- --push    # force-pushes dist/ to the gh-pages branch
+```
+
+`DOCS_BRANCH` changes the branch and `DOCS_CNAME` writes a `CNAME` file. Publishing from this private repository
+with GitHub Pages would make the site public; the owner decides where it goes.

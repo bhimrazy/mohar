@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-# Build the docs site locally and push the result to a gh-pages branch. No GitHub Actions minutes are used to build.
+# Build the docs site locally and push the result to a branch that a static host serves (for example a gh-pages
+# branch). The site is not published yet (owner decision, 2026-10-20); this is for when it is.
 #
-#   npm run publish:pages                 build, then show what would be pushed (dry run)
-#   npm run publish:pages -- --push       build and force-push dist/ as a single commit to the gh-pages branch
+#   DOCS_REMOTE=<remote or URL> npm run deploy:branch            build, then show what would be pushed (dry run)
+#   DOCS_REMOTE=<remote or URL> npm run deploy:branch -- --push  build and force-push dist/ as a single commit
 #
 # Settings (environment):
-#   DOCS_REMOTE   git remote name or URL to push to       (default: origin)
-#   DOCS_BRANCH   branch GitHub Pages serves from          (default: gh-pages)
-#   DOCS_SITE     site origin, e.g. https://docs.example.com (default in astro.config.mjs)
-#   DOCS_BASE     path the site lives under, "/" for a custom domain (default in astro.config.mjs)
-#   DOCS_CNAME    custom domain to write into dist/CNAME   (optional)
+#   DOCS_REMOTE   git remote name or URL to push to (required; there is no default)
+#   DOCS_BRANCH   branch to push                      (default: gh-pages)
+#   DOCS_SITE     the site's origin, e.g. https://docs.example.com
+#   DOCS_BASE     path the site lives under            (default: /)
+#   DOCS_CNAME    custom domain to write into dist/CNAME (optional, for hosts that read it)
 #
-# The branch holds only the built files, replaced on every publish, so it never grows. Publishing does not turn
-# GitHub Pages on: that is a repository setting (Settings -> Pages -> Deploy from a branch -> gh-pages, / (root)).
+# The branch holds only the built files, replaced on every push, so it never grows. Pushing does not make anything
+# public by itself: the host serving the branch does.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +22,7 @@ cd "$here"
 push=0
 [ "${1:-}" = "--push" ] && push=1
 
-remote="${DOCS_REMOTE:-origin}"
+remote="${DOCS_REMOTE:?Set DOCS_REMOTE to the git remote or URL to push to.}"
 branch="${DOCS_BRANCH:-gh-pages}"
 if git remote get-url "$remote" > /dev/null 2>&1; then
     url="$(git remote get-url "$remote")"
@@ -38,7 +39,7 @@ source_rev="$(git rev-parse --short HEAD)"
 git diff --quiet HEAD -- . || source_rev="${source_rev}-dirty"
 
 npm run build
-touch dist/.nojekyll                         # serve folders such as _astro/ as they are, without Jekyll
+touch dist/.nojekyll                         # GitHub Pages: serve folders such as _astro/ without Jekyll
 if [ -n "${DOCS_CNAME:-}" ]; then
     printf '%s\n' "$DOCS_CNAME" > dist/CNAME
 fi

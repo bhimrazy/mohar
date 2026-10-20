@@ -7,7 +7,7 @@
         "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev --port 8140",
         "build": "ASTRO_TELEMETRY_DISABLED=1 astro build",
         "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview --port 8141",
-        "publish:pages": "bash scripts/publish.sh"
+        "deploy:branch": "bash scripts/deploy-branch.sh"
     },
     "dependencies": {
         "@astrojs/starlight": "0.42.6",
