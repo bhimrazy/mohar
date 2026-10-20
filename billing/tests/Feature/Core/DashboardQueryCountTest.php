@@ -81,3 +81,30 @@ test('a dashboard visit stays within its query budget, and the deferred request 
         ->and($counts[30][0] - $counts[10][0])->toBeLessThanOrEqual(4)
         ->and($counts[30][1] - $counts[10][1])->toBeLessThanOrEqual(8);
 });
+
+test('dashboard figures are summed in the database: no query reads all rows of a growing table into PHP', function () {
+    $this->travelTo('2026-10-18 12:00:00');
+    Currency::factory()->create();
+    Currency::factory()->inr()->create();
+    actingAsStaff(['*', ...BillingServiceProvider::SENSITIVE_PERMISSIONS]);
+    dashboardSample(6);
+    Cache::flush();
+    DB::enableQueryLog();
+
+    $response = $this->get(route('admin.dashboard'))->assertOk();
+    $this->withHeaders([
+        'X-Inertia' => 'true',
+        'X-Inertia-Version' => (string) ($response->viewData('page')['version'] ?? ''),
+        'X-Inertia-Partial-Component' => 'admin/dashboard',
+        'X-Inertia-Partial-Data' => 'deferredWidgets,health',
+    ])->get(route('admin.dashboard'))->assertOk();
+
+    // Tables that grow with clients and history. A read is fine when it aggregates, is limited, or loads given ids.
+    $unbounded = collect(DB::getQueryLog())->pluck('query')
+        ->filter(fn (string $sql): bool => (bool) preg_match('/^\(?select .* from "?(invoices|invoice_items|transactions|services|clients|support_tickets)"?\b/is', $sql))
+        ->reject(fn (string $sql): bool => (bool) preg_match('/\b(count|sum|min|max)\(|\bexists\s*\(| limit \d+|"id" in \(/i', $sql))
+        ->values();
+    DB::disableQueryLog();
+
+    expect($unbounded->all())->toBe([]);
+});

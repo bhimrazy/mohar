@@ -215,6 +215,7 @@ class CatalogPriceBook implements PriceBook
                     'type' => $product->type->value,
                     'payment_type' => $product->payment_type->value,
                     'is_featured' => $product->is_featured,
+                    'is_taxable' => $product->is_taxable,
                     'requires_domain' => $product->requires_domain,
                     'in_stock' => ! $product->isOutOfStock(),
                     'stock' => $product->stock_enabled ? $product->stock_quantity : null,
