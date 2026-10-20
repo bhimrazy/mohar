@@ -113,7 +113,9 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
 - **`imports` (amended 2026-10-20, client-import spec C2)** carries client-import jobs (staging, checking, applying).
   The `default` pool works it after `default` (`--queue=default,imports --timeout=150`), so an import of 50,000 rows
   never delays other work. Each import job caps itself at 120 s, below the default connection's 240 s `retry_after`,
-  so the queue needs no connection of its own; a job that could run longer must be split into chunks instead.
+  so the queue needs no connection of its own; a job that could run longer must be split into chunks instead. The
+  spec proposed a separate `retry_after`; the CTO accepted the default connection instead (2026-10-20, #160): the
+  120 s job timeout, the pool's `--timeout=150` and the 160 s stop grace keep each import job below 240 s.
 - Domains jobs move to `registrar`, so a registrar outage cannot starve other `default` work.
 - Core alone registers one `DevCommands` worker over all queues in priority order:
   `payments,provisioning,registrar,notifications,webhooks,default`. Modules no longer register workers. The one
