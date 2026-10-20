@@ -9,6 +9,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 /**
  * What Import accounts would do with the accounts staff ticked (cPanel spec §10 steps 3–4), worked out again from
@@ -101,8 +102,17 @@ class AccountImportPlan
     {
         $rows = $this->rows($server, $import);
         $reviewed = self::snapshot($rows);
-        // The matched client is pinned in the reviewed rows only, never as a staff choice: the import creates exactly these.
-        $import->update(['reviewed' => ['digest' => self::digest($reviewed), 'rows' => $reviewed, 'staff_id' => $staffId]]);
+
+        // The matched client is pinned in the reviewed rows only, never as a staff choice: the import creates exactly
+        // these. Saved under the server lock and only while the list is ready, so a review read before an import was
+        // confirmed can never replace the confirmed rows (its digest then matches nothing).
+        DB::transaction(function () use ($server, $import, $reviewed, $staffId): void {
+            Server::query()->whereKey($server->id)->lockForUpdate()->first();
+
+            if (ServerAccountImport::query()->whereKey($import->id)->value('status') === ServerAccountImport::READY) {
+                $import->update(['reviewed' => ['digest' => self::digest($reviewed), 'rows' => $reviewed, 'staff_id' => $staffId]]);
+            }
+        });
 
         return ['rows' => $rows, 'digest' => self::digest($reviewed)];
     }
@@ -128,7 +138,7 @@ class AccountImportPlan
 
     /**
      * @param  list<array<string, mixed>>  $rows
-     * @return list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int}>
+     * @return list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>
      */
     private static function snapshot(array $rows): array
     {
@@ -140,6 +150,7 @@ class AccountImportPlan
             'next_due_date' => (string) $row['decision']['next_due_date'],
             'anchor_day' => (int) $row['decision']['anchor_day'],
             'amount' => (int) $row['decision']['amount'],
+            'currency' => (string) $row['decision']['client']['currency'],
         ], array_filter($rows, fn (array $row): bool => $row['decision']['problems'] === [])));
     }
 

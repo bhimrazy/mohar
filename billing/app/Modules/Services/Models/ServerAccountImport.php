@@ -26,7 +26,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property list<int>|null $missing ids of live services whose account the server did not report
  * @property string|null $connection_user the panel user the fetch signed in as
  * @property array<string, array{include?: bool, client_id?: int, product_id?: int, cycle?: string, next_due_date?: string}>|null $selections staff choices by username
- * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int}>, staff_id: int|null}|null $reviewed what the review page showed
+ * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null}|null $reviewed what the review page showed
  * @property list<array{username: string, imported: bool, message: string, service_id: int|null}>|null $report the queued import's result
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at

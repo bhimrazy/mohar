@@ -122,7 +122,7 @@ class ImportServerAccounts
             'accounts' => $count, 'digest' => $digest, 'usernames' => hash('sha256', implode(',', array_column($import->reviewed['rows'] ?? [], 'username'))),
             'reviewed_by' => $import->reviewed['staff_id'] ?? null,
         ]);
-        ImportReviewedAccounts::dispatch($import->id, $staff?->id);
+        ImportReviewedAccounts::dispatch($import->id, $staff?->id, digest: $digest);
 
         return $count;
     }
@@ -141,6 +141,10 @@ class ImportServerAccounts
         $accounts = collect($import->accounts ?? [])->keyBy('username');
         $clients = Client::query()->whereKey(array_column($reviewed, 'client_id'))->get(['id', 'status', 'currency'])->keyBy('id');
         $products = $this->matcher->serverProducts($server);
+        // Live services holding a username in any case (older services may keep another case; WHM names are lowercase).
+        $held = Service::query()->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
+            ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($reviewed)), '?')).')', array_column($reviewed, 'username') ?: [''])
+            ->pluck('username')->map(fn (string $username): string => strtolower($username))->flip();
         $report = [];
 
         foreach ($reviewed as $row) {
@@ -148,22 +152,30 @@ class ImportServerAccounts
             $client = $clients->get($row['client_id']);
             $product = $products[$row['product_id']] ?? null;
             $problem = match (true) {
-                $account === null => __('The account is no longer in the fetched list.'),
-                $client === null || $client->status !== 'active' => __('The client is no longer active.'),
-                $product === null => __('The product no longer provisions on this server.'),
+                $account === null => AccountImportMatcher::text('The account is no longer in the fetched list.'),
+                $held->has(strtolower($row['username'])) => AccountImportMatcher::text('A live service on this server already holds this account.'),
+                $client === null || $client->status !== 'active' => AccountImportMatcher::text('The client is no longer active.'),
+                $client->currency !== $row['currency'] => AccountImportMatcher::text('The client\'s currency changed since the review.'),
+                $product === null => AccountImportMatcher::text('The product no longer provisions on this server.'),
                 default => null,
             };
 
             if ($problem !== null) {
-                $report[] = ['username' => $row['username'], 'imported' => false, 'message' => $problem, 'service_id' => null];
+                $report[] = $this->report($import, ['username' => $row['username'], 'imported' => false, 'message' => $problem, 'service_id' => null]);
 
                 continue;
             }
 
             try {
-                $service = DB::transaction(fn (): Service => $this->create($server, $account, $row, $product, $client->currency));
+                // The service and its report line commit together, so a chunk that fails later keeps both.
+                $service = DB::transaction(function () use ($server, $import, $account, $row, $product, &$report): Service {
+                    $service = $this->create($server, $account, $row, $product, $row['currency']);
+                    $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported just now.'), 'service_id' => $service->id]);
+
+                    return $service;
+                });
             } catch (UniqueConstraintViolationException) {
-                $report[] = ['username' => $row['username'], 'imported' => false, 'message' => __('A live service on this server already holds this account.'), 'service_id' => null];
+                $report[] = $this->report($import, ['username' => $row['username'], 'imported' => false, 'message' => AccountImportMatcher::text('A live service on this server already holds this account.'), 'service_id' => null]);
 
                 continue;
             }
@@ -172,10 +184,22 @@ class ImportServerAccounts
             $this->activity->log("Service {$service->label()} imported from server {$server->name}", $service, $service->client_id, [
                 'server' => $server->name, 'username' => $service->username, 'product' => $product->name, 'staff_id' => $staff?->id,
             ], actor: $staff);
-            $report[] = ['username' => $row['username'], 'imported' => true, 'message' => __('Imported just now.'), 'service_id' => $service->id];
         }
 
         return $report;
+    }
+
+    /**
+     * Append one line to the stored report (inside the row's transaction when it has one) and return it.
+     *
+     * @param  array{username: string, imported: bool, message: string, service_id: int|null}  $line
+     * @return array{username: string, imported: bool, message: string, service_id: int|null}
+     */
+    private function report(ServerAccountImport $import, array $line): array
+    {
+        $import->update(['report' => [...($import->report ?? []), $line]]);
+
+        return $line;
     }
 
     /**
@@ -205,7 +229,7 @@ class ImportServerAccounts
 
     /**
      * @param  array<string, mixed>  $account  the account as stored with the fetched list
-     * @param  array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int}  $row  the reviewed row
+     * @param  array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}  $row  the reviewed row
      */
     private function create(Server $server, array $account, array $row, ProductSummary $product, string $currency): Service
     {
