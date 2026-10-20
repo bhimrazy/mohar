@@ -153,9 +153,12 @@ The script, step by step:
    If it is not healthy, it stops it and leaves traffic where it was.
 5. Writes `deploy/state/live/upstream.caddy` and reloads Caddy gracefully: in-flight requests finish, new ones go
    to the new colour. It confirms Caddy's running configuration names the new upstream, and restores the old file
-   if the reload fails.
+   if the reload or that check fails. Caddy's config directory (`deploy/caddy`) is mounted, not the single file, so a
+   release that changes the Caddyfile takes effect at this reload too. The live colour is recorded right after the
+   switch.
 6. Starts the new colour's three pools, then stops the old scheduler and automation worker and starts the new ones
-   (exactly one of each ever runs), then stops the old pools. A stopped worker finishes its current job first, so no
+   (exactly one of each ever runs; if the new ones do not become healthy, the old ones start again and the deploy
+   stops, with traffic on the new colour and `rollback` ready), then stops the old pools. A stopped worker finishes its current job first, so no
    job runs twice. **While the daily automation run or a Run now is in progress, stopping the old scheduler or
    automation worker waits for it, up to an hour** (their 3,660 s stop grace); traffic has already switched, and both
    colours' pools keep working the queues meanwhile. Check Admin → Automation before deploying.
@@ -224,10 +227,13 @@ docker compose -f deploy/compose.prod.yaml exec -T postgres \
 docker compose -f deploy/compose.prod.yaml stop rustfs
 docker compose -f deploy/compose.prod.yaml run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint tar rustfs \
   xzf /backup/objects-2026-10-19.tgz -C /data
-docker compose -f deploy/compose.prod.yaml up -d --wait
+docker compose -f deploy/compose.prod.yaml start rustfs
+deploy/bin/deploy
 ```
 
-Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to confirm the bucket.
+`deploy/bin/deploy` does the rest: it finds nothing to migrate, starts a colour, writes Caddy's upstream and starts
+Caddy, then the workers and the scheduler (a plain `up` would start no app colour, and Caddy refuses to start without
+an upstream). Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to confirm the bucket.
 
 ## Troubleshooting
 
@@ -236,7 +242,7 @@ Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to co
 | `deploy` stops at the migration check                                                   | a pending migration drops, renames or changes schema in one step: split it (architecture.md), or tag it `@contract` / `@compatible` with the reason                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `deploy` stops at the migrations                                                        | its output, or `logs migrate`. "No full administrator was created" means step 4 of the first install was skipped                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `deploy` says the new colour is unhealthy                                               | the printed `app-<colour>` logs; traffic stayed on the live colour, so fix and deploy again                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 502 from Caddy                                                                          | `docker compose ... ps`: the app must be `healthy`; `logs app` shows why it is not                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| 502 from Caddy                                                                          | `deploy/bin/deploy status`: the live `app-<colour>` must be `healthy`; `docker compose -f deploy/compose.prod.yaml --profile <colour> logs app-<colour>` shows why it is not                                                                                                                                                                                                                                                                                                                                                                                     |
 | No HSTS, or the activity log shows one IP                                               | the app does not trust the proxy: `EDGE_SUBNET` must be the edge network's range (`docker network inspect mohar_edge`)                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Certificate errors                                                                      | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Jobs not processed                                                                      | `logs worker-default-<colour>` (or the pool that carries the queue; **Run now** is `worker-automation-<colour>`); the dashboard's automation summary shows the scheduler heartbeat                                                                                                                                                                                                                                                                                                                                                                               |
