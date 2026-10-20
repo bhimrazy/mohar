@@ -60,13 +60,15 @@ The copy runs as root so it can write to a root-owned `/backups`, and the archiv
       sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < /backups/billing-2026-10-19.dump
     ```
 
-2. Stop object storage, put the objects back, and start everything.
+2. Stop object storage, put the objects back, start it again, and deploy. The deploy finds nothing to change in
+   the restored database, starts the app and the web server, then the workers and the scheduler.
 
     ```bash
     docker compose -f deploy/compose.prod.yaml stop rustfs
     docker compose -f deploy/compose.prod.yaml run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint tar rustfs \
       xzf /backup/objects-2026-10-19.tgz -C /data
-    docker compose -f deploy/compose.prod.yaml up -d --wait
+    docker compose -f deploy/compose.prod.yaml start rustfs
+    deploy/bin/deploy
     ```
 
 </Steps>

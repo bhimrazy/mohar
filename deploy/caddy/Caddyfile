@@ -1,13 +1,15 @@
-# Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container.
+# Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container. Mounted as
+# /etc/caddy/conf/Caddyfile; the live upstream is /etc/caddy/live/upstream.caddy (written by deploy/bin/deploy).
 # Certificates are automatic for a public APP_DOMAIN: Let's Encrypt, plus ZeroSSL as a fallback only when an email is
-# set (CADDY_GLOBAL_OPTIONS="email ..."); `localhost` and
-# *.internal names get a certificate from Caddy's internal CA, which the deploy smoke test uses.
+# set (CADDY_GLOBAL_OPTIONS="email ..."); `localhost` and *.internal names get a certificate from Caddy's internal
+# CA, which the deploy smoke test uses.
 # Security headers (CSP, HSTS, ...) come from the app, so none are added here.
 {
 	# Do not try to add the internal CA to this container's trust store.
 	skip_install_trust
-	# The admin API listens inside this container only; it is what a graceful `caddy reload` talks to.
-	admin localhost:2019
+	# The admin API listens inside this container only, on IPv4 (busybox wget resolves localhost to ::1 first); it is
+	# what a graceful `caddy reload` and the deploy script's checks talk to.
+	admin 127.0.0.1:2019
 	# Optional global options from deploy/.env, e.g. CADDY_GLOBAL_OPTIONS="email ops@example.com" for ACME notices.
 	{$CADDY_GLOBAL_OPTIONS:}
 	servers {
@@ -30,17 +32,11 @@
 	# Empty by default; `tls internal` forces the internal CA for a non-public test name.
 	{$CADDY_TLS:}
 
-	reverse_proxy app:8080 {
-		# Caddy sets X-Forwarded-For, -Proto and -Host itself, ignoring a client's values; other X-Forwarded-* headers
-		# pass through, so the app trusts only those three, and only from this proxy's network (TRUSTED_PROXIES).
-		health_uri /up
-		health_interval 10s
-		health_headers {
-			Host {$APP_DOMAIN}
-		}
-		# A restarting app container is retried for a few seconds instead of answering 502 at once.
-		lb_try_duration 5s
-	}
+	# The live colour: deploy/bin/deploy writes this file (reverse_proxy to app-blue or app-green, with health checks
+	# and the upstream in the access log), then reloads Caddy gracefully. Caddy refuses to start without it.
+	# Caddy sets X-Forwarded-For, -Proto and -Host itself, ignoring a client's values; other X-Forwarded-* headers
+	# pass through, so the app trusts only those three, and only from this proxy's network (TRUSTED_PROXIES).
+	import ../live/upstream.caddy
 
 	# Access log without secrets: one-time tokens travel in URLs (password reset, staff and account invitations,
 	# email verification paths; signed links' and guest tickets' query strings). Their path segment and every query

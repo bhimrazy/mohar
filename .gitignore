@@ -5,3 +5,5 @@ rea/
 /deploy/.env
 /deploy/.env.*
 !/deploy/.env.production.example
+# Blue-green state for deploy/bin/deploy (live colour, images, the upstream Caddy imports)
+/deploy/state/
