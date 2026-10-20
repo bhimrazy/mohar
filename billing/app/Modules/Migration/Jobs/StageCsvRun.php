@@ -107,7 +107,7 @@ final class StageCsvRun implements ShouldBeEncrypted, ShouldQueue
             'mapping' => ['columns' => ClientColumns::suggest($run->header ?? [], (string) ($run->options['preset'] ?? 'generic')), 'date_format' => null],
         ])->save();
         Storage::disk('objects')->delete($key);
-        $audit->log('Client import file read and deleted', $run, properties: ['rows' => $rows, 'file' => $run->file_name], event: 'migration.file_deleted');
+        $audit->log('Client import file read and deleted', $run, properties: ['rows' => $rows, 'file' => $run->file_name, 'object' => $key], event: 'migration.file_deleted');
     }
 
     public function failed(?Throwable $exception): void
