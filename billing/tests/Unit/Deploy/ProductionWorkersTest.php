@@ -3,9 +3,13 @@
 /*
  * Review board probes for PR #80: the worker pools, the scheduler and their health checks in
  * deploy/compose.prod.yaml, checked against the code and config they run (ADR 0014, config/queue.php,
- * deploy/php/app.ini). The first two reproduce review findings; the rest guard what is correct today.
- * If the worker health checks move to a heartbeat (the better fix), replace the first test with one for it.
+ * deploy/php/app.ini, App\Support\Queues). Round 1 (6088b033): the first two reproduce findings. Round 3 (4cbb2be9):
+ * updated for worker-automation and the 60 s default timeout, plus a probe that the scheduler's stop grace covers the
+ * daily automation run (fails at 4cbb2be9). If the worker health checks move to a heartbeat (the better fix), replace
+ * the first test with one for it.
  */
+
+use App\Support\Queues;
 
 use Illuminate\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
@@ -18,6 +22,15 @@ function d2DeployDir(): string
 function d2Services(): array
 {
     return Yaml::parseFile(d2DeployDir().'/compose.prod.yaml')['services'];
+}
+
+/** The connection a queue:work command reads: its positional argument, else the default (database). */
+function d2Connection(array $command): string
+{
+    $position = array_search('queue:work', $command, true);
+    $argument = $command[$position + 1] ?? null;
+
+    return is_string($argument) && ! str_starts_with($argument, '--') ? $argument : 'database';
 }
 
 /** @return array<string, list<string>> pool => queues */
@@ -107,7 +120,7 @@ test('the scheduler memory limit leaves room for a child process at the PHP memo
 });
 
 test('every queue the code dispatches onto is consumed by exactly one pool', function () {
-    $dispatched = ['default'];
+    $dispatched = ['default', Queues::AUTOMATION];
     $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__, 3).'/app'));
     foreach ($files as $file) {
         if ($file->getExtension() === 'php'
@@ -120,21 +133,44 @@ test('every queue the code dispatches onto is consumed by exactly one pool', fun
 
     expect(array_diff(array_unique($dispatched), $consumed))->toBe([])
         ->and(array_unique($consumed))->toHaveCount(count($consumed))
-        ->and(array_keys(d2Pools()))->toEqualCanonicalizing(['worker-critical', 'worker-notifications', 'worker-default']);
+        ->and(array_keys(d2Pools()))->toEqualCanonicalizing(['worker-critical', 'worker-notifications', 'worker-default', 'worker-automation']);
 });
 
-test('pool timeouts stay below retry_after and each stop grace covers the pool timeout', function () {
-    $retryAfter = (require dirname(__DIR__, 3).'/config/queue.php')['connections']['database']['retry_after'];
+test('the worker commands are Queues::workerCommands(), plus the hourly --max-time on the three pools', function () {
+    $commands = [];
+    foreach (d2Pools() as $pool => $queues) {
+        $command = d2Services()[$pool]['command'];
+        $commands[] = implode(' ', array_values(array_filter($command, fn (string $arg) => $arg !== '--max-time=3600')));
+        expect(in_array('--max-time=3600', $command, true))->toBe($pool !== 'worker-automation', "{$pool}: --max-time");
+    }
+
+    expect($commands)->toEqualCanonicalizing(Queues::workerCommands());
+});
+
+test('pool timeouts stay below their connection retry_after and each stop grace covers the pool timeout', function () {
+    $config = require dirname(__DIR__, 3).'/config/queue.php';
 
     foreach (d2Pools() as $pool => $queues) {
         $service = d2Services()[$pool];
-        $timeout = d2Option($service['command'], 'timeout');
+        // queue:work's default --timeout is 60 s.
+        $timeout = d2Option($service['command'], 'timeout') ?? 60;
+        $retryAfter = $config['connections'][d2Connection($service['command'])]['retry_after'];
 
-        expect($timeout)->not->toBeNull()
-            ->and($timeout)->toBeLessThan($retryAfter)
-            ->and(d2Seconds($service['stop_grace_period']))->toBeGreaterThan($timeout);
+        expect($timeout)->toBeLessThan($retryAfter, "{$pool}: timeout {$timeout} s vs retry_after {$retryAfter} s")
+            ->and(d2Seconds($service['stop_grace_period']))->toBeGreaterThan($timeout, "{$pool}: stop grace");
     }
 
     // ADR 0014: the critical pool covers the provisioning cap (180 s) plus its 20 s lock slack.
-    expect(d2Option(d2Services()['worker-critical']['command'], 'timeout'))->toBeGreaterThanOrEqual(200);
+    expect(d2Option(d2Services()['worker-critical']['command'], 'timeout'))->toBeGreaterThanOrEqual(Queues::PROVIDER_POOL_TIMEOUT_SECONDS)
+        ->and(d2Connection(d2Services()['worker-automation']['command']))->toBe(Queues::AUTOMATION)
+        ->and($config['connections'][Queues::AUTOMATION]['retry_after'])->toBe(Queues::AUTOMATION_RETRY_AFTER_SECONDS);
+});
+
+test('a deploy during the daily automation run lets the scheduler finish it instead of killing it', function () {
+    // schedule:work traps SIGTERM and waits for its schedule:run children; the daily automation:run runs inline in
+    // one of them and holds the automation:run lock for up to AUTOMATION_TIMEOUT_SECONDS. A shorter stop grace
+    // SIGKILLs the billing pipeline mid-run on every `up -d` that recreates the scheduler, and leaves its
+    // withoutOverlapping mutex (24 h) and the command lock (1 h) behind. An idle scheduler still stops in ~0.1 s.
+    expect(d2Seconds(d2Services()['scheduler']['stop_grace_period']))
+        ->toBeGreaterThan(Queues::AUTOMATION_TIMEOUT_SECONDS);
 });
