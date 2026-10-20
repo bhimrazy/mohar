@@ -8,10 +8,9 @@ use App\Modules\Domains\Models\NpRegistration;
 use App\Modules\Domains\Services\NpWorkflow;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\URL;
 
 /**
- * A .np request for the domain pages. Staff get the workflow dates and signed links to the documents; clients
+ * A .np request for the domain pages. Staff get the workflow dates and links that open the documents (through a fresh signed link); clients
  * get the step, what is missing and the reasons a step went back, never document links.
  *
  * @mixin NpRegistration
@@ -44,7 +43,7 @@ class NpRegistrationResource extends JsonResource
                 'uploaded_at' => $document->created_at?->toIso8601String(),
                 'current' => $document->delete_after === null,
                 'delete_after' => $document->delete_after?->toDateString(),
-                'url' => $canOpen ? URL::temporarySignedRoute('admin.domains.np.document', now()->addMinutes(15), ['domain' => $this->domain_id, 'document' => $document->id]) : null,
+                'url' => $canOpen ? route('admin.domains.np.document.open', ['domain' => $this->domain_id, 'document' => $document->id]) : null,
             ])->values()->all(),
             'handling_fee_note' => $workflow->option('handling_fee_note'),
             ...$staff ? [

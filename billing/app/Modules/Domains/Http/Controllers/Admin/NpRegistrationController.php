@@ -13,6 +13,7 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -53,6 +54,18 @@ class NpRegistrationController extends Controller
         }]);
 
         return to_route('admin.domains.show', $domain);
+    }
+
+    /**
+     * "Open" on the domain page: a fresh signed link each time, so a page left open longer than the link's 15 minutes
+     * still opens the document.
+     */
+    public function open(Domain $domain, NpDocument $document): RedirectResponse
+    {
+        $this->authorize('domains.np.review');
+        abort_unless($document->registration->domain_id === $domain->id, 404);
+
+        return redirect()->to(URL::temporarySignedRoute('admin.domains.np.document', now()->addMinutes(15), ['domain' => $domain->id, 'document' => $document->id]));
     }
 
     /**

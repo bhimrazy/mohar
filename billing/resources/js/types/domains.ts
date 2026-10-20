@@ -166,7 +166,8 @@ export type NpRequest = {
 };
 
 export const NP_DOCUMENTS: Record<string, string> = {
-    identity: 'Citizenship, passport, driving licence or voter card',
+    identity:
+        'Citizenship, passport, driving licence, voter card, NRN card or resident visa',
     registration_certificate:
         'Company registration, PAN or trademark certificate',
     request_letter: 'Request letter on letterhead, stamped and signed',

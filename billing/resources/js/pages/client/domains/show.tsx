@@ -34,6 +34,7 @@ type Props = {
     renewalTerms: { years: number; price: number }[];
     canRenewNow: boolean;
     np: NpRequest | null;
+    applicantName: string;
 };
 
 const PENDING_COPY: Partial<Record<Domain['status'], string>> = {
@@ -108,6 +109,7 @@ export default function MyDomain({
     renewalTerms,
     canRenewNow,
     np,
+    applicantName,
 }: Props) {
     const supports = (capability: string) => capabilities.includes(capability);
     const notice =
@@ -231,6 +233,7 @@ export default function MyDomain({
                     <NpClientPanel
                         domainId={domain.id}
                         domainName={domain.name_unicode}
+                        applicantName={applicantName}
                         nameservers={domain.nameservers}
                         request={np}
                     />

@@ -1,5 +1,6 @@
 import { useForm } from '@inertiajs/react';
 import { Check, Circle, FileImage, Upload } from 'lucide-react';
+import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import NpRegistrationController from '@/actions/App/Modules/Domains/Http/Controllers/Admin/NpRegistrationController';
 import NpDocumentController from '@/actions/App/Modules/Domains/Http/Controllers/Client/NpDocumentController';
@@ -9,6 +10,7 @@ import { DescriptionList } from '@/components/app/description-list';
 import { Field } from '@/components/app/field';
 import { SectionCard } from '@/components/app/section-card';
 import { SelectField } from '@/components/app/select-field';
+import { StatusBadge } from '@/components/app/status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -140,7 +142,8 @@ function Documents({ request }: { request: NpRequest }) {
                     </span>
                     {!document.current && document.delete_after && (
                         <Badge variant="outline">
-                            Deleted on {formatDate(document.delete_after)}
+                            Will be deleted on{' '}
+                            {formatDate(document.delete_after)}
                         </Badge>
                     )}
                     {document.url && (
@@ -222,6 +225,11 @@ export function NpStaffPanel({
     const checks = Object.keys(CHECKLIST).filter(
         (key) => organisation || key !== 'letter_signed',
     );
+    // The submitted stage dates from the portal submission, not from the day staff recorded it.
+    const stageSince =
+        request.stage === 'submitted'
+            ? request.submitted_at
+            : request.stage_changed_at;
 
     return (
         <SectionCard
@@ -229,11 +237,15 @@ export function NpStaffPanel({
                 <span className="inline-flex flex-wrap items-center gap-2">
                     .np registration
                     {request.overdue && (
-                        <Badge variant="destructive">Overdue</Badge>
+                        <StatusBadge
+                            status="overdue"
+                            label="Overdue"
+                            tone="warning"
+                        />
                     )}
                 </span>
             }
-            description={`${STAGE_LABELS[request.stage]}${request.stage_changed_at ? ` since ${formatDate(request.stage_changed_at)}` : ''}. The registry has no API: record each step you take in its portal here.`}
+            description={`${STAGE_LABELS[request.stage]}${stageSince ? ` since ${formatDate(stageSince)}` : ''}. The registry has no API: record each step you take in its portal here.`}
         >
             <div className="grid gap-4">
                 <Steps stage={request.stage} />
@@ -381,7 +393,10 @@ export function NpStaffPanel({
                         action="submitted"
                         label="Record the submission"
                         data={{
-                            submitted_on: new Date().toISOString().slice(0, 10),
+                            // The local date (en-CA formats as YYYY-MM-DD), not the UTC one.
+                            submitted_on: new Date().toLocaleDateString(
+                                'en-CA',
+                            ),
                         }}
                     >
                         {(form) => (
@@ -530,28 +545,46 @@ export function NpStaffPanel({
     );
 }
 
+type ApplicantType = 'individual' | 'organisation';
+
 function UploadForm({
     domainId,
     request,
+    applicantType,
+    onApplicantTypeChange,
 }: {
     domainId: number;
     request: NpRequest;
+    applicantType: ApplicantType;
+    onApplicantTypeChange: (type: ApplicantType) => void;
 }) {
-    const form = useForm<{
-        applicant_type: string;
-        kind: string;
-        file: File | null;
-    }>({
-        applicant_type: request.applicant_type ?? 'individual',
+    const form = useForm<{ kind: string; file: File | null }>({
         kind: '',
         file: null,
     });
-    const kinds =
-        NP_REQUIRED[
-            form.data.applicant_type as 'individual' | 'organisation'
-        ] ?? [];
+    const [pendingType, setPendingType] = useState<ApplicantType | null>(null);
+    const uploaded = request.documents.filter((document) => document.current);
+    const kinds = NP_REQUIRED[applicantType];
+    const chooseType = (value: string) => {
+        const type = value as ApplicantType;
+
+        // Uploading as another applicant type removes the documents already uploaded: ask first.
+        if (
+            uploaded.length > 0 &&
+            request.applicant_type !== null &&
+            type !== request.applicant_type
+        ) {
+            setPendingType(type);
+
+            return;
+        }
+
+        form.setData('kind', '');
+        onApplicantTypeChange(type);
+    };
     const submit = (event: FormEvent) => {
         event.preventDefault();
+        form.transform((data) => ({ ...data, applicant_type: applicantType }));
         form.submit(NpDocumentController.store(domainId), {
             preserveScroll: true,
             forceFormData: true,
@@ -567,18 +600,15 @@ function UploadForm({
             <Field
                 htmlFor="np-applicant"
                 label="Registering as"
-                error={form.errors.applicant_type}
+                error={
+                    (form.errors as Record<string, string | undefined>)
+                        .applicant_type
+                }
             >
                 <SelectField
                     id="np-applicant"
-                    value={form.data.applicant_type}
-                    onValueChange={(value) =>
-                        form.setData({
-                            ...form.data,
-                            applicant_type: value,
-                            kind: '',
-                        })
-                    }
+                    value={applicantType}
+                    onValueChange={chooseType}
                     options={[
                         { value: 'individual', label: 'An individual' },
                         {
@@ -588,6 +618,21 @@ function UploadForm({
                     ]}
                 />
             </Field>
+            <ConfirmDialog
+                open={pendingType !== null}
+                onOpenChange={(open) => !open && setPendingType(null)}
+                title={`Register as ${pendingType === 'organisation' ? 'a company or organisation' : 'an individual'}?`}
+                description={`Your ${uploaded.length} uploaded document${uploaded.length === 1 ? '' : 's'} will be removed when you upload the first document for the new choice.`}
+                confirmLabel="Change"
+                onConfirm={() => {
+                    if (pendingType !== null) {
+                        form.setData('kind', '');
+                        onApplicantTypeChange(pendingType);
+                    }
+
+                    setPendingType(null);
+                }}
+            />
             <Field htmlFor="np-kind" label="Document" error={form.errors.kind}>
                 <SelectField
                     id="np-kind"
@@ -634,6 +679,43 @@ function UploadForm({
     );
 }
 
+function RequestLetter({
+    applicantName,
+    domainName,
+    nameservers,
+}: {
+    applicantName: string;
+    domainName: string;
+    nameservers: string[];
+}) {
+    const letter = [
+        formatDate(new Date()),
+        '',
+        'To: The .np domain registry (register.com.np), Kathmandu',
+        '',
+        `Subject: Registration of ${domainName}`,
+        '',
+        `We, ${applicantName}, request the registration of ${domainName} in our name.`,
+        'Purpose: the website and email of our organisation.',
+        `Nameservers: ${nameservers.length > 0 ? nameservers.join(', ') : 'to be confirmed'}`,
+        '',
+        'Name, position, signature and stamp',
+    ].join('\n');
+
+    return (
+        <div className="grid gap-2">
+            <p className="text-sm font-medium">Request letter</p>
+            <p className="text-sm text-muted-foreground">
+                Print this on your letterhead, sign and stamp it, then upload a
+                photo or scan.
+            </p>
+            <pre className="rounded-lg border bg-muted p-3 text-sm whitespace-pre-wrap">
+                {letter}
+            </pre>
+        </div>
+    );
+}
+
 const CLIENT_COPY: Record<NpRequest['stage'], string> = {
     awaiting_documents:
         'The .np registry registers a name only for its owner. Upload proof that the name is yours, then send the documents to us.',
@@ -650,21 +732,33 @@ const CLIENT_COPY: Record<NpRequest['stage'], string> = {
 export function NpClientPanel({
     domainId,
     domainName,
+    applicantName,
     nameservers,
     request,
 }: {
     domainId: number;
     domainName: string;
+    applicantName: string;
     nameservers: string[];
     request: NpRequest;
 }) {
     const collecting = request.stage === 'awaiting_documents';
-    const required = NP_REQUIRED[request.applicant_type ?? 'individual'];
+    const [applicantType, setApplicantType] = useState<ApplicantType>(
+        request.applicant_type ?? 'individual',
+    );
+    const required = NP_REQUIRED[applicantType];
+    // A new applicant type starts the set again: every document is missing until uploaded for it.
+    const missing =
+        applicantType === request.applicant_type ? request.missing : required;
 
     return (
         <SectionCard
             title=".np registration"
-            description={CLIENT_COPY[request.stage]}
+            description={
+                collecting && request.rejected
+                    ? 'The registry declined the request (see below). Upload every document again, as earlier ones are deleted, and send them to us within two business days so we can resubmit before the registry drops the request.'
+                    : CLIENT_COPY[request.stage]
+            }
         >
             <div className="grid gap-4">
                 <Steps stage={request.stage} />
@@ -677,7 +771,7 @@ export function NpClientPanel({
                                     key={kind}
                                     className="flex items-center gap-2"
                                 >
-                                    {request.missing.includes(kind) ? (
+                                    {missing.includes(kind) ? (
                                         <Circle className="size-4 text-muted-foreground" />
                                     ) : (
                                         <Check className="size-4 text-primary" />
@@ -686,21 +780,21 @@ export function NpClientPanel({
                                 </li>
                             ))}
                         </ul>
-                        <UploadForm domainId={domainId} request={request} />
+                        <UploadForm
+                            domainId={domainId}
+                            request={request}
+                            applicantType={applicantType}
+                            onApplicantTypeChange={setApplicantType}
+                        />
                     </>
                 )}
                 <Documents request={request} />
-                {collecting && request.applicant_type === 'organisation' && (
-                    <div className="grid gap-2">
-                        <p className="text-sm font-medium">Request letter</p>
-                        <p className="text-sm text-muted-foreground">
-                            Print this on your letterhead, sign and stamp it,
-                            then upload a photo or scan.
-                        </p>
-                        <pre className="rounded-lg border bg-muted p-3 text-sm whitespace-pre-wrap">
-                            {`To the .np domain registry\n\nWe request the registration of ${domainName} for our organisation.\nPurpose: the website and email of our organisation.\nNameservers: ${nameservers.join(', ')}\n\nName, position, signature and stamp`}
-                        </pre>
-                    </div>
+                {collecting && applicantType === 'organisation' && (
+                    <RequestLetter
+                        applicantName={applicantName}
+                        domainName={domainName}
+                        nameservers={nameservers}
+                    />
                 )}
                 {request.handling_fee_note && (
                     <p className="text-sm text-muted-foreground">
@@ -711,7 +805,7 @@ export function NpClientPanel({
                     <div className="flex flex-wrap items-center gap-3">
                         <ConfirmDialog
                             trigger={
-                                <Button disabled={request.missing.length > 0}>
+                                <Button disabled={missing.length > 0}>
                                     Send documents for review
                                 </Button>
                             }
@@ -721,7 +815,7 @@ export function NpClientPanel({
                             destructive={false}
                             action={NpDocumentController.submit(domainId)}
                         />
-                        {request.missing.length > 0 && (
+                        {missing.length > 0 && (
                             <span className="text-sm text-muted-foreground">
                                 Upload every document above first.
                             </span>

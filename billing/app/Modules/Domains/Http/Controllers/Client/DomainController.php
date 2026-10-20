@@ -78,6 +78,7 @@ class DomainController extends Controller
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),
             'np' => $model->npRegistration === null ? null : new NpRegistrationResource($model->npRegistration),
+            'applicantName' => $client->company_name ?: $client->display_name,
             'canRenewNow' => $model->status->allowsClientActions() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
                 && ! ($model->isFree() && $model->linked_service_status === 'active'),
         ]);
