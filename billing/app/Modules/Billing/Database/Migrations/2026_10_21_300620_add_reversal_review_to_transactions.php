@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Schema;
 /**
  * Provider reversals staff must review (#172): review_amount is the part of a chargeback or provider refund that
  * neither the payments nor the credit they placed could absorb (e.g. a dispute of a charge the provider had already
- * refunded); reviewed_at is when staff marked it reviewed. The open ones are the "Disputes and refunds to review"
+ * refunded); reviewed_at is when staff marked it reviewed. The open ones are the "Disputes to review"
  * to-do; negative credit balances are the "Clients owing account credit" to-do. Both counts read a partial index.
  * Nullable columns are a metadata-only change on PostgreSQL; the indexes are built CONCURRENTLY there.
  */

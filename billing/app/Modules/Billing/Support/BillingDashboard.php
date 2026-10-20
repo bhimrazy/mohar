@@ -94,12 +94,13 @@ class BillingDashboard
         ], 'billing.payments.manage', 14);
 
         $dashboard->todo('admin', 'billing.reversals_review', fn (?User $user): array => [
-            'label' => 'Disputes and refunds to review',
-            'count' => Transaction::toReview()->count(),
+            'label' => 'Disputes to review',
+            // Also needs the Transactions page it links to (billing.transactions.view), or the link would be refused.
+            'count' => $user?->hasPermission('billing.transactions.view') ? Transaction::toReview()->count() : 0,
             'href' => route('admin.billing.transactions.index', ['review' => 1]),
             'tone' => 'danger',
             'icon' => 'AlertTriangle',
-            'hint' => 'The provider reversed more than the payment and its credit could cover',
+            'hint' => 'Not covered by payment or credit',
         ], 'billing.payments.manage', 15);
 
         $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
@@ -108,7 +109,7 @@ class BillingDashboard
             'href' => route('admin.billing.credit.index', ['owing' => 1]),
             'tone' => 'warning',
             'icon' => 'Wallet',
-            'hint' => 'A chargeback or refund took back credit they had spent',
+            'hint' => 'Spent credit was taken back',
         ], 'billing.credit.manage', 16);
 
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);

@@ -309,7 +309,7 @@ class GatewayCallbackHandler
                 }
 
                 if ($left > 0) {
-                    // More than the payments and the credit they placed: on "Disputes and refunds to review".
+                    // More than the payments and the credit they placed: on "Disputes to review".
                     return $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $parents[0]->invoice_id);
                 }
 
@@ -427,7 +427,7 @@ class GatewayCallbackHandler
     /**
      * Book the rest of a provider reversal on its first row: what came back from credit and what nothing absorbed
      * both left the bank, so they are money out (net income stays right). The unabsorbed part is put up for staff
-     * review ("Disputes and refunds to review") unless a flagged attempt carries it.
+     * review ("Disputes to review") unless a flagged attempt carries it.
      */
     private function finishReversal(Transaction $row, int $taken, int $left, bool $review): void
     {

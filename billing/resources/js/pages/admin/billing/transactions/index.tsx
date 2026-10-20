@@ -51,6 +51,7 @@ export default function TransactionsIndex({
 }: Props) {
     const { apply } = useQueryParams();
     const hasFilters = Object.keys(filters).length > 0;
+    const reviewing = Boolean(filters.review);
 
     const columns: DataTableColumn<Transaction>[] = [
         {
@@ -83,14 +84,21 @@ export default function TransactionsIndex({
                     <span className="text-muted-foreground">—</span>
                 ),
         },
-        {
-            key: 'gateway',
-            header: 'Gateway',
-            hideOnMobile: true,
-            cell: (txn) =>
-                gateways.find((gateway) => gateway.value === txn.gateway)
-                    ?.label ?? humanize(txn.gateway),
-        },
+        // The review list is about provider reversals: the reference names the dispute or refund, so the gateway
+        // column makes room for the "Mark reviewed" action.
+        ...(reviewing
+            ? []
+            : [
+                  {
+                      key: 'gateway',
+                      header: 'Gateway',
+                      hideOnMobile: true,
+                      cell: (txn: Transaction) =>
+                          gateways.find(
+                              (gateway) => gateway.value === txn.gateway,
+                          )?.label ?? humanize(txn.gateway),
+                  } satisfies DataTableColumn<Transaction>,
+              ]),
         {
             key: 'reference',
             header: 'Reference',
@@ -115,50 +123,51 @@ export default function TransactionsIndex({
             ),
         },
         {
-            key: 'review',
-            header: 'Review',
-            hideOnMobile: true,
-            cell: (txn) =>
-                txn.to_review != null ? (
-                    <span className="flex items-center gap-2">
-                        <span className="text-sm font-medium whitespace-nowrap text-destructive">
-                            Not covered{' '}
-                            <Money
-                                amount={txn.to_review}
-                                currency={txn.currency}
-                            />
-                        </span>
-                        {can.review && (
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                    router.post(
-                                        reviewed.url(txn.id),
-                                        {},
-                                        { preserveScroll: true },
-                                    )
-                                }
-                            >
-                                Mark reviewed
-                            </Button>
-                        )}
-                    </span>
-                ) : null,
-        },
-        {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <Money
-                    amount={
-                        txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
-                    }
-                    currency={txn.currency}
-                    tone="ledger"
-                    signed
-                />
+                <span className="inline-flex flex-col items-start gap-1.5 md:items-end">
+                    <Money
+                        amount={
+                            txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
+                        }
+                        currency={txn.currency}
+                        tone="ledger"
+                        signed
+                    />
+                    {txn.to_review != null && !reviewing && (
+                        <span className="text-xs whitespace-nowrap text-destructive">
+                            To review
+                        </span>
+                    )}
+                    {txn.to_review != null && reviewing && (
+                        <>
+                            <span className="text-xs whitespace-nowrap text-destructive">
+                                Not covered{' '}
+                                <Money
+                                    amount={txn.to_review}
+                                    currency={txn.currency}
+                                />
+                            </span>
+                            {can.review && (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                        router.post(
+                                            reviewed.url(txn.id),
+                                            {},
+                                            { preserveScroll: true },
+                                        )
+                                    }
+                                >
+                                    Mark reviewed
+                                </Button>
+                            )}
+                        </>
+                    )}
+                </span>
             ),
         },
     ];
@@ -396,9 +405,7 @@ export default function TransactionsIndex({
 
                 {filters.review && (
                     <div className="flex items-center gap-2 text-sm">
-                        <span className="font-medium">
-                            Disputes and refunds to review
-                        </span>
+                        <span className="font-medium">Disputes to review</span>
                         <Button
                             variant="ghost"
                             size="sm"
