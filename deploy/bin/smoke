@@ -162,16 +162,23 @@ pass "URL tokens are redacted in Caddy's access log (path, query and Referer)"
 # Queue RunAutomationJob through the live web container and wait for the live colour's automation worker (its own
 # `automation` connection; the job fails itself on any other) to finish it.
 queued_job() {
-    local colour="$1" done_line="" before
-    before="$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)"
+    local colour="$1" logs finished before last=""
+    finished='RunAutomationJob .*(DONE|FAIL)'
+    # Count and read from one snapshot of the logs per check: two separate reads can straddle the moment the job
+    # finishes, and then the count says "done" while the line read just before is still empty (smoke run 39438486679).
+    worker_logs() { "${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null || true; }
+    before="$(worker_logs | grep -cE "$finished" || true)"
     "${compose[@]}" exec -T "app-$colour" php artisan tinker --execute \
         'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
     for _ in $(seq 60); do
-        done_line="$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
-        [ "$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)" -gt "$before" ] && break
+        logs="$(worker_logs)"
+        if [ "$(grep -cE "$finished" <<< "$logs" || true)" -gt "$before" ]; then
+            last="$(grep -E "$finished" <<< "$logs" | tail -1)"
+            break
+        fi
         sleep 2
     done
-    [[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed by worker-automation-$colour: ${done_line:-no worker output}"
+    [[ "$last" =~ DONE ]] || fail "RunAutomationJob was not processed by worker-automation-$colour: ${last:-no worker output in 120 s}"
     failed_jobs="$("${compose[@]}" exec -T "app-$colour" php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
     [ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
     pass "RunAutomationJob processed by worker-automation-$colour on its own connection; failed_jobs = 0"
