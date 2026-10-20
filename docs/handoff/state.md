@@ -1,13 +1,13 @@
 # Current state
 
-Last updated: 2026-10-19 15:05 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-20 06:55 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72), Stripe (#58), deployment D1 (#79), invitations and template defaults (#78), the periodic-review security fixes (#89), the WHM simulator and the cPanel driver against it (S2, #100), the cPanel import page (step 3a-2, #101), the storefront marketing spec (#104), the home page design (#105), ADR 0018 sign-in methods (#106) and the simulator command fix (#109).
 - Progress toward "a product a host would switch to": 55/100 by evidence (CEO review, 2026-10-19,
   `docs/reviews/2026-10-19-ceo.md`): the score moves only when work is merged and proven. Built-but-unproven work
   (simulators, the image, Stripe) is tracked separately; including it gives about 62.
@@ -21,10 +21,23 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
 
-## Open pull requests (merge order: #77 S0, then S1; email follow-up after its review; deploy and #58 independent)
+## Open pull requests
 
-| PR  | Workstream | Status |
-| --- | ---------- | ------ |
+| PR   | Workstream                                       | Status (2026-10-20 06:55 UTC)                                                        |
+| ---- | ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| #80  | Deployment D2: production compose, smoke test    | Ready, CI green, smoke 11/11 on GitHub. Board and security review running.            |
+| #111 | Deployment D3: blue-green, migration check        | Draft. First blue-green smoke run next; then D4 (image workflow, cPanel cron mode).   |
+| #108 | Load test and sizing guide (stacked on #80)      | Draft. Small profile passed; larger profiles and the guide follow.                    |
+| #91  | CI speed-up                                      | Draft, CI green. Revision in progress (target under 10 minutes, timeout back to 15).  |
+| #94  | Storefront home page, direction A                | Draft, conflicts with develop. Product-review fixes in progress, then product re-check. |
+| #99  | Admin > Website (stacked on #94)                 | Draft. After #94.                                                                     |
+| #95  | cPanel import, step 3b (choose, review, import)  | Draft. 3b-1 (digest-bound, queued apply) in progress, then 3b-2; re-checks after.     |
+| #113 | Simulators S3: Stripe simulator                  | Draft, retargeted to develop after S2 merged. Architect and security review running.  |
+| #112 | Sign-in PR 0: kernel methods and step-up         | Draft, conflicts with develop. Architect and security review running.                |
+
+Not in a PR yet: simulators S4 end-to-end (`feature/simulators-s4`), cPanel PR 2 (SSO, package select, server health).
+Parked, no owner: `fix/automation-redelivery` (ADR 0017 scheduler WIP) and `feature/payments-stripe-saved-methods`
+(design revision 3). A branch audit (Fable) decides whether to keep them.
 
 ## Design and research in progress
 
@@ -34,16 +47,16 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
-## Running now (2026-10-19 14:15 UTC)
+## Running now (2026-10-20 06:55 UTC)
 
-- Builds: security fixes #89; cPanel import step 1 #87 (in review) and step 2; deployment
-  D1 #79 and D2 #80; CI speed-up #91 (urgent: CI exceeds 15 min, stopgap #93); simulators S1 #92 and S2; storefront home
-  page (`feature/storefront-home`).
-- Reviews: #87 (security, board+database, product); #92 S1 (restarts on the rebased head).
-- Merged today: #61–#77 kernel, cPanel 1a/1b, emails A, S0, reviews and studies. Stripe (#58, fixture-tested, not live-verified), deployment D1 (#79) and invitations/template defaults (#78) merged; CI limit 25 min (#93).
-- Periodic review round every 12 hours (`operating-model.md`, "Periodic reviews"). Round 1 ran 2026-10-19 13:20 UTC
-  (`docs/reviews/2026-10-19-*.md`); the 14:20 and 14:47 rounds were skipped: everything merged since round 1 (S0 #77, Stripe #58,
-  deployment D1 #79, CI timeout #93, docs) had its own security and architecture or board review before merging. Next round at the 02:17 slot.
+- The session stopped overnight (2026-10-19 16:09 to 2026-10-20 06:36 UTC). On resume: pushed two worktrees'
+  unpushed commits, snapshotted the import engineer's staged work to `wip/import-apply-v2-snapshot`, merged #100 and
+  #101, retargeted #113, and resumed the seven interrupted agents.
+- Builds: storefront #94/#99 fixes, import 3b #95, simulators S4, deployment D3 #111, CI speed-up #91.
+- Reviews: #80 (board, security), #112 (architect + security), #113 (architect + security); a Fable branch audit
+  of the 83 GitHub branches (52 already merged into develop).
+- Periodic review round 2: CEO and CTO (Fable) running; security and architecture skipped because every PR merged
+  since round 1 had its own security and architecture or board review. Schedule recreated at 02:17 and 14:17.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 

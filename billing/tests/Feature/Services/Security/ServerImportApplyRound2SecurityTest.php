@@ -17,7 +17,8 @@ use Tests\Support\Cpanel\Whm;
 /**
  * Security re-check of #95 (import step 3b-1): apply is bound to the review digest and runs on the queue. These pin
  * the 3b-1 scope (only proposed accounts, on their stored match; no client or product chosen by request) and that the
- * queued job imports what was confirmed, not what today's plan says.
+ * queued job imports what was confirmed, not what today's plan says. Adopted; R2-5 changes the review through the price,
+ * since this step accepts no cycle in the request.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-10-19 10:00:00');
@@ -105,7 +106,8 @@ test('[R2-5] a digest is bound to this server\'s own review: another server\'s, 
     $this->post(route('admin.services.servers.import.apply', $other), ['digest' => $digestA])->assertSessionHasErrors('import');
     // A forged digest, and a stale one after the choices changed and were reviewed again.
     $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => str_repeat('0', 64)])->assertSessionHasErrors('import');
-    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'cycle' => 'annually'])->assertSessionHasNoErrors();
+    // (3b-1 takes no cycle from the request, so the review changes through the price instead.)
+    $this->kit->priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1300], driver: 'cpanel', serverGroupId: $this->group->id, driverConfig: ['package' => 'root_basic']);
     r2Digest($this->server);
     $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digestA])->assertSessionHasErrors('import');
 

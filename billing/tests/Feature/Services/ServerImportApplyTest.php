@@ -68,65 +68,41 @@ test('nothing is ticked by default; Select all proposed ticks only the proposed 
         ->and(array_keys(reviewRows($this->server)))->toBe(['alpha']);
 });
 
-test('confirmed accounts become services as the server holds them, with no invoice, mail or module command, once', function () {
+test('a confirmed account becomes a service as the server holds it, with no invoice, mail or module command, once', function () {
     Event::fake([ServiceImported::class]);
     Mail::fake();
-    chooseFor($this->server, ['usernames' => ['alpha'], 'include' => true]);
-    chooseFor($this->server, ['usernames' => ['bravo'], 'include' => true, 'client_id' => $this->chef->id, 'product_id' => 21, 'cycle' => 'annually', 'next_due_date' => '2027-01-31']);
+    // alpha is suspended on the server in this list.
+    Whm::fake(['listaccts' => Whm::fixture('listaccts_example', ['data' => ['acct' => [[...Whm::fixture('listaccts_page1')['data']['acct'][0], 'suspended' => 1, 'suspendreason' => 'Abuse report']]]])]);
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+    chooseFor($this->server, ['proposed' => true]);
 
     $this->get(route('admin.services.servers.import.review', $this->server))->assertInertia(fn (Assert $page) => $page
         ->component('admin/services/servers/import-review')
-        ->has('rows', 2)
-        ->where('totals', [['currency' => 'USD', 'cycle' => 'monthly', 'amount' => 1200, 'accounts' => 1], ['currency' => 'USD', 'cycle' => 'annually', 'amount' => 12000, 'accounts' => 1]]));
-
+        ->has('rows', 1)
+        ->where('totals', [['currency' => 'USD', 'cycle' => 'monthly', 'amount' => 1200, 'accounts' => 1]]));
     applyReviewed($this->server);
-    $import = ServerAccountImport::query()->sole();
-    expect($import->only(['status', 'linked_count', 'proposed_count', 'selections', 'reviewed']))->toBe(['status' => 'ready', 'linked_count' => 2, 'proposed_count' => 0, 'selections' => null, 'reviewed' => null])
-        ->and(collect($import->report)->every('imported'))->toBeTrue();
+    $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
+    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasErrors('import');
 
-    $alpha = Service::query()->where('username', 'alpha')->sole();
-    $bravo = Service::query()->where('username', 'bravo')->sole();
-    expect($alpha)
-        ->status->toBe(ServiceStatus::Active)
+    $import = ServerAccountImport::query()->sole();
+    $alpha = Service::query()->sole();
+    expect($import->only(['status', 'linked_count', 'proposed_count', 'selections']))->toBe(['status' => 'ready', 'linked_count' => 1, 'proposed_count' => 0, 'selections' => null])
+        ->and($alpha)
+        ->username->toBe('alpha')
         ->client_id->toBe($this->anna->id)
         ->recurring_amount->toBe(1200)
         ->domain->toBe('alpha-books.com')
         ->password->toBeNull()
-        ->registration_date->toDateString()->toBe('2023-11-14')
-        ->next_due_date->toDateString()->toBe('2026-11-14')
-        ->and($bravo)
         ->status->toBe(ServiceStatus::Suspended)
         ->suspension_reason->toBe('staff:Imported (suspended on the server: Abuse report)')
-        ->cycle->value->toBe('annually')
-        ->next_invoice_date->toDateString()->toBe('2027-01-31')
-        ->driver_data->toMatchArray(['owner' => 'reseller1', 'plan' => 'reseller1_starter'])
+        ->registration_date->toDateString()->toBe('2023-11-14')
+        ->next_due_date->toDateString()->toBe('2026-11-14')
+        ->driver_data->toMatchArray(['owner' => 'root', 'plan' => 'root_basic'])
         ->and($this->kit->invoicer->invoices)->toBe([])
         ->and(ModuleCommand::query()->count())->toBe(0)
-        ->and(ActivityLog::query()->where('subject_id', $bravo->id)->value('properties'))->toMatchArray(['server' => 'Shared 1', 'username' => 'bravo', 'product' => 'Basic hosting'])
-        ->and(ActivityLog::query()->where('description', 'Imported 2 accounts from server Shared 1')->exists())->toBeTrue();
+        ->and(ActivityLog::query()->where('subject_type', $alpha->getMorphClass())->where('subject_id', $alpha->id)->sole()->properties)->toMatchArray(['server' => 'Shared 1', 'username' => 'alpha', 'product' => 'Basic hosting'])
+        ->and(ActivityLog::query()->where('description', 'Imported 1 accounts from server Shared 1')->exists())->toBeTrue();
     Mail::assertNothingSent();
-    Event::assertDispatchedTimes(ServiceImported::class, 2);
-    Event::assertDispatched(ServiceImported::class, fn (ServiceImported $event): bool => $event->serviceId === $bravo->id && $event->serverId === $this->server->id && $event->source === 'server_import');
-
-    expect(Service::query()->count())->toBe(2);
-    Event::assertDispatchedTimes(ServiceImported::class, 2);
-});
-
-test('apply imports exactly what was reviewed: a price changed since refuses it', function () {
-    chooseFor($this->server, ['usernames' => ['alpha'], 'include' => true]);
-    $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
-    $this->kit->priceBook->addProduct(21, 'Basic hosting', ['monthly' => 1500], driver: 'cpanel', serverGroupId: ServerGroup::query()->value('id'), driverConfig: ['package' => 'root_basic']);
-
-    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])
-        ->assertSessionHasErrors(['import' => 'Review the import again: an account, client, product or price changed since you reviewed it.']);
-
-    expect(Service::query()->count())->toBe(0)
-        ->and(ServerAccountImport::query()->sole()->status)->toBe('ready');
-});
-
-test('a choice naming a product off this server or a past due date is refused', function () {
-    $this->kit->priceBook->addProduct(30, 'Elsewhere', driver: 'cpanel', serverGroupId: 999, driverConfig: ['package' => 'root_basic']);
-
-    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['bravo'], 'product_id' => 30, 'next_due_date' => '2026-10-01'])
-        ->assertSessionHasErrors(['product_id', 'next_due_date']);
+    Event::assertDispatchedTimes(ServiceImported::class, 1);
+    Event::assertDispatched(ServiceImported::class, fn (ServiceImported $event): bool => $event->serviceId === $alpha->id && $event->source === 'server_import');
 });

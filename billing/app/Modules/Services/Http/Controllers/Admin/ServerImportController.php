@@ -3,7 +3,6 @@
 namespace App\Modules\Services\Http\Controllers\Admin;
 
 use App\Contracts\Services\Provisioning\ListsAccounts;
-use App\Enums\BillingCycle;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Actions\FetchAccountsForImport;
@@ -20,7 +19,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -44,7 +42,6 @@ class ServerImportController extends Controller
         // The encrypted list is read only for the account tabs; the counts and missing ids are plain columns.
         $import = FetchAccountsForImport::latest($server, withAccounts: $tab !== 'missing');
         $ready = $import?->status === ServerAccountImport::READY;
-        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
         $search = mb_strtolower(mb_substr(trim($request->string('search')->toString()), 0, 100));
         $page = max(1, $request->integer('page', 1));
         $query = ['path' => $request->url(), 'query' => $request->only(['tab', 'search'])];
@@ -76,7 +73,7 @@ class ServerImportController extends Controller
                 AccountImportMatcher::UNMATCHED => $import->unmatched_count,
                 AccountImportMatcher::RESELLER => $import->reseller_count,
                 AccountImportMatcher::LINKED => $import->linked_count,
-                'missing' => count($import->missing ?? []),
+                'missing' => ($import->missing ?? []) === [] ? 0 : $this->missingQuery($server, $import)->count(),
             ] : null,
             'rows' => $rows,
             'filters' => ['tab' => $tab, 'search' => $search],
@@ -112,49 +109,34 @@ class ServerImportController extends Controller
     }
 
     /**
-     * Record staff choices for accounts (tick or untick, client, product, cycle, next due date), or tick every proposed
-     * account at once. Only usernames in the fetched list, open clients and products that provision on this server are
-     * accepted; nothing else about an account ever comes from the request.
+     * Tick or untick accounts, or tick every proposed account at once. Only usernames in the fetched list; the client,
+     * product and billing come from the match in this step (choosing them per account follows in the next one).
      */
-    public function select(Request $request, Server $server, AccountImportPlan $plan): RedirectResponse
+    public function select(Request $request, Server $server, ImportServerAccounts $importer): RedirectResponse
     {
         $this->authorize('services.servers.import');
 
-        $import = $this->ready($server);
+        $this->ready($server);
         $data = $request->validate([
             'proposed' => ['sometimes', 'accepted'],
             'usernames' => ['required_without:proposed', 'array', 'max:500'],
             'usernames.*' => ['string', 'max:32'],
             'include' => ['sometimes', 'boolean'],
-            'client_id' => ['sometimes', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
-            'product_id' => ['sometimes', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
-            'cycle' => ['sometimes', Rule::in(array_column(self::cycles(), 'value'))],
-            'next_due_date' => ['sometimes', 'date_format:Y-m-d', 'after_or_equal:today', 'before:+5 years'],
-        ], [
-            'client_id.exists' => __('Choose an active client.'),
-            'product_id.in' => __('Choose a product that provisions on :server.', ['server' => $server->name]),
-            'next_due_date.after_or_equal' => __('The next due date cannot be in the past.'),
-        ]);
+            'client_id' => ['prohibited'],
+            'product_id' => ['prohibited'],
+            'cycle' => ['prohibited'],
+            'next_due_date' => ['prohibited'],
+        ], ['prohibited' => __('Choosing a client, product or billing per account is not available yet: only matched accounts can be imported.')]);
 
-        $accounts = collect($import->accounts ?? [])->keyBy('username');
-        $usernames = isset($data['proposed'])
-            ? $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all()
-            : array_values(array_intersect(array_unique($data['usernames']), $accounts->keys()->all()));
-        $choice = isset($data['proposed']) ? ['include' => true] : array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date']));
-        $selections = $import->selections ?? [];
-
-        foreach ($usernames as $username) {
-            $selections[$username] = [...($selections[$username] ?? []), ...$choice];
-        }
-
-        $import->update(['selections' => $selections]);
+        $importer->tick($server, isset($data['proposed']) ? null : $data['usernames'], (bool) ($data['include'] ?? true));
 
         return back();
     }
 
     /**
-     * Every ticked account as it would be imported (a page at a time, the ones left out first), with totals per currency
-     * and cycle. Showing it pins each matched client and records the importable rows' digest, which apply must send.
+     * Every ticked account as it would be imported (a page at a time, the ones left out first), with totals per
+     * currency and cycle. Showing it records the importable rows, each with its matched client, and their digest,
+     * which apply must send.
      */
     public function review(Request $request, Server $server, AccountImportPlan $plan): Response
     {
@@ -175,7 +157,6 @@ class ServerImportController extends Controller
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
             'totals' => $totals,
             'digest' => $review['digest'],
-            'cycles' => self::cycles(),
         ]);
     }
 
@@ -192,14 +173,6 @@ class ServerImportController extends Controller
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Importing :count accounts from :server. This page shows the progress.', ['count' => $count, 'server' => $server->name])]);
 
         return to_route('admin.services.servers.import.show', $server);
-    }
-
-    /**
-     * @return list<array{value: string, label: string}>
-     */
-    private static function cycles(): array
-    {
-        return array_map(fn (BillingCycle $cycle): array => ['value' => $cycle->value, 'label' => ucfirst($cycle->value)], BillingCycle::recurring());
     }
 
     /**
@@ -233,8 +206,9 @@ class ServerImportController extends Controller
 
         $live = Service::query()->with('client:id,first_name,last_name,company_name')
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
-            ->whereIn('username', array_column($slice, 'username'))
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy('username');
+            // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
+            ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
+            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
         $choices = $import->selections ?? [];
         $slice = array_map(fn (array $row): array => [...$row,
             'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
@@ -277,10 +251,7 @@ class ServerImportController extends Controller
      */
     private function missing(Server $server, ServerAccountImport $import, string $search): LengthAwarePaginator
     {
-        return Service::query()->with('client:id,first_name,last_name,company_name')
-            ->whereKey($import->missing ?? [])
-            ->where('server_id', $server->id)
-            ->whereIn('status', ServiceStatus::occupyingValues())
+        return $this->missingQuery($server, $import)->with('client:id,first_name,last_name,company_name')
             ->when($search !== '', fn (Builder $query) => $query->search($search))
             ->orderBy('id')
             ->paginate(self::PER_PAGE)
@@ -291,5 +262,15 @@ class ServerImportController extends Controller
                 'status' => $service->status->value,
                 'service' => ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
             ]);
+    }
+
+    /**
+     * The stored missing services that are still live on this server: what the Missing tab lists and counts.
+     *
+     * @return Builder<Service>
+     */
+    private function missingQuery(Server $server, ServerAccountImport $import): Builder
+    {
+        return Service::query()->whereKey($import->missing ?? [])->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues());
     }
 }

@@ -88,25 +88,18 @@ class AccountImportPlan
     }
 
     /**
-     * The review page: every ticked account as rows() shows it, with the matched client pinned on the account (apply
-     * never matches by email again), and the exact rows that can be imported recorded with their digest. Apply imports
-     * only those rows, and only while they still hold (stillReviewed()).
+     * The review page: every ticked account as rows() shows it, and the exact rows that can be imported (with the
+     * matched client) recorded with their digest. Apply starts only while they still hold (stillReviewed()), and the
+     * queued import creates exactly those rows; nothing is matched by email again.
      *
      * @return array{rows: list<array<string, mixed>>, digest: string}
      */
     public function review(Server $server, ServerAccountImport $import, ?int $staffId): array
     {
         $rows = $this->rows($server, $import);
-        $selections = $import->selections ?? [];
-
-        foreach ($rows as $row) {
-            if ($row['decision']['problems'] === [] && ! isset($selections[$row['username']]['client_id'])) {
-                $selections[$row['username']]['client_id'] = $row['decision']['client']['id'];
-            }
-        }
-
         $reviewed = self::snapshot($rows);
-        $import->update(['selections' => $selections, 'reviewed' => ['digest' => self::digest($reviewed), 'rows' => $reviewed, 'staff_id' => $staffId]]);
+        // The matched client is pinned in the reviewed rows only, never as a staff choice: the import creates exactly these.
+        $import->update(['reviewed' => ['digest' => self::digest($reviewed), 'rows' => $reviewed, 'staff_id' => $staffId]]);
 
         return ['rows' => $rows, 'digest' => self::digest($reviewed)];
     }
@@ -167,14 +160,6 @@ class AccountImportPlan
         }
 
         return $this->prices[$key];
-    }
-
-    /**
-     * @return list<array{id: int, name: string}>
-     */
-    public function productOptions(Server $server): array
-    {
-        return array_values(array_map(fn (ProductSummary $product): array => ['id' => $product->id, 'name' => $product->name], $this->matcher->serverProducts($server)));
     }
 
     private function defaultCycle(?ProductSummary $product, ?Client $client): ?BillingCycle
