@@ -108,7 +108,8 @@ final class E2eCommand extends SimulatorCommand
     }
 
     /**
-     * Where pcntl is loaded, Ctrl-C and SIGTERM clean up at once and exit 130; elsewhere the guard does it.
+     * Where pcntl is loaded, Ctrl-C and SIGTERM clean up at once, then re-raise the signal with its default action, so the
+     * process ends the way the caller expects (128 + signal); elsewhere the guard does it.
      */
     private function trapInterrupts(string $state, string $connection, string $database): void
     {
@@ -116,7 +117,7 @@ final class E2eCommand extends SimulatorCommand
             return;
         }
 
-        $this->trap([2, 15, 1], function () use ($state, $connection, $database): never {
+        $this->trap([2, 15, 1], function (int $signal) use ($state, $connection, $database): void {
             $info = json_decode((string) @file_get_contents($state), true);
 
             if (is_array($info) && (int) ($info['child'] ?? 0) > 0) {
@@ -126,7 +127,8 @@ final class E2eCommand extends SimulatorCommand
             $this->dropDatabase($connection, $database);
             @unlink($state);
 
-            exit(130);
+            pcntl_signal($signal, SIG_DFL);
+            posix_kill(posix_getpid(), $signal);
         });
     }
 
