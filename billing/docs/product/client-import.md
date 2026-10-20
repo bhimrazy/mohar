@@ -732,7 +732,9 @@ SQLite and PostgreSQL.
 
 Count: 53 criteria (49 MUST, 4 SHOULD).
 
-## 21. Open questions for the owner
+## 21. Owner decisions (2026-10-20: all recommendations accepted)
+
+The questions below were answered by accepting each recommendation as written.
 
 1. **Database read (Q1).** Keep API-only for WHMCS (the 2026-10-17 decision), or approve the narrow gap reader in §3.3?
    Recommendation: API-only in v1; revisit after the first real migration.
