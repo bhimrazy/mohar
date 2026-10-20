@@ -2,6 +2,7 @@
 
 namespace App\Modules\Migration\Models;
 
+use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -26,6 +27,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property list<string>|null $changes
  * @property CarbonImmutable|null $applied_at
  * @property-read MigrationRun $run
+ * @property-read Client|null $matchedClient
  */
 #[Fillable(['migration_run_id', 'row_number', 'raw'])]
 class MigrationRecord extends Model
@@ -58,5 +60,13 @@ class MigrationRecord extends Model
     public function run(): BelongsTo
     {
         return $this->belongsTo(MigrationRun::class, 'migration_run_id');
+    }
+
+    /**
+     * @return BelongsTo<Client, $this>
+     */
+    public function matchedClient(): BelongsTo
+    {
+        return $this->belongsTo(Client::class, 'match_client_id');
     }
 }
