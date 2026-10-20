@@ -16,8 +16,8 @@ release, as the user that runs PHP.
       with an access key limited to that bucket.
     - **On the same host with Docker:** `billing/compose.yaml` starts PostgreSQL and RustFS on `127.0.0.1` only. Set
       `DB_PASSWORD`, `OBJECTS_ACCESS_KEY` and `OBJECTS_SECRET_KEY` in `.env` before you run
-      `docker compose up -d --wait` for the first time; PostgreSQL reads them only when its volume is created. Turn
-      the RustFS console off (`RUSTFS_CONSOLE_ENABLE`) or keep its port off public interfaces.
+      `docker compose up -d --wait` for the first time; PostgreSQL reads them only when its volume is created. The file
+      turns the RustFS web console on (`RUSTFS_CONSOLE_ENABLE`); set it to `'false'` in `compose.yaml` for production.
 
 2. Install the PHP packages and build the front-end files.
 
@@ -91,13 +91,18 @@ release, as the user that runs PHP.
     * * * * * cd /srv/billing/billing && php artisan schedule:run >> /dev/null 2>&1
     ```
 
-8. Keep three queue workers running with systemd or Supervisor:
+8. Keep four queue workers running with systemd or Supervisor. The installer prints the same four commands.
 
     ```bash
     php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
     php artisan queue:work --queue=notifications,webhooks --tries=3
     php artisan queue:work --queue=default --tries=3
+    php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
     ```
+
+    The fourth one runs **Run now** from **Setup → Automation**. Start it exactly as shown, run only one, and give it a
+    stop timeout above 3,600 seconds (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`), so a restart waits for a
+    run in progress instead of cutting it off.
 
     A systemd unit for one of them:
 

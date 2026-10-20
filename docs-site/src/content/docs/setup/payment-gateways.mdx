@@ -12,7 +12,7 @@ A gateway is a way for clients to pay an invoice. Online gateways (Stripe, eSewa
 provider's payment page and confirm the payment with the provider before the invoice is marked paid. Offline
 gateways (bank transfer) show instructions, and staff record the payment when the money arrives.
 
-<Screenshot name="gateways" alt="Payment gateways list: bank transfer, manual payment, card sandbox, Khalti, eSewa and Stripe, with status and capabilities." />
+<Screenshot name="gateways" alt="Payment gateways list with each gateway's status, whether clients see it, and what it can do." />
 
 ## Settings every gateway has
 
@@ -33,9 +33,11 @@ gateways (bank transfer) show instructions, and staff record the payment when th
 
 </Steps>
 
-<Aside>
-	Online gateways start in test or sandbox mode, and test mode is refused in production. Switch it off and enter
-	your live keys before you take real payments.
+<Aside title="Test mode and production">
+	Online gateways start in test (sandbox) mode, where no real money moves. Test mode is refused when
+	`APP_ENV=production`, which is how both install guides set it up. Try the test keys on a separate staging copy
+	of the app instead. On your live install, turn test mode off, enter live keys, run **Test connection**, then
+	make one small real payment and refund it.
 </Aside>
 
 ## Gateway guides

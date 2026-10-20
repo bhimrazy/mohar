@@ -7,11 +7,11 @@ description: Common problems after install and how to fix them.
 
 | Message from `app:install`                                 | What to do                                                                                     |
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `APP_KEY is not set`                                       | run `php artisan key:generate`, then `php artisan optimize` if the configuration is cached       |
+| `APP_KEY is not set`                                       | without Docker: `php artisan key:generate`, then `php artisan optimize`. With Docker: step 4 of the install |
 | `Database: Cannot connect`                                 | check the `DB_` values, that PostgreSQL is running, and that the user can connect               |
 | `Migrations: ... pending`                                  | run `php artisan migrate --force`                                                              |
 | `Object storage: ... not writable`                         | run `php artisan objects:ensure-bucket`, then check the `OBJECTS_` values and the bucket policy |
-| `A full administrator already exists, so none was created` | expected when you run it again; add `--additional-admin` to create another administrator      |
+| `... already exist, so none was created`                   | expected when you run it again; add `--additional-admin` to create another administrator      |
 
 Warnings about mail, the queue or the scheduler do not stop the install. They clear once mail is set up and the
 scheduler has run for a minute.

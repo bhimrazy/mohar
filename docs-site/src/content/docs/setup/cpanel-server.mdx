@@ -12,7 +12,8 @@ ones are removed, following your [automation](../../daily/automation/) settings.
 ## Create an API token in WHM
 
 Sign in to WHM as `root` (or as the reseller whose accounts you want to manage) and create an API token under
-**Development → Manage API Tokens**. A token can be limited to the permissions the app needs:
+**Development → Manage API Tokens**. A token can be limited to the permissions the app needs. **Test connection**
+reads the token's permissions and names any that are missing.
 
 | Permission                                           | Used for                                         |
 | ---------------------------------------------------- | ------------------------------------------------ |
@@ -41,6 +42,7 @@ Copy the token when WHM shows it. WHM does not show it again.
 
 3. Under **Connection**, choose the driver **cPanel & WHM**. Leave **Port** blank to use 2087. Keep **Sign in with**
    on **API token (recommended)**, enter the WHM **Username** (`root` or the reseller) and paste the **API token**.
+   Turn on **Default for this driver** if products without a server group should use this server.
 
 4. Under **Nameservers and cost**, enter the name servers clients should use. They appear in the welcome email.
 
@@ -73,7 +75,8 @@ only that certificate for this server.
 
 1. Open the product under **Setup → Products** and go to the **Provisioning** tab.
 
-2. Choose **cPanel & WHM** as the **Provisioning driver** and enter the WHM **Package name** the account should get.
+2. Choose **cPanel & WHM** as the **Provisioning driver**, then choose the **WHM package** the account should get. The
+   list comes from the server.
 
 3. Leave **Server group ID** empty to use the server marked **Default for this driver**, then select
    **Save provisioning**.

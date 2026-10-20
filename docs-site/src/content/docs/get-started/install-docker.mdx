@@ -86,8 +86,8 @@ the root of the release you are installing.
 | `caddy`                                                                  | HTTPS, redirects HTTP to HTTPS, forwards requests to `app` |
 | `app`                                                                    | the web application                                        |
 | `worker-critical`, `worker-notifications`, `worker-default`              | background jobs: payments, provisioning, email, webhooks   |
-| `worker-automation`                                                      | runs the daily automation when staff press **Run now**     |
-| `scheduler`                                                              | starts scheduled work every minute                         |
+| `worker-automation`                                                      | runs **Run now** requests from **Setup → Automation**      |
+| `scheduler`                                                              | runs scheduled work, including the daily automation        |
 | `migrate`                                                                | runs database changes before the app starts, then exits    |
 | `postgres`, `rustfs`                                                     | the database and object storage                            |
 

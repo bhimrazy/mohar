@@ -155,8 +155,10 @@ It sits outside `billing/` so the app's dependency tree, CI and Dependabot entri
 
 The name is not final (trademark pending). It is written once, in `docs-site/src/product.mjs`. The site title, the
 page text (`{product.name}` in MDX) and therefore the search index read it. Screenshots show a host's own brand
-("Example Hosting"), which is what a host sees in the app, so they need no retake on rename. The one exception is the
-Docker volume name `mohar_rustfs-data` in the backup page: it comes from the compose project name in PR #80.
+("Example Hosting"), which is what a host sees in the app, so they need no retake on rename. PR #80's
+`deploy/compose.prod.yaml` sets the compose project `name: mohar`, so its volumes are called `mohar_*`; the backup
+page finds the volume with `docker volume ls --filter name=_rustfs-data` instead of naming it. Renaming the product
+should also rename that project (a one-line change in #80, plus a volume migration for existing installs).
 
 ## 5. Look
 
@@ -183,7 +185,8 @@ private repository stays as it is, and the URL does not contain `whmcs` (§10, Q
 ## 7. v1 content
 
 Host-facing only. Every page was written for this site from our own docs and the running app; commands were checked
-against the repository (develop at `c03823ce`, and PR #80's branch for the Docker pages).
+against the repository (develop at `3fda1bb8`, and PR #80's branch at `4cbb2be9` for the Docker pages), and the copy
+was reviewed by a separate slop check whose findings are fixed.
 
 | Page                               | Draws from                                                                         | Screenshots (light / dark)                                                                                |
 | ---------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |

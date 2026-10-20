@@ -15,8 +15,7 @@ a web server that gets the TLS certificate for you.
 - A domain name for the app, such as `billing.example.com`, with DNS `A` (and `AAAA` for IPv6) records pointing at
   the host.
 - Ports 80 and 443 open to the internet (TCP), and 443 over UDP for HTTP/3.
-- An SMTP account or a mail service. Password resets, invoices and security notices are sent by email, so the app
-  is not usable without it.
+- An SMTP account or a mail service. Without it, password resets, invoices and security notices are not sent.
 - Somewhere off the host to keep backups.
 
 Next: [Install with Docker Compose](../install-docker/).

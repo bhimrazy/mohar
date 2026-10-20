@@ -12,11 +12,10 @@ You need a Khalti merchant account.
 
 <Steps>
 
-1. In the Khalti merchant dashboard (`admin.khalti.com`), open **Keys** and copy the live secret key. For testing,
-   use the key from the test dashboard (`test-admin.khalti.com`).
+1. In the Khalti merchant dashboard (`admin.khalti.com`), open **Keys** and copy the live secret key. On a staging
+   copy (not production) you can use the key from the test dashboard (`test-admin.khalti.com`) with sandbox mode on.
 
-2. Go to **Setup → Gateways → Khalti** and paste the **Secret key**. Keep **Sandbox mode** on while you use the
-   test key.
+2. Go to **Setup → Gateways → Khalti**, turn **Sandbox mode** off and paste the **Secret key**.
 
 3. If your invoices are in another currency, set **Charge in currency** to Nepalese rupee.
 
@@ -24,8 +23,8 @@ You need a Khalti merchant account.
 
 5. Turn on **Active** and save.
 
-6. To go live, turn **Sandbox mode** off, paste the live secret key, save and test again.
-
 </Steps>
 
-Refunds go through Khalti from the transaction on the invoice.
+Full refunds go through Khalti from the transaction on the invoice (**Refund payment**). Partial refunds are off by
+default. A payment the client made from a bank account through Khalti cannot be refunded from here: refund it in the
+Khalti merchant portal, then use **Refund payment** with **Record only**.

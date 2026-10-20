@@ -28,7 +28,8 @@ See [Backups](../backups/).
     ```
 
     The `migrate` service applies the database changes before the new app and workers start. The site is unavailable
-    for the few seconds the new app takes to pass its health check, and workers finish their current job first.
+    for the few seconds the new app takes to pass its health check. Workers finish their current job first; if a
+    **Run now** automation run is in progress, the update waits for it, up to an hour.
 
 </Steps>
 

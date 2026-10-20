@@ -8,7 +8,7 @@ import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
 Back up three things and keep them apart from each other:
 
 1. **The database**: at least daily, and before every upgrade.
-2. **The object storage bucket**: invoice PDFs, ticket attachments, exports and brand files live only there.
+2. **Object storage**: invoice PDFs, ticket attachments, exports and brand files live only there.
 3. **The application key** (`APP_KEY`, in your `.env` file): store it in a password manager or secrets store.
 
 <Aside caution>
@@ -16,43 +16,56 @@ Back up three things and keep them apart from each other:
 	dump cannot be decrypted. With both together, whoever reads them has all of those credentials.
 </Aside>
 
-Copy backups off the server, to another provider or region. Schedule the database dump before the 03:00 daily
-automation run.
+Copy backups off the server, to another provider or region. Run the database backup before the daily automation time
+(03:00 server time by default), so it does not overlap the billing run.
+
+<Aside>
+	Cron treats `%` as the end of a command, so the commands below do not work pasted straight into a crontab. Save
+	them in a script, for example `/usr/local/bin/billing-backup`, make it executable, and call the script from cron.
+</Aside>
 
 <Tabs syncKey="install">
 <TabItem label="Docker Compose">
 
-**Database**, from the host's cron:
+**Backup script** (run from the host, as a user that can use Docker):
 
 ```bash
-docker compose -f /srv/billing/deploy/compose.prod.yaml exec -T postgres \
+#!/usr/bin/env bash
+set -euo pipefail
+cd /srv/billing
+docker compose -f deploy/compose.prod.yaml exec -T postgres \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' > /backups/billing-$(date +%F).dump
+VOLUME=$(docker volume ls -q --filter name=_rustfs-data)
+docker run --rm -v "$VOLUME":/data:ro -v /backups:/backup \
+  postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 \
+  tar czf /backup/objects-$(date +%F).tgz -C /data .
+find /backups -name 'billing-*.dump' -mtime +30 -delete
+find /backups -name 'objects-*.tgz' -mtime +30 -delete
 ```
 
-**Objects:** copy the `mohar_rustfs-data` volume, or point the `OBJECTS_` settings at a managed bucket with
-versioning or replication turned on.
+The object copy uses the PostgreSQL image the stack already has, because it includes `tar`. Instead of copying the
+volume, you can point the `OBJECTS_` settings at a managed bucket with versioning or replication turned on.
 
-**Restore** into an empty stack (a new host, or after removing the volumes):
+**Restore** into an empty stack (a new host, or after removing the volumes), with the same `APP_KEY` as the backup:
 
 <Steps>
 
-1. Start the database and object storage.
+1. Start the database and object storage, and load the dump.
 
     ```bash
     docker compose -f deploy/compose.prod.yaml up -d --wait postgres rustfs
-    ```
-
-2. Load the dump.
-
-    ```bash
     docker compose -f deploy/compose.prod.yaml exec -T postgres \
       sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < /backups/billing-2026-10-19.dump
     ```
 
-3. Put the objects back into the `mohar_rustfs-data` volume, then start everything with the same `APP_KEY` as the
-   backup.
+2. Stop object storage, put the objects back, and start everything.
 
     ```bash
+    docker compose -f deploy/compose.prod.yaml stop rustfs
+    VOLUME=$(docker volume ls -q --filter name=_rustfs-data)
+    docker run --rm -v "$VOLUME":/data -v /backups:/backup \
+      postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 \
+      tar xzf /backup/objects-2026-10-19.tgz -C /data
     docker compose -f deploy/compose.prod.yaml up -d --wait
     ```
 
@@ -61,9 +74,11 @@ versioning or replication turned on.
 </TabItem>
 <TabItem label="Without Docker">
 
-**Database**, from cron (give `pg_dump` its password through `~/.pgpass`, mode 600):
+**Backup script** (give `pg_dump` its password through `~/.pgpass`, mode 600):
 
 ```bash
+#!/usr/bin/env bash
+set -euo pipefail
 pg_dump --format=custom --no-owner --file=/var/backups/billing/billing-$(date +%F).dump \
   "postgresql://billing@127.0.0.1:5432/billing"
 find /var/backups/billing -name 'billing-*.dump' -mtime +30 -delete
@@ -72,20 +87,32 @@ find /var/backups/billing -name 'billing-*.dump' -mtime +30 -delete
 **Objects:** turn on bucket versioning or replication, or copy the bucket to another provider on a schedule (for
 example with `rclone sync`).
 
-**Restore test:** restore the latest dump into a scratch database, point a copy of the app at it with the same
-`APP_KEY`, and run the installer's checks:
+**Restore** with the same `APP_KEY` as the backup:
 
-```bash
-createdb billing_restore && pg_restore --no-owner --dbname=billing_restore <file>
-php artisan app:install --no-interaction
-```
+<Steps>
 
-Every reference row should report as unchanged.
+1. Create an empty database owned by the app's database user and load the dump.
+
+    ```bash
+    pg_restore --no-owner --dbname=billing <file>
+    ```
+
+2. Restore the bucket from its versions, replica or copy.
+
+3. Check the result with the installer. Every reference row should report as unchanged.
+
+    ```bash
+    php artisan app:install --no-interaction
+    ```
+
+</Steps>
 
 </TabItem>
 </Tabs>
 
 ## Test a restore
 
-Restore into a scratch database before you go live, and then every quarter. After the restore, sign in and open an
-invoice PDF: that checks the bucket as well as the database.
+Before you go live, and then every quarter, restore the latest backup onto a separate server or into a scratch
+database (for example `createdb billing_restore`, then `pg_restore --no-owner --dbname=billing_restore <file>`), point
+a copy of the app at it with the same `APP_KEY`, sign in and open an invoice PDF. That checks the database, the
+objects and the key together.

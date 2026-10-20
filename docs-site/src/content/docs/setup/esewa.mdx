@@ -14,9 +14,9 @@ You need an eSewa merchant account. eSewa gives you a merchant (product) code an
 
 1. Go to **Setup → Gateways → eSewa**.
 
-2. Under **Settings**, enter the **Merchant (product) code** and the **Secret key**. For eSewa's test environment
-   (UAT), keep **Sandbox mode** on and use the test code `EPAYTEST` with the public test key from eSewa's developer
-   documentation.
+2. Under **Settings**, turn **Sandbox mode** off and enter your **Merchant (product) code** and **Secret key**. On a
+   staging copy (not production), you can keep sandbox mode on and use eSewa's test code `EPAYTEST` with the public
+   test key from eSewa's developer documentation.
 
 3. If your invoices are in another currency, set **Charge in currency** to Nepalese rupee. The balance is converted
    at the current exchange rate, and the client sees the converted amount before paying.
@@ -25,8 +25,6 @@ You need an eSewa merchant account. eSewa gives you a merchant (product) code an
    on its own; no money moves.
 
 5. Turn on **Active** and save.
-
-6. To go live, turn **Sandbox mode** off, enter your live code and key, save and test again.
 
 </Steps>
 
