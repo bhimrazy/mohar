@@ -133,7 +133,9 @@ move_workers() {
         "${compose[@]}" --profile "$from" stop "scheduler-$from" "worker-automation-$from"
     fi
     if ! "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps "worker-automation-$to" "scheduler-$to"; then
-        "${compose[@]}" --profile "$to" stop "worker-automation-$to" "scheduler-$to" || true
+        # If the new ones cannot be stopped, starting the old ones would run two schedulers: stop here instead.
+        "${compose[@]}" --profile "$to" stop "worker-automation-$to" "scheduler-$to" \
+            || die "the $to scheduler or automation worker did not become healthy and could not be stopped; neither colour's scheduler was started again. Stop them by hand, then run 'deploy/bin/deploy rollback'"
         if [ -n "$from" ]; then
             "${compose[@]}" --profile "$from" up -d --no-deps "scheduler-$from" "worker-automation-$from" || true
             die "the $to scheduler or automation worker did not become healthy: the $from ones run again. Traffic is on $to; 'deploy/bin/deploy rollback' returns it to $from"
