@@ -27,7 +27,7 @@ Lifetimes:
 - `simulate:clean` reaps detached scenarios, scenarios whose owner is gone, and leftovers. It never touches a scenario another live process owns.
 - Tests stop only the scenarios they started.
 
-Pids are signalled only while `/proc/<pid>/environ` shows they belong to the scenario, so a pid reused after a reboot is never hit.
+A scenario whose process exits at start fails at once: the error carries the tail of its logs, and the scenario directory is kept. Pids are signalled only while `/proc/<pid>/environ` shows they belong to the scenario, so a pid reused after a reboot is never hit.
 
 The package needs Linux: `setsid`, `/proc` and ext-posix.
 
@@ -95,7 +95,8 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Drift.** `StripeRecording` is one scripted sequence: account; create, retrieve and expire a session; a missing session; an amount too small; a PaymentIntent paid with the test card (on the simulator, a session paid on its hosted page); retrieve it; a partial refund, a retrieve, the rest, and a refund too many.
     - Steps refer to earlier answers (`{create_session.id}`) and use relative times (`+2100`).
     - What is not drift is normalised: ids (prefix kept), times, secrets, account and customer values, and key order.
-    - A recording is compared only on the paths the driver reads (`DRIVER_PATHS`), so an extra live field is not drift.
+    - A recording **stores** only the paths the driver reads (`DRIVER_PATHS`, applied by `project()`), with their values normalised, so it holds no account or customer data to begin with. The secret scan stays as a backstop.
+    - Drift is checked on those paths, and an extra live field is not drift. On error steps, a different `error.type` or `error.code` is drift.
     - `simulate:record stripe` runs it against Stripe's test mode with `STRIPE_RECORD_KEY` (a restricted test key; live keys are refused).
     - `tests/Stripe/StripeDriftTest.php` replays the sequence against the simulator for every live recording. A file that does not parse fails it.
     - Recording is deferred (CTO decision, #113): it needs a long-lived restricted test key as a GitHub or Codespaces secret from the owner, so the live check is skipped until then. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
