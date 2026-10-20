@@ -37,6 +37,16 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ## Timeline
 
+### 2026-10-20
+
+- Merged: CI speed-up (#91), import-page re-review fixes (#119), local DB options (#125), automation redelivery fix
+  (#122, closes #82), CI minutes budget (#131), cPanel import step 3b-1 (#95, tick, review and a queued import with a
+  per-account report; 50k-account stop in 6.8 s on PostgreSQL).
+- Stripe verified against the owner's sandbox and eSewa against its UAT environment, with no code changes; a late
+  payment booking bug found by the test matrix (#130).
+- Merged later the same day: production compose stack (#80), Stripe simulator (#113), end-to-end lifecycle `simulate:e2e`
+  (#115, 50 s on a runner), docs site (#137, Astro Starlight, not published), cPanel import step 3b-2 (#133).
+
 ### 2026-10-18
 
 - Merged: Nepal payments (#26), product polish (#38), image optimisation (#40), CI fixes (#46, #56), database hardening (#53), host-header fix (#59), currencies (#43), install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel B2 (#65).

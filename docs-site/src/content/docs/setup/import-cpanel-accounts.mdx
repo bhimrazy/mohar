@@ -1,0 +1,38 @@
+---
+title: Import accounts from cPanel
+description: See which accounts on a WHM server match your clients and products.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+If a server already has accounts, the import page reads them from WHM and matches each one to a client (by contact
+email), a product (by package) and any service you already have. Reading changes nothing on the server or in your
+billing.
+
+<Steps>
+
+1. Go to **Services → Servers**. Open the **⋯** menu of a cPanel server and select **Import accounts**.
+
+2. Select **Fetch accounts**. The list is kept for one day; **Fetch again** reads the server again and **Match again**
+   re-runs the matching after you add clients or products.
+
+3. Read the result for each account:
+    - **Proposed**: one client and one product match; ready to import.
+    - **Unmatched**: no client has the account's email, or no product uses its package. The row says which, and links
+      to creating a product for that package.
+    - **Reseller-owned**: owned by another WHM user.
+    - **Already linked**: a service here already points at this account.
+    - **Missing on server**: a service here points at an account the server no longer has.
+
+    <Screenshot name="import-accounts" alt="Import accounts page: counts of proposed, unmatched, reseller-owned, already linked and missing accounts, and the list of accounts with their match." />
+
+</Steps>
+
+<Aside>
+	In this release the page shows the matches only. Choosing accounts and importing them as services, with no invoice,
+	email or change on the server, is the next step and arrives in a later release.
+</Aside>
+
+Fix unmatched rows before importing: add the missing client, or create a product for the package on the
+[Provisioning tab](../cpanel-server/#use-the-server-for-a-product).

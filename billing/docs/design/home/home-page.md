@@ -95,7 +95,7 @@ One `PublicLayout` serves home, store, domains, knowledge base, announcements an
       shared prop on public routes.
 
 Screenshots: `header-support-menu-light.png`, `header-products-menu-light.png`, `header-products-menu-dark.png`
-(menu mode, signed in), `header-domains-menu-dark.png`, `header-phone-sheet-light.png`, `header-phone-sheet-dark.png`.
+(1024 px, where the group links fold into the menu), `header-domains-menu-dark.png`, `header-phone-sheet-light.png`, `header-phone-sheet-dark.png`.
 
 ## Sections
 

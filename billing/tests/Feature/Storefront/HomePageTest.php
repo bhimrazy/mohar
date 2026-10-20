@@ -168,10 +168,22 @@ it('fills the footer from Settings → Company and shows the trust facts and cal
         ->where('cta_band.from.amount', 1000));
 });
 
+it('shows one PAN/VAT row when the VAT number is the PAN, and both when they differ', function (): void {
+    app(Settings::class)->setMany(['billing.seller.pan' => '600000001', 'billing.seller.vat_number' => '600000001']);
+
+    $this->get('/')->assertInertia(fn (Assert $page) => $page->where('site.company.ids', [['kind' => 'pan', 'label' => 'PAN/VAT no.', 'value' => '600000001']]));
+
+    app(Settings::class)->set('billing.seller.vat_number', '600000002');
+    app(StorefrontCache::class)->flush();
+
+    $this->get('/')->assertInertia(fn (Assert $page) => $page->where('site.company.ids', fn ($ids) => collect($ids)->pluck('label')->all() === ['PAN', 'VAT no.']));
+});
+
 it('answers unknown public URLs with the public 404 page and noindex', function (): void {
     $response = $this->get('/no-such-page')->assertNotFound();
 
-    $response->assertInertia(fn (Assert $page) => $page->component('public/storefront/not-found')->where('path', '/no-such-page')->has('site'));
+    $response->assertInertia(fn (Assert $page) => $page->component('public/storefront/not-found')->where('path', '/no-such-page')->has('site')
+        ->where('links', fn ($links) => collect($links)->pluck('label')->all() === ['Hosting plans', 'Knowledge base', 'Contact us', 'Home']));
     expect($response->getContent())->toContain('<meta name="robots" content="noindex, nofollow"');
 
     $this->get(route('store.cart.domains.store'))->assertMethodNotAllowed();

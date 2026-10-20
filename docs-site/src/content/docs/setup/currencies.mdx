@@ -1,0 +1,30 @@
+---
+title: Currencies
+description: Check the currencies you sell in and how their exchange rates are kept up to date.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+A new install has three currencies: US dollar (the default), Indian rupee and Nepalese rupee. Each client is billed
+in one currency, and each invoice is in that client's currency.
+
+<Steps>
+
+1. Go to **Setup → Currencies**.
+
+2. Check each currency's format (**Shown as**) and its rate against the default currency. Edit a currency from its
+   **⋯** menu, or add one with **New currency**.
+
+3. Each currency's rate source is set on the currency. Select **Rate settings** for the rules shared by all of them,
+   such as the update time and how far a rate may move in a day before it needs your approval.
+
+4. When a fetched rate moves more than that limit, it waits at the top of the page. Select **Approve new rate** or
+   **Keep current rate**. Until you decide, prices and invoices keep the current rate.
+
+    <Screenshot name="currencies" alt="Currencies page with a rate change waiting for approval and the list of currencies with their rates and sources." />
+
+</Steps>
+
+Prices in other currencies can be converted from the default currency's price. See **Converted prices** on the same
+page, and the pricing step in [Products](../products/).

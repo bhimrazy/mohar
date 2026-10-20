@@ -1,0 +1,56 @@
+---
+title: Troubleshooting
+description: Common problems after install and how to fix them.
+---
+
+## Install messages
+
+| Message from `app:install`                                 | What to do                                                                                     |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `APP_KEY is not set`                                       | without Docker: `php artisan key:generate`, then `php artisan optimize`. With Docker: step 4 of the install |
+| `Database: Cannot connect`                                 | check the `DB_` values, that PostgreSQL is running, and that the user can connect               |
+| `Migrations: ... pending`                                  | run `php artisan migrate --force`                                                              |
+| `Object storage: ... not writable`                         | run `php artisan objects:ensure-bucket`, then check the `OBJECTS_` values and the bucket policy |
+| `... already exist, so none was created`                   | expected when you run it again; add `--additional-admin` to create another administrator      |
+
+Warnings about mail, the queue or the scheduler do not stop the install. They clear once mail is set up and the
+scheduler has run for a minute.
+
+## Docker Compose
+
+| Symptom                                         | Where to look                                                                                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up` stops at `migrate`                         | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means the install step was skipped               |
+| 502 error from the site                         | `docker compose -f deploy/compose.prod.yaml ps`: `app` must be `healthy`. `logs app` says why it is not                                          |
+| Certificate errors                              | DNS for your domain must point at the host, ports 80 and 443 must be open, and `CADDY_GLOBAL_OPTIONS` must hold a real email. Check `logs caddy` |
+| No HSTS header, or one IP address for everyone  | the app does not trust the proxy: `EDGE_SUBNET` in `deploy/.env` must match the edge network's range                                            |
+| Jobs are not processed                          | `logs worker-default`, or the worker for that queue. **Run now** in Automation uses `worker-automation`                                         |
+
+### An automation run was stopped part-way
+
+A host reboot, running out of memory, or a stop that ran out of time can end an automation run early. The day's
+remaining tasks did not run, and **Run now** says another run is in progress while the stopped run's locks remain.
+
+1. Check **Setup → Automation** that no run is in progress.
+2. Clear the scheduler's lock and the automation locks:
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan schedule:clear-cache
+    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan automation:release-locks --force
+    ```
+
+3. Select **Run now**. Tasks that already succeeded that day are skipped.
+
+Without Docker, step 2 is `php artisan automation:release-locks`, run from the `billing/` folder; it asks before it
+releases anything.
+
+## Any install
+
+| Symptom                                           | Cause and fix                                                                                                      |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Automation says the scheduler has never run       | the cron entry is missing or runs as another user (without Docker), or the `scheduler` service is stopped (Docker) |
+| Emails are not sent                               | check the `MAIL_` settings and **Setup → Email log**; a queue worker must be running                               |
+| Links in emails point to the wrong address        | `APP_URL` is wrong. Fix it, then run `php artisan optimize` (or recreate the containers)                           |
+| A payment shows as pending                        | the app checks pending payments with the gateway every few minutes. See **Billing → Payment attempts** and **Setup → Gateway log** |
+| A cPanel account was not created                  | open **Services → Module log** for the error. Fix the cause, then select **Retry** on the failed action                                    |
+| A change to `.env` has no effect                  | the configuration is cached: run `php artisan optimize` (or recreate the containers)                               |

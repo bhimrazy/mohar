@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# One-shot smoke install of the production stack (deploy/compose.prod.yaml) on fresh volumes, checked through
+# Caddy with a certificate from Caddy's internal CA. Used by .github/workflows/deploy-smoke.yml; runs anywhere
+# Docker Compose v2 can network containers. It never reads or writes deploy/.env: it generates its own
+# deploy/.env.smoke (gitignored) and a separate compose project, and removes both on exit.
+#
+#   deploy/bin/smoke            build the image, install, check, tear down
+#   SMOKE_KEEP=1 deploy/bin/smoke   leave the stack running for inspection (remove it with the printed command)
+#
+# Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; every service up; /up through
+# Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job processed
+# by the automation worker (its own queue connection); the app container runs as UID 10001 on a read-only root filesystem; PHP stream TLS
+# verifies public certificates; compiled views stay out of the shared storage volume; URL tokens never reach Caddy's
+# access log.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$root"
+
+project="${SMOKE_PROJECT:-mohar-smoke}"
+http_port="${SMOKE_HTTP_PORT:-18080}"
+https_port="${SMOKE_HTTPS_PORT:-18443}"
+env_file="deploy/.env.smoke"
+work="$(mktemp -d)"
+base="https://localhost:${https_port}"
+admin_email="smoke-admin@example.com"
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml --env-file "$env_file")
+failed=1
+
+step() { printf '\n== %s\n' "$*"; }
+pass() { printf 'PASS %s\n' "$*"; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf -- '- PASS %s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; return 0; }
+fail() { printf 'FAIL %s\n' "$*" >&2; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && printf -- '- FAIL %s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; exit 1; }
+random() { head -c 32 /dev/urandom | base64 | tr -d '/+=' | cut -c1-"${1:-32}"; }
+
+cleanup() {
+    if [ "$failed" = 1 ]; then
+        step "diagnostics"
+        "${compose[@]}" ps -a || true
+        "${compose[@]}" logs --no-color --tail 60 || true
+    fi
+    if [ "${SMOKE_KEEP:-0}" = 1 ]; then
+        echo "Stack kept. Remove it with: ${compose[*]} down -v --remove-orphans && rm -f $env_file"
+    else
+        "${compose[@]}" down -v --remove-orphans --timeout 20 >/dev/null 2>&1 || true
+        rm -f "$env_file"
+    fi
+    rm -rf "$work"
+}
+trap cleanup EXIT
+
+step "environment (generated secrets, internal TLS, log mailer)"
+cat > "$env_file" <<ENV
+APP_DOMAIN=localhost
+APP_URL=${base}
+APP_NAME="Smoke Test Host"
+APP_KEY=base64:$(head -c 32 /dev/urandom | base64)
+APP_ENV=production
+APP_DEBUG=false
+APP_ENV_FILE=.env.smoke
+CADDY_TLS=tls internal
+HTTP_PORT=${http_port}
+HTTPS_PORT=${https_port}
+APP_IMAGE=${SMOKE_IMAGE:-mohar-app:smoke}
+DB_DATABASE=billing
+DB_USERNAME=billing
+DB_PASSWORD=$(random)
+OBJECTS_BUCKET=billing
+OBJECTS_ACCESS_KEY=$(random 20)
+OBJECTS_SECRET_KEY=$(random 40)
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true
+MAIL_MAILER=log
+ENV
+chmod 600 "$env_file"
+docker compose version
+
+if [ -z "${SMOKE_IMAGE:-}" ]; then
+    step "build the image (deploy/Dockerfile, target prod)"
+    start=$(date +%s)
+    "${compose[@]}" build app
+    pass "image built in $(( $(date +%s) - start ))s"
+fi
+docker image inspect "${SMOKE_IMAGE:-mohar-app:smoke}" --format 'image size (unpacked): {{.Size}} bytes'
+
+step "first install on empty PostgreSQL and RustFS"
+"${compose[@]}" up -d --wait --wait-timeout 120 postgres rustfs
+"${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
+    && php artisan objects:ensure-bucket --no-interaction \
+    && php artisan app:install --no-interaction --admin-name='Smoke Admin' --admin-email=${admin_email}" > "$work/install.log" 2>&1 \
+    || { awk 'hide && NF { print "   <one-time password hidden>"; hide = 0; next } /one-time password/ { hide = 1 } { print }' "$work/install.log" | tail -40 >&2; fail "first install"; }
+# The one-time password is the first non-empty line after the notice; it is masked and never printed.
+password="$(awk 'found && NF { print $1; exit } /one-time password/ { found = 1 }' "$work/install.log")"
+[ -n "$password" ] || fail "no one-time password in the install output"
+[ -n "${GITHUB_ACTIONS:-}" ] && echo "::add-mask::${password}"
+pass "migrations, bucket and first administrator"
+
+step "start every service and wait for health"
+start=$(date +%s)
+"${compose[@]}" up -d --wait --wait-timeout 180 || fail "stack did not become healthy"
+pass "stack healthy in $(( $(date +%s) - start ))s (migrate re-run on the installed database)"
+running="$("${compose[@]}" ps --status running --services | sort | tr '\n' ' ')"
+for service in app caddy postgres rustfs scheduler worker-automation worker-critical worker-default worker-notifications; do
+    grep -qw "$service" <<< "$running" || fail "service $service is not running (running: $running)"
+done
+pass "running: $running"
+
+step "HTTPS through Caddy (internal CA)"
+for _ in $(seq 30); do
+    "${compose[@]}" cp caddy:/data/caddy/pki/authorities/local/root.crt "$work/root.crt" >/dev/null 2>&1 && break
+    sleep 1
+done
+[ -s "$work/root.crt" ] || fail "Caddy's internal root certificate"
+# Retries: the leaf certificate can lag a moment behind the root certificate.
+curl_tls=(curl -sS --cacert "$work/root.crt" --max-time 15 --retry 5 --retry-all-errors --retry-delay 1)
+headers="$("${curl_tls[@]}" -D - -o /dev/null "${base}/up")"
+grep -q '^HTTP/[0-9.]* 200' <<< "$headers" || fail "GET /up through Caddy: $(head -1 <<< "$headers")"
+grep -qi '^strict-transport-security:' <<< "$headers" || fail "no HSTS on /up: the app does not trust the proxy"
+pass "GET ${base}/up = 200 with a trusted certificate and HSTS"
+redirect="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' "http://localhost:${http_port}/login")"
+redirect_pattern='^30[178] https://'
+[[ "$redirect" =~ $redirect_pattern ]] || fail "HTTP is not redirected to HTTPS: $redirect"
+pass "HTTP redirects to HTTPS ($redirect)"
+
+step "sign in"
+jar="$work/cookies"
+"${curl_tls[@]}" -c "$jar" -b "$jar" -o /dev/null "${base}/login"
+xsrf="$(awk '$6 == "XSRF-TOKEN" { print $7 }' "$jar" | python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.stdin.read().strip()))')"
+[ -n "$xsrf" ] || fail "no XSRF-TOKEN cookie from /login"
+login="$("${curl_tls[@]}" -c "$jar" -b "$jar" -o /dev/null -w '%{http_code} %{redirect_url}' \
+    -H "X-XSRF-TOKEN: ${xsrf}" -H 'Accept: text/html' \
+    --data-urlencode "email=${admin_email}" --data-urlencode "password=${password}" "${base}/login")"
+login_pattern="^302 ${base}/(dashboard|admin)"
+[[ "$login" =~ $login_pattern ]] || fail "POST /login: $login"
+after="$("${curl_tls[@]}" -c "$jar" -b "$jar" -o /dev/null -L -w '%{http_code} %{url_effective}' "${base}/admin")"
+ok_pattern='^200 '
+login_page='/login$'
+{ [[ "$after" =~ $ok_pattern ]] && ! [[ "$after" =~ $login_page ]]; } || fail "signed-in request to /admin: $after"
+pass "POST /login = ${login}; /admin then answers ${after} (the one-time password asks for confirmation and 2FA next)"
+
+step "no one-time token in Caddy's access log"
+"${curl_tls[@]}" -o /dev/null "${base}/reset-password/SMOKESECRETTOKEN?email=smoke%40example.com"
+"${curl_tls[@]}" -o /dev/null -H "Referer: ${base}/staff-invitation/SMOKESECRETREFERER" "${base}/login?signature=SMOKESECRETSIG"
+access_log=""
+for _ in $(seq 30); do
+    access_log="$("${compose[@]}" logs --no-color caddy)"
+    grep -q '"uri":"/login?REDACTED"' <<< "$access_log" && break
+    sleep 1
+done
+grep -q 'SMOKESECRET' <<< "$access_log" && fail "a URL token reached Caddy's logs"
+grep -q '"uri":"/reset-password/REDACTED?REDACTED"' <<< "$access_log" || fail "the access log does not show the redacted reset link"
+pass "URL tokens are redacted in Caddy's access log (path, query and Referer)"
+
+step "queued job through the automation worker"
+"${compose[@]}" exec -T app php artisan tinker --execute \
+    'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
+done_line=""
+for _ in $(seq 60); do
+    done_line="$("${compose[@]}" logs --no-color worker-automation 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
+    [ -n "$done_line" ] && break
+    sleep 2
+done
+[[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed: ${done_line:-no worker output}"
+failed_jobs="$("${compose[@]}" exec -T app php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
+[ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
+pass "RunAutomationJob processed by worker-automation on its own connection (${done_line##* }); failed_jobs = 0"
+
+step "container hardening"
+uid="$("${compose[@]}" exec -T app id -u)"
+[ "$uid" = 10001 ] || fail "app runs as UID $uid"
+if "${compose[@]}" exec -T app sh -c 'touch /app/smoke-write-test' 2>/dev/null; then
+    fail "the app's root filesystem is writable"
+fi
+pass "app runs as UID 10001 on a read-only root filesystem"
+
+step "outbound TLS and per-container caches"
+"${compose[@]}" exec -T app php -r 'exit(@file_get_contents("https://example.com") === false ? 1 : 0);' \
+    || fail "PHP stream TLS (SMTP STARTTLS, https:// streams) cannot verify a public certificate"
+pass "PHP stream TLS verifies a public certificate (CA bundle)"
+views="$("${compose[@]}" exec -T app sh -c 'ls /app/bootstrap/cache/views | wc -l; ls -A /app/storage/framework/views | grep -vc gitignore || true')"
+[ "$(sed -n 1p <<< "$views")" -gt 0 ] && [ "$(sed -n 2p <<< "$views")" = 0 ] \
+    || fail "compiled views must be per container, not in the shared storage volume (got: $(tr '\n' ' ' <<< "$views"))"
+pass "compiled views are per container ($(sed -n 1p <<< "$views") in bootstrap/cache/views, none in storage)"
+
+failed=0
+step "all checks passed"

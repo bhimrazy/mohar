@@ -10,6 +10,7 @@ use App\Modules\Core\Install\EnvironmentCheck;
 use App\Modules\Core\Install\EnvironmentChecks;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -214,9 +215,9 @@ class InstallCommand extends Command
         $this->line('  1. Scheduler: add this cron entry for the web server user:');
         $this->line('       * * * * * cd '.base_path().' && php artisan schedule:run >> /dev/null 2>&1');
         $this->line('  2. Queue workers: keep these running under systemd or Supervisor:');
-        $this->line('       php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=85');
-        $this->line('       php artisan queue:work --queue=notifications,webhooks --tries=3');
-        $this->line('       php artisan queue:work --queue=default --tries=3');
+        foreach (Queues::workerCommands() as $command) {
+            $this->line('       '.$command);
+        }
         $this->line('  3. Mail: set MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD and MAIL_FROM_ADDRESS in .env.');
         $this->line('  4. Object storage: run `php artisan objects:ensure-bucket` once the OBJECTS_* settings point at your bucket.');
         $this->line("  5. Sign in at {$url}/login and set up two-factor authentication.");

@@ -24,14 +24,13 @@ test('the simulator answers every live WHM recording in its shape and with its r
     $scenario = Processes::start(WhmSimulator::class);
 
     try {
-        // The recording ran as root, or as the reseller its acctcounts names; the replay uses the matching login.
-        $calls = LiveRecording::calls(WhmSimulator::ROOT_TOKEN, 'root', 'alpha') + ['acctcounts' => ['acctcounts', ['user' => 'reseller1']]];
-
         foreach ($recordings as $file) {
             $name = basename($file, '.json');
             $recording = json_decode((string) file_get_contents($file), true);
-            [$function, $params] = $calls[$name] ?? throw new RuntimeException("No replay for the recording {$name}.");
-            [$user, $token] = $name === 'acctcounts' ? ['reseller1', WhmSimulator::RESELLER_TOKEN] : ['root', WhmSimulator::ROOT_TOKEN];
+            // Replayed with the kind of login that made the recording, never assumed.
+            $login = $recording['context']['login'] ?? throw new RuntimeException("The recording {$name} does not say which login made it; record it again.");
+            [$user, $token] = $login === 'root' ? ['root', WhmSimulator::ROOT_TOKEN] : ['reseller1', WhmSimulator::RESELLER_TOKEN];
+            [$function, $params] = LiveRecording::calls($token, $user, $login === 'root' ? 'alpha' : 'bravo')[$name] ?? throw new RuntimeException("No replay for the recording {$name}.");
             $answer = Http::withOptions(['verify' => $scenario->ca()->bundlePath()])->withHeaders(['Authorization' => "whm {$user}:{$token}"])
                 ->asForm()->post($scenario->apiUrl()."/json-api/{$function}?api.version=1", $params)->json();
             $reason = fn (array $body): string => WhmReasons::classify((string) ($body['metadata']['reason'] ?? ''));

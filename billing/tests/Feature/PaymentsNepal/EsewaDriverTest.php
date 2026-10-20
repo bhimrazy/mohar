@@ -7,10 +7,14 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
+use App\Support\Dashboard\Dashboard;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -96,7 +100,7 @@ test('signatures match our fixed vectors for whole-rupee requests and comma-form
         ))->toBe('C9QSBh3Ovftd7ZkOZRW2g1+iCbF3NtqdeTqsEQ/RNwo=');
 });
 
-test('a validly signed COMPLETE return still waits for the status check, then pays exactly once', function () {
+test('a validly signed COMPLETE return still waits for the status check, then the poller pays it once', function () {
     Event::fake([InvoicePaid::class]);
     [$invoice, $attempt] = startEsewa();
     Http::fake([ESEWA_STATUS => Http::sequence()->push(esewaStatus($attempt, 'PENDING', refId: null))->push(esewaStatus($attempt, 'COMPLETE'))]);
@@ -105,9 +109,7 @@ test('a validly signed COMPLETE return still waits for the status check, then pa
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 
     $this->travel(6)->minutes();
-    $this->get(esewaSuccess($attempt));
-    $this->get(esewaSuccess($attempt));
-    $this->artisan('billing:reconcile-payments');
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
 
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and(Transaction::query()->where('gateway', EsewaDriver::KEY)->sole()->gateway_txn_id)->toBe('0007G36')
@@ -115,15 +117,6 @@ test('a validly signed COMPLETE return still waits for the status check, then pa
     Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://rc.esewa.com.np/')
         && $request['product_code'] === 'EPAYTEST' && $request['total_amount'] === '1130.50' && $request['transaction_uuid'] === $attempt->reference);
     Event::assertDispatchedTimes(InvoicePaid::class, 1);
-});
-
-test('the poller settles a payment whose customer never came back', function () {
-    [$invoice, $attempt] = startEsewa();
-    Http::fake([ESEWA_STATUS => Http::response(esewaStatus($attempt, 'COMPLETE'))]);
-
-    $this->artisan('billing:reconcile-payments')->assertSuccessful();
-
-    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
 test('a genuine success return verifies and names the attempt', function () {
@@ -215,6 +208,33 @@ test('an eSewa outage keeps the attempt open for the next poll', function () {
     expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)->raw->toMatchArray(['error' => 'error_message: Service is currently unavailable; code: 0']);
 });
 
+test('eSewa is offered for NPR invoices only and other currencies are refused', function () {
+    [, $client] = actingAsClient();
+    $usd = issueInvoice($client);
+
+    $this->get(route('client.invoices.show', $usd->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => ! collect($gateways)->contains('key', EsewaDriver::KEY)));
+    $this->from(route('client.invoices.show', $usd->id))
+        ->post(route('client.invoices.pay', $usd->id), ['gateway' => EsewaDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Esewa can\'t take payments in USD.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
+});
+
+test('an amount below eSewa\'s minimum is shown disabled with the reason and refused', function () {
+    nepalGateway('bank_transfer', []);
+    [, $invoice] = nprInvoice([50]);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', EsewaDriver::KEY)['unavailable_reason'] === 'Esewa needs at least Rs 1.00.')
+        ->where('payment.selected_gateway', 'bank_transfer'));
+    $this->from(route('client.invoices.show', $invoice->id))
+        ->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Esewa needs at least Rs 1.00. Choose another way to pay.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
+});
+
 test('eSewa payments are refunded in the portal, not through the API', function () {
     [, $attempt] = startEsewa();
     Http::fake([ESEWA_STATUS => Http::response(esewaStatus($attempt, 'COMPLETE'))]);
@@ -271,4 +291,96 @@ test('a refused status check sends the attempt to staff review', function () {
     $this->get(esewaSuccess($attempt));
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->review_reason->toContain('eSewa refused the status check (HTTP 403)');
+});
+
+/**
+ * Issue #130 (matrix PG-19 / M-01): eSewa never saw the payment within the TTL plus grace, so the attempt expired;
+ * later its status check answers $later. An hour on, both the return route and the sweep look it up again.
+ *
+ * @return array{0: Invoice, 1: PaymentAttempt}
+ */
+function expiredEsewa(string $later = 'COMPLETE'): array
+{
+    [$invoice, $attempt] = startEsewa();
+    Http::fake([ESEWA_STATUS => Http::sequence()->push(esewaStatus($attempt, 'NOT_FOUND', refId: null))
+        ->whenEmpty(Http::response(esewaStatus($attempt, $later, refId: $later === 'COMPLETE' ? '0007G36' : null)))]);
+
+    test()->travel(15 + 121)->minutes();
+    test()->artisan('billing:reconcile-payments');
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Expired);
+    test()->travel(61)->minutes();
+
+    return [$invoice, $attempt->fresh()];
+}
+
+test('a payment eSewa completes after the attempt expired is booked on the unpaid invoice and flagged for staff', function (Closure $check) {
+    [$invoice, $attempt] = expiredEsewa();
+
+    $check($attempt);
+
+    expect(Transaction::query()->where('gateway', EsewaDriver::KEY)->sole())->amount_in->toBe(113_050)->gateway_txn_id->toBe('0007G36')
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull()
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->sole()->properties)->toMatchArray(['closed_as' => 'expired', 'applied' => 113_050, 'credited' => 0])
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'])->toBe(1);
+})->with([
+    'customer returns' => [fn (PaymentAttempt $attempt) => test()->get(esewaSuccess($attempt))->assertSessionHas('inertia.flash_data.toast.type', 'success')],
+    'verify sweep' => [fn (PaymentAttempt $attempt) => test()->artisan('billing:reconcile-payments')],
+]);
+
+test('a late eSewa payment on an invoice already paid becomes NPR account credit', function () {
+    [$invoice] = expiredEsewa();
+    payInvoice($invoice, 113_050, 'bank-ref-1');
+
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', EsewaDriver::KEY)->sole()->amount_in)->toBe(113_050)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'NPR')->amount)->toBe(113_050);
+});
+
+test('a late eSewa payment larger than the remaining balance pays it and credits the rest', function () {
+    [$invoice, $attempt] = expiredEsewa();
+    payInvoice($invoice, 13_050, 'bank-ref-2');
+
+    $this->get(esewaSuccess($attempt));
+
+    expect($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'NPR')->amount)->toBe(13_050);
+});
+
+test('repeated returns and sweeps book a late eSewa payment once', function () {
+    [$invoice, $attempt] = expiredEsewa();
+
+    $this->get(esewaSuccess($attempt));
+    $this->artisan('billing:reconcile-payments');
+    $this->travel(2)->hours();
+    $this->get(esewaSuccess($attempt));
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', EsewaDriver::KEY)->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(1)
+        ->and(CreditLedgerEntry::query()->count())->toBe(0)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('an expired eSewa attempt whose status check still says not paid stays closed', function (string $later) {
+    [$invoice, $attempt] = expiredEsewa($later);
+
+    $this->get(esewaSuccess($attempt));
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->count())->toBe(0)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->late_payment_at->toBeNull()->lookup_count->toBe($attempt->lookup_count + 1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+})->with(['NOT_FOUND', 'CANCELED', 'PENDING']);
+
+test('closed attempts are no longer swept for late payments once the late window has passed', function () {
+    [, $attempt] = expiredEsewa();
+    $this->travel(48)->hours();
+    $lookups = $attempt->fresh()->lookup_count;
+
+    $this->artisan('billing:reconcile-payments');
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Expired)->lookup_count->toBe($lookups);
 });

@@ -122,6 +122,9 @@ test('a method that cannot take the amount is shown disabled with the reason and
 
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
         ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['unavailable_reason'] === 'Khalti needs at least Rs 10.00.'
+            // Still listed as a redirect method, with its sandbox badge, rather than hidden.
+            && collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['kind'] === 'redirect'
+            && collect($gateways)->firstWhere('key', KhaltiDriver::KEY)['sandbox'] === true
             && collect($gateways)->firstWhere('key', 'bank_transfer')['unavailable_reason'] === null)
         ->where('payment.selected_gateway', 'bank_transfer'));
 
@@ -129,6 +132,23 @@ test('a method that cannot take the amount is shown disabled with the reason and
         ->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])
         ->assertSessionHasErrors(['billing' => 'Khalti needs at least Rs 10.00. Choose another way to pay.']);
     expect(PaymentAttempt::query()->count())->toBe(0);
+});
+
+test('the pay panel shows the official logos with an accessible name and other gateways fall back to their name', function () {
+    [, $invoice] = nprInvoice();
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', function ($gateways) {
+            $logos = collect($gateways)->mapWithKeys(fn ($gateway) => [$gateway['key'] => $gateway['logo']]);
+
+            return $logos['khalti'] === ['url' => asset('images/gateways/khalti.svg'), 'dark_url' => null, 'alt' => 'Pay with Khalti']
+                && $logos['esewa'] === ['url' => asset('images/gateways/esewa.png'), 'dark_url' => asset('images/gateways/esewa-on-dark.png'), 'alt' => 'Pay with eSewa']
+                && $logos['bank_transfer'] === null;
+        }));
+
+    foreach (['khalti.svg', 'esewa.png', 'esewa-on-dark.png'] as $file) {
+        expect(public_path('images/gateways/'.$file))->toBeFile();
+    }
 });
 
 test('a converting gateway shows the amount it will charge, and the payment uses exactly that amount', function () {

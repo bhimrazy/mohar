@@ -1,0 +1,47 @@
+---
+title: Automation and the daily run
+description: What runs every day, how to check it, and how to run it by hand.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Once a day, at the **Daily automation time** (03:00 server time unless you changed it under **Setup → Settings →
+Company**), the app runs a pipeline of tasks in a fixed order. Each task runs once per day; starting the pipeline again
+skips the tasks that already succeeded.
+
+| Stage         | What happens                                                                                 |
+| ------------- | -------------------------------------------------------------------------------------------- |
+| Exchange rates | fetches the day's rates (large moves wait for your approval)                                |
+| Renewals      | creates renewal invoices for services and domains that are coming due                        |
+| Late fees     | adds the late fee once to invoices that are overdue by the set number of days                |
+| Auto-charge   | charges saved payment methods before the due date, and retries failed charges                |
+| Reminders     | sends before-due and overdue reminders, at most one per invoice per day                      |
+| Cancellations | cancels stale unpaid orders and invoices, and processes due cancellation requests            |
+| Suspensions   | suspends services that are overdue past the suspension threshold                             |
+| Terminations  | removes services that stayed overdue past the termination threshold                          |
+| Sync          | checks pending gateway payments, converts prices, reads usage from servers                   |
+| Housekeeping  | removes expired carts, old logs and stale data, and closes idle tickets                      |
+
+The thresholds are settings. Suspension and termination are under **Setup → Settings → Services**; late fees,
+reminders and auto-cancel under **Setup → Settings → Billing**.
+
+## Check that it runs
+
+Go to **Setup → Automation**. The page shows whether the scheduler is running, the next scheduled run, each day's
+results for the last 30 days, and every task with its last result.
+
+<Screenshot name="automation" alt="Automation page: runs per day for the last 30 days, items processed today by stage, and time per stage." />
+
+The dashboard's **System health** panel also flags automation that has not run for 26 hours.
+
+## Run it by hand
+
+Select **Run today's pipeline** on the Automation page, or **Run now** next to one task, and confirm. The run is
+queued and its results appear in the run log. Tasks that already succeeded today are skipped. **Re-run even if it
+already succeeded today** runs them again, which can repeat charges, emails or renewals; use it only when you know why.
+
+<Aside caution>
+	If the page says the scheduler has never run, the cron entry (or the Docker `scheduler` service) is missing. See
+	[Troubleshooting](../../operate/troubleshooting/).
+</Aside>

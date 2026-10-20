@@ -4,7 +4,8 @@
 #                                                       database billing_test_<slug>, export DB_* vars
 #   /workspaces/whmcs/scripts/pg.sh --stop             stop the shared server
 #   /workspaces/whmcs/scripts/pg.sh --prune [slug...]  drop test databases with no open connections,
-#                                                       except those of the slugs given (dropped ones are recreated on demand)
+#                                                       except those of the slugs given (dropped ones are recreated on demand),
+#                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in tmpfs: it is test data, fast, and disappears when the server stops.
 set -euo pipefail
@@ -24,8 +25,8 @@ if [ "${1:-}" = "--prune" ]; then
     # Parallel test runs add billing_test_<slug>_test_<n>; those are kept with their slug.
     docker exec "$name" psql -U billing -d billing -tAc "
         SELECT datname FROM pg_database d
-        WHERE datname LIKE 'billing\_test\_%'
-          AND datname !~ '^billing_test_(${keep})(_test_[0-9]+)?$'
+        WHERE ((datname LIKE 'billing\_test\_%' AND datname !~ '^billing_test_(${keep})(_test_[0-9]+)?$')
+               OR datname ~ '^billing_e2e_[0-9a-f]{8}$')
           AND NOT EXISTS (SELECT 1 FROM pg_stat_activity a WHERE a.datname = d.datname)" |
         while read -r db; do [ -n "$db" ] && docker exec "$name" dropdb -U billing --if-exists "$db" && echo "dropped $db"; done
     exit 0
