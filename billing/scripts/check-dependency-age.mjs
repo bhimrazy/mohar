@@ -37,6 +37,7 @@ import { fileURLToPath } from 'node:url';
 import {
     composerDistProblems,
     digestBelongsToTag,
+    composeImages,
     dockerfileImages,
     isDockerfile,
     isExcepted,
@@ -151,9 +152,10 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         if (text === null) {
             continue;
         }
-        for (const [, image] of text.matchAll(
-            /^\s*image:\s*['"]?([^\s'"#]+)/gm,
-        )) {
+        for (const { image, own } of composeImages(text)) {
+            if (own) {
+                continue;
+            }
             items.push({
                 kind: 'image',
                 name: image.split('@')[0],

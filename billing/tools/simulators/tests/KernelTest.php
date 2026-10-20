@@ -100,3 +100,31 @@ test('the registry knows simulators by key and names the installed ones when ask
         ->and(fn () => $registry->get('stripe'))->toThrow(InvalidArgumentException::class, 'installed: echo')
         ->and(fn () => $registry->register(stdClass::class))->toThrow(InvalidArgumentException::class);
 });
+
+test('a delivery the app does not accept is retried on the backoff schedule until a 2xx, or until its attempts run out', function () {
+    $outbox = $this->scenario->outbox();
+    $outbox->retryPolicy([0, 0], 3);
+    $accepted = $outbox->enqueue('https://app.example.test/hook', '{"n":1}');
+    $refused = $outbox->enqueue('https://app.example.test/hook', '{"n":2}');
+    $answers = ['{"n":1}' => [409, 200], '{"n":2}' => [500, 500, 500, 500]];
+    $unsigned = [];
+
+    $attempts = $outbox->drain(function (string $url, string $body, array $headers) use (&$answers, &$unsigned): int {
+        $unsigned[] = ! isset($headers['Echo-Signature']);
+
+        return array_shift($answers[$body]);
+    });
+
+    expect($attempts)->toBe([[$accepted, 409], [$refused, 500], [$accepted, 200], [$refused, 500], [$refused, 500]])
+        ->and($outbox->pending())->toBe([])
+        ->and($outbox->exhausted())->toBe([$refused])
+        ->and($unsigned)->each->toBeFalse();
+
+    $outbox->deliver(['id' => $accepted, 'url' => 'https://app.example.test/hook', 'body' => '{"n":1}', 'headers' => []], function (string $url, string $body, array $headers) use (&$unsigned): int {
+        $unsigned[] = ! isset($headers['Echo-Signature']);
+
+        return 403;
+    }, 'unsigned');
+
+    expect(end($unsigned))->toBeTrue();
+});

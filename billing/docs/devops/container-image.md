@@ -3,7 +3,8 @@
 One image runs every process of the app: web, queue workers, the scheduler and migrations. It is built from
 `deploy/Dockerfile` with the repository root as the context (narrowed by `deploy/Dockerfile.dockerignore` to
 `billing/` and the runtime files in `deploy/`). Why this design: [deployment-options.md](deployment-options.md).
-The production compose stack, blue-green deploys and the build workflow come in later PRs (D2, D3).
+The production stack that runs it is described in [production.md](production.md); blue-green deploys and the
+build workflow come in later PRs.
 
 ```sh
 docker build -f deploy/Dockerfile --target prod -t billing:local .   # from the repository root
@@ -42,7 +43,7 @@ Every `FROM` and `COPY --from=` image is `<name>:<tag>@sha256:<digest>` and at l
 | Entrypoint           | recreates the storage skeleton, runs `php artisan optimize` (config embeds the environment, so at start, not build), then runs the command                                                                                                                                                          |
 | Health               | `HEALTHCHECK` runs `app-healthcheck`: `GET /up` on port 8080 with `APP_URL`'s host, because TrustHosts rejects other hosts. Workers and the scheduler run no web server, so their service definition must replace it (a process check; a disabled check breaks `compose up --wait` on Compose 2.38) |
 | Process              | run with an init process (`init: true`, `docker run --init`) so background tasks of the scheduler are reaped; FrankenPHP finishes in-flight requests for up to 8 s on SIGTERM                                                                                                                       |
-| Edge proxy           | must forward the original `Host` (Caddy and Traefik do; nginx needs `proxy_set_header Host $host`) and the four `X-Forwarded-*` headers (`local-setup.md`)                                                                                                                                          |
+| Edge proxy           | must forward the original `Host` (Caddy and Traefik do; nginx needs `proxy_set_header Host $host`) and `X-Forwarded-For`, `-Proto` and `-Host` (`local-setup.md`)                                                                                                                                   |
 | Logs                 | everything on stderr: Laravel as JSON lines, Caddy as JSON                                                                                                                                                                                                                                          |
 
 `APP_OPTIMIZE=0` skips the cache step for a one-off command. The same image runs every service:

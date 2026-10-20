@@ -138,6 +138,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
   including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
   comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
+- Developers get a `stripe` simulator (`php artisan simulate:start stripe`), Stripe in test mode: Checkout with a
+  hosted page (pay, a declined card, back), PaymentIntents, charges, refunds, disputes raised from its control plane,
+  idempotency keys and the API version header, and signed webhooks for the app's endpoint. With the printed
+  `INTEGRATION_ENDPOINTS` and the gateway's test keys set to the simulator's, the real Stripe gateway takes payments,
+  settles them from webhooks and lookups, refunds and records disputes against it.
+- The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
+  (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -649,6 +656,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
+  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools and the automation worker
+  (`queue:work automation`, 3,660 s stop grace), the scheduler, a one-shot
+  migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
+  resource limits. Runbook: `docs/devops/production.md` (install, update, backup, restore, rollback, Traefik
+  variant); settings: `deploy/.env.production.example`. `deploy/bin/smoke` and the manual "Deploy smoke" workflow
+  (`workflow_dispatch` or the `deploy-smoke` PR label, never automatic) install the stack on a GitHub runner and
+  check `/up`, sign-in and a queued job through Caddy.
+
 - Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
   (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
   a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
@@ -657,7 +673,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
   means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
-  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+  every proxy; only the `X-Forwarded-For`, `-Host` and `-Proto` headers are honoured (not `-Port`, which Caddy
+  passes through from clients).
 - Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
   rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
   skipped. Set it to `true` once an SSR entry exists.
