@@ -38,6 +38,7 @@ class NpRegistrationController extends Controller
                 $request->validated('note'),
                 $request->user()?->id,
             ),
+            'extend' => $workflow->extend($registration),
             default => $workflow->confirmReview($registration),
         };
 
@@ -49,6 +50,7 @@ class NpRegistrationController extends Controller
             'review' => $approved ? __('Documents approved. Submit the request in the registry portal next.') : __('Documents returned to the client with your reasons.'),
             'submitted' => __('Recorded as submitted to the registry.'),
             'decision' => $approved ? __('Approved: the domain is active.') : __('Rejection recorded. Resubmit within two business days.'),
+            'extend' => __('Kept open: the client has another 90 days to send the documents.'),
             default => __('Registry status confirmed.'),
         }]);
 

@@ -41,7 +41,7 @@ class NpStepRequest extends FormRequest
                 'rejection_code' => ['exclude_if:approved,true', 'nullable', 'integer', 'between:1,14'],
                 'note' => ['exclude_if:approved,true', 'required', 'string', 'max:1000'],
             ],
-            default => [],
+            default => [], // confirm, extend
         };
     }
 

@@ -6,8 +6,10 @@ use App\Modules\Domains\Enums\NpStage;
 use App\Modules\Domains\Models\NpDocument;
 use App\Modules\Domains\Models\NpRegistration;
 use App\Modules\Domains\Services\NpWorkflow;
+use App\Support\Currencies\MoneyFormatter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\URL;
 
 /**
@@ -47,6 +49,7 @@ class NpRegistrationResource extends JsonResource
                 'url' => $canOpen ? URL::temporarySignedRoute('admin.domains.np.document', now()->addMinutes(15), ['domain' => $this->domain_id, 'document' => $document->id]) : null,
             ])->values()->all(),
             'handling_fee_note' => $workflow->option('handling_fee_note'),
+            'abandoned' => $workflow->queue('abandoned')->whereKey($this->id)->exists(),
             ...$staff ? [
                 'stage_changed_at' => $this->stage_changed_at->toIso8601String(),
                 'submitted_at' => $this->submitted_at?->toIso8601String(),
@@ -57,6 +60,8 @@ class NpRegistrationResource extends JsonResource
                 'review_pending' => $this->stage === NpStage::Approved && $this->review_confirmed_at === null,
                 'overdue' => $workflow->queue('overdue')->whereKey($this->id)->exists(),
                 'hostmaster_email' => $workflow->option('hostmaster_email'),
+                'paid' => $this->domain->first_payment_amount > 0 ? app(MoneyFormatter::class)->amount($this->domain->first_payment_amount, $this->domain->currency) : null,
+                'invoice_url' => $this->domain->provision_invoice_id !== null && Route::has('admin.billing.invoices.show') ? route('admin.billing.invoices.show', $this->domain->provision_invoice_id) : null,
             ] : [],
         ];
     }
