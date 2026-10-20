@@ -7,6 +7,7 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
@@ -21,7 +22,9 @@ use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\WebhookSignature;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request as HttpRequest;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
@@ -437,4 +440,41 @@ test('a Stripe refund of a late payment that went to credit takes the credit bac
     expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(0)
         ->and(PaymentAttempt::query()->sole())->check_reason->toBe(PaymentAttempt::CHECK_REFUND)->late_checked_at->toBeNull()
         ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review')['count'])->toBe(1);
+});
+
+test('two deliveries of one refund racing on late-payment credit write one ledger line', function () {
+    [$invoice] = closedStripeAttempt();
+    payInvoice($invoice, 2_500, 'bank-ref-4');
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    $body = (string) json_encode(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0010'));
+    $delivery = fn (): HttpRequest => HttpRequest::create(route('billing.webhooks', StripeDriver::KEY), 'POST',
+        server: ['HTTP_STRIPE_SIGNATURE' => WebhookSignature::header($body, STRIPE_WEBHOOK_SECRET, time()), 'CONTENT_TYPE' => 'application/json'], content: $body);
+    $raced = false;
+    // The second delivery runs to the end while the first is still retrieving the refund from Stripe.
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => function () use (&$raced, $delivery) {
+        if (! $raced) {
+            $raced = true;
+            expect(app(GatewayCallbackHandler::class)->handle(StripeDriver::KEY, $delivery())['result'])->toBe('refund recorded; credit taken back');
+        }
+
+        return Http::response(stripeFixture('refund'));
+    }]);
+
+    expect(app(GatewayCallbackHandler::class)->handle(StripeDriver::KEY, $delivery())['result'])->toBe('duplicate')
+        ->and(CreditLedgerEntry::query()->where('gateway', StripeDriver::KEY)->where('external_ref', 're_3MoharRefund0001')->count())->toBe(1)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(1_500);
+});
+
+test('the database refuses a second ledger line for the same provider refund', function () {
+    $client = Client::factory()->create();
+    $ledger = app(CreditLedgerService::class);
+    $ledger->post($client->id, Money::of(0, 'USD'), CreditReason::CreditRemoved, gateway: StripeDriver::KEY, externalRef: 're_3MoharRefund0099');
+
+    expect(fn () => $ledger->post($client->id, Money::of(0, 'USD'), CreditReason::CreditRemoved, gateway: StripeDriver::KEY, externalRef: 're_3MoharRefund0099'))
+        ->toThrow(UniqueConstraintViolationException::class);
+    $ledger->post($client->id, Money::of(0, 'USD'), CreditReason::CreditRemoved, gateway: 'khalti', externalRef: 're_3MoharRefund0099');
+    $ledger->post($client->id, Money::of(0, 'USD'), CreditReason::Manual);
+    $ledger->post($client->id, Money::of(0, 'USD'), CreditReason::Manual);
+
+    expect(CreditLedgerEntry::query()->where('client_id', $client->id)->count())->toBe(4);
 });

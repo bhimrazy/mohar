@@ -396,7 +396,7 @@ test('a late payment that went wholly to account credit can be refunded, and the
     $this->post(route('admin.billing.transactions.refund', $late), ['amount' => '500.00', 'mode' => 'record_only'])->assertSessionHasNoErrors();
 
     expect(probeCredit($client->id))->toBe(0);
-})->skip('Follow-up filed by the CTO: refunding late credit from inside the app (#152 review). The provider refund webhook takes the credit back.');
+})->skip('#154: refunding late credit from inside the app (follow-up from the #152 review). The provider refund webhook takes the credit back.');
 
 test('when the late attempt takes the invoice first, the on-time payment that then goes wholly to credit is flagged too', function () {
     [$invoice, $first, $client] = probeClosedAttempt(50_000);

@@ -26,6 +26,7 @@ use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Support\Money;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -300,7 +301,9 @@ class GatewayCallbackHandler
     /**
      * Debit the refunded amount the payments could not absorb from the client's credit, up to what is left there.
      * Anything the credit can't cover goes to staff ("Gateway payments to review"), so the client never keeps both
-     * the refund and the credit. Once per provider refund id (the ledger line names it).
+     * the refund and the credit. Exactly once per provider refund id: the ledger line carries (gateway, refund id),
+     * unique in the database, and is written even when no credit is left (amount 0), so a replay never takes credit
+     * the client received later. A replay finds it under the client lock; a race that slips past hits the index.
      *
      * @param  list<Transaction>  $parents
      * @return Outcome
@@ -308,31 +311,46 @@ class GatewayCallbackHandler
     private function takeBackCredit(string $gatewayKey, CallbackEvent $event, PaymentAttempt $attempt, array $parents, int $remaining): array
     {
         $payment = collect($parents)->firstWhere('id', $attempt->transaction_id) ?? $parents[0];
-        $description = mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $event->txnId]), 0, 255);
+        $refundId = $event->txnId;
 
-        [$taken, $uncovered, $duplicate] = DB::transaction(function () use ($payment, $attempt, $description, $remaining): array {
-            Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
+        if ($refundId === '') {
+            return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $payment->invoice_id);
+        }
 
-            if (CreditLedgerEntry::query()->where('transaction_id', $payment->id)->where('description', $description)->exists()) {
-                return [0, 0, true];
-            }
+        try {
+            [$taken, $uncovered, $duplicate] = DB::transaction(function () use ($gatewayKey, $refundId, $payment, $attempt, $remaining): array {
+                Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
 
-            $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
+                if (CreditLedgerEntry::query()->where('gateway', $gatewayKey)->where('external_ref', $refundId)->exists()) {
+                    return [0, 0, true];
+                }
 
-            if ($taken > 0) {
-                $this->credit->post($payment->client_id, Money::of($taken, $payment->currency)->negate(), CreditReason::CreditRemoved, $payment->invoice_id, $payment->id, $description);
-            }
+                $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
+                $this->credit->post(
+                    $payment->client_id,
+                    Money::of($taken, $payment->currency)->negate(),
+                    CreditReason::CreditRemoved,
+                    $payment->invoice_id,
+                    $payment->id,
+                    mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $refundId]), 0, 255),
+                    gateway: $gatewayKey,
+                    externalRef: $refundId,
+                );
 
-            if ($remaining > $taken) {
-                $attempt->update([
-                    'check_reason' => PaymentAttempt::CHECK_REFUND,
-                    'late_checked_at' => null,
-                    'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
-                ]);
-            }
+                if ($remaining > $taken) {
+                    $attempt->update([
+                        'check_reason' => PaymentAttempt::CHECK_REFUND,
+                        'late_checked_at' => null,
+                        'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
+                    ]);
+                }
 
-            return [$taken, $remaining - $taken, false];
-        });
+                return [$taken, $remaining - $taken, false];
+            });
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent delivery of the same refund booked it first.
+            [$taken, $uncovered, $duplicate] = [0, 0, true];
+        }
 
         $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $uncovered];
 

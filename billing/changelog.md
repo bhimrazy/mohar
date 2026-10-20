@@ -13,7 +13,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
   (all of it when the invoice was already paid). A Stripe webhook for a closed attempt now answers
   `late payment recorded` instead of `attempt expired`. Run `php artisan migrate` (adds four nullable columns and
-  two indexes to `payment_attempts`). The scheduler now runs `billing:reconcile-payments --only=open` every five
+  two indexes to `payment_attempts`, and `gateway` and `external_ref` to `credit_ledger` with a unique index on the
+  pair). The scheduler now runs `billing:reconcile-payments --only=open` every five
   minutes and `billing:reconcile-payments --only=late` hourly, each on its own lock; without `--only` the command
   runs both. New settings: "Hosted payments: keep checking closed payments for late success" (48 hours, 0 to 168)
   and "Hosted payments: late checks per hourly run" (100). Attempts that closed before the upgrade are not swept;
@@ -445,7 +446,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
   A hosted payment that goes to credit because the invoice was already paid gets the same to-do. The client sees
   the payment on the invoice and any surplus on the account credit page. A provider refund of such a payment takes
-  the credit back, up to what is left; the rest goes to "Gateway payments to review", as do a closed attempt the
+  the credit back, up to what is left, once per refund id (one credit line, even when nothing was left); the rest
+  goes to "Gateway payments to review", as do a closed attempt the
   provider reports as partly refunded and a late payment whose attempt no longer matches the invoice currency.
   "Check now" also works on expired and failed attempts. The customer's return looks a closed attempt up only
   within the late window, and a session the provider reports as expired, failed or cancelled is not swept again.
