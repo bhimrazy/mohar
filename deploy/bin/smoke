@@ -9,10 +9,11 @@
 #   SMOKE_KEEP=1 deploy/bin/smoke   leave the stack running for inspection (remove it with the printed command)
 #
 # Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; the first deploy (blue); /up
-# through Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job
-# processed by the live colour's default pool; UID 10001 on a read-only root; PHP stream TLS verifies public
-# certificates; compiled views stay per container. Then a blue-green deploy to green and a rollback to blue under a
-# steady request loop: no failed request, the live upstream, one scheduler, and the old colour's workers drained.
+# through Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; URL tokens never
+# reach Caddy's access log; a queued RunAutomationJob processed by the live colour's automation worker (its own queue
+# connection); UID 10001 on a read-only root; PHP stream TLS verifies public certificates; compiled views stay per
+# container. Then a blue-green deploy to green and a rollback to blue under a steady request loop: no failed request,
+# the live upstream, one scheduler and one automation worker, and the old colour's workers drained.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -94,7 +95,7 @@ step "first install on empty PostgreSQL and RustFS"
 APP_IMAGE="$image" "${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
     && php artisan objects:ensure-bucket --no-interaction \
     && php artisan app:install --no-interaction --admin-name='Smoke Admin' --admin-email=${admin_email}" > "$work/install.log" 2>&1 \
-    || { tail -40 "$work/install.log" >&2; fail "first install"; }
+    || { awk 'hide && NF { print "   <one-time password hidden>"; hide = 0; next } /one-time password/ { hide = 1 } { print }' "$work/install.log" | tail -40 >&2; fail "first install"; }
 # The one-time password is the first non-empty line after the notice; it is masked and never printed.
 password="$(awk 'found && NF { print $1; exit } /one-time password/ { found = 1 }' "$work/install.log")"
 [ -n "$password" ] || fail "no one-time password in the install output"
@@ -105,7 +106,7 @@ step "first deploy (blue)"
 start=$(date +%s)
 deploy/bin/deploy --image "$image" || fail "first deploy"
 pass "deployed blue in $(( $(date +%s) - start ))s (migration check, migrate, health, switch)"
-for service in app-blue caddy postgres rustfs scheduler-blue worker-critical-blue worker-default-blue worker-notifications-blue; do
+for service in app-blue caddy postgres rustfs scheduler-blue worker-automation-blue worker-critical-blue worker-default-blue worker-notifications-blue; do
     grep -qw "$service" <<< "$(running)" || fail "service $service is not running (running: $(running))"
 done
 pass "running: $(running)"
@@ -116,7 +117,8 @@ for _ in $(seq 30); do
     sleep 1
 done
 [ -s "$work/root.crt" ] || fail "Caddy's internal root certificate"
-curl_tls=(curl -sS --cacert "$work/root.crt" --max-time 15)
+# Retries: the leaf certificate can lag a moment behind the root certificate.
+curl_tls=(curl -sS --cacert "$work/root.crt" --max-time 15 --retry 5 --retry-all-errors --retry-delay 1)
 headers="$("${curl_tls[@]}" -D - -o /dev/null "${base}/up")"
 grep -q '^HTTP/[0-9.]* 200' <<< "$headers" || fail "GET /up through Caddy: $(head -1 <<< "$headers")"
 grep -qi '^strict-transport-security:' <<< "$headers" || fail "no HSTS on /up: the app does not trust the proxy"
@@ -142,24 +144,34 @@ login_page='/login$'
 { [[ "$after" =~ $ok_pattern ]] && ! [[ "$after" =~ $login_page ]]; } || fail "signed-in request to /admin: $after"
 pass "POST /login = ${login}; /admin then answers ${after} (the one-time password asks for confirmation and 2FA next)"
 
-# Queue RunAutomationJob through the live web container and wait for the live colour's default pool to finish it.
+step "no one-time token in Caddy's access log"
+"${curl_tls[@]}" -o /dev/null "${base}/reset-password/SMOKESECRETTOKEN?email=smoke%40example.com"
+"${curl_tls[@]}" -o /dev/null -H "Referer: ${base}/staff-invitation/SMOKESECRETREFERER" "${base}/login?signature=SMOKESECRETSIG"
+sleep 1
+access_log="$("${compose[@]}" logs --no-color caddy)"
+grep -q 'SMOKESECRET' <<< "$access_log" && fail "a URL token reached Caddy's access log"
+grep -q '"uri":"/reset-password/REDACTED?REDACTED"' <<< "$access_log" || fail "the access log does not show the redacted reset link"
+pass "URL tokens are redacted in Caddy's access log (path, query and Referer)"
+
+# Queue RunAutomationJob through the live web container and wait for the live colour's automation worker (its own
+# `automation` connection; the job fails itself on any other) to finish it.
 queued_job() {
     local colour="$1" done_line="" before
-    before="$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)"
+    before="$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)"
     "${compose[@]}" exec -T "app-$colour" php artisan tinker --execute \
         'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
     for _ in $(seq 60); do
-        done_line="$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
-        [ "$("${compose[@]}" logs --no-color "worker-default-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)" -gt "$before" ] && break
+        done_line="$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
+        [ "$("${compose[@]}" logs --no-color "worker-automation-$colour" 2>/dev/null | grep -cE 'RunAutomationJob .*DONE' || true)" -gt "$before" ] && break
         sleep 2
     done
-    [[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed by worker-default-$colour: ${done_line:-no worker output}"
+    [[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed by worker-automation-$colour: ${done_line:-no worker output}"
     failed_jobs="$("${compose[@]}" exec -T "app-$colour" php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
     [ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
-    pass "RunAutomationJob processed by worker-default-$colour; failed_jobs = 0"
+    pass "RunAutomationJob processed by worker-automation-$colour on its own connection; failed_jobs = 0"
 }
 
-step "queued job through the live colour's default pool"
+step "queued job through the live colour's automation worker"
 queued_job blue
 
 step "container hardening, outbound TLS and per-container caches"
@@ -202,13 +214,13 @@ assert_live() {
         || fail "the last request through Caddy was not served by app-$live"
     local now
     now="$(running)"
-    for service in "app-$live" "scheduler-$live" "worker-critical-$live" "worker-default-$live" "worker-notifications-$live" "app-$old"; do
+    for service in "app-$live" "scheduler-$live" "worker-automation-$live" "worker-critical-$live" "worker-default-$live" "worker-notifications-$live" "app-$old"; do
         grep -qw "$service" <<< "$now" || fail "$service is not running after the switch (running: $now)"
     done
-    for service in "scheduler-$old" "worker-critical-$old" "worker-default-$old" "worker-notifications-$old"; do
+    for service in "scheduler-$old" "worker-automation-$old" "worker-critical-$old" "worker-default-$old" "worker-notifications-$old"; do
         grep -qw "$service" <<< "$now" && fail "$service still runs after the switch (one scheduler, old workers drained)"
     done
-    pass "live: $live (Caddy config and access log); one scheduler; $old workers drained; app-$old kept for rollback"
+    pass "live: $live (Caddy config and access log); one scheduler and one automation worker; $old workers drained; app-$old kept for rollback"
 }
 
 step "blue-green deploy to green under load"

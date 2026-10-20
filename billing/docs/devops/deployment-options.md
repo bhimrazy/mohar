@@ -87,15 +87,17 @@ Read-only root filesystem: `read_only: true` with tmpfs for `/tmp`, `/app/bootst
 
 One image, four commands:
 
-| Service     | Command                                                                      | Replicas                                                                                        |
-| ----------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `app`       | `frankenphp run`                                                             | 1+                                                                                              |
-| `worker-*`  | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600` | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks` / `default`) |
-| `scheduler` | `php artisan schedule:work`                                                  | exactly 1                                                                                       |
-| `migrate`   | `php artisan migrate --force && php artisan app:install --no-interaction`    | one-shot                                                                                        |
+| Service             | Command                                                                         | Replicas                                                                                        |
+| ------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `app`               | `frankenphp run`                                                                | 1+                                                                                              |
+| `worker-*`          | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600`    | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks` / `default`) |
+| `worker-automation` | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600` | exactly 1 (Run now; its own connection, `retry_after` 3,900 s, `install.md` §6)                 |
+| `scheduler`         | `php artisan schedule:work`                                                     | exactly 1                                                                                       |
+| `migrate`           | `php artisan migrate --force && php artisan app:install --no-interaction`       | one-shot                                                                                        |
 
 `--max-time` restarts workers hourly; `stop_grace_period` must exceed the longest job timeout (Laravel's
-Supervisor advice for `stopwaitsecs`), so 210 s for the provisioning pool. `init: true` so signals reach PHP.
+Supervisor advice for `stopwaitsecs`), so 210 s for the provisioning pool and over 3,600 s for `worker-automation`.
+`init: true` so signals reach PHP.
 
 ## 3. Reverse proxy and TLS
 
@@ -116,7 +118,7 @@ by label, and it is what Coolify installs by default.
 
 ## 4. Production compose
 
-- **Services:** `caddy` (ports 80/443, volume `caddy-data`), `app`, three `worker-*`, `scheduler`, `migrate`,
+- **Services:** `caddy` (ports 80/443, volume `caddy-data`), `app`, three `worker-*` pools, `worker-automation`, `scheduler`, `migrate`,
   `postgres` (existing pinned `postgres:18.6-alpine`), `rustfs` (existing pin, console off, no published
   ports). Everything but `caddy` has no `ports:`; services talk on an internal network.
 - **Restart:** `unless-stopped` for long-running services; `migrate` has `restart: "no"` and `app` and workers
@@ -174,17 +176,17 @@ shared account can usually do.
 
 What is missing and what degrades:
 
-| Need                       | On a shared account                                          | Effect                                                                                                                                                |
-| -------------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL 18              | rarely offered; when offered it is the OS version, far older | must use a remote managed PostgreSQL 18 over the network, or the host must allow it; MySQL is untested in CI (ADR 0006) and not promised              |
-| Long-running queue workers | no process manager; stray processes are killed               | cron every minute: `queue:work --stop-when-empty --max-time=50` per pool; a job waits up to a minute; provisioning and emails are delayed, never lost |
-| `pcntl`                    | often disabled                                               | no job timeouts: a hung driver call blocks the pool until PHP's `max_execution_time`                                                                  |
-| Scheduler                  | cron, but some hosts cap frequency at 5 or 15 minutes        | the heartbeat shows gaps; `automation:run` at 03:00 still runs if cron runs at least hourly                                                           |
-| Composer and Node          | usually absent                                               | deploy a release tarball built elsewhere (`vendor/`, `public/build` included); upgrades by upload plus `migrate` via SSH or the cPanel terminal       |
-| Object storage             | none local                                                   | any S3-compatible bucket, or `OBJECTS_DRIVER=local` into `storage/app` (then it must be in the account backup)                                        |
-| Redis                      | usually none                                                 | defaults are `database` for queue, cache and session, so nothing changes                                                                              |
-| TLS and proxy              | AutoSSL                                                      | fine; no proxy, so no trust-proxy change needed                                                                                                       |
-| Isolation                  | shared PHP user, no read-only filesystem, no resource limits | security posture below the container stack                                                                                                            |
+| Need                       | On a shared account                                          | Effect                                                                                                                                                                                                                                                                                                                                                                             |
+| -------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL 18              | rarely offered; when offered it is the OS version, far older | must use a remote managed PostgreSQL 18 over the network, or the host must allow it; MySQL is untested in CI (ADR 0006) and not promised                                                                                                                                                                                                                                           |
+| Long-running queue workers | no process manager; stray processes are killed               | cron every minute: `queue:work --stop-when-empty --max-time=50` per pool, and `queue:work automation --queue=automation --stop-when-empty --tries=1 --timeout=3600` for Run now (with the `automation` connection argument, `install.md` §6); a job waits up to a minute; provisioning and emails are delayed, never lost; a host that kills long processes stops Run now part-way |
+| `pcntl`                    | often disabled                                               | no job timeouts: a hung driver call blocks the pool until PHP's `max_execution_time`                                                                                                                                                                                                                                                                                               |
+| Scheduler                  | cron, but some hosts cap frequency at 5 or 15 minutes        | the heartbeat shows gaps; `automation:run` at 03:00 still runs if cron runs at least hourly                                                                                                                                                                                                                                                                                        |
+| Composer and Node          | usually absent                                               | deploy a release tarball built elsewhere (`vendor/`, `public/build` included); upgrades by upload plus `migrate` via SSH or the cPanel terminal                                                                                                                                                                                                                                    |
+| Object storage             | none local                                                   | any S3-compatible bucket, or `OBJECTS_DRIVER=local` into `storage/app` (then it must be in the account backup)                                                                                                                                                                                                                                                                     |
+| Redis                      | usually none                                                 | defaults are `database` for queue, cache and session, so nothing changes                                                                                                                                                                                                                                                                                                           |
+| TLS and proxy              | AutoSSL                                                      | fine; no proxy, so no trust-proxy change needed                                                                                                                                                                                                                                                                                                                                    |
+| Isolation                  | shared PHP user, no read-only filesystem, no resource limits | security posture below the container stack                                                                                                                                                                                                                                                                                                                                         |
 
 Verdict: it runs, in "cron mode", when the host provides PHP 8.4 with those extensions, minute cron, and a
 reachable PostgreSQL 18. That is a documented fallback, not the default, and the tarball the build workflow

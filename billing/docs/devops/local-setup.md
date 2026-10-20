@@ -72,19 +72,22 @@ then `php artisan config:clear && php artisan migrate:fresh --seed`. Switch back
 
 ```bash
 XDEBUG_MODE=off vendor/bin/pest --parallel     # SQLite in-memory (phpunit.xml)
-composer test:pgsql                            # migrate:fresh --seed + same suite on PostgreSQL (billing_test)
+composer test:pgsql                            # Feature + Extensions suites on PostgreSQL (billing_test)
 composer ci                                    # every CI gate below, in CI order (incl. test:pgsql)
 ```
 
-`composer test:pgsql` clears cached config, then runs `php artisan migrate:fresh --seed --force` and
-`vendor/bin/pest --parallel` with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
+`composer test:pgsql` clears cached config, then runs `vendor/bin/pest --parallel --exclude-testsuite=Unit,Arch`
+(the database-free suites run only on SQLite; one worker per core, or `PEST_PROCESSES=<n>`; extra arguments after
+`--` go to Pest, and an explicit path runs whatever it names; ParaTest accepts one path, so use a directory or `--filter` for more) with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
 `DB_USERNAME` / `DB_PASSWORD` taken from your shell, defaulting to the compose values
 (`127.0.0.1` / `5432` / `billing_test` / `billing` / `billing`). `.env` is not consulted for these: real
-environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI `tests-pgsql`
-job runs the same script.
+environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI "Pest (PostgreSQL)"
+step runs the same script, with the CI-only settings described in [ci.md](ci.md#postgresql-step).
 
-Two worktrees can run it at the same time against the shared server with different databases — a missing
-database is created by `migrate --force`, and parallel workers add `<name>_test_<n>` copies:
+Each worker migrates its own `<name>_test_<n>` copy once and runs every test in a transaction, so nothing migrates
+or seeds the base database first; it only has to exist (`compose.yaml` creates `billing_test`, `scripts/pg.sh`
+creates one per worktree). Two worktrees can run it at the same time against the shared server with different
+databases:
 
 ```bash
 DB_DATABASE=billing_test_orders composer test:pgsql
@@ -107,6 +110,9 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 - `composer dev` also runs a second worker for the Notifications module's queues (`notifications` for
   email sends, `webhooks` for outbound webhook deliveries). Standalone:
   `php artisan queue:work --queue=notifications,webhooks`.
+- `composer dev` also runs a worker on the `automation` connection (registered by the Platform module) for
+  **Run now** on Admin → Automation. Standalone: `php artisan queue:work automation --queue=automation --tries=1`.
+  Those jobs run on their own connection because a run can outlast the pools' `retry_after` (`install.md` §6).
 - Production: run at least one worker that consumes `provisioning` (driver calls: create, suspend,
   terminate, change package/password), e.g. `php artisan queue:work --queue=provisioning,default`, and one
   that consumes `notifications,webhooks` (email and webhook jobs set their own tries and backoff; webhook
@@ -142,8 +148,9 @@ reach:
 TRUSTED_PROXIES=172.18.0.0/16
 ```
 
-Only requests that arrive from those addresses may set the client IP, scheme, host and port; the
-`X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value
+Only requests that arrive from those addresses may set the client IP, scheme and host (`X-Forwarded-For`, `-Proto`,
+`-Host`); the port follows from the scheme. `X-Forwarded-Port`, `X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS
+ELB headers are never trusted: Caddy passes a client's own `X-Forwarded-Port` through unchanged (`bootstrap/app.php`). The value
 is read per request, so it also works with a cached configuration. Unset means no proxy at all, including on
 `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework would otherwise trust every proxy: set
 `TRUSTED_PROXIES` there too.

@@ -3,6 +3,7 @@
 namespace App\Modules\Notifications\Webhooks;
 
 use App\Contracts\Branding\BrandProvider;
+use App\Data\Integrations\ResolvedAddress;
 use App\Events\Notifications\WebhookDelivered;
 use App\Events\Notifications\WebhookDeliveryFailed;
 use App\Events\Notifications\WebhookEndpointDisabled;
@@ -10,20 +11,22 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Enums\WebhookDeliveryStatus;
 use App\Modules\Notifications\Models\WebhookDelivery;
 use App\Modules\Notifications\Models\WebhookEndpoint;
+use App\Support\Integrations\OutboundAddressGuard;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Performs one delivery attempt (spec §8): SSRF-vetted, signed POST, 5 s connect / 10 s total timeout,
- * redirects not followed, 2xx = success. Failures schedule the next attempt with backoff until
+ * Performs one delivery attempt (spec §8): SSRF-vetted, signed POST pinned to the vetted address without any proxy,
+ * 5 s connect / 10 s total timeout, redirects not followed, 2xx = success. Failures schedule the next attempt with backoff until
  * max_attempts (then abandoned); too many consecutive failures disable the endpoint.
  */
 class WebhookSender
 {
     public function __construct(
         private WebhookUrlGuard $guard,
+        private OutboundAddressGuard $outbound,
         private Settings $settings,
     ) {}
 
@@ -65,16 +68,11 @@ class WebhookSender
     }
 
     /**
-     * @param  array{host: string, port: int, addresses: list<string>}  $target
+     * Connects to the vetted address only, never through a proxy, and follows no redirect (OutboundAddressGuard::pin()).
      */
-    private function post(WebhookEndpoint $endpoint, array $target, string $body, int $timestamp, WebhookDelivery $delivery): Response
+    private function post(WebhookEndpoint $endpoint, ResolvedAddress $target, string $body, int $timestamp, WebhookDelivery $delivery): Response
     {
-        $pinned = array_map(
-            fn (string $address): string => "{$target['host']}:{$target['port']}:".(str_contains($address, ':') ? "[{$address}]" : $address),
-            filter_var($target['host'], FILTER_VALIDATE_IP) !== false ? [] : [$target['addresses'][0]],
-        );
-
-        return Http::withHeaders([
+        $request = Http::withHeaders([
             'User-Agent' => (Str::slug(app(BrandProvider::class)->brand()->name, '') ?: 'Billing').'-Webhooks/1',
             'X-Webhook-Id' => $delivery->event_id,
             'X-Webhook-Event' => $delivery->event_type,
@@ -83,10 +81,9 @@ class WebhookSender
         ])
             ->withBody($body, 'application/json')
             ->connectTimeout((int) config('notifications.webhooks_connect_timeout', 5))
-            ->timeout((int) config('notifications.webhooks_timeout', 10))
-            ->withoutRedirecting()
-            ->withOptions($pinned === [] ? [] : ['curl' => [CURLOPT_RESOLVE => $pinned]])
-            ->post($endpoint->url);
+            ->timeout((int) config('notifications.webhooks_timeout', 10));
+
+        return $this->outbound->pin($request, $target)->post($endpoint->url);
     }
 
     private function succeeded(WebhookDelivery $delivery, Response $response, int|float $started): void

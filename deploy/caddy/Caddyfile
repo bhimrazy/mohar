@@ -1,6 +1,7 @@
 # Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container.
-# Certificates are automatic (Let's Encrypt, ZeroSSL fallback) for a public APP_DOMAIN; `localhost` and
-# *.internal names get a certificate from Caddy's internal CA, which the deploy smoke test uses.
+# Certificates are automatic for a public APP_DOMAIN: Let's Encrypt, plus ZeroSSL as a fallback only when an email is
+# set (CADDY_GLOBAL_OPTIONS="email ..."); `localhost` and *.internal names get a certificate from Caddy's internal
+# CA, which the deploy smoke test uses.
 # Security headers (CSP, HSTS, ...) come from the app, so none are added here.
 {
 	# Do not try to add the internal CA to this container's trust store.
@@ -22,10 +23,20 @@
 
 	# The live colour: deploy/bin/deploy writes this file (reverse_proxy to app-blue or app-green, with health checks
 	# and the upstream in the access log), then reloads Caddy gracefully. Caddy refuses to start without it.
+	# Caddy sets X-Forwarded-For, -Proto and -Host itself, ignoring a client's values; other X-Forwarded-* headers
+	# pass through, so the app trusts only those three, and only from this proxy's network (TRUSTED_PROXIES).
 	import live/upstream.caddy
 
+	# Access log without secrets: one-time tokens travel in URLs (password reset, staff and account invitations,
+	# email verification paths; signed links' and guest tickets' query strings). Their path segment and every query
+	# string are replaced by REDACTED, and the Referer, which repeats those URLs, is dropped. Caddy already logs
+	# Cookie and Authorization as REDACTED.
 	log {
 		output stdout
-		format json
+		format filter {
+			wrap json
+			request>uri regexp "^(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
+			request>headers>Referer delete
+		}
 	}
 }

@@ -141,6 +141,36 @@ it('refuses targets that resolve to private or metadata addresses (criterion 17)
     expect(WebhookDelivery::query()->sole())->status->toBe(WebhookDeliveryStatus::Failed)->error->toContain('Refused');
 })->with(['metadata' => '169.254.169.254', 'private' => '10.0.0.5', 'loopback' => '127.0.0.1', 'mapped' => '::ffff:10.0.0.5', 'cgnat' => '100.100.100.200', 'ula' => 'fd00:ec2::254']);
 
+it('security review L2: a delivery connects to the vetted address only, never through a proxy, without redirects', function () {
+    $options = null;
+    Http::fake(function (Request $request, array $sent) use (&$options) {
+        $options = $sent;
+
+        return Http::response('ok');
+    });
+
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+
+    expect($options['proxy'] ?? null)->toBe('')
+        ->and($options['curl'][CURLOPT_CONNECT_TO] ?? null)->toBe(['::93.184.216.34:443'])
+        ->and($options['allow_redirects'] ?? null)->toBeFalse()
+        ->and(WebhookDelivery::query()->sole()->status)->toBe(WebhookDeliveryStatus::Succeeded);
+});
+
+it('security review L2: a name with one public and one private address is refused, and the kernel rules apply too', function (array $addresses) {
+    Http::fake();
+    resolveHostsTo($addresses);
+
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+
+    Http::assertNothingSent();
+    expect(WebhookDelivery::query()->sole()->error)->toContain('Refused');
+})->with([
+    'public and private' => [['93.184.216.34', '10.0.0.5']],
+    'documentation range' => [['198.51.100.20']],
+    'NAT64 of loopback' => [['64:ff9b::7f00:1']],
+]);
+
 it('rejects private, plain-http and credentialed URLs when an endpoint is saved', function (string $url) {
     expect(app(WebhookUrlGuard::class)->problemWith($url))->not->toBeNull();
 })->with(['http://hooks.example.com/x', 'https://10.0.0.5/x', 'https://[::1]/x', 'https://localhost/x', 'https://user:pass@hooks.example.com/x']);

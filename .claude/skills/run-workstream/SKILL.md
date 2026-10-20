@@ -59,12 +59,19 @@ php artisan wayfinder:generate --with-form
 vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G
 npx tsc --noEmit && npx vp check && npm test && $H npm run build && $H php artisan test --compact
 git push origin feature/<slug>
-gh pr ready <n>                                                 # drafts run CI only with the `ci` label
+gh pr ready <n>     # only once no review is "Changes requested" at this head; drafts run CI only with the `ci` label
 gh pr checks <n> --watch
 gh pr comment <n> -b "CTO sign-off: <reviews passed, gates, test count>"
-gh pr merge <n> --merge
+for s in $(gh pr list --base feature/<slug> --json number --jq '.[].number'); do gh pr edit $s --base develop; done
+gh pr merge <n> --merge --match-head-commit <sha> --delete-branch   # retarget stacked PRs first (line above)
 cd /workspaces/whmcs && git pull --ff-only && git worktree remove .worktrees/<slug> && git branch -D feature/<slug>
 ```
+
+- `mergeable` reads `UNKNOWN` for a minute or two after CI finishes, and a draft cannot be merged. A merge watcher
+  marks the PR ready, then retries until it reads `MERGEABLE`; it never treats `UNKNOWN` as a reason to skip.
+- Probe branches (`review/pr-<n>-probes`): once the probes are adopted as tests in the PR, keep them as a tag
+  `archive/review/pr-<n>-probes` and delete the branch after the merge. The only branches on GitHub are `develop`,
+  `main`, open PR heads and their stacked bases, and active work in progress.
 
 ## 6. Record
 

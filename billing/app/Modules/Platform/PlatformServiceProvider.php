@@ -33,6 +33,7 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -42,6 +43,7 @@ use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -73,6 +75,9 @@ class PlatformServiceProvider extends ModuleServiceProvider
         Event::listen(Login::class, [RecordAuthenticationActivity::class, 'login']);
         Event::listen(Failed::class, [RecordAuthenticationActivity::class, 'failed']);
         Event::listen(Logout::class, [RecordAuthenticationActivity::class, 'logout']);
+
+        // "Run now" jobs run on their own connection (App\Support\Queues); the dev runner must consume it too.
+        DevCommands::artisan('queue:listen '.Queues::AUTOMATION.' --queue='.Queues::AUTOMATION.' --tries=1 --timeout=0', 'automation-queue');
 
         $this->registerNavigation();
         $this->registerPermissions();

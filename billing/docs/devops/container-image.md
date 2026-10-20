@@ -43,17 +43,18 @@ Every `FROM` and `COPY --from=` image is `<name>:<tag>@sha256:<digest>` and at l
 | Entrypoint           | recreates the storage skeleton, runs `php artisan optimize` (config embeds the environment, so at start, not build), then runs the command                                                                                                                                                          |
 | Health               | `HEALTHCHECK` runs `app-healthcheck`: `GET /up` on port 8080 with `APP_URL`'s host, because TrustHosts rejects other hosts. Workers and the scheduler run no web server, so their service definition must replace it (a process check; a disabled check breaks `compose up --wait` on Compose 2.38) |
 | Process              | run with an init process (`init: true`, `docker run --init`) so background tasks of the scheduler are reaped; FrankenPHP finishes in-flight requests for up to 8 s on SIGTERM                                                                                                                       |
-| Edge proxy           | must forward the original `Host` (Caddy and Traefik do; nginx needs `proxy_set_header Host $host`) and the four `X-Forwarded-*` headers (`local-setup.md`)                                                                                                                                          |
+| Edge proxy           | must forward the original `Host` (Caddy and Traefik do; nginx needs `proxy_set_header Host $host`) and `X-Forwarded-For`, `-Proto` and `-Host` (`local-setup.md`)                                                                                                                                   |
 | Logs                 | everything on stderr: Laravel as JSON lines, Caddy as JSON                                                                                                                                                                                                                                          |
 
 `APP_OPTIMIZE=0` skips the cache step for a one-off command. The same image runs every service:
 
-| Service   | Command                                                                         |
-| --------- | ------------------------------------------------------------------------------- |
-| web       | default (`frankenphp run --config /etc/frankenphp/Caddyfile`), classic mode     |
-| worker    | `php artisan queue:work --queue=<pool> --tries=3 --timeout=200 --max-time=3600` |
-| scheduler | `php artisan schedule:work`                                                     |
-| migrate   | `php artisan migrate --force && php artisan app:install --no-interaction`       |
+| Service           | Command                                                                                                    |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| web               | default (`frankenphp run --config /etc/frankenphp/Caddyfile`), classic mode                                |
+| worker            | `php artisan queue:work --queue=<pool> --tries=3 --timeout=200 --max-time=3600`                            |
+| automation worker | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600` (Run now, `install.md` §6) |
+| scheduler         | `php artisan schedule:work`                                                                                |
+| migrate           | `php artisan migrate --force && php artisan app:install --no-interaction`                                  |
 
 PHP settings are `php.ini-production` plus `deploy/php/app.ini` (upload limits for ticket attachments, matched by
 the Caddyfile's `request_body` limit) and `deploy/php/opcache.ini` (`validate_timestamps=0`: code never changes in

@@ -2,14 +2,19 @@
 
 namespace App\Modules\Notifications\Webhooks;
 
+use App\Data\Integrations\ResolvedAddress;
+use App\Support\Integrations\OutboundAddressGuard;
+use App\Support\Integrations\OutboundAddressRefused;
 use Symfony\Component\HttpFoundation\IpUtils;
 
 /**
- * SSRF guard for outbound webhooks (spec §8). URLs must be https (http only in local) on port 443 (80 outside
- * production), and the host is
- * resolved at send time: if any address is private, loopback, link-local, CGNAT, multicast, reserved or a
- * cloud metadata address, the delivery is refused. The vetted addresses are pinned for the connection,
- * so a DNS answer cannot change between the check and the request (rebinding).
+ * SSRF guard for outbound webhooks (spec §8): a stricter policy on top of the kernel OutboundAddressGuard
+ * (ADR 0015). URLs must be https (http only in local) on port 443 (80 outside production). At send time the host is
+ * resolved once and judged by the kernel guard (metadata, link-local, reserved, tunnelled and non-canonical forms),
+ * and then by this guard: private, loopback and CGNAT addresses are refused too, whatever the install's outbound
+ * policy allows for control panels (security review 2026-10-19, L2). The sender pins the connection to the vetted
+ * address through OutboundAddressGuard::pin(), which also bypasses any proxy, so a DNS answer cannot change between
+ * the check and the request (rebinding).
  */
 class WebhookUrlGuard
 {
@@ -62,13 +67,11 @@ class WebhookUrlGuard
     }
 
     /**
-     * Resolves and vets the host right before sending.
-     *
-     * @return array{host: string, port: int, addresses: list<string>}
+     * Resolves and vets the host right before sending; the result is the one address to pin the connection to.
      *
      * @throws UnsafeWebhookTarget
      */
-    public function vet(string $url): array
+    public function vet(string $url): ResolvedAddress
     {
         if (($problem = $this->problemWith($url)) !== null) {
             throw new UnsafeWebhookTarget($problem);
@@ -77,7 +80,8 @@ class WebhookUrlGuard
         $parts = parse_url($url);
         $host = trim(is_array($parts) ? ($parts['host'] ?? '') : '', '[]');
         $port = is_array($parts) ? ($parts['port'] ?? (strtolower($parts['scheme'] ?? '') === 'https' ? 443 : 80)) : 443;
-        $addresses = filter_var($host, FILTER_VALIDATE_IP) !== false ? [$host] : $this->resolver->resolve($host);
+        $literal = filter_var($host, FILTER_VALIDATE_IP) !== false;
+        $addresses = $literal ? [$host] : $this->resolver->resolve($host);
 
         if ($addresses === []) {
             throw new UnsafeWebhookTarget("The host {$host} does not resolve.");
@@ -91,7 +95,12 @@ class WebhookUrlGuard
             }
         }
 
-        return ['host' => $host, 'port' => $port, 'addresses' => $addresses];
+        // The kernel guard judges the same answer (no second lookup), so what is pinned is what was checked.
+        try {
+            return (new OutboundAddressGuard(fn (): array => $addresses))->resolve($host, (int) $port);
+        } catch (OutboundAddressRefused $refused) {
+            throw new UnsafeWebhookTarget('Refused: '.$refused->getMessage());
+        }
     }
 
     /**

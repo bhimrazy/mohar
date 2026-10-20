@@ -183,8 +183,31 @@ export default function ServerForm({
             ? server.settings.values[PIN_SETTING]
             : undefined;
 
+    /** Stored credentials belong to the address they were saved for: a new destination needs them entered again. */
+    const retargeted =
+        server !== undefined &&
+        server !== null &&
+        server.driver === data.driver &&
+        (data.hostname.trim().toLowerCase() !== server.hostname.toLowerCase() ||
+            data.ip_address.trim() !== (server.ip_address ?? '') ||
+            data.port.trim() !== (server.port?.toString() ?? '') ||
+            data.secure !== server.secure);
+    const storedCredentials = (
+        [
+            ['password', server?.has_password],
+            ['API token', server?.has_api_token],
+            ['access hash', server?.has_access_hash],
+        ] as const
+    )
+        .filter(([, stored]) => stored)
+        .map(([label]) => label);
+
     const secretHint = (has: boolean | undefined) =>
-        has ? 'Stored encrypted. Leave blank to keep it.' : undefined;
+        has
+            ? retargeted
+                ? 'The address changed: enter it again.'
+                : 'Stored encrypted. Leave blank to keep it.'
+            : undefined;
 
     return (
         <>
@@ -299,6 +322,21 @@ export default function ServerForm({
                         title="Connection"
                         description="Credentials are encrypted and never shown again."
                     >
+                        {retargeted && (
+                            <Alert className="mb-6 border-warning/40 bg-warning-subtle">
+                                <AlertDescription className="text-warning-text">
+                                    You changed where this server connects.
+                                    Saving removes the stored{' '}
+                                    {storedCredentials.length > 0
+                                        ? `${storedCredentials.join(' and ')} and `
+                                        : ''}
+                                    trusted certificate, because they are never
+                                    sent to a new address. Enter the credentials
+                                    again to save. The change is recorded in the
+                                    activity log.
+                                </AlertDescription>
+                            </Alert>
+                        )}
                         <div className="grid gap-6 sm:grid-cols-2">
                             <Field
                                 htmlFor="driver"

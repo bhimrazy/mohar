@@ -131,10 +131,12 @@ final class Processes
      */
     private static function spawn(array $command, array $environment, string $log): int
     {
-        $line = 'setsid '.implode(' ', array_map('escapeshellarg', $command)).' > '.escapeshellarg($log).' 2>&1 < /dev/null & echo $!';
-        // Every standard stream is given explicitly, so no process inherits the caller's pipes (a test runner's output
-        // would otherwise stay open as long as the simulator runs).
-        $process = proc_open(['/bin/sh', '-c', $line], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, [...getenv(), ...$environment]);
+        // Every descriptor above 2 is closed and every standard stream is given explicitly, so no process inherits the
+        // caller's pipes or files: a test runner's output, or `$(php artisan simulate:start …)`, would otherwise stay
+        // open, and wait, as long as the simulator runs.
+        $line = 'for fd in /proc/$$/fd/*; do n=${fd##*/}; [ "$n" -gt 2 ] 2>/dev/null && eval "exec $n>&-"; done; '
+            .'setsid '.implode(' ', array_map('escapeshellarg', $command)).' > '.escapeshellarg($log).' 2>&1 < /dev/null & echo $!';
+        $process = proc_open(['/bin/bash', '-c', $line], [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes, null, [...getenv(), ...$environment]);
 
         if (! is_resource($process)) {
             throw new RuntimeException('Could not start a simulator process.');

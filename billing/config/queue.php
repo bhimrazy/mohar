@@ -1,6 +1,8 @@
 <?php
 
-return [
+use App\Support\Queues;
+
+$config = [
 
     /*
     |--------------------------------------------------------------------------
@@ -127,3 +129,9 @@ return [
     ],
 
 ];
+
+// The automation "Run now" job can outlast the pools' retry_after, so it has its own connection on the default
+// connection's backend, with a retry_after above its timeout (App\Support\Queues, ADR 0017 §3, issue #82).
+$config['connections'][Queues::AUTOMATION] = Queues::automationConnection($config['connections'], (string) $config['default']);
+
+return $config;
