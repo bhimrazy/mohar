@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
@@ -91,6 +92,15 @@ class BillingDashboard
             'icon' => 'CreditCard',
             'hint' => 'Paid late, or kept as credit: refund if needed',
         ], 'billing.payments.manage', 14);
+
+        $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
+            'label' => 'Clients owing account credit',
+            'count' => CreditLedgerEntry::owing()->distinct()->count('client_id'),
+            'href' => route('admin.billing.credit.index', ['owing' => 1]),
+            'tone' => 'warning',
+            'icon' => 'Wallet',
+            'hint' => 'A chargeback or refund took back credit they had spent',
+        ], 'billing.credit.manage', 15);
 
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
