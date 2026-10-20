@@ -144,3 +144,21 @@ check (green via the in-job fast path) and branch protection never waits for a c
   (`dependency-policy.md`).
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.
+
+## Local merge gate
+
+While the repository is private and Actions minutes run out, `scripts/merge-gate.sh <pr>` stands in for CI. It
+merges the PR head into `origin/develop` in a throwaway worktree, runs the same steps as `ci.yml` in the same
+order through `scripts/heavy.sh` (at most 2 PHP processes), and prints a PASS/FAIL table with test counts and
+times. A copy goes to `$GATE_ROOT/gate-<pr>.log`. The worktree and its PostgreSQL databases are removed on exit.
+
+- `vendor/` is copied from the main checkout when `composer.lock` matches and `vendor/composer/installed.json`
+  lists the same packages and versions. Otherwise the gate runs `composer install`. A symlinked `vendor/` is not
+  an option: Pest and the arch tests resolve paths through the links into the main checkout. `node_modules/` is
+  linked when `package-lock.json` matches, and otherwise installed with `npm ci`.
+- `GATE_CONTINUE=1` runs every step after a failure and still exits non-zero. `GATE_PROCESSES` and `GATE_ROOT`
+  override the defaults.
+- To merge, push an empty `chore: merge gate passed locally (<summary>) [skip ci]` commit, then run
+  `gh pr ready` and `gh pr merge --match-head-commit`. The script header documents the full flow.
+- Known flake: the simulator `ProcessesTest` can fail with `Address already in use` when other runs share the
+  machine (#182).
