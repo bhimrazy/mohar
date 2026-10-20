@@ -5,6 +5,7 @@ namespace App\Modules\Core\Models;
 use App\Models\User;
 use App\Modules\Core\Database\Factories\ClientFactory;
 use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Support\Like;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -41,6 +42,7 @@ use Illuminate\Support\Str;
  * @property string|null $notes
  * @property int|null $merged_into_client_id
  * @property ClientOrigin $origin how the client was created; set by each creation path, never by a form
+ * @property EmailSource $email_source who set the current email; set wherever the email is, never by a form
  * @property CarbonImmutable|null $closed_at
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
@@ -64,7 +66,7 @@ class Client extends Model
 
     protected function casts(): array
     {
-        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime', 'origin' => ClientOrigin::class];
+        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime', 'origin' => ClientOrigin::class, 'email_source' => EmailSource::class];
     }
 
     /**
@@ -73,6 +75,11 @@ class Client extends Model
     protected static function booted(): void
     {
         static::saving(function (self $client): void {
+            // A path that changes the email without saying who set it counts as the client's own (the cautious source).
+            if ($client->isDirty('email') && ! $client->isDirty('email_source')) {
+                $client->email_source = EmailSource::Client;
+            }
+
             if ($client->exists && $client->isDirty('email')) {
                 $client->email_changed_at = CarbonImmutable::now();
             }

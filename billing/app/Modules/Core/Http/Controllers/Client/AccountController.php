@@ -4,6 +4,7 @@ namespace App\Modules\Core\Http\Controllers\Client;
 
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Http\Requests\AccountDetailsRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Support\ActivityLogger;
@@ -27,7 +28,14 @@ class AccountController extends Controller
     public function update(AccountDetailsRequest $request, ClientContext $context, ActivityLogger $activity): RedirectResponse
     {
         $client = $context->client();
-        $client->update($request->validated());
+        $client->fill($request->validated());
+
+        // An address the client sets is theirs until a login on the client verifies it (account import).
+        if ($client->isDirty('email')) {
+            $client->email_source = EmailSource::Client;
+        }
+
+        $client->save();
         $activity->log('Client updated account details', $client, $client->id);
         ClientUpdated::dispatch($client->id);
 

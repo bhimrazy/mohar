@@ -23,6 +23,7 @@ use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use Carbon\CarbonImmutable;
@@ -178,7 +179,7 @@ class BillingSeeder extends DemoSeeder
             $amount = $market['amount'];
             unset($market['amount']);
             // Demo clients count as staff-created (origin is not fillable).
-            $client = Client::unguarded(fn (): Client => Client::query()->firstOrCreate(['email' => $market['email']], [...$market, 'phone' => null, 'address_1' => 'Main Road 1', 'language' => 'en', 'status' => 'active', 'tax_exempt' => false, 'origin' => ClientOrigin::Staff]));
+            $client = Client::unguarded(fn (): Client => Client::query()->firstOrCreate(['email' => $market['email']], [...$market, 'phone' => null, 'address_1' => 'Main Road 1', 'language' => 'en', 'status' => 'active', 'tax_exempt' => false, 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff]));
 
             return ['client' => $client, 'amount' => $amount];
         }, $markets);

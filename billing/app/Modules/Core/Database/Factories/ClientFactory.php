@@ -4,6 +4,7 @@ namespace App\Modules\Core\Database\Factories;
 
 use App\Models\User;
 use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -32,6 +33,7 @@ class ClientFactory extends Factory
             'language' => 'en',
             'status' => 'active',
             'origin' => ClientOrigin::Staff->value,
+            'email_source' => EmailSource::Staff->value,
         ];
     }
 

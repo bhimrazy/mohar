@@ -81,7 +81,7 @@ class AccountImportPlan
                 $client !== null && $client->status !== 'active' ? AccountImportMatcher::text('The client :name is not active.', ['name' => $client->display_name]) : null,
                 $flag !== null && ! $confirmed ? ($flag['kind'] === AccountImportMatcher::FLAG_EMAIL_CHANGED
                     ? AccountImportMatcher::text('This client changed email in the last :days days: choose the client yourself to import it.', ['days' => AccountImportMatcher::EMAIL_CHANGE_DAYS])
-                    : AccountImportMatcher::text('This client has not verified their email: choose the client yourself to import it.')) : null,
+                    : AccountImportMatcher::text('The client set this email and no login has verified it: choose the client yourself to import it.')) : null,
                 $product === null ? AccountImportMatcher::text('Choose a product that provisions on this server.') : null,
                 $product !== null && $client !== null && $amount === null ? AccountImportMatcher::text(':product has no :cycle price in :currency.', ['product' => $product->name, 'cycle' => $cycle === null ? 'recurring' : self::cycleAdjective($cycle), 'currency' => $client->currency]) : null,
                 isset($choice['next_due_date']) && $due !== null && $due->lessThan($today) ? AccountImportMatcher::text('The chosen due date has passed: choose a new date.') : null,

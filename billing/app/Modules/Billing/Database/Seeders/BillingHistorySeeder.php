@@ -15,6 +15,7 @@ use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -111,7 +112,7 @@ class BillingHistorySeeder extends DemoSeeder
             ['email' => strtolower($customer[0].'.'.$customer[1]).'@example.com'],
             ['first_name' => $customer[0], 'last_name' => $customer[1], 'company_name' => $customer[2], 'address_1' => '100 Market Street',
                 'city' => 'Springfield', 'state' => $customer[3], 'postcode' => '10001', 'country' => 'US', 'currency' => 'USD',
-                'language' => 'en', 'status' => 'active', 'tax_exempt' => false, 'origin' => ClientOrigin::Staff],
+                'language' => 'en', 'status' => 'active', 'tax_exempt' => false, 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff],
         )), self::US_CUSTOMERS);
         $markets = array_map(fn (array $market): Client => $market['client'], BillingSeeder::marketClients());
 
