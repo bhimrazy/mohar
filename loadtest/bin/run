@@ -56,7 +56,10 @@ chmod 0777 "$results" # k6 writes its summaries as its own non-root user
 secrets="$(mktemp -d)" # env files with keys and passwords: never in the results
 project="${LOADTEST_PROJECT:-mohar-loadtest}"
 env_file="$secrets/run.env"
-compose=(docker compose -p "$project" -f deploy/compose.prod.yaml -f loadtest/compose.loadtest.yaml --env-file "$env_file")
+# deploy/compose.prod.yaml is blue-green: the load test runs one colour, blue, through its profile.
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml -f loadtest/compose.loadtest.yaml --env-file "$env_file" --profile blue)
+stack=(caddy app-blue worker-critical-blue worker-notifications-blue worker-default-blue worker-automation-blue scheduler-blue)
+pools=(worker-critical-blue worker-notifications-blue worker-default-blue)
 sampler_pid=""
 failed=1
 slice=""
@@ -173,6 +176,8 @@ APP_ENV=production
 APP_DEBUG=false
 APP_ENV_FILE=${env_file}
 APP_IMAGE=${image:-mohar-app:loadtest}
+APP_IMAGE_BLUE=${image:-mohar-app:loadtest}
+DEPLOY_STATE_DIR=${secrets}/state
 CADDY_TLS=tls internal
 HTTP_PORT=${LOADTEST_HTTP_PORT:-18180}
 HTTPS_PORT=${LOADTEST_HTTPS_PORT:-18543}
@@ -209,7 +214,7 @@ docker compose version
 if [ -z "$image" ]; then
     step "build the image (deploy/Dockerfile, target prod)"
     start=$(date +%s)
-    "${compose[@]}" build app
+    "${compose[@]}" build migrate
     note "image built in $(( $(date +%s) - start ))s"
 fi
 
@@ -243,7 +248,20 @@ staff="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["staff
 step "start every service"
 phase start
 start=$(date +%s)
-"${compose[@]}" up -d --wait --wait-timeout 300
+# Caddy imports the live colour's upstream, which deploy/bin/deploy writes (write_upstream); the same, for blue.
+mkdir -p "$secrets/state/live"
+cat > "$secrets/state/live/upstream.caddy" <<'CADDY'
+reverse_proxy app-blue:8080 {
+	health_uri /up
+	health_interval 10s
+	health_headers {
+		Host {$APP_DOMAIN}
+	}
+	lb_try_duration 5s
+}
+log_append upstream {rp.upstream.host}
+CADDY
+"${compose[@]}" up -d --wait --wait-timeout 300 "${stack[@]}"
 note "stack healthy in $(( $(date +%s) - start ))s"
 "${compose[@]}" ps --format '{{.Service}} {{.Status}}'
 
@@ -300,16 +318,16 @@ pg "SELECT json_build_object('blks_hit', blks_hit, 'blks_read', blks_read, 'xact
 # ------------------------------------------------------------------ background work
 step "invoice PDFs (dompdf, one process in the app container)"
 phase pdf
-"${compose[@]}" exec -T app php /loadtest/bench/pdf.php --count=60 > "$results/pdf.json"
+"${compose[@]}" exec -T app-blue php /loadtest/bench/pdf.php --count=60 > "$results/pdf.json"
 cat "$results/pdf.json"
 
 step "billing-day automation (workers stopped, so the queue it leaves can be timed)"
-"${compose[@]}" stop worker-critical worker-notifications worker-default >/dev/null
+"${compose[@]}" stop "${pools[@]}" >/dev/null
 queues > "$results/queues-before.json"
 pg "SELECT pg_stat_statements_reset()" >/dev/null
 phase automation
 start=$(date +%s.%N)
-"${compose[@]}" exec -T scheduler php artisan automation:run > "$results/automation.log" 2>&1 || note "automation reported a failed task (see automation.log)"
+"${compose[@]}" exec -T scheduler-blue php artisan automation:run > "$results/automation.log" 2>&1 || note "automation reported a failed task (see automation.log)"
 end=$(date +%s.%N)
 pg_top pg-top-automation.json
 pg "SELECT coalesce(json_agg(r ORDER BY r.id), '[]') FROM (SELECT id, task, status, duration_ms, summary FROM automation_runs) r" > "$results/automation-runs.json"
@@ -321,7 +339,7 @@ step "queue drain (workers start again; log mailer)"
 phase drain
 emails_before="$(pg "SELECT count(*) FROM email_messages WHERE status = 'sent'")"
 start=$(date +%s.%N)
-"${compose[@]}" start worker-critical worker-notifications worker-default >/dev/null
+"${compose[@]}" start "${pools[@]}" >/dev/null
 : > "$results/drain.ndjson"
 deadline=$(( $(date +%s) + ${DRAIN_TIMEOUT:-1500} ))
 while :; do
@@ -359,7 +377,7 @@ json.dump({
     "docker": "$(docker version --format '{{.Server.Version}}')",
 }, open(sys.argv[1], "w"), indent=2)
 PY
-"${compose[@]}" logs --no-color --tail 300 app worker-notifications scheduler 2>&1 | grep -v -i 'password' > "$results/logs-tail.txt" || true
+"${compose[@]}" logs --no-color --tail 300 app-blue worker-notifications-blue scheduler-blue 2>&1 | grep -v -i 'password' > "$results/logs-tail.txt" || true
 python3 loadtest/bin/summarize.py "$results"
 [ -n "${GITHUB_STEP_SUMMARY:-}" ] && cat "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
 failed=0

@@ -6,7 +6,7 @@
 # It must write <results dir>/provisioning.json. Until the WHM simulator (ADR 0016, simulator S2) is merged it only
 # records that the measurement was skipped. Once S2 lands, this is where to: add the simulator service to the stack
 # (a compose overlay next to compose.loadtest.yaml), point a server and the products at it, queue N create commands
-# on the provisioning queue (worker-critical) and time how long they take to drain, as bin/run does for e-mail.
+# on the provisioning queue (worker-critical-blue) and time how long they take to drain, as bin/run does for e-mail.
 set -euo pipefail
 
 results="${1:?usage: provisioning.sh <results dir>}"

@@ -2,7 +2,10 @@
 # deploy/compose.prod.yaml with a generated env file that holds a profile from loadtest/profiles/:
 #
 #   docker compose -p mohar-loadtest -f deploy/compose.prod.yaml -f loadtest/compose.loadtest.yaml \
-#       --env-file loadtest/results/<run>/run.env up -d --wait
+#       --env-file <run.env> --profile blue up -d --wait caddy app-blue worker-critical-blue ...
+#
+# The production file is blue-green (two colours behind profiles); the load test runs one colour, blue, so every
+# override names a `-blue` service, and bin/run writes the Caddy upstream that deploy/bin/deploy writes for blue.
 #
 # What it changes, and nothing else: per-service CPU and memory limits from the profile, a common cgroup parent that
 # caps the whole stack at the profile's totals (LOADTEST_CGROUP_PARENT, set up by bin/run), worker replicas per
@@ -25,7 +28,7 @@ services:
                     cpus: ${CADDY_CPUS:?set a profile}
                     memory: ${CADDY_MEMORY:?set a profile}
 
-    app:
+    app-blue:
         cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
         environment:
             PHP_THREADS: ${PHP_THREADS:?set a profile}
@@ -38,7 +41,7 @@ services:
                     cpus: ${APP_CPUS:?set a profile}
                     memory: ${APP_MEMORY:?set a profile}
 
-    worker-critical:
+    worker-critical-blue:
         cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
         deploy:
             replicas: ${WORKER_CRITICAL_REPLICAS:?set a profile}
@@ -47,7 +50,7 @@ services:
                     cpus: ${WORKER_CRITICAL_CPUS:?set a profile}
                     memory: ${WORKER_CRITICAL_MEMORY:?set a profile}
 
-    worker-notifications:
+    worker-notifications-blue:
         cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
         deploy:
             replicas: ${WORKER_NOTIFICATIONS_REPLICAS:?set a profile}
@@ -56,7 +59,7 @@ services:
                     cpus: ${WORKER_NOTIFICATIONS_CPUS:?set a profile}
                     memory: ${WORKER_NOTIFICATIONS_MEMORY:?set a profile}
 
-    worker-default:
+    worker-default-blue:
         cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
         deploy:
             replicas: ${WORKER_DEFAULT_REPLICAS:?set a profile}
@@ -65,7 +68,7 @@ services:
                     cpus: ${WORKER_DEFAULT_CPUS:?set a profile}
                     memory: ${WORKER_DEFAULT_MEMORY:?set a profile}
 
-    scheduler:
+    scheduler-blue:
         cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
         volumes:
             - ../loadtest:/loadtest:ro
@@ -74,6 +77,10 @@ services:
                 limits:
                     cpus: ${SCHEDULER_CPUS:?set a profile}
                     memory: ${SCHEDULER_MEMORY:?set a profile}
+
+    # Not sized by the profiles (it only runs Admin -> Automation -> Run now); inside the host cap like the rest.
+    worker-automation-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
 
     # Also runs the seeder (bin/run: `run migrate php /loadtest/seed/run.php` with APP_ENV=loadtest), which holds the
     # service plan in memory: 2 GB for the large volume.

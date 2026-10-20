@@ -41,8 +41,9 @@ a self-hosted runner.
    RustFS (migrations, bucket, reference data, first administrator), as `deploy/bin/smoke` does.
 3. **Seeds** with `seed/run.php` in a one-off container with `APP_ENV=loadtest`. The rest of the stack runs with
    `APP_ENV=production`.
-4. **Starts the stack** behind Caddy with an internal certificate, then warms up for 60 seconds. The warm-up fills
-   OPcache, PostgreSQL buffers and compiled views.
+4. **Starts the stack**: one colour (blue) of the blue-green production file, through its compose profile, behind
+   Caddy with an internal certificate and the upstream file `deploy/bin/deploy` writes for blue. Then it warms up for
+   60 seconds. The warm-up fills OPcache, PostgreSQL buffers and compiled views.
 5. **Web load** (`k6/main.js`): one k6 run per step of `LOAD_LEVELS`, each for `LEVEL_DURATION`, with `docker stats`
    sampled every few seconds and `pg_stat_statements` collected.
 6. **Background work.** The PDF bench comes first. Then the workers stop and today's `automation:run` runs in the
