@@ -42,7 +42,6 @@ class ServerImportController extends Controller
         // The encrypted list is read only for the account tabs; the counts and missing ids are plain columns.
         $import = FetchAccountsForImport::latest($server, withAccounts: $tab !== 'missing');
         $ready = $import?->status === ServerAccountImport::READY;
-        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
         $search = mb_strtolower(mb_substr(trim($request->string('search')->toString()), 0, 100));
         $page = max(1, $request->integer('page', 1));
         $query = ['path' => $request->url(), 'query' => $request->only(['tab', 'search'])];
@@ -74,7 +73,7 @@ class ServerImportController extends Controller
                 AccountImportMatcher::UNMATCHED => $import->unmatched_count,
                 AccountImportMatcher::RESELLER => $import->reseller_count,
                 AccountImportMatcher::LINKED => $import->linked_count,
-                'missing' => count($import->missing ?? []),
+                'missing' => ($import->missing ?? []) === [] ? 0 : $this->missingQuery($server, $import)->count(),
             ] : null,
             'rows' => $rows,
             'filters' => ['tab' => $tab, 'search' => $search],
@@ -207,8 +206,9 @@ class ServerImportController extends Controller
 
         $live = Service::query()->with('client:id,first_name,last_name,company_name')
             ->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues())
-            ->whereIn('username', array_column($slice, 'username'))
-            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy('username');
+            // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
+            ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
+            ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
         $choices = $import->selections ?? [];
         $slice = array_map(fn (array $row): array => [...$row,
             'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
@@ -251,10 +251,7 @@ class ServerImportController extends Controller
      */
     private function missing(Server $server, ServerAccountImport $import, string $search): LengthAwarePaginator
     {
-        return Service::query()->with('client:id,first_name,last_name,company_name')
-            ->whereKey($import->missing ?? [])
-            ->where('server_id', $server->id)
-            ->whereIn('status', ServiceStatus::occupyingValues())
+        return $this->missingQuery($server, $import)->with('client:id,first_name,last_name,company_name')
             ->when($search !== '', fn (Builder $query) => $query->search($search))
             ->orderBy('id')
             ->paginate(self::PER_PAGE)
@@ -265,5 +262,15 @@ class ServerImportController extends Controller
                 'status' => $service->status->value,
                 'service' => ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
             ]);
+    }
+
+    /**
+     * The stored missing services that are still live on this server: what the Missing tab lists and counts.
+     *
+     * @return Builder<Service>
+     */
+    private function missingQuery(Server $server, ServerAccountImport $import): Builder
+    {
+        return Service::query()->whereKey($import->missing ?? [])->where('server_id', $server->id)->whereIn('status', ServiceStatus::occupyingValues());
     }
 }

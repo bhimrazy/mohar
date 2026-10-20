@@ -167,6 +167,8 @@ class AccountImportMatcher
         }
 
         unset($row);
+        // A list read before the connection user was recorded: owners cannot be compared, so nothing is proposed
+        // (classify() treats a null connection user as unknown).
         $this->store($import, $accounts, $import->connection_user);
     }
 
