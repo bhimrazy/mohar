@@ -2,6 +2,7 @@
 
 namespace Tests\Fakes\Domains;
 
+use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
@@ -148,7 +149,7 @@ class FakeRegistrar implements Registrar
 
     public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
     {
-        return $this->record('reconcile', $domain, new SubmissionLookup('unknown'));
+        return $this->record('reconcile', $domain, new SubmissionLookup(ReconcileStatus::Unknown));
     }
 
     public function testConnection(): array

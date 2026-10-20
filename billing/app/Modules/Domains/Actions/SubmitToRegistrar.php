@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Actions;
 
 use App\Data\Services\ProvisionResult;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\RegistrarActionFailed;
@@ -180,10 +181,11 @@ class SubmitToRegistrar
             $lookup = $this->lookup($domain, $staffId);
 
             return match ($lookup->status) {
-                'executed' => $this->succeeded($domain, new RegistrarResult('completed', $lookup->expiryDate, 'Found at the registrar; not re-submitted.', remote: $lookup->remote), $staffId),
-                'in_progress' => $this->succeeded($domain, new RegistrarResult('pending', message: 'The registrar is still processing the earlier submission; not re-submitted.', remote: $lookup->remote), $staffId),
-                'absent' => $this->unknownOutcome($domain, 'The registrar has no record of the earlier submission. To submit it again, set the status to Pending, then register it.', $lookup->remote),
-                default => $this->unknownOutcome($domain, $lookup->message ?? 'The registrar could not confirm the earlier submission; verify it there before retrying.', $lookup->remote),
+                ReconcileStatus::Executed => $this->succeeded($domain, new RegistrarResult('completed', $lookup->expiryDate, 'Found at the registrar; not re-submitted.', remote: $lookup->remote), $staffId),
+                ReconcileStatus::InProgress => $this->succeeded($domain, new RegistrarResult('pending', message: 'The registrar is still processing the earlier submission; not re-submitted.', remote: $lookup->remote), $staffId),
+                ReconcileStatus::NotExecuted => $this->unknownOutcome($domain, 'The registrar has no record of the earlier submission. To submit it again, set the status to Pending, then register it.', $lookup->remote),
+                ReconcileStatus::Conflict => $this->unknownOutcome($domain, $lookup->message ?? 'The name is registered, but not in our registrar account. Decide with the client before doing anything else.', $lookup->remote),
+                ReconcileStatus::Unknown => $this->unknownOutcome($domain, $lookup->message ?? 'The registrar could not confirm the earlier submission; verify it there before retrying.', $lookup->remote),
             };
         }
 
@@ -216,7 +218,7 @@ class SubmitToRegistrar
                 $staffId,
             );
         } catch (Throwable) {
-            return new SubmissionLookup('unknown');
+            return new SubmissionLookup(ReconcileStatus::Unknown);
         }
     }
 

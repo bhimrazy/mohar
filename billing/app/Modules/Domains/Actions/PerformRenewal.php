@@ -4,6 +4,7 @@ namespace App\Modules\Domains\Actions;
 
 use App\Data\Services\ProvisionResult;
 use App\Enums\BillingCycle;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRenewed;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
@@ -152,13 +153,13 @@ class PerformRenewal
         if ($this->gateway->supports($domain, 'reconcile')) {
             $lookup = $this->lookup($domain, $staffId);
 
-            if ($lookup->status === 'executed' && ($target === null || $lookup->expiryDate === null || $lookup->expiryDate->gte($target))) {
+            if ($lookup->status === ReconcileStatus::Executed && ($target === null || $lookup->expiryDate === null || $lookup->expiryDate->gte($target))) {
                 return $this->applied($domain, $years, $lookup->expiryDate ?? $this->dates->extend($domain, $years), 'Renewal found at the registrar; not repeated.', $lookup->remote);
             }
 
             return $this->unverified($domain, match ($lookup->status) {
-                'in_progress' => 'The registrar is still processing the earlier renewal; check it there, then clear the review.',
-                'absent' => 'The registrar has no record of the earlier renewal. Clear the review (Change status) and renew again if it is still due.',
+                ReconcileStatus::InProgress => 'The registrar is still processing the earlier renewal; check it there, then clear the review.',
+                ReconcileStatus::NotExecuted => 'The registrar has no record of the earlier renewal. Clear the review (Change status) and renew again if it is still due.',
                 default => $lookup->message ?? 'An earlier renewal attempt did not finish; verify at the registrar before renewing again.',
             });
         }
@@ -191,7 +192,7 @@ class PerformRenewal
                 $staffId,
             );
         } catch (Throwable) {
-            return new SubmissionLookup('unknown');
+            return new SubmissionLookup(ReconcileStatus::Unknown);
         }
     }
 

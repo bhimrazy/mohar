@@ -9,7 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Upgrade notes
 
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
-  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` and the `reconcile`
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
+  `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
   capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
   Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
 - **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the

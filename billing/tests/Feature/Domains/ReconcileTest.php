@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainSyncReport;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Support\Settings;
@@ -40,14 +41,15 @@ test('a lost submission is resolved from the registrar account and never sent ag
     expect($this->registrar->commands())->toContain('reconcile')->not->toContain('register')
         ->and($domain->fresh())->status->toBe($status)->needs_review->toBe($review);
 })->with([
-    'executed' => [new SubmissionLookup('executed', CarbonImmutable::parse('2027-05-01')), DomainStatus::Active, false],
-    'in progress' => [new SubmissionLookup('in_progress'), DomainStatus::PendingRegistration, false],
-    'absent' => [new SubmissionLookup('absent'), DomainStatus::PendingRegistration, true],
-    'unknown' => [new SubmissionLookup('unknown'), DomainStatus::PendingRegistration, true],
+    'executed' => [new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::parse('2027-05-01')), DomainStatus::Active, false],
+    'in progress' => [new SubmissionLookup(ReconcileStatus::InProgress), DomainStatus::PendingRegistration, false],
+    'not executed' => [new SubmissionLookup(ReconcileStatus::NotExecuted), DomainStatus::PendingRegistration, true],
+    'conflict' => [new SubmissionLookup(ReconcileStatus::Conflict), DomainStatus::PendingRegistration, true],
+    'unknown' => [new SubmissionLookup(ReconcileStatus::Unknown), DomainStatus::PendingRegistration, true],
 ]);
 
 test('an executed lookup applies the registrar expiry and keeps the ids it found', function () {
-    $this->registrar->will('reconcile', new SubmissionLookup('executed', CarbonImmutable::parse('2027-05-01'), ['order_id' => 9182]));
+    $this->registrar->will('reconcile', new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::parse('2027-05-01'), ['order_id' => 9182]));
     $domain = ($this->lostClaim)();
 
     app(SubmitToRegistrar::class)->handle($domain);
@@ -79,9 +81,9 @@ test('a lost renewal is applied only when the registrar shows it ran', function 
     expect($this->registrar->commands())->toBe(['reconcile'])
         ->and($domain->fresh())->expiry_date->toDateString()->toBe($expiry)->needs_review->toBe($review);
 })->with([
-    'executed' => [new SubmissionLookup('executed', CarbonImmutable::parse('2028-01-31')), '2028-01-31', false],
-    'executed with an expiry short of the cycle' => [new SubmissionLookup('executed', CarbonImmutable::parse('2027-06-01')), '2027-01-31', true],
-    'absent' => [new SubmissionLookup('absent'), '2027-01-31', true],
+    'executed' => [new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::parse('2028-01-31')), '2028-01-31', false],
+    'executed with an expiry short of the cycle' => [new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::parse('2027-06-01')), '2027-01-31', true],
+    'not executed' => [new SubmissionLookup(ReconcileStatus::NotExecuted), '2027-01-31', true],
 ]);
 
 test('the sync sweep flags and verifies a submission a killed worker left pending (#12)', function () {
@@ -102,7 +104,7 @@ test('the sync sweep flags and verifies a submission a killed worker left pendin
 
 test('the sweep still runs when registrar sync is switched off', function () {
     app(Settings::class)->set('domains.sync_enabled', false);
-    $this->registrar->will('reconcile', new SubmissionLookup('executed', CarbonImmutable::parse('2027-05-01')));
+    $this->registrar->will('reconcile', new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::parse('2027-05-01')));
     $stale = ($this->lostClaim)();
 
     $result = app(SyncDomains::class)->handle();

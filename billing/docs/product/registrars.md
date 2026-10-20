@@ -48,6 +48,8 @@ sandbox before we rely on it.
 - **C2 — authoritative reconcile.** New capability `'reconcile'` in `Registrar::CAPABILITIES` and a new method
   `public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup;`
   `SubmissionLookup` is `final readonly` with `string $status` (`executed|in_progress|absent|unknown`),
+  _built with the kernel `App\Enums\ReconcileStatus` instead (absent → `NotExecuted`; a name registered outside our
+  account → `Conflict`, staff review), per the 2026-10-20 architecture review F2_,
   `?CarbonImmutable $expiryDate = null`, `array $remote = []`, `?string $message = null`.
   `SubmitToRegistrar::reconcile()` and `PerformRenewal::reconcile()` call it in place of `info()` when it is supported.
   `executed` → apply. `in_progress` → the accepted-asynchronously path (`pending_registration` /

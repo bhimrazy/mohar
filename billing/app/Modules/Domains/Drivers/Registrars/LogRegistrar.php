@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Drivers\Registrars;
 
+use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
@@ -31,7 +32,8 @@ use InvalidArgumentException;
  *  - contains "email"    → EPP code is emailed to the registrant instead of returned
  *  - contains "gone"     → sync reports the domain transferred away
  * After a lost outcome, findSubmission reports a "timeout" registration as executed (a transfer as in progress), a
- * "slow" one as in progress, a renewal as executed and anything else as absent.
+ * "slow" one as in progress, a "taken" name as a conflict (registered elsewhere), a renewal as executed and anything
+ * else as not executed.
  * The "simulate" setting forces every write command to fail ("error") or time out ("timeout").
  */
 class LogRegistrar implements Registrar
@@ -230,10 +232,11 @@ class LogRegistrar implements Registrar
         $this->log('reconcile', ['domain' => $domain->name, 'command' => $command]);
 
         return match (true) {
-            $command === 'renew' => new SubmissionLookup('executed'),
-            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup('executed', CarbonImmutable::today()->addYearsNoOverflow($domain->period_years)),
-            str_contains($domain->sld, 'timeout') || str_contains($domain->sld, 'slow') => new SubmissionLookup('in_progress'),
-            default => new SubmissionLookup('absent'),
+            $command === 'renew' => new SubmissionLookup(ReconcileStatus::Executed),
+            str_contains($domain->sld, 'taken') => new SubmissionLookup(ReconcileStatus::Conflict, message: 'The name is registered in another account.'),
+            $command === 'register' && str_contains($domain->sld, 'timeout') => new SubmissionLookup(ReconcileStatus::Executed, CarbonImmutable::today()->addYearsNoOverflow($domain->period_years)),
+            str_contains($domain->sld, 'timeout') || str_contains($domain->sld, 'slow') => new SubmissionLookup(ReconcileStatus::InProgress),
+            default => new SubmissionLookup(ReconcileStatus::NotExecuted),
         };
     }
 
