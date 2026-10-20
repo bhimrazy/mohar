@@ -291,7 +291,7 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - runs the scenario in a Pest subprocess with phpunit.xml's environment, so the host's `.env` (a database queue, say) does not leak in, within a time budget (360 s);
     - drops the database unless `--keep`.
     - The harness refuses any other database.
-    - Deviation from §4: one runner, the in-process Pest scenario on a throwaway database, rather than a second topology with `artisan serve` and `queue:work`. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
+    - Deviation from §4, accepted by the CTO on 2026-10-20: one runner, the in-process Pest scenario on a throwaway database. The second topology, `artisan serve` and `queue:work`, is deferred until the E2E job is stable or a deployment workstream needs the worker topology proven. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
 - **CI.** The `E2E simulators (hosting lifecycle)` job has its own PostgreSQL service and `timeout-minutes: 10`. The main job never runs `tests/Simulators`, which is in no testsuite. The job is non-required in branch protection until it has passed 10 consecutive runs.
 
 ## Limits: what simulators cannot prove

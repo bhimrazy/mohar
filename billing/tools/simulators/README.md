@@ -101,7 +101,7 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - it runs the scenario within a time budget (`--budget`, 360 s by default);
 - it drops the database afterwards, unless `--keep`.
 
-The harness (`tests/Simulators/SimulatorHarness.php`) refuses any other database. The app runs in process, the simulators run as real TLS processes, the customer's browser is an HTTP client that trusts the scenario CA, and webhooks are posted to the app with the bytes and signature the simulator made.
+The harness (`tests/Simulators/SimulatorHarness.php`) refuses any other database. It drains Stripe's outbox as Stripe would, retrying any non-2xx answer (at once, in tests) until nothing retryable is left. The app runs in process, the simulators run as real TLS processes, the customer's browser is an HTTP client that trusts the scenario CA, and webhooks are posted to the app with the bytes and signature the simulator made.
 
 The main CI job never runs `tests/Simulators`. The `E2E simulators` job does, on its own PostgreSQL service, with a 10-minute limit.
 

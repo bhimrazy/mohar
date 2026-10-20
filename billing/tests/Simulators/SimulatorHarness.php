@@ -47,6 +47,8 @@ trait SimulatorHarness
         ]);
         app()->forgetInstance(Endpoints::class);
         $this->stripe->simulator()->actions()['webhook_url'](['url' => route('billing.webhooks', StripeDriver::KEY)], $this->stripe);
+        // Stripe's retry schedule without the waiting: a non-2xx answer is retried at once, up to six attempts.
+        $this->stripe->outbox()->retryPolicy([0], 6);
     }
 
     public function stopSimulators(): void
@@ -73,26 +75,42 @@ trait SimulatorHarness
     }
 
     /**
-     * Deliver the Stripe webhooks due now, as the simulator signed them (`stale` or `wrong_secret` to forge them), or
-     * the last batch again (`$replay`). Returns the app's `result` for each.
+     * Deliver the Stripe webhooks as Stripe does: drain the outbox, retrying any non-2xx answer, until nothing
+     * retryable is left. With a variant (`stale`, `wrong_secret`, `unsigned`) each due delivery is sent once, forged;
+     * with `$replay` the last batch is sent again. Returns the app's `result` for each attempt.
      *
      * @return list<string>
      */
     public function deliverStripeWebhooks(?string $variant = null, bool $replay = false): array
     {
         $outbox = $this->stripe->outbox();
-        $deliveries = $replay ? $this->lastDeliveries : $outbox->pending();
-        $this->lastDeliveries = $deliveries;
         $results = [];
+        $transport = function (string $url, string $body, array $headers) use (&$results): int {
+            $server = ['CONTENT_TYPE' => $headers['Content-Type']];
 
-        foreach ($deliveries as $delivery) {
-            $outbox->deliver($delivery, function (string $url, string $body, array $headers) use (&$results): int {
-                $response = $this->call('POST', $url, server: ['HTTP_STRIPE_SIGNATURE' => $headers['Stripe-Signature'], 'CONTENT_TYPE' => $headers['Content-Type']], content: $body);
-                $results[] = $response->getStatusCode() >= 400 ? 'refused '.$response->getStatusCode() : (string) $response->json('result');
+            if (isset($headers['Stripe-Signature'])) {
+                $server['HTTP_STRIPE_SIGNATURE'] = $headers['Stripe-Signature'];
+            }
 
-                return $response->getStatusCode();
-            }, $variant);
+            $response = $this->call('POST', $url, server: $server, content: $body);
+            $results[] = $response->getStatusCode() >= 400 ? 'refused '.$response->getStatusCode() : (string) $response->json('result');
+
+            return $response->getStatusCode();
+        };
+
+        if ($replay || $variant !== null) {
+            $deliveries = $replay ? $this->lastDeliveries : $outbox->pending();
+            $this->lastDeliveries = $deliveries;
+
+            foreach ($deliveries as $delivery) {
+                $outbox->deliver($delivery, $transport, $variant);
+            }
+
+            return $results;
         }
+
+        $this->lastDeliveries = $outbox->pending();
+        $outbox->drain($transport);
 
         return $results;
     }

@@ -168,10 +168,8 @@ test('a dispute delivered before the payment is booked gets a 409, and its retry
     expect($answers[0])->toBe([409, 'payment not booked yet; retry expected'])
         ->and(array_column($answers, 1))->toContain('payment recorded');
 
-    $dispute = array_values(array_filter(test()->replay, fn (array $delivery): bool => str_contains($delivery['body'], 'charge.dispute.created')));
-    test()->replay = $dispute;
-
-    expect(deliverWebhooks(replay: true))->toBe([[200, 'chargeback recorded']])
+    // The outbox retries the refused dispute, as Stripe does; now it is booked.
+    expect(deliverWebhooks())->toBe([[200, 'chargeback recorded']])
         ->and(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(1)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
 });
