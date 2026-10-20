@@ -45,8 +45,8 @@ class ImportReviewedAccounts implements ShouldQueue
 
         $staff = $this->staffId === null ? null : User::query()->find($this->staffId);
         $stop = match (true) {
-            ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => AccountImportMatcher::text('The reviewed accounts changed after the import was confirmed; nothing more was imported. Review them again.'),
-            $staff === null || ! $staff->is_active || ! $staff->hasPermission('services.servers.import') => AccountImportMatcher::text('The staff member who confirmed the import can no longer import accounts; nothing more was imported.'),
+            ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => AccountImportMatcher::text('The accounts changed after the import was confirmed, so they need a new review.'),
+            $staff === null || ! $staff->is_active || ! $staff->hasPermission('services.servers.import') => AccountImportMatcher::text('The staff member who confirmed it can no longer import accounts.'),
             default => null,
         };
 
@@ -77,8 +77,8 @@ class ImportReviewedAccounts implements ShouldQueue
 
         if ($import !== null && $import->status === ServerAccountImport::IMPORTING) {
             app(ImportServerAccounts::class)->stop($import->server, $import, $this->staffId === null ? null : User::query()->find($this->staffId), $exception instanceof TimeoutExceededException
-                ? AccountImportMatcher::text('it ran out of time; nothing more was imported. Import the rest again.')
-                : AccountImportMatcher::text('it stopped unexpectedly; nothing more was imported. Import the rest again.'));
+                ? AccountImportMatcher::text('The background job took too long.')
+                : AccountImportMatcher::text('The background job failed.'));
         }
     }
 }

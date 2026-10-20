@@ -198,6 +198,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   format. "Select all proposed" leaves out, and the page flags, accounts whose matched client changed email in the last
   30 days. "Fetch again" keeps choices for accounts still on the server. A choice reaches an import only through a new
   review.
+- Import accounts, stopped and failed runs: an import that stops partway keeps the ticks and choices of the accounts
+  it did not reach, says once why it stopped ("The background job took too long.") and offers "Review the remaining N",
+  which goes through a new review. The last import's report lists accounts not imported first, a page at a time
+  behind "Show details", marks unreached accounts "Not reached", and stays on the page after "Fetch again" until the
+  next import starts. A failed fetch no longer hides the last list: the error shows above it with a link to the server
+  page to test the connection. The ticked count refreshes when an import finishes. The bulk cycle says how many ticked
+  accounts it leaves out for lack of a price and can return them to each account's default; clearing a field in the
+  choice dialog returns that account to its default. The client picker shows a loading state and works from the
+  keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
 - Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
   server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
   after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts

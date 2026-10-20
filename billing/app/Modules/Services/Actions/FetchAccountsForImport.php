@@ -42,7 +42,9 @@ class FetchAccountsForImport
                 throw ValidationException::withMessages(['import' => __('The accounts on :server are being read already. This page updates when the list is ready.', ['server' => $server->name])]);
             }
 
-            ServerAccountImport::query()->where('server_id', $server->id)->delete();
+            // The last good list (and its import report) stays until the new list arrives (FetchServerAccounts), so a
+            // failed fetch hides nothing; earlier failures and fetches that never finished are cleared.
+            ServerAccountImport::query()->where('server_id', $server->id)->whereIn('status', [ServerAccountImport::FAILED, ServerAccountImport::FETCHING])->delete();
 
             return ServerAccountImport::query()->create([
                 'server_id' => $server->id,
@@ -88,7 +90,8 @@ class FetchAccountsForImport
     }
 
     /**
-     * The server's list that has not expired, if any, without the account list unless $withAccounts. An expired list is deleted here, so client emails never outlive
+     * The server's current list that has not expired, if any, without the account list unless $withAccounts: the newest
+     * one that did not fail, or the failed one when there is no other. An expired list is deleted here, so client emails never outlive
      * it by more than a read (housekeeping deletes the rest daily).
      */
     public static function latest(Server $server, bool $withAccounts = false): ?ServerAccountImport
@@ -103,12 +106,23 @@ class FetchAccountsForImport
             ->where('updated_at', '<=', now()->subMinutes(ServerAccountImport::STALE_MINUTES))
             ->update(['status' => ServerAccountImport::READY]);
 
-        return ServerAccountImport::query()
+        $query = fn () => ServerAccountImport::query()
             ->select(['id', 'created_at', 'updated_at', ...$columns])
             ->with('requester:id,name')
             ->where('server_id', $server->id)
             ->where('expires_at', '>', now())
-            ->latest('id')
-            ->first();
+            ->latest('id');
+
+        // A failed fetch does not replace the last good list: that list stays current, the failure is shown beside it.
+        return $query()->where('status', '!=', ServerAccountImport::FAILED)->first() ?? $query()->first();
+    }
+
+    /**
+     * A fetch that failed after the given list was read (shown beside it), if any.
+     */
+    public static function failureAfter(Server $server, ServerAccountImport $import): ?ServerAccountImport
+    {
+        return ServerAccountImport::query()->select(['id', 'error', 'created_at', 'requested_by'])->with('requester:id,name')
+            ->where('server_id', $server->id)->where('status', ServerAccountImport::FAILED)->where('id', '>', $import->id)->latest('id')->first();
     }
 }

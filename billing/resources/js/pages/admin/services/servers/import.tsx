@@ -29,6 +29,8 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
+import { ImportReport } from '@/components/services/import-report';
+import type { ImportReportData } from '@/components/services/import-report';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Spinner } from '@/components/ui/spinner';
@@ -38,6 +40,7 @@ import ServerImportController from '@/actions/App/Modules/Services/Http/Controll
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
 import { show as showClient } from '@/routes/admin/clients';
 import type { LaravelPaginated, SelectOption } from '@/types/app';
+import { cycleLabel } from '@/types/services';
 
 type Category = 'proposed' | 'unmatched' | 'reseller' | 'linked';
 type Tab = 'all' | Category | 'missing';
@@ -59,14 +62,13 @@ type AccountRow = {
     service: LinkedService | null;
     differences: string[];
     include: boolean;
-    chosen: { cycle?: string; next_due_date?: string };
-};
-
-type ReportLine = {
-    username: string;
-    imported: boolean;
-    message: string;
-    service_id: number | null;
+    chosen: {
+        client_id?: number;
+        product_id?: number;
+        cycle?: string;
+        next_due_date?: string;
+    };
+    email_changed_at: string | null;
 };
 
 type MissingRow = {
@@ -89,11 +91,11 @@ type Props = {
         expires_at: string;
         running: boolean;
         progress: { done: number; total: number } | null;
-        report: {
-            imported: number;
-            not_imported: number;
-            stop_reason: string | null;
-            lines: ReportLine[];
+        report: ImportReportData | null;
+        failure: {
+            error: string | null;
+            requested_at: string | null;
+            requested_by: string | null;
         } | null;
     } | null;
     counts: Record<Tab, number> | null;
@@ -178,7 +180,7 @@ const accountColumns = (
 ): DataTableColumn<AccountRow>[] => [
     {
         key: 'include',
-        header: <span className="sr-only">Import</span>,
+        header: 'Import',
         cell: (row) =>
             row.category !== 'linked' && (
                 <Checkbox
@@ -261,7 +263,37 @@ const accountColumns = (
                             : 'Matches the service. It is not imported again.'}
                     </Muted>
                 )}
+                {(row.chosen.client_id ||
+                    row.chosen.product_id ||
+                    row.chosen.cycle ||
+                    row.chosen.next_due_date) && (
+                    <Muted>
+                        Your choice:{' '}
+                        {[
+                            [
+                                row.chosen.client_id && 'client',
+                                row.chosen.product_id && 'product',
+                            ]
+                                .filter(Boolean)
+                                .join(' and '),
+                            row.chosen.cycle && cycleLabel(row.chosen.cycle),
+                            row.chosen.next_due_date && 'next due ',
+                        ]
+                            .filter(Boolean)
+                            .join(', ')}
+                        {row.chosen.next_due_date && (
+                            <DateTime value={row.chosen.next_due_date} />
+                        )}
+                    </Muted>
+                )}
                 {row.note && <Muted>{row.note}</Muted>}
+                {row.email_changed_at && (
+                    <Muted>
+                        This client changed email{' '}
+                        <DateTime value={row.email_changed_at} />: check the
+                        match before ticking.
+                    </Muted>
+                )}
                 {createProductUrl &&
                     row.plan &&
                     !row.product &&
@@ -283,13 +315,14 @@ const accountColumns = (
         cell: (row) =>
             row.category !== 'linked' && (
                 <Button
-                    size="icon"
+                    size="sm"
                     variant="ghost"
                     onClick={() => choose(row)}
                     aria-label={`Choose how ${row.username} is imported`}
                     title="Choose client, product and billing"
                 >
                     <Pencil />
+                    <span className="sm:sr-only">Choose</span>
                 </Button>
             ),
     },
@@ -370,7 +403,7 @@ export default function ServerImport({
     // Poll only while a fetch runs; stop as soon as the list (or the failure) arrives.
     const { start, stop } = usePoll(
         3000,
-        { only: ['import', 'counts', 'rows'] },
+        { only: ['import', 'counts', 'rows', 'included', 'productOptions'] },
         { autoStart: false },
     );
 
@@ -493,63 +526,11 @@ export default function ServerImport({
                 )}
 
                 {report && !running && (
-                    <Alert
-                        variant={report.stop_reason ? 'destructive' : 'default'}
-                    >
-                        <AlertTitle>
-                            Last import: {report.imported} of{' '}
-                            {plural(
-                                report.imported + report.not_imported,
-                                'account',
-                            )}{' '}
-                            imported
-                        </AlertTitle>
-                        <AlertDescription>
-                            {report.stop_reason && (
-                                <p className="font-medium">
-                                    The import stopped: {report.stop_reason}
-                                </p>
-                            )}
-                            <ul className="grid gap-1">
-                                {report.lines.map((line) => (
-                                    <li key={line.username}>
-                                        <span className="font-mono">
-                                            {line.username}
-                                        </span>
-                                        {' — '}
-                                        {line.imported && line.service_id ? (
-                                            <>
-                                                {line.message}{' '}
-                                                <Link
-                                                    href={ServiceController.show(
-                                                        line.service_id,
-                                                    )}
-                                                    className="text-primary hover:underline"
-                                                >
-                                                    View service
-                                                </Link>
-                                            </>
-                                        ) : (
-                                            <span className="text-destructive">
-                                                Not imported: {line.message}
-                                            </span>
-                                        )}
-                                    </li>
-                                ))}
-                                {report.imported + report.not_imported >
-                                    report.lines.length && (
-                                    <li>
-                                        …and{' '}
-                                        {report.imported +
-                                            report.not_imported -
-                                            report.lines.length}{' '}
-                                        more; see the Already linked tab and the
-                                        activity log.
-                                    </li>
-                                )}
-                            </ul>
-                        </AlertDescription>
-                    </Alert>
+                    <ImportReport
+                        serverId={server.id}
+                        report={report}
+                        remaining={included}
+                    />
                 )}
 
                 {errors.import && (
@@ -600,13 +581,24 @@ export default function ServerImport({
                     </Alert>
                 )}
 
-                {fetched?.status === 'failed' && (
+                {(fetched?.status === 'failed' || fetched?.failure) && (
                     <Alert variant="destructive">
                         <ServerCrash />
                         <AlertTitle>The accounts could not be read</AlertTitle>
                         <AlertDescription>
-                            {fetched.error} Check the server with Test
-                            connection, then fetch again.
+                            <span>
+                                {fetched.failure?.error ?? fetched.error} Check
+                                the server with{' '}
+                                <Link
+                                    href={ServerController.edit(server.id)}
+                                    className="underline"
+                                >
+                                    Test connection
+                                </Link>
+                                , then fetch again.
+                                {fetched.failure &&
+                                    ' The list below is the last one read.'}
+                            </span>
                         </AlertDescription>
                     </Alert>
                 )}

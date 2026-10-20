@@ -31,7 +31,12 @@ type Props = {
     datesOnly?: boolean;
     /** Apply to every ticked account instead of $usernames. */
     ticked?: boolean;
+    /** How many accounts a bulk choice applies to. */
+    count?: number;
 };
+
+/** Cycle option that returns each account to its default (monthly, or the product's first cycle). */
+const DEFAULT_CYCLE = 'default';
 
 /** Choose how accounts are imported: client, product, cycle and next due date. Saved on the import, not applied. */
 export function ImportChoiceDialog({
@@ -43,6 +48,7 @@ export function ImportChoiceDialog({
     cycles,
     datesOnly = false,
     ticked = false,
+    count = 0,
 }: Props) {
     const [client, setClient] = useState<ClientOption | null>(null);
     const [productId, setProductId] = useState('');
@@ -76,8 +82,11 @@ export function ImportChoiceDialog({
                 ...(!datesOnly && productId
                     ? { product_id: Number(productId) }
                     : {}),
-                ...(cycle ? { cycle } : {}),
-                ...(due ? { next_due_date: due } : {}),
+                // One account: an empty field returns it to the default. Ticked accounts: an empty field keeps theirs.
+                ...(cycle || !ticked
+                    ? { cycle: cycle && cycle !== DEFAULT_CYCLE ? cycle : null }
+                    : {}),
+                ...(due || !ticked ? { next_due_date: due || null } : {}),
             },
             {
                 preserveScroll: true,
@@ -88,19 +97,23 @@ export function ImportChoiceDialog({
             },
         );
 
-    const title =
-        usernames.length === 1
-            ? `Import ${usernames[0]}`
-            : 'Set the cycle and due date for every ticked account';
+    const title = ticked
+        ? `Set the cycle and due date for ${count} ticked account${count === 1 ? '' : 's'}`
+        : `Import ${usernames[0] ?? ''}`;
 
     return (
         <FormDialog
             open={initial !== null}
             onOpenChange={(open) => !open && onClose()}
             title={title}
-            description="Saved and ticked for the import. Nothing is created until you review and confirm it."
-            submitLabel="Save choice"
+            description={
+                ticked
+                    ? 'Applies to every ticked account. An account whose product has no price for the chosen cycle is left out until you change it; you are told how many.'
+                    : 'Saved and ticked for the import. Nothing is created until you review and confirm it.'
+            }
+            submitLabel={ticked ? 'Apply to ticked accounts' : 'Save choice'}
             processing={processing}
+            disabled={ticked && cycle === '' && due === ''}
             onSubmit={submit}
         >
             {!datesOnly && (
@@ -145,15 +158,28 @@ export function ImportChoiceDialog({
                 <Field
                     htmlFor="import-cycle"
                     label="Billing cycle"
+                    hint="Default: monthly, or the product's first cycle."
                     error={errors.cycle}
                 >
                     <SelectField
                         id="import-cycle"
                         value={cycle}
                         onValueChange={setCycle}
-                        placeholder="Choose a cycle"
+                        placeholder={
+                            ticked
+                                ? "Keep each account's cycle"
+                                : 'Default for the account'
+                        }
                         invalid={!!errors.cycle}
-                        options={cycles}
+                        options={[
+                            {
+                                value: DEFAULT_CYCLE,
+                                label: ticked
+                                    ? 'Default for each account'
+                                    : 'Default for the account',
+                            },
+                            ...cycles,
+                        ]}
                     />
                 </Field>
                 <Field
@@ -164,8 +190,10 @@ export function ImportChoiceDialog({
                             <>
                                 Renews on <DateTime value={due} />
                             </>
+                        ) : ticked ? (
+                            'Empty: each account keeps its date.'
                         ) : (
-                            'Empty: the renewal date of the account on the server.'
+                            "Empty: the next anniversary of the account's start date on the server."
                         )
                     }
                     error={errors.next_due_date ?? errors.usernames}

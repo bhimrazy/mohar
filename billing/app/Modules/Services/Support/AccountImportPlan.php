@@ -54,7 +54,7 @@ class AccountImportPlan
         $fresh = $this->matcher->classify($server, array_map(fn (array $row): array => array_diff_key($row, $keys), $accounts), $import->connection_user)['rows'];
         $products = $this->matcher->serverProducts($server);
         $clientIds = array_map(fn (array $row): int => (int) ($selections[$row['username']]['client_id'] ?? $row['client_id'] ?? 0), $fresh);
-        $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
+        $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->with('group:id,name,discount_percent')->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
         $today = CarbonImmutable::today();
 
         return array_map(function (array $row) use ($selections, $products, $clients, $today): array {
@@ -75,7 +75,7 @@ class AccountImportPlan
                 $client === null ? AccountImportMatcher::text('Choose a client.') : null,
                 $client !== null && $client->status !== 'active' ? AccountImportMatcher::text('The client :name is not active.', ['name' => $client->display_name]) : null,
                 $product === null ? AccountImportMatcher::text('Choose a product that provisions on this server.') : null,
-                $product !== null && $client !== null && $amount === null ? AccountImportMatcher::text(':product has no :cycle price in :currency.', ['product' => $product->name, 'cycle' => $cycle->value ?? 'recurring', 'currency' => $client->currency]) : null,
+                $product !== null && $client !== null && $amount === null ? AccountImportMatcher::text(':product has no :cycle price in :currency.', ['product' => $product->name, 'cycle' => $cycle === null ? 'recurring' : mb_strtolower(self::cycleLabel($cycle)), 'currency' => $client->currency]) : null,
             ]));
 
             return [...$row, 'decision' => [
@@ -86,6 +86,7 @@ class AccountImportPlan
                 'anchor_day' => $anchor,
                 'amount' => $amount,
                 'list_amount' => $listAmount !== $amount ? $listAmount : null,
+                'discount' => $listAmount !== $amount && $client?->group !== null ? ['group' => $client->group->name, 'percent' => (float) $client->group->discount_percent] : null,
                 'problems' => $problems,
             ]];
         }, $fresh);
@@ -175,6 +176,14 @@ class AccountImportPlan
         }
 
         return $this->prices[$key];
+    }
+
+    /**
+     * The cycle as the rest of the app names it ("Semi-annually").
+     */
+    public static function cycleLabel(BillingCycle $cycle): string
+    {
+        return $cycle === BillingCycle::SemiAnnually ? AccountImportMatcher::text('Semi-annually') : AccountImportMatcher::text(ucfirst($cycle->value));
     }
 
     /**

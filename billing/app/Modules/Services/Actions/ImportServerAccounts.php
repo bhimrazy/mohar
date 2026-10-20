@@ -84,7 +84,8 @@ class ImportServerAccounts
             }
 
             foreach ($usernames as $username) {
-                $selections[$username] = [...($selections[$username] ?? []), ...$choice];
+                // A null choice returns that field to the account's default.
+                $selections[$username] = array_filter([...($selections[$username] ?? []), ...$choice], fn (mixed $value): bool => $value !== null);
             }
 
             $import->update(['selections' => $selections]);
@@ -171,7 +172,7 @@ class ImportServerAccounts
                 // The service and its report line commit together, so a chunk that fails later keeps both.
                 $service = DB::transaction(function () use ($server, $import, $account, $row, $product, &$report): Service {
                     $service = $this->create($server, $account, $row, $product, $row['currency']);
-                    $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported just now.'), 'service_id' => $service->id]);
+                    $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported.'), 'service_id' => $service->id]);
 
                     return $service;
                 });
@@ -220,7 +221,7 @@ class ImportServerAccounts
             $import->update(['stop_reason' => $reason]);
             $reached = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->pluck('username')->flip();
             $missing = array_values(array_filter(array_column($import->reviewed['rows'] ?? [], 'username'), fn (string $username): bool => ! $reached->has($username)));
-            $message = mb_substr(AccountImportMatcher::text('The import stopped: :reason', ['reason' => $reason]), 0, 255);
+            $message = AccountImportMatcher::text('Not reached.');
 
             foreach (array_chunk($missing, 1000) as $chunk) {
                 DB::table('server_account_import_report_lines')->insert(array_map(fn (string $username): array => [
@@ -254,7 +255,9 @@ class ImportServerAccounts
         unset($row);
         $counts = array_count_values(array_column($accounts, 'category'));
         $import->update([
-            'status' => ServerAccountImport::READY, 'accounts' => $accounts, 'selections' => null, 'reviewed' => null,
+            // Imported accounts are done; the choices of every other ticked account are kept, so a stopped import can go on.
+            'status' => ServerAccountImport::READY, 'accounts' => $accounts, 'reviewed' => null,
+            'selections' => array_diff_key($import->selections ?? [], $services) ?: null,
             'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0, 'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
             'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0, 'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
         ]);

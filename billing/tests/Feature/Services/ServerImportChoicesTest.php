@@ -3,10 +3,15 @@
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\ImportServerAccounts;
+use App\Modules\Services\Jobs\ImportReviewedAccounts;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerGroup;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
 
@@ -42,11 +47,11 @@ test('Select all proposed leaves out a match whose client changed email in the l
     $this->anna->forceFill(['email_changed_at' => now()->subDays(3)])->save();
 
     $this->put(route('admin.services.servers.import.select', $this->server), ['proposed' => true])
-        ->assertSessionHas('inertia.flash_data.toast.message', '1 proposed accounts were not ticked: their client changed email in the last 30 days. Check them one by one.');
+        ->assertSessionHas('inertia.flash_data.toast.message', '1 proposed account was not ticked: its client changed email in the last 30 days. Check it before ticking.');
 
     $alpha = collect($this->get(route('admin.services.servers.import.show', $this->server))->inertiaProps('rows.data'))->keyBy('username')['alpha'];
     expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty()
-        ->and($alpha['note'])->toContain('This client changed email on 2026-10-16');
+        ->and($alpha['email_changed_at'])->toStartWith('2026-10-16');
 });
 
 test('the cycle and due date can be set for every ticked account at once, and choices survive Fetch again', function () {
@@ -80,4 +85,43 @@ test('choosing a client needs the permission to view clients, and choices are ch
     confirmPassword();
     $this->getJson(route('admin.services.servers.import.clients', $this->server))->assertForbidden();
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['bravo'], 'client_id' => $this->anna->id])->assertSessionHasErrors('client_id');
+});
+
+test('a stopped import keeps the choices it did not reach, and its report survives Fetch again', function () {
+    Queue::fake([ImportReviewedAccounts::class]);
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha', 'bravo'], 'include' => true, 'client_id' => $this->anna->id, 'product_id' => 21])->assertSessionHasNoErrors();
+    $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
+    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasNoErrors();
+    $import = ServerAccountImport::query()->sole();
+    app(ImportServerAccounts::class)->handle($this->server, $import, auth()->user(), ['alpha']);
+    (new ImportReviewedAccounts($import->id, auth()->id(), 1, $digest))->failed(new RuntimeException('worker died'));
+
+    expect(ServerAccountImport::query()->sole()->selections)->toBe(['bravo' => ['include' => true, 'client_id' => $this->anna->id, 'product_id' => 21]]);
+
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+    $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page
+        ->where('included', 1)
+        ->where('import.report.stop_reason', 'The background job failed.')
+        ->where('import.report.lines.0.username', 'bravo')
+        ->where('import.report.lines.0.message', 'Not reached.'));
+});
+
+test('a failed fetch leaves the last list in place and is shown beside it', function () {
+    Whm::fake(['listaccts' => Http::failedConnection('cURL error 7: refused')]);
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+
+    $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page
+        ->where('import.status', 'ready')
+        ->where('import.failure.error', fn (string $error): bool => str_starts_with($error, 'The accounts on Shared 1 could not be read'))
+        ->has('rows.data', 3));
+});
+
+test('the bulk cycle says how many ticked accounts it leaves out, and the default undoes it', function () {
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true])->assertSessionHasNoErrors();
+
+    $this->put(route('admin.services.servers.import.select', $this->server), ['ticked' => true, 'cycle' => 'quarterly'])
+        ->assertSessionHas('inertia.flash_data.toast.message', '1 ticked account has no quarterly price for its product and is left out until you change its cycle.');
+    $this->put(route('admin.services.servers.import.select', $this->server), ['ticked' => true, 'cycle' => null])->assertSessionHasNoErrors();
+
+    expect(ServerAccountImport::query()->sole()->selections)->toBe(['alpha' => ['include' => true]]);
 });

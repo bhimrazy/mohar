@@ -12,6 +12,7 @@ use App\Support\Integrations\Redactor;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -88,6 +89,18 @@ class FetchServerAccounts implements ShouldQueue
         }
 
         $count = $matcher->store($import, $accounts, AccountImportMatcher::connectionUser($driver, $connection));
+        // The new list replaces the earlier ones; the last import's report moves to it until a new import starts.
+        DB::transaction(function () use ($import): void {
+            $previous = ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)
+                ->where('status', ServerAccountImport::READY)->latest('id')->first(['id', 'imported_count', 'not_imported_count', 'stop_reason']);
+
+            if ($previous !== null && $previous->imported_count + $previous->not_imported_count > 0) {
+                DB::table('server_account_import_report_lines')->where('server_account_import_id', $previous->id)->update(['server_account_import_id' => $import->id]);
+                $import->update($previous->only(['imported_count', 'not_imported_count', 'stop_reason']));
+            }
+
+            ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
+        });
         $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => $count], actor: $import->requester);
     }
 

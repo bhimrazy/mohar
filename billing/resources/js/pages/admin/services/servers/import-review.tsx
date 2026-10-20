@@ -30,6 +30,7 @@ type Row = {
         next_due_date: string | null;
         amount: number | null;
         list_amount: number | null;
+        discount: { group: string; percent: number } | null;
         problems: string[];
     };
 };
@@ -216,7 +217,7 @@ export default function ServerImportReview({
                             key: 'billing',
                             header: 'Billing',
                             cell: (row) => (
-                                <span className="flex flex-col">
+                                <span className="flex min-w-0 flex-col break-words whitespace-normal">
                                     <span>
                                         <Money
                                             amount={row.decision.amount ?? 0}
@@ -244,7 +245,10 @@ export default function ServerImportReview({
                                     </span>
                                     {row.decision.list_amount !== null && (
                                         <span className="text-xs text-muted-foreground">
-                                            Client group discount (list price{' '}
+                                            {row.decision.discount
+                                                ? `${row.decision.discount.group} group, ${row.decision.discount.percent}% off`
+                                                : 'Client group discount'}{' '}
+                                            (list price{' '}
                                             <Money
                                                 amount={
                                                     row.decision.list_amount
@@ -319,6 +323,7 @@ export default function ServerImportReview({
                 serverId={server.id}
                 usernames={[]}
                 ticked
+                count={counts.ready + counts.excluded}
                 initial={bulk ? BLANK : null}
                 onClose={() => setBulk(false)}
                 productOptions={[]}
