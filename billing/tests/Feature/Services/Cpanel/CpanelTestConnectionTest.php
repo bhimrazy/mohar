@@ -53,6 +53,7 @@ test('a healthy root token passes every step and reports what it found', functio
 });
 
 test('the token reads its own permissions and expiry by POST, and the token never enters the log', function () {
+    $this->freezeSecond(); // the expiry is compared with now(): a second boundary between the two calls failed CI
     Whm::fake(['api_token_get_details' => tokenWithout([], now()->addDays(30)->getTimestamp())]);
 
     $check = app(CpanelDriver::class)->testConnection(Whm::server());
