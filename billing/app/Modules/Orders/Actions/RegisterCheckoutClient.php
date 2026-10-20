@@ -3,6 +3,7 @@
 namespace App\Modules\Orders\Actions;
 
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Models\Client;
 
 /**
@@ -26,7 +27,8 @@ class RegisterCheckoutClient
             'password' => $input['password'],
         ]);
 
-        $client = Client::query()->create([
+        $client = Client::query()->forceCreate([
+            'origin' => ClientOrigin::Checkout,
             'first_name' => $input['first_name'],
             'last_name' => $input['last_name'],
             'company_name' => $input['company_name'] ?? null,

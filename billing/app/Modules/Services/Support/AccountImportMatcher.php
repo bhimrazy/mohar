@@ -7,6 +7,7 @@ use App\Data\Catalog\ProductSummary;
 use App\Data\Integrations\SettingField;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Enums\FieldType;
+use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
@@ -194,10 +195,9 @@ class AccountImportMatcher
 
     /**
      * Why an email match to each of these clients is not proposed nor ticked in bulk, by client id (clients without a
-     * flag are left out). Either the client changed email in the last EMAIL_CHANGE_DAYS days, or the client signed up
-     * themselves and no owner login has verified the client's email. Sign-up and checkout always create an owner
-     * login with the client; clients staff created or imported have none until staff give them one, so they are not
-     * flagged for it.
+     * flag are left out). Either the client changed email in the last EMAIL_CHANGE_DAYS days, or no owner login has
+     * verified the client's email while the client created themselves (ClientOrigin: sign-up or checkout) or has an
+     * owner login. Clients staff created or imported, without a login, are not flagged for it.
      *
      * @param  array<int>  $clientIds
      * @return array<int, array{kind: string, at: string|null}>
@@ -213,14 +213,17 @@ class AccountImportMatcher
                 ->get(['client_user.client_id', 'users.email', 'users.email_verified_at'])
                 ->groupBy(fn (stdClass $login): int => (int) $login->client_id);
 
-            foreach (Client::query()->toBase()->whereIn('id', $chunk)->get(['id', 'email', 'email_changed_at', 'created_at']) as $client) {
+            foreach (Client::query()->toBase()->whereIn('id', $chunk)->get(['id', 'email', 'email_changed_at', 'origin', 'created_at']) as $client) {
                 $changed = $client->email_changed_at === null ? null : CarbonImmutable::parse((string) $client->email_changed_at);
                 $logins = $owners->get((int) $client->id, collect());
+                // A client who signed up or checked out chose the address themselves: trusted only once an owner login
+                // verified it, with or without a login today (a login can be deleted).
+                $selfCreated = ClientOrigin::tryFrom((string) $client->origin)?->isSelfCreated() ?? true;
                 $verified = $logins->contains(fn (stdClass $login): bool => $login->email_verified_at !== null && mb_strtolower((string) $login->email) === mb_strtolower((string) $client->email));
 
                 $flag = match (true) {
                     $changed !== null && $changed->greaterThanOrEqualTo($since) => ['kind' => self::FLAG_EMAIL_CHANGED, 'at' => $changed->toIso8601String()],
-                    $logins->isNotEmpty() && ! $verified => ['kind' => self::FLAG_UNVERIFIED, 'at' => $client->created_at === null ? null : CarbonImmutable::parse((string) $client->created_at)->toIso8601String()],
+                    ($selfCreated || $logins->isNotEmpty()) && ! $verified => ['kind' => self::FLAG_UNVERIFIED, 'at' => $client->created_at === null ? null : CarbonImmutable::parse((string) $client->created_at)->toIso8601String()],
                     default => null,
                 };
 

@@ -3,6 +3,7 @@
 namespace App\Modules\Core\Database\Factories;
 
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Models\Client;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -30,6 +31,7 @@ class ClientFactory extends Factory
             'currency' => 'USD',
             'language' => 'en',
             'status' => 'active',
+            'origin' => ClientOrigin::Staff->value,
         ];
     }
 

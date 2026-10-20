@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Clients record how they were created (`clients.origin`).** A Core migration adds `origin` (`signup`, `checkout`,
+  `staff`, `import`, `api`; default `signup`) and backfills existing clients: `staff` where the activity log shows a
+  staff member creating the client (`client.created`), `signup` for every other client, including clients seeded or
+  created before the audit log existed. Account import then treats those as self-created, so their email matches are
+  flagged until an owner login verifies the address; staff can still choose such a client for an account. To mark
+  known staff-created clients after upgrading: `UPDATE clients SET origin = 'staff' WHERE id IN (…)`.
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -310,6 +316,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   in URLs.
 
 ### Core
+
+- Each client records how it was created (sign-up, checkout, staff, import or API), set by the path that creates it
+  and never by a form. Account import uses it: a client who signed up or checked out is flagged, and not proposed,
+  until an owner login has verified the client's email, whether or not a login still exists. Before, a self-registered
+  client whose owner deleted their login looked staff-created and was proposed again.
 
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,
   roles with wildcard permissions, currencies, settings store, activity log.

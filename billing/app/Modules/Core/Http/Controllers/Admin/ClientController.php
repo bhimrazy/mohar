@@ -6,6 +6,7 @@ use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Http\Requests\ClientRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Models\ActivityLog;
@@ -56,7 +57,7 @@ class ClientController extends Controller
 
     public function store(ClientRequest $request): RedirectResponse
     {
-        $client = Client::query()->create($request->validated());
+        $client = Client::query()->forceCreate([...$request->validated(), 'origin' => ClientOrigin::Staff]);
         $this->activity->log('Client created', $client, $client->id, event: 'client.created');
         ClientRegistered::dispatch($client->id, null);
 

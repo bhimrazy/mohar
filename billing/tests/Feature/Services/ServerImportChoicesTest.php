@@ -8,6 +8,7 @@ use App\Modules\Services\Jobs\ImportReviewedAccounts;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerGroup;
+use App\Modules\Services\Support\AccountImportMatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -170,4 +171,14 @@ test('the bulk cycle says how many ticked accounts it leaves out, and the defaul
     $this->put(route('admin.services.servers.import.select', $this->server), ['ticked' => true, 'cycle' => null])->assertSessionHasNoErrors();
 
     expect(ServerAccountImport::query()->sole()->selections)->toBe(['alpha' => ['include' => true]]);
+});
+
+test('a self-created client is flagged until an owner login verifies its email, with or without a login', function () {
+    $checkout = Client::factory()->create(['origin' => 'checkout']);
+    $verified = Client::factory()->create(['origin' => 'signup']);
+    $verified->users()->attach(User::factory()->create(['email' => $verified->email]), ['is_owner' => true]);
+
+    $flags = app(AccountImportMatcher::class)->clientFlags([$checkout->id, $verified->id, $this->anna->id]);
+
+    expect(array_keys($flags))->toBe([$checkout->id])->and($flags[$checkout->id]['kind'])->toBe('unverified');
 });
