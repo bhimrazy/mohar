@@ -144,7 +144,7 @@ test('[R2-7] the reviewed and report columns cannot be written through selection
     ])->assertSessionHasNoErrors();
 
     $import = ServerAccountImport::query()->sole();
-    expect($import->reviewed)->toBeNull()->and($import->report)->toBeNull()->and($import->status)->toBe('ready')
+    expect($import->reviewed)->toBeNull()->and($import->report)->toBe([]) // report lines live in their own table since round 5->and($import->status)->toBe('ready')
         ->and($import->selections)->toBe(['alpha' => ['include' => true]]);
 });
 

@@ -112,7 +112,8 @@ class ImportServerAccounts
                 throw ValidationException::withMessages(['import' => $problem ?? __('Nothing to import: tick accounts and review them first.')]);
             }
 
-            $import->update(['status' => ServerAccountImport::IMPORTING, 'report' => []]);
+            DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->delete();
+            $import->update(['status' => ServerAccountImport::IMPORTING, 'imported_count' => 0, 'not_imported_count' => 0, 'stop_reason' => null]);
 
             return $import;
         });
@@ -190,16 +191,35 @@ class ImportServerAccounts
     }
 
     /**
-     * Append one line to the stored report (inside the row's transaction when it has one) and return it.
+     * Append one line to the report (inside the row's transaction when it has one) and count it on the import.
      *
      * @param  array{username: string, imported: bool, message: string, service_id: int|null}  $line
      * @return array{username: string, imported: bool, message: string, service_id: int|null}
      */
     private function report(ServerAccountImport $import, array $line): array
     {
-        $import->update(['report' => [...($import->report ?? []), $line]]);
+        DB::table('server_account_import_report_lines')->insert([...$line, 'server_account_import_id' => $import->id, 'message' => mb_substr($line['message'], 0, 255), 'created_at' => now()]);
+        $import->increment($line['imported'] ? 'imported_count' : 'not_imported_count');
 
         return $line;
+    }
+
+    /**
+     * Stop a confirmed import early: the reason on the import, and each reviewed account not reached reported as not
+     * imported with it.
+     */
+    public function stop(Server $server, ServerAccountImport $import, ?User $staff, string $reason): void
+    {
+        $reached = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->pluck('username')->flip();
+
+        foreach (array_column($import->reviewed['rows'] ?? [], 'username') as $username) {
+            if (! $reached->has($username)) {
+                $this->report($import, ['username' => $username, 'imported' => false, 'message' => AccountImportMatcher::text('The import stopped: :reason', ['reason' => $reason]), 'service_id' => null]);
+            }
+        }
+
+        $import->update(['stop_reason' => $reason]);
+        $this->finish($server, $import, $staff);
     }
 
     /**
@@ -207,8 +227,8 @@ class ImportServerAccounts
      */
     public function finish(Server $server, ServerAccountImport $import, ?User $staff): void
     {
-        $report = $import->report ?? [];
-        $services = array_column(array_filter($report, fn (array $line): bool => $line['imported']), 'service_id', 'username');
+        $services = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->where('imported', true)
+            ->pluck('service_id', 'username')->all();
         $accounts = $import->accounts ?? [];
 
         foreach ($accounts as &$row) {
@@ -224,7 +244,7 @@ class ImportServerAccounts
             'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0, 'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
             'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0, 'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
         ]);
-        $this->activity->log('Imported '.count($services)." accounts from server {$server->name}", $server, properties: ['imported' => count($services), 'not_imported' => count($report) - count($services)], actor: $staff);
+        $this->activity->log('Imported '.count($services)." accounts from server {$server->name}", $server, properties: ['imported' => count($services), 'not_imported' => $import->not_imported_count, 'stopped' => $import->stop_reason], actor: $staff);
     }
 
     /**

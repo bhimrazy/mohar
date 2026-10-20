@@ -38,7 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   who bring existing accounts in. Fetches run on the `provisioning` queue.
   A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
   without the owner check until fetched again.
-  A second migration adds `server_account_imports.selections`, `reviewed` and `report` (nullable). Ticking and
+  A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
   importing need a recent password; imports run on the `provisioning` queue.
   A Core migration adds `email_changed_at` to `clients` and `users` (nullable), set whenever the address changes.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused

@@ -67,8 +67,14 @@ class ServerImportController extends Controller
                 'fetched_at' => $import->fetched_at?->toIso8601String(),
                 'expires_at' => $import->expires_at->toIso8601String(),
                 'running' => $import->isRunning(),
-                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => count($import->report ?? []), 'total' => count($import->reviewed['rows'] ?? [])] : null,
-                'report' => $import->status === ServerAccountImport::IMPORTING ? null : $import->report,
+                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => $import->imported_count + $import->not_imported_count, 'total' => count($import->reviewed['rows'] ?? [])] : null,
+                // The last import's counts, why it stopped (if it did), and its first lines; the rest are in the activity log.
+                'report' => $import->status === ServerAccountImport::IMPORTING || $import->imported_count + $import->not_imported_count === 0 ? null : [
+                    'imported' => $import->imported_count,
+                    'not_imported' => $import->not_imported_count,
+                    'stop_reason' => $import->stop_reason,
+                    'lines' => $import->reportLines(self::PER_PAGE),
+                ],
             ],
             'counts' => $ready ? [
                 'all' => $import->account_count,
