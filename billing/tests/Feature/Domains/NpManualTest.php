@@ -137,7 +137,13 @@ test('uploads accept only images the registry takes, up to 800 KB', function (Up
 
     expect(NpDocument::query()->count())->toBe(0);
 })->with([
-    'svg' => fn () => UploadedFile::fake()->createWithContent('id.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+    'svg' => function () {
+        // A real file, so its type is read from the bytes as for a browser upload (fake() takes it from the name).
+        $path = (string) tempnam(sys_get_temp_dir(), 'np');
+        file_put_contents($path, '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+
+        return new UploadedFile($path, 'id.png', null, null, true);
+    },
     'over 800 KB' => fn () => fakePng('id.png', 600, 600, noise: true),
 ]);
 
@@ -170,16 +176,19 @@ test('a renewal interrupted after the .np step ran is applied once when retried'
         ->and(($this->registration)()->review_due_on->toDateString())->toBe('2028-10-21');
 });
 
-test('documents are deleted after the retention period, and with a cancelled order', function () {
+test('documents are deleted after the retention period, and 30 days after their order is cancelled', function () {
     ($this->toSubmitted)();
     $kept = NpDocument::query()->sole();
     app(NpWorkflow::class)->decide(($this->registration)(), true, null, null, null, null);
     $other = Domain::factory()->pending()->named('bikash', $this->tld)->create(['registrar_key' => 'np_manual', 'status' => DomainStatus::Cancelled]);
     $orphan = app(NpWorkflow::class)->start($other)->documents()->create(['kind' => 'identity', 'path' => 'np-documents/x', 'original_name' => 'x.png', 'mime' => 'image/png', 'size' => 1]);
 
-    expect(app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2026-11-19')))->toBe(0);
-    expect(app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2026-11-21')))->toBe(2)
-        ->and(Storage::disk(NpDocument::DISK)->exists($kept->path))->toBeFalse()
+    // The cancelled order's document gets its retention date when the daily task first sees it closed.
+    expect(app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2026-11-19')))->toBe(0)
+        ->and($orphan->fresh()->delete_after->toDateString())->toBe('2026-12-19');
+    expect(app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2026-11-20')))->toBe(1)
+        ->and(Storage::disk(NpDocument::DISK)->exists($kept->path))->toBeFalse();
+    expect(app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2026-12-19')))->toBe(1)
         ->and($orphan->fresh())->toBeNull();
 });
 
@@ -192,4 +201,18 @@ test('an interrupted .np submission is recovered by the sync sweep without openi
 
     expect($domain->fresh())->status->toBe(DomainStatus::PendingRegistration)->needs_review->toBeFalse()
         ->and(NpRegistration::query()->where('domain_id', $domain->id)->count())->toBe(1);
+});
+
+test('a request without uploads or staff steps for 90 days is closed and its documents get a retention date', function () {
+    ($this->upload)();
+    $kept = Domain::factory()->pending()->named('active-one', $this->tld)->create(['registrar_key' => 'np_manual']);
+    app(NpWorkflow::class)->start($kept);
+    $this->travelTo(CarbonImmutable::parse('2027-01-18 10:00:00'));
+    app(NpWorkflow::class)->upload(NpRegistration::query()->where('domain_id', $kept->id)->sole(), 'individual', 'identity', fakePng('id.png', 5, 5), null);
+
+    app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2027-01-20'));
+
+    expect($this->domain->fresh()->status)->toBe(DomainStatus::Cancelled)
+        ->and(NpDocument::query()->whereHas('registration', fn ($query) => $query->where('domain_id', $this->domain->id))->value('delete_after')->toDateString())->toBe('2027-02-19')
+        ->and($kept->fresh()->status)->toBe(DomainStatus::Pending);
 });
