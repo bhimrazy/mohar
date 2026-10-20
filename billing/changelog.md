@@ -8,6 +8,22 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
+  `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
+  capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
+  Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
+  hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
+  scheduler process no longer calls registrars itself. The provider pool (`queue:work
+--queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
+  queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
+  ones, so local runs process registrar jobs too.
+- **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
+  off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
+  checked with the registrar (never re-sent) and listed in the sync report. No schema change.
 - **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
   `storefront.publish` (make it live). `storefront.publish` is sensitive: only an exact grant (or `*`) gives it, never
   `storefront.*`, and publishing asks for the password when it was not confirmed recently. Grant both explicitly to
@@ -514,6 +530,14 @@ a time: medians of three runs before and three after, on the same database, on a
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+- Registrar prerequisites (registrars.md §2): a submission or renewal whose outcome was lost is checked in the
+  registrar account with `findSubmission` (executed → applied; in progress → waits for sync; absent or unknown →
+  staff review, never re-sent); registrar ids such as order and transfer ids are kept in `registrar_meta.remote`;
+  the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
+  driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
+- Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+  The registrar gateway also masks the account's configured credentials by value in its log and in the error text
+  that reaches the domain's last error, the activity log and `RegistrarActionFailed`.
 
 ### Orders
 

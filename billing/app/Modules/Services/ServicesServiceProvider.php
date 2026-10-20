@@ -52,7 +52,6 @@ use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
@@ -83,9 +82,6 @@ class ServicesServiceProvider extends ModuleServiceProvider
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
-
-        // Driver commands run on the "provisioning" queue; the dev runner must consume it too.
-        DevCommands::artisan('queue:listen --queue=provisioning,default --tries=1 --timeout=0', 'queue');
 
         // Account import: ticking rows and confirming an import count separately, per staff member.
         RateLimiter::for('services-import-select', fn (Request $request): Limit => Limit::perMinute(120)->by('import-select:'.$request->user()?->id));

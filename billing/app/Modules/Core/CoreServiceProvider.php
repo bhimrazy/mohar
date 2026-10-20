@@ -48,10 +48,12 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\DevCommands;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -104,6 +106,10 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
+        // automation connection keeps its own worker in Platform.
+        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT]).' --tries=1 --timeout=0', 'queue');
+
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Dashboard', 'admin.dashboard', 'LayoutGrid', 'General', 0));
         $navigation->add('admin', new NavItem('Clients', 'admin.clients.index', 'Users', 'Clients', 0, 'core.clients.view', 'admin.clients.*'));

@@ -6,6 +6,14 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar prerequisites (#164)
+
+- `Redactor`: a secret `name=value` pair inside another pair's value (`Rejected: api-key=…`) is masked; it was kept
+  whole. The search inside a value is bounded (2 levels, values up to 4 KB), so long provider text stays linear in
+  time and memory. Signatures unchanged. Compatible: more is masked, nothing that was masked is shown.
+- No other kernel change: `ReconcileStatus` and `Queues::REGISTRAR` are used as they are. The single dev queue worker
+  (`composer dev`) moved to Core and is built from the `Queues` constants.
+
 ### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
 
 - Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes

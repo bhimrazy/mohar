@@ -4,11 +4,13 @@ namespace App\Modules\Domains\Actions;
 
 use App\Data\Services\ProvisionResult;
 use App\Enums\BillingCycle;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRenewed;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Exceptions\RegistrarException;
@@ -18,6 +20,7 @@ use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
+use App\Modules\Domains\Support\RemoteIds;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -29,7 +32,8 @@ use Throwable;
  *
  * Exactly-once: the renewal for a cycle is claimed under a row lock (registrar_meta.renew_sent_for) before
  * the registrar is called. A claim found on entry means an earlier attempt's outcome is unknown; it is
- * verified through `info` when the driver supports it, otherwise the domain is flagged for staff review —
+ * verified with `findSubmission` (capability `reconcile`) or else `info` when the driver supports it, otherwise
+ * the domain is flagged for staff review —
  * a renewal is never re-sent automatically. A renewal is "already applied" only when the expiry reached
  * the requested cycle's end (fromExpiry + years), so an unrelated sync shift never swallows a paid renewal.
  */
@@ -101,7 +105,7 @@ class PerformRenewal
             return $this->failed($domain, $exception->getMessage());
         }
 
-        return $this->applied($domain, $years, $result->expiryDate ?? $this->dates->extend($domain, $years), $result->message ?? 'Domain renewed.');
+        return $this->applied($domain, $years, $result->expiryDate ?? $this->dates->extend($domain, $years), $result->message ?? 'Domain renewed.', $result->remote);
     }
 
     public function failed(Domain $domain, string $error): ProvisionResult
@@ -127,7 +131,7 @@ class PerformRenewal
                 return false;
             }
 
-            $locked->forceFill(['registrar_meta' => [...($locked->registrar_meta ?? []), 'renew_sent_for' => $cycle]])->save();
+            $locked->forceFill(['registrar_meta' => [...($locked->registrar_meta ?? []), 'renew_sent_for' => $cycle, 'renew_sent_at' => now()->toIso8601String()]])->save();
             $domain->setRawAttributes($locked->getAttributes(), true);
 
             return true;
@@ -137,7 +141,7 @@ class PerformRenewal
     private function releaseClaim(Domain $domain): void
     {
         $meta = $domain->registrar_meta ?? [];
-        unset($meta['renew_sent_for']);
+        unset($meta['renew_sent_for'], $meta['renew_sent_at']);
         $domain->forceFill(['registrar_meta' => $meta ?: null])->save();
     }
 
@@ -146,12 +150,26 @@ class PerformRenewal
      */
     private function reconcile(Domain $domain, int $years, ?CarbonImmutable $target, ?int $staffId): ProvisionResult
     {
+        if ($this->gateway->supports($domain, 'reconcile')) {
+            $lookup = $this->lookup($domain, $staffId);
+
+            if ($lookup->status === ReconcileStatus::Executed && ($target === null || $lookup->expiryDate === null || $lookup->expiryDate->gte($target))) {
+                return $this->applied($domain, $years, $lookup->expiryDate ?? $this->dates->extend($domain, $years), 'Renewal found at the registrar; not repeated.', $lookup->remote);
+            }
+
+            return $this->unverified($domain, match ($lookup->status) {
+                ReconcileStatus::InProgress => 'The registrar is still processing the earlier renewal; check it there, then clear the review.',
+                ReconcileStatus::NotExecuted => 'The registrar has no record of the earlier renewal. Clear the review (Change status) and renew again if it is still due.',
+                default => $lookup->message ?? 'An earlier renewal attempt did not finish; verify at the registrar before renewing again.',
+            });
+        }
+
         if ($target !== null && $this->gateway->supports($domain, 'info')) {
             try {
                 $info = $this->gateway->forDomain($domain, 'info', fn (Registrar $registrar): DomainInfo => $registrar->info($domain), staffId: $staffId);
 
                 if ($info->expiryDate !== null && $info->expiryDate->gte($target)) {
-                    return $this->applied($domain, $years, $info->expiryDate, 'Renewal found at the registrar; not repeated.');
+                    return $this->applied($domain, $years, $info->expiryDate, 'Renewal found at the registrar; not repeated.', $info->remote);
                 }
             } catch (Throwable) {
                 // Unverifiable right now: staff review below.
@@ -159,6 +177,23 @@ class PerformRenewal
         }
 
         return $this->unverified($domain, 'An earlier renewal attempt did not finish; verify at the registrar before renewing again.');
+    }
+
+    private function lookup(Domain $domain, ?int $staffId): SubmissionLookup
+    {
+        $sentAt = CarbonImmutable::parse((string) ($domain->registrar_meta['renew_sent_at'] ?? $domain->updated_at ?? now()));
+
+        try {
+            return $this->gateway->forDomain(
+                $domain,
+                'reconcile',
+                fn (Registrar $registrar): SubmissionLookup => $registrar->findSubmission($domain, 'renew', $sentAt),
+                ['command' => 'renew', 'submitted_at' => $sentAt->toIso8601String()],
+                $staffId,
+            );
+        } catch (Throwable) {
+            return new SubmissionLookup(ReconcileStatus::Unknown);
+        }
     }
 
     private function unverified(Domain $domain, string $message): ProvisionResult
@@ -170,11 +205,14 @@ class PerformRenewal
         return new ProvisionResult(false, $message);
     }
 
-    private function applied(Domain $domain, int $years, CarbonImmutable $expiry, string $message): ProvisionResult
+    /**
+     * @param  array<string, string|int>  $remote
+     */
+    private function applied(Domain $domain, int $years, CarbonImmutable $expiry, string $message, array $remote = []): ProvisionResult
     {
         $this->dates->applyExpiry($domain, $expiry);
-        $meta = $domain->registrar_meta ?? [];
-        unset($meta['renew_sent_for']);
+        $meta = RemoteIds::merge($domain->registrar_meta, $remote) ?? [];
+        unset($meta['renew_sent_for'], $meta['renew_sent_at']);
 
         $this->states->transition($domain, DomainStatus::Active, "Renewed for {$years} year(s)", [
             'registrar_meta' => $meta ?: null,
