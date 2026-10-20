@@ -80,15 +80,18 @@ The control plane answers only requests that carry `X-Sim-Token`:
     - Every call needs `Bearer StripeSimulator::SECRET_KEY`.
     - A `Stripe-Version` must be one the simulator knows.
     - A POST with an `Idempotency-Key` replays its first answer, and the same key with other parameters gets `idempotency_error`.
-    - Errors use Stripe's envelope (`resource_missing`, `charge_already_refunded`, `amount_too_small`, `api_key_invalid`).
+    - A request that fails validation (400) saves no idempotent result, as at Stripe, so the corrected retry with the same key runs.
+    - Errors use Stripe's envelope (`resource_missing`, `charge_already_refunded`, `charge_disputed`, `amount_too_small`, `api_key_invalid`).
+    - A session past its `expires_at` expires on its own when next read, and emits `checkout.session.expired`.
 - **Hosted page.** `GET /c/pay/<session>` on the same TLS port, with three forms:
-    - **Pay** creates the PaymentIntent, charge and balance transaction (fee 2.9% + 30), completes the session, and redirects to `success_url`;
+    - **Pay** creates the PaymentIntent, charge and balance transaction (fee 2.9% + 30), completes the session, and redirects to `success_url`. It runs under the lock, so a double click charges once;
     - **Decline** leaves the session open with `card_declined`;
     - **Back** redirects to `cancel_url`.
 - **Webhooks.** Every change is an event (`checkout.session.completed` and `expired`, `payment_intent.succeeded` and `payment_failed`, `refund.created`, `charge.refunded`, `charge.dispute.created`). Each is queued for the URL set with the `webhook_url` action and signed `t=…,v1=…` with `WEBHOOK_SECRET` at delivery. The outbox gives replay, out of order, stale and wrong-secret variants.
 - **Control actions.** `webhook_url` and `dispute`.
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`stripe.api` and `stripe.checkout`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Turn on the Stripe gateway's test mode with the simulator's secret key and webhook secret.
-- **Redaction.** It is a `RedactsPayments` simulator. Live recording waits for a Stripe test account (go-live checklist). Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
+- **Redaction.** It is a `RedactsPayments` simulator.
+- **Drift.** `tests/Stripe/StripeDriftTest.php` replays any `stripe/recordings/*.json` (`source: live`) and is skipped until one exists. A recording run needs a long-lived restricted test key from the owner, as a GitHub or Codespaces secret. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
 
 ## The end-to-end scenario
 
@@ -135,7 +138,9 @@ The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working exampl
 
 ## Callbacks and redirects
 
-- **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale` or `wrong_secret` variant.
+- **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale`, `wrong_secret` or `unsigned` variant.
+    - Only a 2xx answer completes a delivery. Any other answer is retried, as Stripe retries for up to three days: on a compressed backoff (`CallbackDispatcher::BACKOFF_SECONDS`, 0, 1, 2, 4 and 8 s), up to `MAX_ATTEMPTS`. A scenario can set its own schedule with `retryPolicy()`.
+    - `drain()` delivers until nothing retryable is left, and `exhausted()` lists the deliveries that used every attempt.
 - **Browser redirects** carry the provider's signed answer in the return URL's query (Khalti and eSewa returns, S5). They are not outbox deliveries. A `HasControlActions` action (for example `pay`) changes the state and returns `['redirect' => <return_url with its signed query>]`. The test or the E2E runner then follows that URL into the app as the browser would, and tampered or unsigned variants are separate actions. S5 adds these actions; the framework needs nothing more.
 
 ## Limits

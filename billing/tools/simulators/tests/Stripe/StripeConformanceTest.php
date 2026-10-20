@@ -111,8 +111,10 @@ test('errors use Stripe\'s envelope: a wrong key, a missing object, a refund pas
 });
 
 test('an idempotency key replays its first answer, and refuses other parameters', function () {
-    $first = stripeCall('POST', '/v1/checkout/sessions', stripeSession(), ['Idempotency-Key' => 'checkout-abc-123']);
-    $replay = stripeCall('POST', '/v1/checkout/sessions', stripeSession(), ['Idempotency-Key' => 'checkout-abc-123']);
+    // One set of parameters for both calls: expires_at is built from the clock, and a replay must send the same body.
+    $params = stripeSession();
+    $first = stripeCall('POST', '/v1/checkout/sessions', $params, ['Idempotency-Key' => 'checkout-abc-123']);
+    $replay = stripeCall('POST', '/v1/checkout/sessions', $params, ['Idempotency-Key' => 'checkout-abc-123']);
     $changed = stripeCall('POST', '/v1/checkout/sessions', stripeSession(3_000), ['Idempotency-Key' => 'checkout-abc-123']);
 
     expect($replay->json('id'))->toBe($first->json('id'))

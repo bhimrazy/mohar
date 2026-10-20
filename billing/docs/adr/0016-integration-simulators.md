@@ -240,6 +240,15 @@ conformance tests. That is a data file, not running code, but it still goes thro
 
 ### S3 as delivered
 
+- **After the #113 review**, including the 2026-10-20 live-sandbox parity run:
+    - the outbox completes a delivery only on a 2xx and retries anything else on a compressed backoff, up to a maximum number of attempts; `drain()` is included, so a dispute that arrives before its payment books on the retry, with no manual replay (#124);
+    - an `unsigned` delivery variant;
+    - a validation failure saves no idempotent result;
+    - a disputed charge refuses a refund (`charge_disputed`);
+    - sessions expire on their own past `expires_at`;
+    - a double Pay charges once.
+    - The drift test against real Stripe is skipped until a recording run is possible, which needs a long-lived restricted test key from the owner.
+
 - **#100 re-check lows**, carried into S3:
     - keys are anonymised (a data-like key is renamed) and scanned like values;
     - numeric strings are kept only under known-safe keys;
