@@ -5,8 +5,9 @@
 {
 	# Do not try to add the internal CA to this container's trust store.
 	skip_install_trust
-	# The admin API listens inside this container only; it is what a graceful `caddy reload` talks to.
-	admin localhost:2019
+	# The admin API listens inside this container only, on IPv4 (busybox wget resolves localhost to ::1 first); it is
+	# what a graceful `caddy reload` and the deploy script's checks talk to.
+	admin 127.0.0.1:2019
 	# Optional global options from deploy/.env, e.g. CADDY_GLOBAL_OPTIONS="email ops@example.com" for ACME notices.
 	{$CADDY_GLOBAL_OPTIONS:}
 	servers {

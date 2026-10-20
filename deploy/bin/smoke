@@ -194,7 +194,7 @@ stop_loop() {
 }
 assert_live() {
     local live="$1" old="$2"
-    "${compose[@]}" exec -T caddy wget -qO- http://localhost:2019/config/ | grep -q "app-${live}:8080" \
+    "${compose[@]}" exec -T caddy wget -qO- http://127.0.0.1:2019/config/ | grep -q "app-${live}:8080" \
         || fail "Caddy's running configuration does not name app-$live"
     "${curl_tls[@]}" -o /dev/null "${base}/up"
     sleep 1

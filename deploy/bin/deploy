@@ -83,7 +83,7 @@ switch_to() {
         "${compose[@]}" up -d --no-deps caddy
     fi
     for _ in $(seq 20); do
-        "${compose[@]}" exec -T caddy wget -qO- http://localhost:2019/config/ 2>/dev/null | grep -q "app-$colour:8080" && return 0
+        "${compose[@]}" exec -T caddy wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | grep -q "app-$colour:8080" && return 0
         sleep 1
     done
     die "Caddy's running configuration does not name app-$colour after the switch"
