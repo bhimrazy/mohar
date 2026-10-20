@@ -147,7 +147,7 @@ class BillingSeeder extends DemoSeeder
     {
         Gateway::query()->firstOrCreate(['key' => 'bank_transfer'], [
             'display_name' => 'Bank transfer', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 1,
-            'config' => ['instructions' => "Transfer the amount to:\nHosting Co Ltd · IBAN DE89 3704 0044 0532 0130 00 · BIC COBADEFFXXX\nReference: {invoice}"],
+            'config' => ['instructions' => "Transfer the amount in NPR to:\nExample Hosting Pvt. Ltd. · Example Bank Ltd., Lalitpur branch\nAccount no. 0000-0000-0000-0001 (example only)\nReference: {invoice}"],
         ]);
         if (self::sandboxAllowed()) {
             Gateway::query()->firstOrCreate(['key' => SandboxCardDriver::KEY], [

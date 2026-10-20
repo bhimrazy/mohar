@@ -18,7 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
   now runs a clearly fictional host, "Example Hosting" (seller details, support hours, WhatsApp, PAN/VAT,
   registration number, `example.com` email, social and Terms, Privacy and Refund links), and its card gateway is
-  named "Card". The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
+  named "Card"; its bank transfer instructions name a fictional bank and an example NPR account. The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
   country to NP, so NPR invoices carry 13% VAT and INR invoices no longer charge Indian GST. Only the demo seeders
   change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
   seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
