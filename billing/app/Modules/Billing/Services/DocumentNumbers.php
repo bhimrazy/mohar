@@ -10,6 +10,12 @@ use Illuminate\Support\Facades\DB;
 /**
  * Gap-free document numbers (§3). The sequence row is locked FOR UPDATE inside the caller's transaction,
  * so numbers are only consumed when the publishing transaction commits.
+ *
+ * The row is locked first and created only when missing (the first number of a sequence and period). On PostgreSQL,
+ * a concurrent first number waits on the winner's uncommitted row and then locks it, so numbers stay unique and
+ * gapless (RenewalPerfReviewProbesTest). Elsewhere this read-first order is weaker, on the first number of a period
+ * only: a file-backed SQLite database with concurrent writers (local development) can answer SQLITE_BUSY instead of
+ * waiting, and MySQL, which is not supported, would deadlock the two transactions on their gap locks.
  */
 class DocumentNumbers
 {

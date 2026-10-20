@@ -10,6 +10,7 @@ use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Services\Tax\TaxRates;
 use App\Modules\Core\Models\Client;
 use Illuminate\Database\Eloquent\Collection;
+use LogicException;
 
 /**
  * Computes line amounts, tax and totals of a draft invoice from its items and the client's tax context.
@@ -20,9 +21,17 @@ class InvoiceCalculator
     public function __construct(private TaxEngine $tax) {}
 
     /**
-     * @param  Client|null  $client  the invoice's client when the caller has just read it (saves a query)
-     * @param  Collection<int, InvoiceItem>|null  $items  the invoice's open lines in line order when the caller has just
-     *                                                    created them in this transaction (saves a query)
+     * The two optional arguments save a query each when the caller has just read or written them. Both are checked
+     * without a query, and a mismatch throws instead of producing wrong totals:
+     *
+     * @param  Client|null  $client  the invoice's client, read in the caller's transaction and unmodified (it must
+     *                               match `client_id` and not be dirty)
+     * @param  Collection<int, InvoiceItem>|null  $items  every open line of the invoice, in line order. Used only for an
+     *                                                    invoice created in this request (`wasRecentlyCreated`), whose
+     *                                                    lines only its creator wrote; for any other invoice the lines
+     *                                                    are read. Lines of another invoice, or cancelled ones, throw.
+     *
+     * @throws LogicException when $client or $items does not belong to the invoice
      */
     public function recalculate(Invoice $invoice, ?Client $client = null, ?Collection $items = null): void
     {
@@ -30,8 +39,16 @@ class InvoiceCalculator
             throw ImmutableInvoiceException::make();
         }
 
-        $items ??= $invoice->items()->whereNull('cancelled_at')->get();
-        $rates = $this->tax->ratesForClient($client !== null && $client->id === $invoice->client_id ? $client : $invoice->client()->firstOrFail());
+        if ($client !== null && ($client->id !== $invoice->client_id || $client->isDirty())) {
+            throw new LogicException("The client passed to recalculate invoice {$invoice->id} is not its unmodified client.");
+        }
+
+        if ($items !== null && ! $items->every(fn (InvoiceItem $item): bool => $item->invoice_id === $invoice->id && $item->cancelled_at === null)) {
+            throw new LogicException("The lines passed to recalculate invoice {$invoice->id} are not all its open lines.");
+        }
+
+        $items = $items !== null && $invoice->wasRecentlyCreated ? $items : $invoice->items()->whereNull('cancelled_at')->get();
+        $rates = $this->tax->ratesForClient($client ?? $invoice->client()->firstOrFail());
 
         $result = $this->tax->compute(array_values($items->map(fn (InvoiceItem $item): array => [
             'amount' => $item->unit_amount * $item->quantity,

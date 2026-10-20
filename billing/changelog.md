@@ -525,7 +525,8 @@ a time: medians of three runs before and three after, on the same database, on a
     - Issuing reuses the client and the new lines it has just written instead of reading them again, and reads the
       order's payment guard only when there is account credit to apply.
     - Invoice, proforma and quote numbers take one query fewer after a period's first number.
-    - Webhooks no longer build a payload when no endpoint subscribes to the event.
+    - Webhooks no longer build a payload when no endpoint subscribes to the event. As a result, an error in a payload
+      resolver for such an event is no longer reported to the error log; with a subscribed endpoint it still is.
     - The stored result is unchanged: a full renewal run on that data leaves every invoice, line, service link, credit
       entry, transaction, email and queued job identical.
 - Implements `Invoicer`, `TaxCalculator`, `CreditLedger`, `GatewayDirectory` and `InvoiceQueries`, and consults

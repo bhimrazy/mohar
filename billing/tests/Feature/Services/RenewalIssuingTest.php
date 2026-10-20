@@ -1,8 +1,11 @@
 <?php
 
 use App\Enums\BillingCycle;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\InvoiceAdjustment;
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Core\Models\Client;
 use App\Modules\Notifications\Models\EmailMessage;
@@ -34,8 +37,7 @@ function renewalSnapshot(Service $service): array
         'invoice' => [
             'status' => $invoice->status->value,
             ...$invoice->only(['source', 'currency', 'subtotal', 'discount_total', 'tax1_name', 'tax1_rate', 'tax1_amount', 'tax2_name',
-                'tax2_amount', 'total', 'balance', 'version', 'payment_gateway']),
-            'numbered' => $invoice->number !== null,
+                'tax2_rate', 'tax2_amount', 'credit_applied', 'total', 'balance', 'version', 'payment_gateway', 'number', 'proforma_number']),
             'issue_date' => $invoice->issue_date?->toDateString(),
             'due_date' => $invoice->due_date?->toDateString(),
             'paid' => $invoice->paid_at !== null,
@@ -50,11 +52,17 @@ function renewalSnapshot(Service $service): array
         'link' => [...$link->only(['amount', 'discount']), 'kind' => $link->kind->value, 'status' => $link->status->value,
             'period' => $link->period_start?->toDateString().'/'.$link->period_end?->toDateString()],
         'service' => [
+            'status' => $service->status->value,
+            'next_due_date' => $service->next_due_date?->toDateString(),
             'next_invoice_date' => $service->next_invoice_date?->toDateString(),
             'renewals_invoiced' => $service->renewals_invoiced,
             'promotion_cycles_remaining' => $service->promotion_cycles_remaining,
         ],
         'credit_left' => app(CreditLedgerService::class)->balance($service->client_id, 'USD')->amount,
+        'credit_ledger' => CreditLedgerEntry::query()->where('client_id', $service->client_id)->orderBy('id')->get()
+            ->map(fn (CreditLedgerEntry $entry): string => "{$entry->reason->value} {$entry->amount}, balance {$entry->balance_after}".($entry->invoice_id === $invoice->id ? ', this invoice' : ''))->all(),
+        'adjustments' => InvoiceAdjustment::query()->where('invoice_id', $invoice->id)->count(),
+        'transactions' => Transaction::query()->where('invoice_id', $invoice->id)->count(),
         'emails' => EmailMessage::query()->where('client_id', $service->client_id)->orderBy('id')->get()
             ->map(fn (EmailMessage $message): string => $message->template_key.' → '.$message->recipient.' ('.$message->status->value.')')->all(),
         'webhooks' => WebhookDelivery::query()->orderBy('id')->get()
@@ -97,12 +105,13 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
     $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
 
     $invoice = fn (array $fields): array => ['source' => 'system', 'currency' => 'USD', 'discount_total' => 0, 'tax1_name' => 'GST', 'tax1_rate' => '18.000',
-        'tax2_name' => null, 'tax2_amount' => 0, 'payment_gateway' => null, 'numbered' => true, 'issue_date' => '2026-11-01', 'paid' => false, ...$fields];
+        'tax2_name' => null, 'tax2_rate' => '0.000', 'tax2_amount' => 0, 'credit_applied' => 0, 'payment_gateway' => null, 'proforma_number' => null,
+        'issue_date' => '2026-11-01', 'paid' => false, ...$fields];
     $line = fn (array $fields): array => ['quantity' => 1, 'taxable' => true, 'sac_code' => '998315', 'type' => 'service', ...$fields];
 
     expect(renewalSnapshot($promoted))->toEqual([
         'invoice' => $invoice(['status' => 'unpaid', 'subtotal' => 1_099, 'discount_total' => 200, 'tax1_amount' => 198, 'total' => 1_297, 'balance' => 797,
-            'version' => 4, 'due_date' => '2026-11-15', 'client' => 'Part Credit']),
+            'credit_applied' => 500, 'version' => 4, 'number' => '1', 'due_date' => '2026-11-15', 'client' => 'Part Credit']),
         'items' => [
             $line(['description' => 'Starter Hosting - part.example (2026-11-15 - 2026-12-14)', 'unit_amount' => 1_299, 'amount' => 1_299, 'tax_amount' => 234,
                 'period_guard' => 'service:{id}:2026-11-15', 'period' => '2026-11-15/2026-12-15']),
@@ -110,36 +119,45 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
                 'period_guard' => 'promotion:{id}:2026-11-15', 'type' => 'promotion', 'period' => '2026-11-15/2026-12-15']),
         ],
         'link' => ['amount' => 1_099, 'discount' => 200, 'kind' => 'renewal', 'status' => 'open', 'period' => '2026-11-15/2026-12-15'],
-        'service' => ['next_invoice_date' => '2026-12-15', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => 1],
+        'service' => ['status' => 'active', 'next_due_date' => '2026-11-15', 'next_invoice_date' => '2026-12-15', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => 1],
         'credit_left' => 0,
+        'credit_ledger' => ['manual 500, balance 500', 'applied_to_invoice -500, balance 0, this invoice'],
+        'adjustments' => 1,
+        'transactions' => 0,
         'emails' => ['invoice.created → part@example.test (queued)', 'invoice.modified → part@example.test (queued)'],
         'webhooks' => ['invoice.created'],
     ]);
 
     expect(renewalSnapshot($annual))->toEqual([
         'invoice' => $invoice(['status' => 'unpaid', 'subtotal' => 12_000, 'tax1_amount' => 2_160, 'total' => 14_160, 'balance' => 14_160,
-            'version' => 3, 'due_date' => '2026-11-10', 'client' => 'No Credit']),
+            'version' => 3, 'number' => '2', 'due_date' => '2026-11-10', 'client' => 'No Credit']),
         'items' => [
             $line(['description' => 'Business Hosting - none.example (2026-11-10 - 2027-11-09)', 'unit_amount' => 12_000, 'amount' => 12_000, 'tax_amount' => 2_160,
                 'period_guard' => 'service:{id}:2026-11-10', 'period' => '2026-11-10/2027-11-10']),
         ],
         'link' => ['amount' => 12_000, 'discount' => 0, 'kind' => 'renewal', 'status' => 'open', 'period' => '2026-11-10/2027-11-10'],
-        'service' => ['next_invoice_date' => '2027-11-10', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => null],
+        'service' => ['status' => 'active', 'next_due_date' => '2026-11-10', 'next_invoice_date' => '2027-11-10', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => null],
         'credit_left' => 0,
+        'credit_ledger' => [],
+        'adjustments' => 0,
+        'transactions' => 0,
         'emails' => ['invoice.created → none@example.test (queued)'],
         'webhooks' => ['invoice.created'],
     ]);
 
     expect(renewalSnapshot($prepaid))->toEqual([
         'invoice' => $invoice(['status' => 'paid', 'subtotal' => 2_500, 'tax1_amount' => 450, 'total' => 2_950, 'balance' => 0,
-            'version' => 5, 'due_date' => '2026-11-12', 'paid' => true, 'client' => 'Full Credit']),
+            'credit_applied' => 2_950, 'version' => 5, 'number' => '3', 'due_date' => '2026-11-12', 'paid' => true, 'client' => 'Full Credit']),
         'items' => [
             $line(['description' => 'VPS Small (2026-11-12 - 2026-12-11)', 'unit_amount' => 2_500, 'amount' => 2_500, 'tax_amount' => 450,
                 'period_guard' => 'service:{id}:2026-11-12', 'period' => '2026-11-12/2026-12-12']),
         ],
         'link' => ['amount' => 2_500, 'discount' => 0, 'kind' => 'renewal', 'status' => 'paid', 'period' => '2026-11-12/2026-12-12'],
-        'service' => ['next_invoice_date' => '2026-12-12', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => null],
+        'service' => ['status' => 'active', 'next_due_date' => '2026-12-12', 'next_invoice_date' => '2026-12-12', 'renewals_invoiced' => 1, 'promotion_cycles_remaining' => null],
         'credit_left' => 47_050,
+        'credit_ledger' => ['manual 50000, balance 50000', 'applied_to_invoice -2950, balance 47050, this invoice'],
+        'adjustments' => 1,
+        'transactions' => 0,
         'emails' => ['invoice.created → full@example.test (queued)'],
         'webhooks' => ['invoice.created', 'invoice.paid'],
     ]);
