@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Drivers\Registrars;
 
+use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
@@ -166,11 +167,11 @@ class NpManualRegistrar implements Registrar
         $registration = NpRegistration::query()->where('domain_id', $domain->id)->first();
 
         return match (true) {
-            $registration === null => new SubmissionLookup('absent'),
-            $command === 'register' && $registration->stage === NpStage::Approved => new SubmissionLookup('executed', $registration->registry_expires_on),
-            $command === 'register' => new SubmissionLookup('in_progress'),
-            $command === 'renew' && $registration->review_confirmed_at === null && $registration->updated_at?->gte($submittedAt) => new SubmissionLookup('executed'),
-            default => new SubmissionLookup('absent'),
+            $registration === null => new SubmissionLookup(ReconcileStatus::NotExecuted),
+            $command === 'register' && $registration->stage === NpStage::Approved => new SubmissionLookup(ReconcileStatus::Executed, $registration->registry_expires_on),
+            $command === 'register' => new SubmissionLookup(ReconcileStatus::InProgress),
+            $command === 'renew' && $registration->review_confirmed_at === null && $registration->updated_at?->gte($submittedAt) => new SubmissionLookup(ReconcileStatus::Executed),
+            default => new SubmissionLookup(ReconcileStatus::NotExecuted),
         };
     }
 
