@@ -17,6 +17,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -64,25 +66,74 @@ class Client extends Model
     /** Statuses the profile form may set; closing and reopening go through their own audited actions. */
     public const EDITABLE_STATUSES = ['active', 'inactive'];
 
+    /** Who sets the email on the next save (setEmailBy()); not stored. */
+    private ?EmailSource $emailSetBy = null;
+
     protected function casts(): array
     {
         return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime', 'origin' => ClientOrigin::class, 'email_source' => EmailSource::class];
     }
 
     /**
-     * Changing the email address records when (account import flags an address changed recently).
+     * Update a client's details under a row lock, so two edits cannot interleave, recording who set the email.
+     *
+     * @param  array<string, mixed>  $data  validated fields
+     * @return array{0: self, 1: array<string, mixed>} the saved client, and the values of $data's fields before
+     */
+    public static function updateDetails(int $id, array $data, EmailSource $emailSetBy): array
+    {
+        return DB::transaction(function () use ($id, $data, $emailSetBy): array {
+            $client = self::query()->lockForUpdate()->findOrFail($id);
+            $before = $client->only(array_keys($data));
+            $client->fill(Arr::except($data, 'email'));
+
+            if (isset($data['email'])) {
+                $client->setEmailBy($emailSetBy, (string) $data['email']);
+            }
+
+            $client->save();
+
+            return [$client, $before];
+        });
+    }
+
+    /**
+     * Set the email and say who set it: the next save records that source with it.
+     */
+    public function setEmailBy(EmailSource $source, string $email): static
+    {
+        $this->email = $email;
+        $this->emailSetBy = $source;
+
+        return $this;
+    }
+
+    /**
+     * Changing the email address records when, and who set it (account import trusts an address by its source). A
+     * change nobody declared through setEmailBy() counts as the client's own. The source is always written in the
+     * same UPDATE as the email, even when it equals the loaded value (which may be stale).
      */
     protected static function booted(): void
     {
         static::saving(function (self $client): void {
-            // A path that changes the email without saying who set it counts as the client's own (the cautious source).
-            if ($client->isDirty('email') && ! $client->isDirty('email_source')) {
-                $client->email_source = EmailSource::Client;
+            if (! $client->isDirty('email')) {
+                return;
             }
 
-            if ($client->exists && $client->isDirty('email')) {
-                $client->email_changed_at = CarbonImmutable::now();
+            if (! $client->exists) {
+                // A new client: the source its creation path gave, else the cautious one.
+                $client->email_source = $client->emailSetBy ?? $client->email_source ?? EmailSource::Client;
+
+                return;
             }
+
+            $client->email_source = $client->emailSetBy ?? EmailSource::Client;
+            unset($client->original['email_source']);
+            $client->email_changed_at = CarbonImmutable::now();
+        });
+
+        static::saved(function (self $client): void {
+            $client->emailSetBy = null;
         });
     }
 

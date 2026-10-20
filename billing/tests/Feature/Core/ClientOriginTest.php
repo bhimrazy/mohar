@@ -73,3 +73,11 @@ test('the backfill trusts staff only where the activity log shows staff creating
         ->and($state($edited))->toBe([ClientOrigin::SignUp, EmailSource::Staff])
         ->and($state($changedLater))->toBe([ClientOrigin::Staff, EmailSource::Client]);
 });
+
+test('the migration can run again over a run that already added its columns and constraints', function () {
+    $client = Client::factory()->create();
+
+    (require base_path('app/Modules/Core/Database/Migrations/2026_10_20_000190_add_origin_to_clients.php'))->up();
+
+    expect($client->refresh()->email_source)->toBe(EmailSource::Staff);
+});

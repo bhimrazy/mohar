@@ -140,15 +140,8 @@ class ClientController extends Controller
     {
         abort_if($client->merged_into_client_id !== null, 404);
 
-        $original = $client->only(array_keys($request->validated()));
-        $client->fill($request->validated());
-
-        // Staff vouch for an address they enter (account import trusts it).
-        if ($client->isDirty('email')) {
-            $client->email_source = EmailSource::Staff;
-        }
-
-        $client->save();
+        // Locked, so a client-area save cannot interleave; staff vouch for an address they enter (account import).
+        [$client, $original] = Client::updateDetails($client->id, $request->validated(), EmailSource::Staff);
         $changes = array_keys($client->getChanges());
         $diff = collect($changes)
             ->reject(fn (string $key): bool => $key === 'updated_at')

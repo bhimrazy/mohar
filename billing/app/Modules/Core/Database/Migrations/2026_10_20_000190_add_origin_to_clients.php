@@ -21,17 +21,24 @@ return new class extends Migration
 
     public function up(): void
     {
-        Schema::table('clients', function (Blueprint $table) {
-            $table->string('origin', 20)->default(ClientOrigin::SignUp->value);
-            $table->string('email_source', 20)->default(EmailSource::Client->value);
-        });
+        // Each step checks what is already there, so a run that stopped partway can be repeated.
+        foreach (['origin' => ClientOrigin::SignUp, 'email_source' => EmailSource::Client] as $column => $default) {
+            if (! Schema::hasColumn('clients', $column)) {
+                Schema::table('clients', fn (Blueprint $table) => $table->string($column, 20)->default($default->value));
+            }
+        }
 
         if (DB::getDriverName() === 'pgsql') {
             $values = fn (array $cases): string => implode(', ', array_map(fn (BackedEnum $case): string => "'{$case->value}'", $cases));
-            DB::statement('ALTER TABLE clients ADD CONSTRAINT clients_origin_check CHECK (origin IN ('.$values(ClientOrigin::cases()).'))');
-            DB::statement('ALTER TABLE clients ADD CONSTRAINT clients_email_source_check CHECK (email_source IN ('.$values(EmailSource::cases()).'))');
+
+            foreach (['origin' => ClientOrigin::cases(), 'email_source' => EmailSource::cases()] as $column => $cases) {
+                if (! DB::table('pg_constraint')->where('conname', "clients_{$column}_check")->exists()) {
+                    DB::statement("ALTER TABLE clients ADD CONSTRAINT clients_{$column}_check CHECK ({$column} IN (".$values($cases).'))');
+                }
+            }
         }
 
+        // Idempotent: it only ever marks staff, from the activity log.
         $this->backfill();
     }
 
@@ -79,6 +86,10 @@ return new class extends Migration
             DB::statement('ALTER TABLE clients DROP CONSTRAINT IF EXISTS clients_email_source_check');
         }
 
-        Schema::table('clients', fn (Blueprint $table) => $table->dropColumn(['origin', 'email_source']));
+        foreach (['origin', 'email_source'] as $column) {
+            if (Schema::hasColumn('clients', $column)) {
+                Schema::table('clients', fn (Blueprint $table) => $table->dropColumn($column));
+            }
+        }
     }
 };
