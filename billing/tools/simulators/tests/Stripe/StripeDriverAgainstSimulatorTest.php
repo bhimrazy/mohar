@@ -157,6 +157,25 @@ test('a dispute raised at Stripe is recorded as a chargeback, once', function ()
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
 });
 
+test('a dispute delivered before the payment is booked gets a 409, and its retry is booked as a chargeback (#124)', function () {
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    $intent = (string) $this->scenario->state()->get('sessions', PaymentAttempt::query()->sole()->provider_ref)['payment_intent'];
+    $this->scenario->simulator()->actions()['dispute'](['payment_intent' => $intent], $this->scenario);
+
+    // As in the live sandbox: the dispute arrives before the payment's own events.
+    $answers = deliverWebhooks(newestFirst: true);
+    expect($answers[0])->toBe([409, 'payment not booked yet; retry expected'])
+        ->and(array_column($answers, 1))->toContain('payment recorded');
+
+    $dispute = array_values(array_filter(test()->replay, fn (array $delivery): bool => str_contains($delivery['body'], 'charge.dispute.created')));
+    test()->replay = $dispute;
+
+    expect(deliverWebhooks(replay: true))->toBe([[200, 'chargeback recorded']])
+        ->and(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
+});
+
 test('a declined card and then an abandoned checkout leave the invoice unpaid, with the closed attempt on record', function () {
     [, $invoice] = usdInvoice([2_500]);
     $checkout = checkoutFor($invoice);

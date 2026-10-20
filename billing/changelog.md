@@ -128,6 +128,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
   provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
   and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
+  409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
   (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
