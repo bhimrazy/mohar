@@ -11,11 +11,11 @@ use Illuminate\Database\Eloquent\Model;
  * sources is two records.
  *
  * @property int $id
- * @property string $driver csv (whmcs_api later)
+ * @property string $source_system csv (whmcs_api later)
  * @property string $name
  * @property int|null $created_by
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  */
-#[Fillable(['driver', 'name', 'created_by'])]
+#[Fillable(['source_system', 'name', 'created_by'])]
 class MigrationSource extends Model {}

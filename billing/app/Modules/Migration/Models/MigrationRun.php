@@ -15,8 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *
  * @property int $id
  * @property int $migration_source_id
- * @property string $source_kind
- * @property string $entity
+ * @property string $source_system csv (whmcs_api later)
+ * @property string $entity the importer key the run writes ("client")
  * @property string $status
  * @property int $generation
  * @property string|null $file_key
@@ -50,7 +50,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property-read User|null $requester
  */
 #[Fillable([
-    'migration_source_id', 'source_kind', 'entity', 'status', 'generation', 'file_key', 'file_name', 'file_sha256',
+    'migration_source_id', 'source_system', 'entity', 'status', 'generation', 'file_key', 'file_name', 'file_sha256',
     'file_bytes', 'delimiter', 'header', 'mapping', 'options', 'found_values', 'row_count', 'staged_count',
     'checked_count', 'create_count', 'update_count', 'unchanged_count', 'skip_count', 'decision_count', 'error_count',
     'warning_count', 'tax_exempt_count', 'error', 'requested_by', 'heartbeat_at', 'expires_at', 'purged_at',

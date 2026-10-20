@@ -31,7 +31,7 @@ class ClientImportController extends Controller
         $this->authorize('migration.runs.view');
 
         return Inertia::render('admin/migration/upload', [
-            'sources' => MigrationSource::query()->where('driver', 'csv')->orderBy('name')->orderBy('id')->get(['id', 'name']),
+            'sources' => MigrationSource::query()->where('source_system', 'csv')->orderBy('name')->orderBy('id')->get(['id', 'name']),
             'runs' => MigrationRun::query()->with(['source:id,name', 'requester:id,name'])->latest('id')->paginate(25)->withQueryString()
                 ->through(fn (MigrationRun $run): array => [...$this->summary($run), 'source' => $run->source->name]),
             'limits' => [
@@ -51,7 +51,7 @@ class ClientImportController extends Controller
 
         $data = $request->validate([
             'file' => ['required', 'file', 'extensions:csv,txt,tsv', 'max:'.intdiv($this->maxBytes($settings), 1024)],
-            'source_id' => ['nullable', 'integer', Rule::exists('migration_sources', 'id')->where('driver', 'csv')],
+            'source_id' => ['nullable', 'integer', Rule::exists('migration_sources', 'id')->where('source_system', 'csv')],
             'source_name' => ['required_without:source_id', 'nullable', 'string', 'max:100'],
             'delimiter' => ['nullable', Rule::in(array_keys(CsvFile::DELIMITERS))],
             'preset' => ['required', Rule::in(array_keys(ClientColumns::PRESETS))],
