@@ -15,6 +15,16 @@
 		# HTTP/3 needs 443/udp published (compose.prod.yaml does).
 		protocols h1 h2 h3
 	}
+	# Caddy's own log (errors such as a 502 while the app restarts) records the request too: same redaction as the
+	# access log below.
+	log default {
+		output stderr
+		format filter {
+			wrap json
+			request>uri regexp "^(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
+			request>headers>Referer delete
+		}
+	}
 }
 
 {$APP_DOMAIN} {
@@ -29,14 +39,16 @@
 
 	# Access log without secrets: one-time tokens travel in URLs (password reset, staff and account invitations,
 	# email verification paths; signed links' and guest tickets' query strings). Their path segment and every query
-	# string are replaced by REDACTED, and the Referer, which repeats those URLs, is dropped. Caddy already logs
-	# Cookie and Authorization as REDACTED.
+	# string are replaced by REDACTED, in the request URI and in a redirect's Location (a failed form post on a token
+	# page redirects back to it); the Referer, which repeats those URLs, is dropped. Caddy already logs Cookie and
+	# Authorization as REDACTED.
 	log {
 		output stdout
 		format filter {
 			wrap json
 			request>uri regexp "^(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
 			request>headers>Referer delete
+			resp_headers>Location regexp "(/(?:reset-password|staff-invitation|account-invitation|email/verify)/)[^?]*|(\?).*$" "${1}${2}REDACTED"
 		}
 	}
 }
