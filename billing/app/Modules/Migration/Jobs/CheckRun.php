@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -81,7 +82,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
                 }
             }
 
-            $payload = ['client' => $normalized['client'], 'extra' => $normalized['extra'], 'blank' => $normalized['blank']];
+            $payload = ['client' => $normalized['client'], 'defaults' => $normalized['defaults'], 'extra' => $normalized['extra'], 'blank' => $normalized['blank']];
             $rows[] = [
                 'row' => $record->row_number,
                 'source_id' => $sourceId ?? "row:{$record->row_number}",
@@ -122,18 +123,33 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             ];
         }
 
-        foreach (array_chunk($writes, 250) as $chunk) {
-            MigrationRecord::query()->upsert($chunk, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes']);
-        }
-
         $last = $records->last()->row_number;
-        $run->forceFill([
-            'checked_count' => ($this->afterRow === 0 ? 0 : $run->checked_count) + $records->count(),
-            'tax_exempt_count' => ($this->afterRow === 0 ? 0 : $run->tax_exempt_count) + $taxExempt,
-            'found_values' => $found,
-            'heartbeat_at' => now(),
-        ])->save();
-        dispatch(new self($run->id, $this->generation, $last));
+        // Write only while this check is still the run's current one: a new mapping (a new generation) may have
+        // started while this chunk was being checked.
+        $current = DB::transaction(function () use ($run, $writes, $records, $taxExempt, $found): bool {
+            $locked = MigrationRun::query()->lockForUpdate()->find($run->id);
+
+            if ($locked?->status !== MigrationRun::CHECKING || $locked->generation !== $this->generation) {
+                return false;
+            }
+
+            foreach (array_chunk($writes, 250) as $chunk) {
+                MigrationRecord::query()->upsert($chunk, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes']);
+            }
+
+            $locked->forceFill([
+                'checked_count' => ($this->afterRow === 0 ? 0 : $locked->checked_count) + $records->count(),
+                'tax_exempt_count' => ($this->afterRow === 0 ? 0 : $locked->tax_exempt_count) + $taxExempt,
+                'found_values' => $found,
+                'heartbeat_at' => now(),
+            ])->save();
+
+            return true;
+        });
+
+        if ($current) {
+            dispatch(new self($run->id, $this->generation, $last));
+        }
     }
 
     public function failed(?Throwable $exception): void

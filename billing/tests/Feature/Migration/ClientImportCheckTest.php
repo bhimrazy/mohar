@@ -2,11 +2,16 @@
 
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Migration\Jobs\CheckRun;
+use App\Modules\Migration\Jobs\StageCsvRun;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\ClientColumns;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\Migration\ClientCsv;
@@ -85,7 +90,7 @@ test('a currency that is not enabled is an error unless mapped, and a blank curr
     $rows = checkedRows($run);
 
     expect($rows[1]->status)->toBe('error')->and(collect($rows[1]->problems)->pluck('field')->all())->toBe(['currency'])
-        ->and($rows[2]->normalized['client']['currency'])->toBe('NPR')
+        ->and($rows[2]->normalized['defaults']['currency'])->toBe('NPR')->and($rows[2]->normalized['client'])->not->toHaveKey('currency')
         ->and($run->found_values['currencies'])->toBe(['GBP' => 1]);
 
     $rows = checkedRows(ClientCsv::check($run, ['currencies' => ['GBP' => 'USD']]));
@@ -123,4 +128,48 @@ test('checking a chunk issues the same number of queries whatever its size', fun
     };
 
     expect($count(150))->toBe($count(15));
+});
+
+test('no log record or queued payload carries a cell value while checking', function () {
+    $logged = [];
+    Event::listen(MessageLogged::class, function (MessageLogged $event) use (&$logged): void {
+        $logged[] = $event->message.json_encode($event->context);
+    });
+    Queue::fake();
+    $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'not-an-email'), ClientCsv::row('2', 'tracer.value@example.com', country: 'Narnia')]));
+    (new StageCsvRun($run->id))->handle(app(ActivityLogger::class));
+    $this->put(route('admin.migration.imports.mapping', $run), ['columns' => $run->fresh()->mapping['columns'], 'options' => ['on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import']]);
+    $job = Queue::pushed(CheckRun::class)->first();
+    $job->withFakeQueueInteractions()->handle();
+
+    expect(serialize($job))->not->toContain('tracer.value')
+        ->and($run->fresh()->checked_count)->toBe(2)
+        ->and(implode("\n", $logged))->not->toContain('tracer.value')->not->toContain('Narnia')
+        ->and(json_encode($run->records()->pluck('problems')))->not->toContain('tracer.value')->not->toContain('Narnia')->not->toContain('not-an-email');
+});
+
+test('a check from an earlier mapping writes nothing, and saving the mapping a check runs with starts no second check', function () {
+    Queue::fake();
+    $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')]));
+    (new StageCsvRun($run->id))->handle(app(ActivityLogger::class));
+    $mapping = ['columns' => $run->fresh()->mapping['columns'], 'options' => ['on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import']];
+
+    $this->put(route('admin.migration.imports.mapping', $run), $mapping)->assertSessionHasNoErrors();
+    $this->put(route('admin.migration.imports.mapping', $run), $mapping)->assertSessionHasNoErrors();
+    expect(Queue::pushed(CheckRun::class))->toHaveCount(1)->and($run->fresh()->generation)->toBe(1);
+
+    $this->put(route('admin.migration.imports.mapping', $run), [...$mapping, 'options' => [...$mapping['options'], 'on_match' => 'update']]);
+    (new CheckRun($run->id, 1))->withFakeQueueInteractions()->handle();
+
+    expect($run->fresh()->generation)->toBe(2)->and($run->fresh()->checked_count)->toBe(0)
+        ->and($run->records()->whereNotNull('status')->count())->toBe(0);
+});
+
+test('mapping needs the execute permission', function () {
+    $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')]));
+    actingAsStaff(['migration.runs.view']);
+    confirmPassword();
+
+    $this->put(route('admin.migration.imports.mapping', $run), ['columns' => $run->mapping['columns'],
+        'options' => ['on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import']])->assertForbidden();
 });

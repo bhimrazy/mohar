@@ -48,13 +48,15 @@ final class RowNormalizer
 
     /**
      * @param  array<int, string>  $raw  cells by column position
-     * @return array{client: array<string, mixed>, extra: array<string, mixed>, blank: list<string>, problems: list<array{severity: string, code: string, message: string, field?: string}>, found: array<string, list<string>>}
+     * @return array{client: array<string, mixed>, defaults: array<string, mixed>, extra: array<string, mixed>, blank: list<string>, problems: list<array{severity: string, code: string, message: string, field?: string}>, found: array<string, list<string>>}
      */
     public function normalize(array $raw): array
     {
         $this->problems = [];
         $this->found = [];
-        $client = ['tax_exempt' => false, 'currency' => $this->defaultCurrency, 'status' => 'active', 'language' => $this->locales[0]];
+        // Only mapped, non-blank cells become client values; defaults apply when a row creates a client, never to an update.
+        $client = [];
+        $defaults = ['tax_exempt' => false, 'currency' => $this->defaultCurrency, 'status' => 'active', 'language' => $this->locales[0]];
         $extra = ['imported_fields' => []];
         $blank = [];
 
@@ -102,14 +104,14 @@ final class RowNormalizer
         }
 
         $this->spreadsheetArtefacts($client);
-        $validator = Validator::make($client, ClientRules::fields())
+        $validator = Validator::make([...$defaults, ...$client], ClientRules::fields())
             ->setAttributeNames(array_map(mb_strtolower(...), ClientColumns::TARGETS));
 
         foreach ($validator->errors()->messages() as $field => $messages) {
             $this->problem('error', 'invalid', $messages[0], $field);
         }
 
-        return ['client' => $client, 'extra' => $extra, 'blank' => $blank, 'problems' => $this->problems, 'found' => $this->found];
+        return ['client' => $client, 'defaults' => $defaults, 'extra' => $extra, 'blank' => $blank, 'problems' => $this->problems, 'found' => $this->found];
     }
 
     private function clean(string $value, bool $multiline): string

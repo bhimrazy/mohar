@@ -65,8 +65,8 @@ class MigrationServiceProvider extends ModuleServiceProvider
     {
         $purged = 0;
 
-        MigrationRun::query()->whereNull('purged_at')->where('expires_at', '<=', now())->whereNull('applied_at')->orderBy('id')
-            ->each(function (MigrationRun $run) use (&$purged): void {
+        MigrationRun::query()->whereNull('purged_at')->where('expires_at', '<=', now())->whereNull('applied_at')
+            ->lazyById(100)->each(function (MigrationRun $run) use (&$purged): void {
                 if ($run->file_key !== null) {
                     Storage::disk('objects')->delete($run->file_key);
                 }
