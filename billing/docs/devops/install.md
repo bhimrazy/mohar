@@ -4,7 +4,8 @@ How to install the billing app on a new server, from an empty database to a sign
 upgrade it later. For a development machine with demo data, use [local-setup.md](local-setup.md) instead.
 
 This page installs the app on the host itself (PHP, a web server, systemd or Supervisor). To run everything in
-containers on one Docker host, behind Caddy, follow [production.md](production.md) instead.
+containers on one Docker host, behind Caddy, follow [production.md](production.md) instead; on a cPanel shared
+account, [cpanel.md](cpanel.md) (cron mode).
 
 The install is a CLI step, `php artisan app:install`. A web installer is not part of v1.
 

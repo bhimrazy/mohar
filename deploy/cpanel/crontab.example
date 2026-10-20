@@ -1,0 +1,18 @@
+# cPanel "cron mode" (billing/docs/devops/cpanel.md): the scheduler and one short-lived worker per ADR 0014 pool,
+# started every minute. cPanel -> Cron Jobs -> "Once Per Minute", one entry per line below (or `crontab -e` over SSH).
+#
+# - PHP is EasyApache's PHP 8.4 (ea-php84); ask the host for its path if it differs.
+# - The app lives in ~/billing (the release tarball extracted in the home directory), and the domain's document root
+#   points at ~/billing/public.
+# - A worker stops when its queue is empty or after 55 s, so the next minute's run takes over; `flock -n` skips a run
+#   while the previous one of the same pool is still busy with a long job, so a pool never runs twice.
+# - The last line runs **Run now** from Automation on its own `automation` connection (the connection argument
+#   matters; install.md §6): one run at a time, up to an hour, never retried.
+# - Without `flock` on the server, drop the `flock -n storage/framework/cron-*.lock` part: two workers of one pool
+#   never take the same job (the queue reserves it), they only use more memory.
+# deploy/cpanel/simulate-cron runs exactly these lines.
+* * * * * cd "$HOME/billing" && /opt/cpanel/ea-php84/root/usr/bin/php artisan schedule:run >> storage/logs/cron.log 2>&1
+* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-critical.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=payments,provisioning,registrar --stop-when-empty --max-time=55 --tries=3 --timeout=200 >> storage/logs/cron.log 2>&1
+* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-notifications.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=notifications,webhooks --stop-when-empty --max-time=55 --tries=3 --timeout=90 >> storage/logs/cron.log 2>&1
+* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-default.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work --queue=default --stop-when-empty --max-time=55 --tries=3 --timeout=90 >> storage/logs/cron.log 2>&1
+* * * * * cd "$HOME/billing" && flock -n storage/framework/cron-automation.lock /opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work automation --queue=automation --stop-when-empty --max-time=55 --tries=1 --timeout=3600 >> storage/logs/cron.log 2>&1
