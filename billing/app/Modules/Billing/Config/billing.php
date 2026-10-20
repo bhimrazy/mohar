@@ -48,6 +48,10 @@ return [
     'gateways' => [
         'lookup_interval_minutes' => 5,
         'lookup_grace_minutes' => 120,
+        // Closed attempts are still looked up hourly this long after they started, for late payments (0 = off, max 168),
+        // at most late_lookups_per_run of them per hourly run.
+        'late_lookup_hours' => 48,
+        'late_lookups_per_run' => 100,
         'http_timeout_seconds' => 15,
         'ambiguous_alert_minutes' => 30,
     ],
