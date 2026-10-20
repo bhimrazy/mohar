@@ -8,6 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **`.np` manual registrar** (`np_manual`). Run `php artisan migrate`: it adds the `np_registrations` and
+  `np_documents` tables. The new permission `domains.np.review` covers reviewing registrant documents and recording
+  registry steps. `domains.*` grants it; grant it explicitly to other staff who handle `.np` requests. Registrant
+  documents are stored encrypted on the `objects` disk and deleted 30 days after approval or rejection
+  (`domains.np_document_retention_days`). Two new automation tasks run this: "Flag overdue .np status checks" and
+  "Delete old .np documents".
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
   `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
@@ -443,6 +449,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
   driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
 - Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+- `.np` manual registrar (registrars.md §9). The registry has no API, so a paid `.np` order opens a staff workflow
+  and the domain waits in `pending_registration`:
+    1. The client uploads identity or company documents: JPG, PNG or GIF, up to 800 KB, encrypted at rest.
+    2. Staff check them against a checklist, submit the request in the registry portal, then record the answer.
+       Approval activates the domain through the normal sync, with the registry's renewal date if one is shown. A
+       rejection returns it to `pending` for resubmission.
+    3. Renewals reschedule the registry status check, and a check date that passes unconfirmed flags the domain.
+
+    Staff to-dos list requests waiting for staff and those overdue at the registry: submitted past the SLA (4
+    business days by default), or rejected and not resubmitted within 2 business days. Saturdays are not business
+    days. Clients get a to-do while their documents are needed. Staff open documents through signed links that expire
+    after 15 minutes. Admin and client screens follow in the next PR.
 
 ### Orders
 

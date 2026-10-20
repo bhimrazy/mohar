@@ -580,19 +580,23 @@ The same layout will hold control panels and registrars on their own pages (`con
 
 Shared = the Domains module's own code, run with the scriptable `FakeRegistrar` or every shipped driver.
 Tests: `tests/Feature/Domains/` (`RC` = `ReconcileTest.php`, `CT` = `RegistrarContractTest.php`, which runs
-`tests/Support/Contracts/RegistrarDriverContract.php` per driver, `XO` = `ExactlyOnceTest.php`).
+`tests/Support/Contracts/RegistrarDriverContract.php` per driver, `XO` = `ExactlyOnceTest.php`, `NP` =
+`NpManualTest.php`). `np_manual` makes no remote calls, so its live-sandbox row is `n/a`.
 
-| ID    | Case                                                                         | Shared | log |
-| ----- | ---------------------------------------------------------------------------- | ------ | --- |
-| RG-01 | Settings typed; credential-like keys are secrets with no default             | —      | CT  |
-| RG-02 | Calls outside the capabilities throw `CapabilityNotSupported`                | —      | CT  |
-| RG-03 | Every call answers with one documented outcome (result or registrar error)   | —      | CT  |
-| RG-04 | Credentials in requests and error text never reach the command log (C5)      | —      | CT  |
-| RG-05 | Unknown register/transfer outcome parks the domain, never re-sent            | XO     | n/a |
-| RG-06 | Lost submission resolved by `findSubmission` (executed, in progress, absent) | RC     | CT  |
-| RG-07 | Lost renewal applied only when the registrar shows it ran                    | RC, XO | CT  |
-| RG-08 | A submission a killed worker left `pending` is swept and verified (#12)      | RC     | n/a |
-| RG-09 | Registrar ids (`remote`) kept for later calls; malformed ones dropped        | RC     | n/a |
-| RG-10 | Live sandbox run                                                             | n/a    | n/a |
+| ID    | Case                                                                         | Shared | log | np_manual |
+| ----- | ---------------------------------------------------------------------------- | ------ | --- | --------- |
+| RG-01 | Settings typed; credential-like keys are secrets with no default             | —      | CT  | CT        |
+| RG-02 | Calls outside the capabilities throw `CapabilityNotSupported`                | —      | CT  | CT        |
+| RG-03 | Every call answers with one documented outcome (result or registrar error)   | —      | CT  | CT        |
+| RG-04 | Credentials in requests and error text never reach the command log (C5)      | —      | CT  | CT        |
+| RG-05 | Unknown register/transfer outcome parks the domain, never re-sent            | XO     | n/a | n/a       |
+| RG-06 | Lost submission resolved by `findSubmission` (executed, in progress, absent) | RC     | CT  | CT        |
+| RG-07 | Lost renewal applied only when the registrar shows it ran                    | RC, XO | CT  | NP        |
+| RG-08 | A submission a killed worker left `pending` is swept and verified (#12)      | RC     | n/a | NP        |
+| RG-09 | Registrar ids (`remote`) kept for later calls; malformed ones dropped        | RC     | n/a | n/a       |
+| RG-10 | Live sandbox run                                                             | n/a    | n/a | n/a       |
+| RG-11 | Manual workflow: documents, review, portal submission, registry answer       | —      | n/a | NP        |
+| RG-12 | Registrant documents encrypted, account-scoped, staff-only signed links      | —      | n/a | NP        |
+| RG-13 | Staff SLA and rejected-resubmission to-dos count business days               | —      | n/a | NP        |
 
 Columns are the drivers (one per provider), plus a "Shared" column for the module's own code, exactly as above.

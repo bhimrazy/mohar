@@ -286,6 +286,12 @@ Calls never leave the app. `register()` creates the workflow and returns `Regist
 `client_reminder_days` (`[1,3,7]`), `staff_sla_business_days` (4), `hostmaster_email`.
 
 **Workflow** (`registrar_meta.np.stage` + timestamps; each change writes activity log + staff todo):
+_Built 2026-10-20 with its own `np_registrations` table (stage, applicant type, dates, rejection cause) instead of
+`registrar_meta.np`, so the staff to-dos query indexed columns, and `np_documents` for the files. SVG uploads are
+refused (they can carry script and we have no sanitiser). The driver also declares `reconcile`, so the sync sweep
+resolves an interrupted submission without opening a second request. Not yet built: client document reminders
+(`client_reminder_days`, these need an email template) and nameserver/contact changes after approval (staff make
+them in the portal). The pre-filled request letter also waits, with the screens PR._
 
 | Stage                | Who                                                                                                                                                                 | Exit                                                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
