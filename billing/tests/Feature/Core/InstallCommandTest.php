@@ -15,6 +15,7 @@ use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Models\Role;
 use App\Modules\Core\Support\Settings;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Http\Client\ConnectionException;
@@ -105,6 +106,19 @@ test('an install on an empty database creates the reference data and one full ad
         ->and(json_encode($log->properties))->not->toContain($match[1]);
 
     Event::assertDispatched(StaffCreated::class, fn (StaffCreated $event) => $event->userId === $admin->id);
+});
+
+test('the next steps print the worker pools that install.md documents, the automation worker included', function () {
+    [$status, $output] = runInstall(['--admin-email' => 'owner@example.test']);
+    $guide = (string) file_get_contents(base_path('docs/devops/install.md'));
+
+    expect($status)->toBe(0)
+        ->and(Queues::workerCommands())->toContain('php artisan queue:work automation --queue=automation --tries=1 --timeout='.Queues::AUTOMATION_TIMEOUT_SECONDS);
+
+    foreach (Queues::workerCommands() as $command) {
+        expect($output)->toContain($command)
+            ->and($guide)->toContain($command);
+    }
 });
 
 test('a second run changes nothing and reports every row unchanged', function () {
