@@ -1,5 +1,7 @@
 <?php
 
+use PHPUnit\Framework\ExpectationFailedException;
+
 /*
  * Extension and driver rules (ADR 0009, ADR 0012). Kept apart from ArchitectureTest.php so the arch plugin's
  * parsed-source cache stays small per file (see the Arch hook in tests/Pest.php).
@@ -34,15 +36,27 @@ arch('concrete driver registries are final')
     ->expect('App\Support\Services\ProvisioningDriverRegistry')
     ->toBeFinal();
 
-// Record importers write quietly (client-import spec §9, AC 2): no domain event other than the run's own, no mail or
-// notification, and no driver that could reach a provider.
-arch('record importers send nothing and call no driver')
-    ->expect(array_map(fn (string $module): string => 'App\\Modules\\'.basename($module).'\\Import', glob(dirname(__DIR__, 2).'/app/Modules/*', GLOB_ONLYDIR) ?: []))
-    ->not->toUse([
-        'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification',
-        'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning', 'App\Contracts\Billing\GatewayDriver',
-        'App\Contracts\Billing\HostedPaymentDriver', 'App\Support\Services\ProvisioningDriverRegistry',
+/** What a record importer may not use (client-import spec §9, AC 2): it writes quietly and reaches no provider. */
+function importerForbidden(): array
+{
+    return [
+        'event', 'dispatch', 'Illuminate\Contracts\Events\Dispatcher', 'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Bus',
+        'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification', 'App\Contracts\Notifications\SystemMailer',
+        'App\Contracts\Auth\AuthMailer', 'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning',
+        'App\Contracts\Billing\GatewayDriver', 'App\Contracts\Billing\HostedPaymentDriver', 'App\Support\Services\ProvisioningDriverRegistry',
         ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob(dirname(__DIR__, 2).'/app/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
-    ]);
+    ];
+}
+
+// Only namespaces that exist: Pest passes a whole list when one of its namespaces has no classes.
+$importerNamespaces = array_map(fn (string $path): string => 'App\\Modules\\'.basename(dirname($path)).'\\Import', glob(dirname(__DIR__, 2).'/app/Modules/*/Import', GLOB_ONLYDIR) ?: []);
+
+foreach ($importerNamespaces as $namespace) {
+    arch("{$namespace} writes quietly and calls no driver")->expect($namespace)->not->toUse(importerForbidden());
+}
+
+test('the record-importer rule refuses an importer that dispatches an event', function () {
+    expect(fn () => expect('Tests\Fixtures\Migration\Import')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
+});
 
 afterAll(fn () => releaseArchCache());

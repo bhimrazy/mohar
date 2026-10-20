@@ -24,9 +24,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   records and refund any duplicate.
 
 - **The default queue worker also runs client imports** (client-import spec C2): start it as
-  `php artisan queue:work --queue=default,imports --tries=3 --timeout=150` (it was `--queue=default`), and give it a stop
-  timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked after
-  `default`, and stop themselves after 120 s. Without the change, client imports wait in the queue.
+  `php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256` (it was `--queue=default`), and give
+  it a stop timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked
+  after `default`, stop themselves after 120 s and may use up to 192 MB. Without the change, client imports wait in the
+  queue. On SQS, give the `imports` queue a visibility timeout of at least 150 s.
 
 - **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
   migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
