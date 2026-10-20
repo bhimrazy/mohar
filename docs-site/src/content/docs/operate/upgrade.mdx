@@ -16,26 +16,38 @@ See [Backups](../backups/).
 1. Check **Setup → Automation**: if the daily run or a **Run now** is in progress, wait for it to finish. Then back
    up the database.
 
-2. Get the new release into the install folder (for example check out its tag), then build the new image.
+2. Get the new release into the install folder (for example check out its tag), then deploy it.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml build
+    deploy/bin/deploy
     ```
 
-3. Start the new version.
-
-    ```bash
-    docker compose -f deploy/compose.prod.yaml up -d --wait
-    ```
-
-    The `migrate` service applies the database changes before the new app and workers start. The site is unavailable
-    for the few seconds the new app takes to pass its health check. Workers and the scheduler finish their current
-    work first: while an automation run is in progress, this command waits for it, up to an hour.
+    To deploy an image you pushed to a registry instead of building on the host:
+    `deploy/bin/deploy --image ghcr.io/<owner>/<repo>@sha256:<digest>`.
 
 </Steps>
 
-**Rolling back:** build or deploy the previous release the same way. Database changes are not reversed. If the
-release you are leaving removed or renamed something in the database, restore the backup you took in step 1.
+### What the deploy does (blue-green)
+
+The stack runs two copies of the app, *blue* and *green*; one is live. A deploy builds the new release, checks that
+its database changes keep the live version working, applies them, and starts the new version beside the live one.
+Only when the new version passes its health check does the web server switch traffic to it, without a gap. Then the
+background workers move over: each finishes its current job first. The scheduler and the automation worker move
+last, and while an automation run is in progress the deploy waits for it, up to an hour. The previous version keeps
+running, ready for a rollback.
+
+If the new version does not become healthy, the deploy stops it and traffic stays where it was. To see which copy is
+live: `deploy/bin/deploy status`.
+
+**Rolling back:**
+
+```bash
+deploy/bin/deploy rollback   # back to the previous version, which is still running; run it again to roll forward
+deploy/bin/deploy retire     # once you are sure: stop the previous version to free its memory
+```
+
+Database changes are not reversed, and do not need to be: each release's changes keep the previous release working.
+If a release broke that rule, restore the backup you took in step 1.
 
 </TabItem>
 <TabItem label="Without Docker">
