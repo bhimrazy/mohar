@@ -121,8 +121,9 @@ services:
                     cpus: '1.0'
                     memory: 512M
 
-    # ADR 0014 pools. --timeout is at least the provisioning cap (180 s + 20 s lock slack) and stays below the
-    # queue's retry_after (240 s); stop_grace_period lets a running job finish before the container is killed.
+    # ADR 0014 pools: the commands of App\Support\Queues::workerCommands() (install.md §6), plus --max-time=3600 so
+    # each pool restarts hourly. --timeout is at least the provisioning cap (180 s + 20 s lock slack) and stays below
+    # the queue's retry_after (240 s); stop_grace_period lets a running job finish before the container is killed.
     worker-critical:
         <<: *worker
         command:
@@ -149,10 +150,9 @@ services:
                 'queue:work',
                 '--queue=notifications,webhooks',
                 '--tries=3',
-                '--timeout=90',
                 '--max-time=3600',
             ]
-        stop_grace_period: 100s
+        stop_grace_period: 70s
         deploy:
             resources:
                 limits:
@@ -168,10 +168,22 @@ services:
                 'queue:work',
                 '--queue=default',
                 '--tries=3',
-                '--timeout=90',
                 '--max-time=3600',
             ]
-        stop_grace_period: 100s
+        stop_grace_period: 70s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 384M
+
+    # "Run now" from Admin -> Automation, on its own `automation` connection (retry_after 3,900 s, above the job's
+    # 3,600 s timeout). The connection argument matters: `--queue=automation` alone would read these jobs with the
+    # default connection's 240 s retry_after. One worker is enough. The stop grace waits for a run in progress.
+    worker-automation:
+        <<: *worker
+        command: ['php', 'artisan', 'queue:work', 'automation', '--queue=automation', '--tries=1', '--timeout=3600']
+        stop_grace_period: 3660s
         deploy:
             resources:
                 limits:

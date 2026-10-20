@@ -610,7 +610,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### DevOps
 
 - Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
-  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools, the scheduler, a one-shot
+  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools and the automation worker
+  (`queue:work automation`, 3,660 s stop grace), the scheduler, a one-shot
   migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
   resource limits. Runbook: `docs/devops/production.md` (install, update, backup, restore, rollback, Traefik
   variant); settings: `deploy/.env.production.example`. `deploy/bin/smoke` and the manual "Deploy smoke" workflow
