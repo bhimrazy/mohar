@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `php artisan queue:work --queue=default,imports --tries=3 --timeout=150` (it was `--queue=default`), and give it a stop
   timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked after
   `default`, and stop themselves after 120 s. Without the change, client imports wait in the queue.
+- **Client import files can be 20 MB.** The container's PHP `upload_max_filesize` is now 21M (was 12M). On other
+  installs, raise `upload_max_filesize` (and `post_max_size`) to at least 21M; the Import clients page says when PHP
+  accepts less than the setting. New permissions `migration.runs.view` and `migration.runs.execute` (sensitive: never
+  granted by a wildcard, needs a recent password) control the page.
 
 - **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
   migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
@@ -139,6 +143,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Client import
+
+- **Admin → Clients → Import clients**: upload a CSV file of clients (up to 20 MB, 100,000 rows and 200 columns; each
+  a setting) into a named source. Files must be UTF-8 (other encodings are refused with the fix); the separator
+  (comma, semicolon or tab) is detected or chosen. The file is encrypted before it is stored, read on the `imports`
+  queue into encrypted rows 500 at a time, and then deleted. Columns named like passwords, card numbers or security
+  answers are never stored. The page shows the progress, a "did not finish" alert after 10 minutes without a worker
+  with a button to continue, every earlier upload, and a notice when the same file was uploaded to the source before.
+- Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
+  expired client imports"); their counts stay.
 
 ### Platform foundation
 
