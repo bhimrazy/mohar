@@ -108,12 +108,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
   a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
   uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
-- Developers get `php artisan simulate:list|start|stop|clean|record` (ADR 0016) from the dev-only `mohar/simulators`
+- Developers get `php artisan simulate:list|start|stop|clean|record|scan` (ADR 0016) from the dev-only `mohar/simulators`
   package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
   CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
-  commit, a reset before commit, certificate rotation) and signed callbacks. No provider simulator ships yet; `whm`
-  and `stripe` follow. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+  commit, a reset before commit, certificate rotation) and signed callbacks. The first provider simulator is `whm`;
+  `stripe` follows. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
 --no-dev` build contains neither the commands nor the package (checked in CI).
+- Developers get a `whm` simulator (`php artisan simulate:start whm`), a stateful cPanel & WHM server. Point a cPanel
+  server at it (host 127.0.0.1, the printed port and token), run Test connection and trust its certificate, and the
+  real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
+  including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
+  comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
