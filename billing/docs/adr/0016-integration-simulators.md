@@ -238,6 +238,42 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - `StateStore::transaction()`, nestable.
     - The API kernel logs a committed call before a `commit_then_hang` delay.
 
+### S3 as delivered
+
+- **After the #113 review**, including the 2026-10-20 live-sandbox parity run:
+    - the outbox completes a delivery only on a 2xx and retries anything else on a compressed backoff, up to a maximum number of attempts; `drain()` is included, so a dispute that arrives before its payment books on the retry, with no manual replay (#124);
+    - an `unsigned` delivery variant;
+    - a validation failure saves no idempotent result;
+    - a disputed charge refuses a refund (`charge_disputed`);
+    - sessions expire on their own past `expires_at`;
+    - a double Pay charges once.
+    - Forged delivery variants leave the genuine delivery's attempts, schedule and completion untouched (#113 re-review).
+    - Drift against real Stripe: a recording script (`StripeRecording`, `simulate:record stripe`) replayed as the same sequence against the simulator, normalised, and compared on the paths the driver reads. Recording is deferred by CTO decision until the owner provides a long-lived restricted test key as a GitHub or Codespaces secret; the live check is skipped until then.
+
+- **#100 re-check lows**, carried into S3:
+    - keys are anonymised (a data-like key is renamed) and scanned like values;
+    - numeric strings are kept only under known-safe keys;
+    - WHM's free-text reason is scrubbed of emails, URLs, addresses and host names;
+    - each recording notes its login, and the drift replay uses it instead of assuming root.
+
+- **The simulator.** `stripe` (`tools/simulators/src/Providers/Stripe`) provides:
+    - stateful Checkout Sessions with a hosted page (pay, decline, back), PaymentIntents, Charges, balance transactions, Refunds and Disputes;
+    - `expand[]`, idempotency keys and the API version check;
+    - every change as an event, signed for the app's webhook endpoint.
+- **Driver change** (#90, the only product change):
+    - `StripeClient` takes its base URL and request options from `Endpoints::for('stripe.api')`;
+    - the checkout URL check compares host and port with `Endpoints::for('stripe.checkout')`;
+    - without an override the options are `[]` and the hosts are unchanged, and the 68 existing Stripe tests pass untouched;
+    - with one, the guard resolves and pins the connection and TLS is verified against the scenario CA.
+    - With no override, calls do not go through the outbound guard: `api.stripe.com` is a fixed host, and pinning it would bypass an install's HTTP proxy (ADR 0015). Guarantee 5 keeps the default byte for byte.
+- **Conformance.** `tests/Stripe/StripeConformanceTest.php` checks every path and type in `tests/Fixtures/Stripe`; the fixtures are trimmed, so extra fields are allowed. It also covers the error envelopes, idempotency and the version check.
+- **End to end.** `tests/Stripe/StripeDriverAgainstSimulatorTest.php` drives the real driver through the app's routes, with no `Http::fake`:
+    - a payment on the hosted page, settled by webhooks delivered out of order, then replays and the late browser return, booked once with Stripe's fee;
+    - forged and stale signatures, refused before any retrieve;
+    - a staff refund, sent once, whose webhook is a duplicate;
+    - a dispute, recorded as a chargeback once, putting the invoice in collections;
+    - a declined card and then an abandoned checkout: the session is expired at Stripe by the driver, the attempt is expired, and the invoice stays unpaid.
+
 ## Limits: what simulators cannot prove
 
 - That the provider really behaves as we read its reference: undocumented fields, error wording, rate limits, real

@@ -11,6 +11,7 @@ use Mohar\Simulators\Console\ScanCommand;
 use Mohar\Simulators\Console\StartCommand;
 use Mohar\Simulators\Console\StopCommand;
 use Mohar\Simulators\Contracts\Simulator;
+use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
 
 /**
@@ -43,7 +44,7 @@ final class SimulatorsServiceProvider extends ServiceProvider
      */
     public function simulators(): array
     {
-        return [WhmSimulator::class];
+        return [WhmSimulator::class, StripeSimulator::class];
     }
 
     public function boot(): void
