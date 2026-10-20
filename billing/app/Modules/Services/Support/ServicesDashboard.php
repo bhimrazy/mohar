@@ -4,6 +4,7 @@ namespace App\Modules\Services\Support;
 
 use App\Enums\BillingCycle;
 use App\Models\User;
+use App\Modules\Core\Support\ConstantRows;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Services\Enums\QueueStatus;
 use App\Modules\Services\Enums\ServiceStatus;
@@ -91,50 +92,50 @@ class ServicesDashboard
      * Per-currency MRR at each point, a month ago, and the number of open services, summed in SQL (one row per
      * currency) and cached briefly like Billing's dashboard dataset.
      *
-     * @param  list<string>  $points
+     * @param  list<string>  $points  month ends, oldest first, then today
      * @return array{series: array<string, list<int>>, previous: array<string, int>, count: array<string, int>}
      */
     private function figures(CarbonImmutable $today, array $points, string $monthAgo): array
     {
-        $series = [];
-        $previous = [];
-        $count = [];
         $open = [ServiceStatus::Active->value, ServiceStatus::Suspended->value];
-        $recurring = BillingCycle::recurring();
-        $months = 'case cycle '.implode(' ', array_map(fn (BillingCycle $cycle): string => 'when ? then '.(int) $cycle->months(), $recurring)).' end';
-        $monthsBindings = array_map(fn (BillingCycle $cycle): string => $cycle->value, $recurring);
+        $cycles = ConstantRows::of('? as cycle, ? + 0 as months', array_map(fn (BillingCycle $cycle): array => [$cycle->value, (int) $cycle->months()], BillingCycle::recurring()));
 
         // Per service: open today or not, its amount per month (rounded per service), and its first and ended day.
         $services = DB::table('services')
-            ->whereNull('deleted_at')
-            ->whereIn('status', [...$open, ServiceStatus::Terminated->value, ServiceStatus::Cancelled->value])
-            ->whereIn('cycle', array_map(fn (BillingCycle $cycle): string => $cycle->value, $recurring))
-            ->where('recurring_amount', '>', 0)
-            ->where(fn ($query) => $query->whereIn('status', $open)->orWhere('updated_at', '>=', $today->subMonths(self::MONTHS)->startOfMonth()))
-            ->selectRaw(
-                "currency, case when status in (?, ?) then 1 else 0 end as is_open, round(recurring_amount * 1.0 / ({$months})) as monthly, "
-                .'date(registration_date) as registered, date(coalesce(termination_date, updated_at)) as ended',
-                [...$open, ...$monthsBindings],
-            );
+            ->joinSub($cycles, 'cycles', 'cycles.cycle', '=', 'services.cycle')
+            ->whereNull('services.deleted_at')
+            ->whereIn('services.status', [...$open, ServiceStatus::Terminated->value, ServiceStatus::Cancelled->value])
+            ->where('services.recurring_amount', '>', 0)
+            ->where(fn ($query) => $query->whereIn('services.status', $open)->orWhere('services.updated_at', '>=', $today->subMonths(self::MONTHS)->startOfMonth()))
+            ->selectRaw('services.currency, case when services.status in (?, ?) then 1 else 0 end as is_open, round(services.recurring_amount * 1.0 / cycles.months) as monthly, '
+                .'date(services.registration_date) as registered, date(coalesce(services.termination_date, services.updated_at)) as ended', $open);
 
-        // Active on a day: registered by then, and still open or ended after it. Summed per currency in SQL.
-        $activeOn = '(is_open = 1 or ended > ?) and registered <= ?';
+        // Points 0–10: month ends; 11: today, which counts open services only; 12: a month ago. Active on a day:
+        // registered by then, and still open or ended after it.
+        $days = [...$points, $monthAgo];
         $select = ['currency', 'sum(is_open) as services'];
         $bindings = [];
 
-        foreach ([...$points, $monthAgo] as $index => $day) {
-            // The last point is today's exact figure: open services only.
-            $select[] = $index === count($points) - 1
-                ? "sum(case when is_open = 1 then monthly else 0 end) as point_{$index}"
-                : "sum(case when {$activeOn} then monthly else 0 end) as point_{$index}";
-            array_push($bindings, ...($index === count($points) - 1 ? [] : [$day, $day]));
+        foreach (range(0, self::MONTHS) as $point) {
+            if ($point === self::MONTHS - 1) {
+                $select[] = "sum(case when is_open = 1 then monthly else 0 end) as point_{$point}";
+
+                continue;
+            }
+
+            $select[] = "sum(case when (is_open = 1 or ended > ?) and registered <= ? then monthly else 0 end) as point_{$point}";
+            array_push($bindings, $days[$point], $days[$point]);
         }
+
+        $series = [];
+        $previous = [];
+        $count = [];
 
         foreach (DB::query()->fromSub($services, 'mrr')->selectRaw(implode(', ', $select), $bindings)->groupBy('currency')->orderBy('currency')->get() as $row) {
             $sums = (array) $row;
             $code = (string) $row->currency;
-            $series[$code] = array_map(fn (int $index): int => (int) $sums["point_{$index}"], array_keys($points));
-            $previous[$code] = (int) $sums['point_'.count($points)];
+            $series[$code] = array_map(fn (int $point): int => (int) $sums["point_{$point}"], range(0, self::MONTHS - 1));
+            $previous[$code] = (int) $sums['point_'.self::MONTHS];
             $count[$code] = (int) $row->services;
         }
 

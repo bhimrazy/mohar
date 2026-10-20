@@ -590,44 +590,37 @@ class BillingDashboard
     {
         $since = $this->calendar->startOfDayUtc($today->subWeeks(self::WEEKS)->subDay());
         $zone = $this->calendar->sqlZoneArgument();
-        $unpaid = InvoiceStatus::Unpaid->value;
         $base = fn () => Invoice::query()->toBase()->whereNotNull('issue_date');
         // Per invoice: whether it is open today, whether it can count as overdue, the amount it carried while open,
         // and its local issue, due and closing days.
         $closed = 'currency, 0 as is_open, 1 as counts_overdue, total as amount, date(issue_date) as issue_day, date(due_date) as due_day, '
             .$this->calendar->sqlLocalDate('paid_at').' as paid_day, '.$this->calendar->sqlLocalDate('cancelled_at').' as cancelled_day';
-        $rows = $base()->whereIn('status', InvoiceStatus::payable())
-            ->selectRaw('currency, 1 as is_open, case when status = ? then 1 else 0 end as counts_overdue, balance as amount, date(issue_date) as issue_day, date(due_date) as due_day, null as paid_day, null as cancelled_day', [$unpaid])
+        $invoices = $base()->whereIn('status', InvoiceStatus::payable())
+            ->selectRaw('currency, 1 as is_open, case when status = ? then 1 else 0 end as counts_overdue, balance as amount, date(issue_date) as issue_day, date(due_date) as due_day, null as paid_day, null as cancelled_day', [InvoiceStatus::Unpaid->value])
             ->unionAll($base()->whereIn('status', [InvoiceStatus::Paid, InvoiceStatus::Refunded])->where('paid_at', '>=', $since)->selectRaw($closed, [$zone, $zone]))
             ->unionAll($base()->where('status', InvoiceStatus::Cancelled)->where('cancelled_at', '>=', $since)->selectRaw($closed, [$zone, $zone]));
 
-        $days = [];
-
-        for ($week = self::WEEKS - 1; $week >= 1; $week--) {
-            $days[] = $today->subWeeks($week)->toDateString();
-        }
-
-        $days[] = $today->subDays(30)->toDateString();
         $todayDay = $today->toDateString();
-        $overdueNow = 'is_open = 1 and counts_overdue = 1 and due_day < ?';
+        $overdueToday = 'is_open = 1 and counts_overdue = 1 and due_day < ?';
         $openOn = 'issue_day <= ? and (paid_day is null or paid_day > ?) and (cancelled_day is null or cancelled_day > ?)';
         $select = ['currency', 'sum(case when is_open = 1 then amount else 0 end) as outstanding', 'sum(is_open) as outstanding_count',
-            "sum(case when {$overdueNow} then amount else 0 end) as overdue", "sum(case when {$overdueNow} then 1 else 0 end) as overdue_count",
-            "min(case when {$overdueNow} then due_day end) as oldest_due"];
+            "sum(case when {$overdueToday} then amount else 0 end) as overdue", "sum(case when {$overdueToday} then 1 else 0 end) as overdue_count",
+            "min(case when {$overdueToday} then due_day end) as oldest_due"];
         $bindings = [$todayDay, $todayDay, $todayDay];
 
-        foreach ($days as $index => $day) {
-            $select[] = "sum(case when {$openOn} then amount else 0 end) as open_{$index}";
-            $select[] = "sum(case when {$openOn} and counts_overdue = 1 and due_day < ? then amount else 0 end) as late_{$index}";
+        // Points 0–10: weekly snapshots, oldest first; 11: 30 days ago.
+        foreach (range(0, self::WEEKS - 1) as $point) {
+            $day = ($point < self::WEEKS - 1 ? $today->subWeeks(self::WEEKS - 1 - $point) : $today->subDays(30))->toDateString();
+            $select[] = "sum(case when {$openOn} then amount else 0 end) as open_{$point}";
+            $select[] = "sum(case when {$openOn} and counts_overdue = 1 and due_day < ? then amount else 0 end) as late_{$point}";
             array_push($bindings, $day, $day, $day, $day, $day, $day, $day);
         }
 
         $books = [];
-        $points = count($days) - 1;
 
-        foreach (DB::query()->fromSub($rows, 'receivables')->selectRaw(implode(', ', $select), $bindings)->groupBy('currency')->orderBy('currency')->get() as $row) {
+        foreach (DB::query()->fromSub($invoices, 'receivables')->selectRaw(implode(', ', $select), $bindings)->groupBy('currency')->orderBy('currency')->get() as $row) {
             $sums = (array) $row;
-            $series = fn (string $prefix): array => array_map(fn (int $index): int => (int) $sums[$prefix.$index], range(0, $points - 1));
+            $weeks = fn (string $prefix): array => array_map(fn (int $point): int => (int) $sums[$prefix.$point], range(0, self::WEEKS - 2));
 
             $books[(string) $row->currency] = [
                 'outstanding' => (int) $row->outstanding,
@@ -635,10 +628,10 @@ class BillingDashboard
                 'overdue' => (int) $row->overdue,
                 'overdue_count' => (int) $row->overdue_count,
                 'oldest_due' => $row->oldest_due === null ? null : substr((string) $row->oldest_due, 0, 10),
-                'outstanding_weeks' => [...$series('open_'), (int) $row->outstanding],
-                'outstanding_month_ago' => (int) $sums['open_'.$points],
-                'overdue_weeks' => [...$series('late_'), (int) $row->overdue],
-                'overdue_month_ago' => (int) $sums['late_'.$points],
+                'outstanding_weeks' => [...$weeks('open_'), (int) $row->outstanding],
+                'outstanding_month_ago' => (int) $sums['open_'.(self::WEEKS - 1)],
+                'overdue_weeks' => [...$weeks('late_'), (int) $row->overdue],
+                'overdue_month_ago' => (int) $sums['late_'.(self::WEEKS - 1)],
             ];
         }
 
@@ -652,14 +645,11 @@ class BillingDashboard
     {
         $totals = [];
         // Summed per currency and tax name in SQL, one branch per tax slot.
-        $slot = fn (int $slot) => Invoice::query()->toBase()
-            ->where('status', InvoiceStatus::Paid)
-            ->where('paid_at', '>=', $since)
-            ->where("tax{$slot}_amount", '!=', 0)
-            ->selectRaw("currency, tax{$slot}_name as name, sum(tax{$slot}_amount) as amount")
-            ->groupBy('currency', "tax{$slot}_name");
+        $paid = fn () => Invoice::query()->toBase()->where('status', InvoiceStatus::Paid)->where('paid_at', '>=', $since);
+        $first = $paid()->where('tax1_amount', '!=', 0)->selectRaw('currency, tax1_name as name, sum(tax1_amount) as amount')->groupBy('currency', 'tax1_name');
+        $second = $paid()->where('tax2_amount', '!=', 0)->selectRaw('currency, tax2_name as name, sum(tax2_amount) as amount')->groupBy('currency', 'tax2_name');
 
-        $slot(1)->unionAll($slot(2))->get()->each(function (object $row) use (&$totals): void {
+        $first->unionAll($second)->get()->each(function (object $row) use (&$totals): void {
             $key = $row->currency.'|'.($row->name ?: 'Tax');
             $totals[$key] = ($totals[$key] ?? 0) + (int) $row->amount;
         });
