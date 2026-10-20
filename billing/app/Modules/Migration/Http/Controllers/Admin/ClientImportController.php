@@ -84,11 +84,10 @@ class ClientImportController extends Controller
     {
         $this->authorize('migration.runs.execute');
 
-        if (! ($run->status === MigrationRun::FAILED || $run->isStalled()) || $run->file_key === null) {
+        if ($run->file_key === null || ! $run->claimStopped(MigrationRun::STAGING)) {
             throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
         }
 
-        $run->forceFill(['status' => MigrationRun::STAGING, 'error' => null, 'heartbeat_at' => now()])->save();
         dispatch(new StageCsvRun($run->id));
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Continuing :file where it stopped.', ['file' => $run->file_name])]);
 

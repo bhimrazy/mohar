@@ -50,6 +50,14 @@ final class StageCsvRun implements ShouldBeEncrypted, ShouldQueue
         }
 
         $staged = (int) $run->records()->max('row_number');
+
+        // Every row was staged and the file deleted, but the run was not marked done (a crash in between).
+        if ($staged === $run->row_count && ! Storage::disk('objects')->exists($run->file_key)) {
+            $this->finish($run, $staged, $audit);
+
+            return;
+        }
+
         $handle = EncryptedFile::open($run->file_key);
         $header = CsvFile::read($handle, $run->delimiter) ?? [];
         $dropped = array_flip(array_keys(array_filter($header, ClientColumns::isForbidden(...))));
@@ -81,14 +89,19 @@ final class StageCsvRun implements ShouldBeEncrypted, ShouldQueue
 
         $this->insert($run, $batch, $row);
         fclose($handle);
-        Storage::disk('objects')->delete($run->file_key);
-        $run->forceFill([
-            'status' => MigrationRun::MAPPING,
-            'file_key' => null,
-            'row_count' => $row,
-            'staged_count' => $row,
-        ])->save();
-        $audit->log('Client import file read and deleted', $run, properties: ['rows' => $row, 'file' => $run->file_name], event: 'migration.file_deleted');
+        $this->finish($run, $row, $audit);
+    }
+
+    /**
+     * Marks the run staged, then deletes the file: a crash in between leaves a key to an object that is gone, which the
+     * next attempt recognises, never a run that cannot finish.
+     */
+    private function finish(MigrationRun $run, int $rows, ActivityLogger $audit): void
+    {
+        $key = (string) $run->file_key;
+        $run->forceFill(['status' => MigrationRun::MAPPING, 'file_key' => null, 'row_count' => $rows, 'staged_count' => $rows])->save();
+        Storage::disk('objects')->delete($key);
+        $audit->log('Client import file read and deleted', $run, properties: ['rows' => $rows, 'file' => $run->file_name], event: 'migration.file_deleted');
     }
 
     public function failed(?Throwable $exception): void

@@ -14,6 +14,9 @@ final class CsvFile
 
     public const MAX_CELL_BYTES = 32 * 1024;
 
+    /** Longest line read at once (outside quotes); a longer one is refused, which bounds the memory one row can take. */
+    public const MAX_LINE_BYTES = 256 * 1024;
+
     public const BOM = "\xEF\xBB\xBF";
 
     private const SNIFF_BYTES = 65536;
@@ -53,6 +56,14 @@ final class CsvFile
                 self::refuse(__('The file has more than :limit rows. Split it into smaller files.', ['limit' => number_format($maxRows)]));
             }
 
+            if (count($row) > $maxColumns || ! self::endsLine($handle)) {
+                self::refuse(__('Row :row has more cells than the :limit columns a file may have.', ['row' => number_format($rows), 'limit' => $maxColumns]));
+            }
+
+            if (! mb_check_encoding(implode("\n", $row), 'UTF-8')) {
+                self::refuse(__('This file is not UTF-8 text. Save the file as CSV UTF-8 and upload it again.'));
+            }
+
             foreach ($row as $cell) {
                 if (strlen($cell) > self::MAX_CELL_BYTES) {
                     self::refuse(__('Row :row has a cell longer than 32 KB, the limit per cell.', ['row' => number_format($rows)]));
@@ -77,13 +88,32 @@ final class CsvFile
      */
     public static function read($handle, string $delimiter): ?array
     {
-        while (($row = fgetcsv($handle, null, $delimiter, '"', '')) !== false) {
+        while (($row = fgetcsv($handle, self::MAX_LINE_BYTES, $delimiter, '"', '')) !== false) {
             if ($row !== [null]) {
                 return array_map(fn (?string $cell): string => (string) $cell, $row);
             }
         }
 
         return null;
+    }
+
+    /**
+     * Whether the row just read ended at a line break (or the end of the file), not at MAX_LINE_BYTES.
+     *
+     * @param  resource  $handle
+     */
+    private static function endsLine($handle): bool
+    {
+        $position = (int) ftell($handle);
+
+        if (feof($handle) || $position === 0) {
+            return true;
+        }
+
+        fseek($handle, $position - 1);
+        $last = fread($handle, 1);
+
+        return $last === "\n" || $last === "\r";
     }
 
     private static function detectDelimiter(string $head): string

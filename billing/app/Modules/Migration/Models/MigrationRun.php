@@ -5,6 +5,7 @@ namespace App\Modules\Migration\Models;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -122,7 +123,7 @@ class MigrationRun extends Model
     }
 
     /**
-     * The run's name on every page: the file and the day it was uploaded, never an id.
+     * The run's name on every page: the file name, never an id (pages show the upload date next to it).
      */
     public function label(): string
     {
@@ -130,10 +131,18 @@ class MigrationRun extends Model
     }
 
     /**
-     * Records the step is alive (the stalled alert reads it).
+     * Takes over a failed or stalled run for a new attempt at $status, in one conditional update: of two clicks on
+     * Continue, only one starts a job.
      */
-    public function beat(): void
+    public function claimStopped(string $status): bool
     {
-        $this->forceFill(['heartbeat_at' => CarbonImmutable::now()])->save();
+        $claimed = self::query()->whereKey($this->id)->where(fn (Builder $query) => $query->where('status', self::FAILED)
+            ->orWhere(fn (Builder $query) => $query->whereIn('status', [self::UPLOADED, self::STAGING, self::CHECKING])
+                ->where('heartbeat_at', '<', CarbonImmutable::now()->subMinutes(self::STALLED_MINUTES))))
+            ->update(['status' => $status, 'error' => null, 'heartbeat_at' => CarbonImmutable::now()]);
+
+        $this->refresh();
+
+        return $claimed === 1;
     }
 }
