@@ -2,9 +2,11 @@
 
 use App\Modules\Domains\Http\Controllers\Admin\DomainActionController;
 use App\Modules\Domains\Http\Controllers\Admin\DomainController as AdminDomainController;
+use App\Modules\Domains\Http\Controllers\Admin\NpRegistrationController;
 use App\Modules\Domains\Http\Controllers\Admin\RegistrarController;
 use App\Modules\Domains\Http\Controllers\Admin\TldController;
 use App\Modules\Domains\Http\Controllers\Client\DomainController as ClientDomainController;
+use App\Modules\Domains\Http\Controllers\Client\NpDocumentController;
 use App\Modules\Domains\Http\Controllers\Public\DomainSearchController;
 use Illuminate\Support\Facades\Route;
 
@@ -36,6 +38,10 @@ Route::adminArea(fn () => Route::prefix('domains')->name('domains.')->group(func
     Route::post('{domain}/renewal-invoice', [DomainActionController::class, 'renewalInvoice'])->whereNumber('domain')->name('renewal-invoice');
     Route::post('{domain}/commands/{command}', [DomainActionController::class, 'command'])
         ->whereNumber('domain')->whereIn('command', ['register', 'transfer', 'renew', 'sync'])->name('command');
+    Route::post('{domain}/np/{action}', [NpRegistrationController::class, 'step'])
+        ->whereNumber('domain')->whereIn('action', ['review', 'submitted', 'decision', 'confirm'])->name('np.step');
+    Route::get('{domain}/np/documents/{document}', [NpRegistrationController::class, 'document'])
+        ->whereNumber('domain')->whereNumber('document')->middleware('signed')->name('np.document');
 }));
 
 Route::clientArea(fn () => Route::prefix('domains')->name('domains.')->group(function (): void {
@@ -48,6 +54,8 @@ Route::clientArea(fn () => Route::prefix('domains')->name('domains.')->group(fun
     Route::post('{domain}/epp', [ClientDomainController::class, 'epp'])->whereNumber('domain')->middleware('throttle:10,1')->name('epp');
     Route::put('{domain}/transfer', [ClientDomainController::class, 'resubmitTransfer'])->whereNumber('domain')->name('transfer');
     Route::post('{domain}/renew', [ClientDomainController::class, 'renew'])->whereNumber('domain')->name('renew');
+    Route::post('{domain}/np/documents', [NpDocumentController::class, 'store'])->whereNumber('domain')->middleware('throttle:10,1')->name('np.documents.store');
+    Route::post('{domain}/np/review', [NpDocumentController::class, 'submit'])->whereNumber('domain')->name('np.review');
 }));
 
 Route::prefix('domains')->name('domains.')->middleware('throttle:domain-lookup')->group(function (): void {

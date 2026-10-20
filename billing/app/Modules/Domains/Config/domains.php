@@ -44,6 +44,9 @@ return [
     'transfer_stale_days' => 14,
     'command_log_retention_days' => 90,
 
+    // .np registrant documents (identity scans) are deleted this many days after approval or rejection.
+    'np_document_retention_days' => 30,
+
     // Reminders (§9)
     'reminder_offsets' => [30, 7, -3],
     'remind_when_auto_renew_off' => true,

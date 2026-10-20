@@ -21,6 +21,7 @@ use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
+use App\Modules\Domains\Drivers\Registrars\NpManualRegistrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Jobs\SyncRegistrars;
@@ -28,9 +29,11 @@ use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\NpRegistration;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
+use App\Modules\Domains\Services\NpWorkflow;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
 use App\Support\Currencies\PriceConverters;
@@ -67,6 +70,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->app->singleton(RegistrarManager::class, function (): RegistrarManager {
             $manager = new RegistrarManager;
             $manager->extend('log', LogRegistrar::class);
+            $manager->extend(NpWorkflow::DRIVER, NpManualRegistrar::class);
 
             return $manager;
         });
@@ -120,6 +124,10 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $automation->task('domains.convert-prices', Automation::SYNC, fn (): int|string => $this->app->make(ConvertTldPrices::class)->automatic()
             ? $this->app->make(ConvertTldPrices::class)->apply()
             : 'disabled', label: 'Convert domain prices', description: 'Recalculates TLD prices in other currencies from the default currency at current rates (when automatic conversion is on).');
+
+        $automation->task('domains.np_review_due', Automation::SYNC, fn (CarbonImmutable $today): int => $this->app->make(NpWorkflow::class)->flagOverdueReviews($today), label: 'Flag overdue .np status checks', description: 'Flags .np domains whose registry status check date passed without staff confirming it.');
+
+        $automation->task('domains.np_documents_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->app->make(NpWorkflow::class)->pruneDocuments($today), label: 'Delete old .np documents', description: 'Deletes registrant identity documents once their retention period after approval or rejection ends.');
 
         $automation->task('domains.command_log_prune', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => ChunkedDelete::run(RegistrarCommandLog::query()
             ->where('created_at', '<', $today->subDays((int) $this->app->make(Settings::class)->get('domains.command_log_retention_days', 90)))), label: 'Prune the registrar log', description: 'Deletes registrar command log entries older than the retention period.');
@@ -193,6 +201,22 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'icon' => 'Globe',
         ], 'domains.domains.view', 61);
 
+        $dashboard->todo('admin', 'domains.np_waiting', fn (?User $user): array => [
+            'label' => '.np requests waiting for staff',
+            'count' => $this->app->make(NpWorkflow::class)->queue('waiting')->count(),
+            'href' => route('admin.domains.index', ['np' => 'waiting']),
+            'tone' => 'warning',
+            'icon' => 'Globe',
+        ], 'domains.np.review', 62);
+
+        $dashboard->todo('admin', 'domains.np_overdue', fn (?User $user): array => [
+            'label' => '.np requests overdue at the registry',
+            'count' => $this->app->make(NpWorkflow::class)->queue('overdue')->count(),
+            'href' => route('admin.domains.index', ['np' => 'overdue']),
+            'tone' => 'danger',
+            'icon' => 'Globe',
+        ], 'domains.np.review', 63);
+
         $dashboard->health('admin', 'domains.registrars', fn (?User $user): array => $this->registrarHealth(), 'domains.domains.view', 50);
 
         $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [
@@ -203,6 +227,13 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'href' => route('client.domains.index'),
             'tone' => 'warning',
         ], null, 30);
+
+        $dashboard->todo('client', 'domains.np_documents', fn (?User $user, Client $client): array => [
+            'label' => 'Documents needed for your .np domain',
+            'count' => NpRegistration::query()->where('stage', 'awaiting_documents')->whereHas('domain', fn ($query) => $query->where('client_id', $client->id))->count(),
+            'href' => route('client.domains.index'),
+            'tone' => 'warning',
+        ], null, 31);
 
         $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): array => [
             'label' => 'Domains expiring soon',
@@ -222,6 +253,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'domains.tlds.view' => 'View TLDs and pricing',
             'domains.tlds.manage' => 'Manage TLDs and pricing',
             'domains.registrars.manage' => 'Configure registrars',
+            'domains.np.review' => 'Review .np registrant documents and record registry steps',
             'domains.settings.manage' => 'Manage domain settings',
         ], sensitive: ['domains.registrars.manage']);
 
@@ -244,6 +276,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.transfer_sync_interval_hours', 'Hours between transfer status checks', 'integer', rules: ['min:1', 'max:168']),
             new SettingDefinition('domains.transfer_stale_days', 'Notify staff about transfers pending longer than (days)', 'integer', rules: ['min:1', 'max:90']),
             new SettingDefinition('domains.command_log_retention_days', 'Keep registrar command log for (days)', 'integer', rules: ['min:1', 'max:3650']),
+            new SettingDefinition('domains.np_document_retention_days', 'Delete .np registrant documents after approval or rejection (days)', 'integer', rules: ['min:1', 'max:365']),
             new SettingDefinition('domains.reminder_offsets', 'Expiry reminder days (negative = after expiry)', 'string', 'Comma-separated, at most 5, e.g. 30, 7, -3.'),
             new SettingDefinition('domains.remind_when_auto_renew_off', 'Send reminders when auto-renew is off', 'boolean'),
             new SettingDefinition('domains.remind_free_domains', 'Send reminders for free domains', 'boolean'),

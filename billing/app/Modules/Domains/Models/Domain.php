@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -65,6 +66,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property CarbonImmutable|null $deleted_at
  * @property-read Client $client
  * @property-read Tld $tldModel
+ * @property-read NpRegistration|null $npRegistration
  */
 #[UseFactory(DomainFactory::class)]
 #[Hidden(['epp_code'])]
@@ -142,6 +144,16 @@ class Domain extends Model
     public function tldModel(): BelongsTo
     {
         return $this->belongsTo(Tld::class, 'tld_id');
+    }
+
+    /**
+     * The .np manual-registration workflow, for domains of the np_manual registrar.
+     *
+     * @return HasOne<NpRegistration, $this>
+     */
+    public function npRegistration(): HasOne
+    {
+        return $this->hasOne(NpRegistration::class);
     }
 
     /**

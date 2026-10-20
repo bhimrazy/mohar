@@ -10,9 +10,11 @@ use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Http\Requests\UpdateDomainRequest;
 use App\Modules\Domains\Http\Resources\DomainResource;
+use App\Modules\Domains\Http\Resources\NpRegistrationResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Models\Tld;
+use App\Modules\Domains\Services\NpWorkflow;
 use App\Modules\Domains\Services\RenewalInvoices;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -37,6 +39,7 @@ class DomainController extends Controller
             ->when($request->integer('expiring') > 0, fn (Builder $query) => $query->expiringWithin(min(3650, $request->integer('expiring'))))
             ->when($request->boolean('attention'), fn (Builder $query) => $query->needingAttention())
             ->when($request->integer('client') > 0, fn (Builder $query) => $query->where('client_id', $request->integer('client')))
+            ->when(in_array($request->string('np')->toString(), ['waiting', 'overdue'], true), fn (Builder $query) => $query->whereIn('id', app(NpWorkflow::class)->queue($request->string('np')->toString() === 'overdue' ? 'overdue' : 'waiting')->select('domain_id')))
             ->orderBy($request->integer('expiring') > 0 ? 'expiry_date' : 'id', $request->integer('expiring') > 0 ? 'asc' : 'desc')
             ->orderByDesc('id')
             ->paginate(25)
@@ -44,7 +47,7 @@ class DomainController extends Controller
 
         return Inertia::render('admin/domains/index', [
             'domains' => DomainResource::collection($domains),
-            'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client', 'attention']),
+            'filters' => $request->only(['search', 'status', 'registrar', 'tld', 'expiring', 'client', 'attention', 'np']),
             'statuses' => DomainStatus::values(),
             'registrars' => $registrars->keys(),
             'registrarNames' => $registrars->names(),
@@ -55,7 +58,7 @@ class DomainController extends Controller
     public function show(Request $request, Domain $domain, RegistrarManager $registrars): Response
     {
         $this->authorize('domains.domains.view');
-        $domain->load(['client:id,first_name,last_name,company_name', 'contacts']);
+        $domain->load(['client:id,first_name,last_name,company_name', 'contacts', 'npRegistration.documents']);
 
         return Inertia::render('admin/domains/show', [
             'domain' => new DomainResource($domain),
@@ -67,6 +70,7 @@ class DomainController extends Controller
                 'active' => $registrars->isActive($domain->registrar_key),
             ],
             'billingAvailable' => app(RenewalInvoices::class)->available(),
+            'np' => $domain->npRegistration === null ? null : new NpRegistrationResource($domain->npRegistration),
             'registrars' => $registrars->keys(),
             'registrarNames' => $registrars->names(),
             'statuses' => DomainStatus::values(),
@@ -107,6 +111,7 @@ class DomainController extends Controller
                 'update' => $request->user()?->hasPermission('domains.domains.update') ?? false,
                 'commands' => $request->user()?->hasPermission('domains.domains.commands') ?? false,
                 'delete' => $request->user()?->hasPermission('domains.domains.delete') ?? false,
+                'np_review' => $request->user()?->hasPermission('domains.np.review') ?? false,
             ],
         ]);
     }
