@@ -197,3 +197,21 @@ test('a declined card and then an abandoned checkout leave the invoice unpaid, w
     expect(array_column(deliverWebhooks(), 0))->each->toBe(200)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 });
+
+test('a payment completed at Stripe after we closed the attempt is booked once from its signed webhooks (#130)', function () {
+    [, $invoice] = usdInvoice([2_500]);
+    $checkout = checkoutFor($invoice);
+    expect(browser()->post($checkout.'/pay')->status())->toBe(303);
+
+    // Our side closed the attempt before Stripe's events arrived (e.g. our expiry ran first).
+    $attempt = PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole();
+    $attempt->update(['status' => AttemptStatus::Expired]);
+
+    $answers = deliverWebhooks();
+    expect(array_column($answers, 0))->each->toBe(200)
+        ->and(array_column($answers, 1))->toContain('late payment recorded')
+        ->and(array_column(deliverWebhooks(replay: true), 1))->each->toBe('duplicate')
+        ->and(Transaction::query()->where('gateway', StripeDriver::KEY)->sole()->amount_in)->toBe(2_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull();
+});

@@ -23,12 +23,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $transaction_id
  * @property string|null $description
  * @property int|null $staff_id
+ * @property string|null $gateway
+ * @property string|null $external_ref
  * @property CarbonImmutable|null $created_at
  * @property-read Client $client
  * @property-read Invoice|null $invoice
  * @property-read User|null $staff
  */
-#[Fillable(['client_id', 'currency', 'amount', 'balance_after', 'reason', 'invoice_id', 'transaction_id', 'description', 'staff_id'])]
+#[Fillable(['client_id', 'currency', 'amount', 'balance_after', 'reason', 'invoice_id', 'transaction_id', 'description', 'staff_id', 'gateway', 'external_ref'])]
 class CreditLedgerEntry extends Model
 {
     protected $table = 'credit_ledger';

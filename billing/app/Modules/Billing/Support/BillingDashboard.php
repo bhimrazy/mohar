@@ -83,6 +83,15 @@ class BillingDashboard
             'icon' => 'CreditCard',
         ], 'billing.payments.manage', 13);
 
+        $dashboard->todo('admin', 'billing.late_payments', fn (?User $user): array => [
+            'label' => 'Late payments to check',
+            'count' => PaymentAttempt::toCheck([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT])->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['late' => 1]),
+            'tone' => 'warning',
+            'icon' => 'CreditCard',
+            'hint' => 'Paid late, or kept as credit: refund if needed',
+        ], 'billing.payments.manage', 14);
+
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
 
@@ -335,10 +344,15 @@ class BillingDashboard
         ];
     }
 
+    /**
+     * Unresolved attempts past the alert delay, plus booked payments refunded at the provider for more than the
+     * credit left from them (#130).
+     */
     private function ambiguousAttempts(): int
     {
         return PaymentAttempt::query()->where('status', AttemptStatus::Ambiguous)
-            ->where('updated_at', '<=', now()->subMinutes($this->settings->int('gateways.ambiguous_alert_minutes', 30)))->count();
+            ->where('updated_at', '<=', now()->subMinutes($this->settings->int('gateways.ambiguous_alert_minutes', 30)))->count()
+            + PaymentAttempt::toCheck([PaymentAttempt::CHECK_REFUND])->count();
     }
 
     /**
