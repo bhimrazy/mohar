@@ -4,6 +4,7 @@ namespace App\Modules\Services\Models;
 
 use App\Modules\Services\Database\Factories\ServerFactory;
 use App\Modules\Services\Enums\ServiceStatus;
+use App\Modules\Services\Support\ServerSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -53,6 +54,51 @@ class Server extends Model
 {
     /** @use HasFactory<ServerFactory> */
     use HasFactory;
+
+    /**
+     * Where and how connections go. Stored credentials and a trusted certificate belong to the destination they were
+     * saved for: changing any of these clears them (security review 2026-10-19, M1).
+     */
+    public const DESTINATION = ['driver', 'hostname', 'ip_address', 'port', 'secure'];
+
+    /** The server-row credentials. */
+    public const CREDENTIALS = ['password', 'api_token', 'access_hash'];
+
+    /**
+     * Backstop for writes outside SaveServer (which also audits the move): a new destination never keeps the
+     * credentials, secret driver settings or trusted certificate saved for the old one.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (Server $server): void {
+            if (! $server->isDirty(self::DESTINATION)) {
+                return;
+            }
+
+            // Raw values: an encrypted attribute set during this save (even to the same plaintext) has new ciphertext.
+            $untouched = fn (string $attribute): bool => ($server->getAttributes()[$attribute] ?? null) === $server->getRawOriginal($attribute);
+
+            foreach (self::CREDENTIALS as $credential) {
+                if ($untouched($credential)) {
+                    $server->setAttribute($credential, null);
+                }
+            }
+
+            if (! $untouched('settings')) {
+                return;
+            }
+
+            // Secret driver settings (of the old and the new driver) and the pin, as SaveServer drops them.
+            $fields = app(ServerSettings::class);
+            $drop = [ServerSettings::CERTIFICATE_PIN, ...$fields->secretKeys((string) $server->getOriginal('driver')), ...$fields->secretKeys($server->driver)];
+            $settings = $server->settings ?? [];
+            $kept = array_diff_key($settings, array_flip($drop));
+
+            if ($kept !== $settings) {
+                $server->settings = $kept ?: null;
+            }
+        });
+    }
 
     protected function casts(): array
     {
@@ -113,6 +159,36 @@ class Server extends Model
     public function fillRatio(): float
     {
         return $this->max_accounts === 0 ? 0.0 : $this->activeAccounts() / $this->max_accounts;
+    }
+
+    /**
+     * The normalised destination, from the stored attributes overlaid with $attributes (e.g. a submitted form).
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array{driver: string, hostname: string, ip_address: string, port: ?int, secure: bool}
+     */
+    public function destination(array $attributes = []): array
+    {
+        $values = [...$this->only(self::DESTINATION), ...array_intersect_key($attributes, array_flip(self::DESTINATION))];
+        $port = $values['port'] ?? null;
+
+        return [
+            'driver' => (string) ($values['driver'] ?? ''),
+            'hostname' => strtolower(trim((string) ($values['hostname'] ?? ''))),
+            'ip_address' => trim((string) ($values['ip_address'] ?? '')),
+            'port' => $port === null || $port === '' ? null : (int) $port,
+            'secure' => filter_var($values['secure'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        ];
+    }
+
+    /**
+     * Whether saving $attributes would point this stored server somewhere else.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function retargetedBy(array $attributes): bool
+    {
+        return $this->exists && $this->destination() !== $this->destination($attributes);
     }
 
     /**

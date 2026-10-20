@@ -116,6 +116,18 @@ test('clients change their service password through the driver', function () {
         ->and($this->kit->driver->callsFor('change_password'))->toHaveCount(1);
 });
 
+test('security review L3: a client can change a hosting password six times a minute, then is throttled', function () {
+    $service = Service::factory()->onServer()->create(['client_id' => $this->client->id]);
+
+    foreach (range(1, 6) as $attempt) {
+        $this->post(route('client.services.password', $service->id), ['password' => "Str0ngPassword{$attempt}", 'password_confirmation' => "Str0ngPassword{$attempt}"])->assertSessionHasNoErrors();
+    }
+
+    $this->post(route('client.services.password', $service->id), ['password' => 'Str0ngPassword7', 'password_confirmation' => 'Str0ngPassword7'])->assertTooManyRequests();
+
+    expect($this->kit->driver->callsFor('change_password'))->toHaveCount(6);
+});
+
 test('terminated services cannot have their password changed', function () {
     $service = Service::factory()->status(ServiceStatus::Terminated)->onServer()->create(['client_id' => $this->client->id]);
 

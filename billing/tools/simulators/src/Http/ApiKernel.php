@@ -18,8 +18,10 @@ final class ApiKernel
             $parameters = $route->match($request);
 
             if ($parameters !== null) {
-                $response = $this->run($route, $request, $parameters);
+                [$response, $hang] = $this->run($route, $request, $parameters);
+                // Logged before any hang: the call has committed, whether or not the client waits for the answer.
                 $this->scenario->log()->record($route->operation, $request, $response);
+                sleep($hang);
 
                 return $response;
             }
@@ -32,9 +34,12 @@ final class ApiKernel
     }
 
     /**
+     * The answer, and how many seconds to hold it back after committing (commit_then_hang).
+     *
      * @param  array<string, string>  $parameters
+     * @return array{Response, int}
      */
-    private function run(Route $route, Request $request, array $parameters): Response
+    private function run(Route $route, Request $request, array $parameters): array
     {
         $call = $this->scenario->state()->increment('calls', $route->operation);
         $fault = $this->scenario->faults()->for($route->operation, $call);
@@ -45,11 +50,11 @@ final class ApiKernel
                 usleep(1000 * ((int) $params['ms'] + random_int(0, max(0, (int) ($params['jitter'] ?? 0)))));
                 break;
             case 'status':
-                return new Response((int) $params['status'], ['Content-Type' => 'application/json'], (string) ($params['body'] ?? ''));
+                return [new Response((int) $params['status'], ['Content-Type' => 'application/json'], (string) ($params['body'] ?? '')), 0];
             case 'rate_limit':
-                return Response::json(['error' => 'Too many requests.'], 429, ['Retry-After' => (string) $params['retry_after']]);
+                return [Response::json(['error' => 'Too many requests.'], 429, ['Retry-After' => (string) $params['retry_after']]), 0];
             case 'reset_before_commit':
-                return new Response(500, ['X-Sim-Reset' => '1']);
+                return [new Response(500, ['X-Sim-Reset' => '1']), 0];
             case 'rotate_certificate':
                 $this->scenario->ca()->rotateLeaf();
                 break;
@@ -58,17 +63,10 @@ final class ApiKernel
         $response = ($route->handler)($request, $this->scenario, $parameters);
 
         return match ($fault?->type) {
-            'commit_then_hang' => $this->hang((int) $params['seconds'], $response),
-            'truncate' => $response->withHeaders(['X-Sim-Truncate' => (string) $params['bytes']]),
-            'slow_body' => $response->withHeaders(['X-Sim-Slow' => (string) $params['ms']]),
-            default => $response,
+            'commit_then_hang' => [$response, (int) $params['seconds']],
+            'truncate' => [$response->withHeaders(['X-Sim-Truncate' => (string) $params['bytes']]), 0],
+            'slow_body' => [$response->withHeaders(['X-Sim-Slow' => (string) $params['ms']]), 0],
+            default => [$response, 0],
         };
-    }
-
-    private function hang(int $seconds, Response $response): Response
-    {
-        sleep($seconds);
-
-        return $response;
     }
 }

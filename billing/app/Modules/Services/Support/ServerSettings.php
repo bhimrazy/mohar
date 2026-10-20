@@ -200,7 +200,8 @@ class ServerSettings
 
             $locked->update(['settings' => $settings ?: null]);
             $server->setRawAttributes($locked->getAttributes(), true);
-            $this->activity->log("Server {$locked->name} settings changed", $locked, properties: array_filter([
+            $this->activity->log('Server settings changed', $locked, properties: array_filter([
+                'server' => $locked->name,
                 'changes' => ["settings.{$key}" => $field->isSecret() ? 'rotated' : ['from' => $before, 'to' => $value]],
                 'reason' => $reason,
             ]));

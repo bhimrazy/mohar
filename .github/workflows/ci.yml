@@ -12,10 +12,11 @@
 name: CI
 
 on:
+    # develop is not built on every merge (Actions minutes budget, operating-model.md): each PR runs CI once before
+    # merging, and the CTO dispatches a develop run after a batch of merges.
     push:
         branches:
             - main
-            - develop
     pull_request:
         branches:
             - main
@@ -52,7 +53,7 @@ jobs:
             (github.event.action == 'labeled' && github.event.label.name == 'ci') ||
             (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))
         runs-on: ubuntu-24.04
-        timeout-minutes: 25
+        timeout-minutes: 15
         services:
             postgres:
                 # Must equal the postgres image in billing/compose.yaml (asserted below).
@@ -61,6 +62,8 @@ jobs:
                     POSTGRES_DB: billing_test
                     POSTGRES_USER: billing
                     POSTGRES_PASSWORD: billing
+                    # Throwaway database reachable only from this job: no SCRAM handshake on each test's new connection.
+                    POSTGRES_HOST_AUTH_METHOD: trust
                 ports:
                     - 5432:5432
                 options: >-
@@ -105,6 +108,7 @@ jobs:
                       echo "code=$code"
                       echo "base=$base"
                   } >> "$GITHUB_OUTPUT"
+                  echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
                   echo "Code changes: $code · dependency diff base: $base"
 
             - name: Set up PHP
@@ -183,13 +187,28 @@ jobs:
             - name: Image sizes (docs screenshots, 500 KB max)
               run: npm run images:check
 
+            - name: Cache tool results (PHPStan, Pint, tsc)
+              if: steps.changes.outputs.code == 'true'
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  # Each tool validates its own cache (file content hashes, tool version, config), so restoring an
+                  # older entry is safe; a new entry is saved every run so the next one starts from the latest.
+                  path: |
+                      billing/storage/framework/cache/phpstan
+                      billing/storage/framework/cache/pint.cache
+                      billing/storage/framework/cache/tsc.tsbuildinfo
+                  key: tools-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/package-lock.json') }}-${{ github.run_id }}
+                  restore-keys: |
+                      tools-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/package-lock.json') }}-
+                      tools-${{ runner.os }}-
+
             - name: Pint
               if: steps.changes.outputs.code == 'true'
-              run: vendor/bin/pint --parallel --test
+              run: vendor/bin/pint --parallel --test --cache-file=storage/framework/cache/pint.cache
 
             - name: TypeScript
               if: steps.changes.outputs.code == 'true'
-              run: npx tsc --noEmit
+              run: npx tsc --noEmit --incremental --tsBuildInfoFile storage/framework/cache/tsc.tsbuildinfo
 
             - name: Vitest
               if: steps.changes.outputs.code == 'true'
@@ -198,27 +217,48 @@ jobs:
                   LARAVEL_BYPASS_ENV_CHECK: '1'
               run: npm test
 
-            - name: Cache PHPStan results
-              if: steps.changes.outputs.code == 'true'
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-              with:
-                  path: billing/storage/framework/cache/phpstan
-                  key: phpstan-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/phpstan.neon') }}-${{ github.run_id }}
-                  restore-keys: |
-                      phpstan-${{ runner.os }}-${{ hashFiles('billing/composer.lock', 'billing/phpstan.neon') }}-
-                      phpstan-${{ runner.os }}-
-
             - name: PHPStan
               if: steps.changes.outputs.code == 'true'
               run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress --error-format=github
 
             - name: Pest (SQLite)
               if: steps.changes.outputs.code == 'true'
-              run: vendor/bin/pest --parallel
+              run: |
+                  vendor/bin/pest --parallel --log-junit="$RUNNER_TEMP/sqlite.xml"
+                  node scripts/slowest-tests.mjs "$RUNNER_TEMP/sqlite.xml"
 
-            - name: Migrate, seed and Pest (PostgreSQL)
+            - name: Tune PostgreSQL for throwaway data
               if: steps.changes.outputs.code == 'true'
-              run: composer test:pgsql
+              env:
+                  CONTAINER: ${{ job.services.postgres.id }}
+              run: |
+                  # Durability is irrelevant for a database that is discarded after the run (all three are reloadable).
+                  docker exec "$CONTAINER" psql -U billing -d billing_test -qc 'ALTER SYSTEM SET fsync = off' \
+                      -c 'ALTER SYSTEM SET synchronous_commit = off' -c 'ALTER SYSTEM SET full_page_writes = off' \
+                      -c 'SELECT pg_reload_conf()'
+                  docker exec "$CONTAINER" psql -U billing -d billing_test -tAc 'SHOW fsync' -c 'SHOW synchronous_commit' -c 'SHOW full_page_writes'
+                  # Connect to the container on the job network instead of the published port: localhost:5432 goes
+                  # through docker-proxy, which roughly doubles the latency of every query.
+                  ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER")
+                  echo "PostgreSQL container: $ip:5432"
+                  {
+                      echo "DB_HOST=$ip"
+                      echo "DB_PORT=5432"
+                  } >> "$GITHUB_ENV"
+
+            - name: Pest (PostgreSQL)
+              if: steps.changes.outputs.code == 'true'
+              env:
+                  # The suite is round-trip bound on PostgreSQL (workers mostly wait on the database), so it runs more
+                  # workers than the 2 vCPUs; each stays under the 1 GB memory_limit in phpunit.xml.
+                  PEST_PROCESSES: '4'
+              run: |
+                  read -r _ u1 n1 s1 i1 w1 _ < /proc/stat
+                  composer test:pgsql -- --log-junit="$RUNNER_TEMP/pgsql.xml"
+                  read -r _ u2 n2 s2 i2 w2 _ < /proc/stat
+                  busy=$(( (u2 + n2 + s2) - (u1 + n1 + s1) )); idle=$(( (i2 + w2) - (i1 + w1) ))
+                  echo "CPU busy during the suite: $(( 100 * busy / (busy + idle) ))% of $(nproc) vCPUs"
+                  node scripts/slowest-tests.mjs "$RUNNER_TEMP/pgsql.xml"
 
             - name: Build
               if: steps.changes.outputs.code == 'true'
@@ -237,3 +277,13 @@ jobs:
                       exit 1
                   fi
                   php -r 'require "vendor/autoload.php"; exit(class_exists("Mohar\\Simulators\\SimulatorRegistry") ? 1 : 0);'
+
+            # timeout-minutes is 15; warn at 12 so a slow job is noticed before it is cancelled (billing/docs/devops/ci.md).
+            - name: Job time (warn above 12 minutes)
+              if: always() && steps.changes.outputs.code == 'true'
+              run: |
+                  elapsed=$(( $(date +%s) - JOB_STARTED_AT ))
+                  echo "Job time since checkout: ${elapsed} s of the 900 s timeout"
+                  if [ "$elapsed" -gt 720 ]; then
+                      echo "::warning::CI took ${elapsed} s, over 12 of the 15 minutes before the timeout; see billing/docs/devops/ci.md"
+                  fi
