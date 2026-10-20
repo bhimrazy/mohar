@@ -155,6 +155,8 @@ export type NpRequest = {
         url: string | null;
     }[];
     handling_fee_note: string | null;
+    /** No client upload and no staff step for 90 days while documents are awaited. */
+    abandoned: boolean;
     stage_changed_at?: string;
     submitted_at?: string | null;
     approved_at?: string | null;
@@ -163,6 +165,9 @@ export type NpRequest = {
     review_pending?: boolean;
     overdue?: boolean;
     hostmaster_email?: string | null;
+    /** Staff: the amount paid on the order (formatted) and a link to its invoice. */
+    paid?: string | null;
+    invoice_url?: string | null;
 };
 
 export const NP_DOCUMENTS: Record<string, string> = {

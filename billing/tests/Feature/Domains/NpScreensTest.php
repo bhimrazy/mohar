@@ -53,3 +53,15 @@ test('opening a document mints a fresh signed link, for staff who may review onl
     expect($signed)->toContain('signature=');
     $this->get($signed)->assertOk()->assertHeader('Content-Type', 'image/png');
 });
+
+test('an abandoned request shows the client a notice and staff what was paid', function () {
+    $this->domain->forceFill(['currency' => 'USD', 'first_payment_amount' => 1500])->save();
+    $this->travel(91)->days();
+
+    $this->get(route('client.domains.show', $this->domain->id))
+        ->assertInertia(fn (Assert $page) => $page->where('np.abandoned', true)->missing('np.paid'));
+
+    actingAsStaff(['domains.domains.view', 'domains.np.review']);
+    $this->get(route('admin.domains.show', $this->domain))
+        ->assertInertia(fn (Assert $page) => $page->where('np.abandoned', true)->where('np.paid', fn (string $paid): bool => str_contains($paid, '15.00')));
+});

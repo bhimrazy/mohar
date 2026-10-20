@@ -1,4 +1,4 @@
-import { useForm } from '@inertiajs/react';
+import { Link, useForm } from '@inertiajs/react';
 import { Check, Circle, FileImage, Upload } from 'lucide-react';
 import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -250,6 +250,48 @@ export function NpStaffPanel({
             <div className="grid gap-4">
                 <Steps stage={request.stage} />
                 <Reasons request={request} />
+                {request.abandoned && (
+                    <Alert>
+                        <AlertTitle>Abandoned request</AlertTitle>
+                        <AlertDescription>
+                            <p>
+                                No upload from the client and no staff step for
+                                90 days.
+                                {request.paid
+                                    ? ` The client paid ${request.paid} on the order invoice.`
+                                    : ''}{' '}
+                                Cancel the domain and refund the order (Change
+                                status, then the invoice), or keep waiting.
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                                {request.invoice_url && (
+                                    <Button asChild variant="outline" size="sm">
+                                        <Link href={request.invoice_url}>
+                                            Open the order invoice
+                                        </Link>
+                                    </Button>
+                                )}
+                                {canReview && (
+                                    <ConfirmDialog
+                                        trigger={
+                                            <Button variant="outline" size="sm">
+                                                Keep waiting
+                                            </Button>
+                                        }
+                                        title="Keep waiting for the documents?"
+                                        description="The request stays open and leaves the abandoned list for another 90 days."
+                                        confirmLabel="Keep waiting"
+                                        destructive={false}
+                                        action={NpRegistrationController.step({
+                                            domain: domainId,
+                                            action: 'extend',
+                                        })}
+                                    />
+                                )}
+                            </div>
+                        </AlertDescription>
+                    </Alert>
+                )}
                 <DescriptionList
                     items={[
                         {
@@ -763,6 +805,18 @@ export function NpClientPanel({
             <div className="grid gap-4">
                 <Steps stage={request.stage} />
                 <Reasons request={request} />
+                {request.abandoned && (
+                    <Alert>
+                        <AlertTitle>
+                            Still waiting for your documents
+                        </AlertTitle>
+                        <AlertDescription>
+                            We're still waiting for your documents. Upload them,
+                            or contact support if you no longer need this
+                            domain.
+                        </AlertDescription>
+                    </Alert>
+                )}
                 {collecting && (
                     <>
                         <ul className="grid gap-1 text-sm">
