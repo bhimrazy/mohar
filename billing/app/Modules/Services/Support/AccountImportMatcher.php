@@ -41,6 +41,9 @@ class AccountImportMatcher
 
     public const RESELLER = 'reseller';
 
+    /** The connection user is not known (a list read before it was recorded): every owned account is listed apart. */
+    public const UNKNOWN_USER = "\0unknown";
+
     public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
 
     /**
@@ -78,7 +81,8 @@ class AccountImportMatcher
             $otherOwner = $connectionUser !== null && $owner !== $connectionUser;
             $notes = array_filter([
                 $otherOwner && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
-                $otherOwner && $owner !== null ? ($connectionUser === 'root'
+                $otherOwner && $owner !== null && $connectionUser === self::UNKNOWN_USER ? self::text('This list does not record the WHM user it was read with: fetch it again to match owners.') : null,
+                $otherOwner && $owner !== null && $connectionUser !== self::UNKNOWN_USER ? ($connectionUser === 'root'
                     ? self::text('Owned by the reseller :owner.', ['owner' => $owner])
                     : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
@@ -146,7 +150,7 @@ class AccountImportMatcher
             'linked_count' => $counts[self::LINKED] ?? 0,
             'missing' => $matched['missing'],
             'fetched_at' => $import->fetched_at ?? now(),
-            'connection_user' => $connectionUser,
+            'connection_user' => $connectionUser === self::UNKNOWN_USER ? null : $connectionUser,
         ]);
 
         return count($matched['rows']);
@@ -165,7 +169,8 @@ class AccountImportMatcher
         }
 
         unset($row);
-        $this->store($import, $accounts, $import->connection_user);
+        // A list read before the connection user was recorded: owners cannot be compared, so nothing is proposed.
+        $this->store($import, $accounts, $import->connection_user ?? self::UNKNOWN_USER);
     }
 
     /**
