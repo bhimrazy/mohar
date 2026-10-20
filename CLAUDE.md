@@ -39,6 +39,7 @@ a module, follow the `run-workstream` skill. Reusable subagents are in `.claude/
 - Hard-pinned dependencies with a 7-day release cooldown (ADR 0007). Do not add packages without approval,
   and never run `npx <package>` for a tool that is not in the lockfile: it executes unvetted code. Format
   with `npx vp check --fix`, not standalone prettier.
-- Conventional Commits. Push branches to GitHub (`bhimrazy/whmcs`, private). Open and merge PRs with `gh`.
+- Conventional Commits. Push branches to GitHub (`bhimrazy/whmcs`; the owner switches it between public and
+  private). Open and merge PRs with `gh`.
 - Keep `docs/handoff/state.md`, `billing/docs/progress.md` and `billing/changelog.md` current: update
   them when a PR merges, a workstream starts or stops, or the owner makes a decision.
