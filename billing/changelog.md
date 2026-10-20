@@ -22,6 +22,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
   can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
   records and refund any duplicate.
+
+- **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
+  migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
+  (`staff`, `import`, `client`; default `client`), with CHECK constraints on PostgreSQL. It runs outside a transaction
+  and backfills in batches of 1,000 clients from the activity log:
+    - `origin` becomes `staff` where a staff member created the client (`client.created`), and `signup` otherwise;
+    - `email_source` becomes `staff` where the last entry that set the email was a staff member's (`client.created`, or
+      `client.updated` with `email` changed); a client-area account-details save counts as the client's.
+
+    Clients seeded or created before the activity log recorded event keys (2026-10-17) count as `signup` with a
+    `client` email. Account import does not propose their email matches until a login on the client verifies the
+    address; staff can still choose such a client for an account. To vouch for addresses your staff entered or checked
+    with the client, with an audit entry per client:
+    `php artisan tinker --execute 'foreach ([12, 15] as $id) { $c = App\Modules\Core\Models\Client::query()->findOrFail($id); $c->forceFill(["email_source" => "staff"])->save(); app(App\Modules\Core\Support\ActivityLogger::class)->log("Client email vouched for by staff", $c, $c->id, ["email" => $c->email], "client.email_vouched"); }'`.
+    **Do not vouch for an address a client chose** (a sign-up, or one changed in the client area): that lets an email
+    match to it be proposed, and re-opens the gap this closes.
+
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -324,6 +341,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   in URLs.
 
 ### Core
+
+- Each client records how it was created (sign-up, checkout, staff, import or API) and who set its current email
+  (staff, import or the client), both written by the path that does it and never by a form. Account import proposes an
+  email match only when staff or an importer set the address, or a login on that client (owner or not) has verified
+  it, and the address has not changed in the last 30 days. Otherwise the row shows "Email set by the client and not
+  verified" and staff choose the client themselves. Before, a client-area login could set the email of a
+  staff-created client, or a sign-up's owner could delete their login, and after 30 days the match was proposed.
 
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,
   roles with wildcard permissions, currencies, settings store, activity log.
