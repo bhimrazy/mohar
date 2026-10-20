@@ -7,6 +7,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Foundation\Testing\DatabaseTransactionsManager;
 use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -99,7 +100,8 @@ abstract class TestCase extends BaseTestCase
      * for seeds that take tens of seconds, such as the demo billing history. The database is created and migrated
      * fresh the first time a process asks for it (<database>_<name> on PostgreSQL, a temporary file on SQLite), and
      * each test runs inside a transaction on it that is rolled back afterwards, so tests stay isolated. The test's
-     * default connection points at it until tearDown().
+     * default connection points at it until tearDown(). PostgreSQL sequences are not rolled back, so a test on a
+     * seeded database must not assert ids or sequence values.
      */
     protected function useSeededDatabase(string $name, Closure $seed): void
     {
@@ -126,14 +128,27 @@ abstract class TestCase extends BaseTestCase
                 register_shutdown_function(fn () => @unlink($database));
             }
 
+            // A failing seed must leave the test's own database as the default; otherwise RefreshDatabase's teardown
+            // rolls back the wrong connection and every later test in this worker fails.
             config(['database.default' => $connection]);
-            Artisan::call('migrate', ['--database' => $connection, '--force' => true]);
-            $seed();
+
+            try {
+                Artisan::call('migrate', ['--database' => $connection, '--force' => true]);
+                $seed();
+            } finally {
+                config(['database.default' => $default]);
+            }
+
             self::$seededDatabases[] = $name;
         }
 
+        // Like RefreshDatabase: a test-aware transaction manager, so after-commit callbacks registered outside a nested
+        // transaction (DB::afterCommit, ->afterCommit() jobs, ShouldDispatchAfterCommit events) run immediately.
+        $this->app->instance('db.transactions', $manager = new DatabaseTransactionsManager([$connection]));
+        $seeded = DB::connection($connection);
+        $seeded->setTransactionManager($manager);
+        $seeded->beginTransaction();
         config(['database.default' => $connection]);
-        DB::connection($connection)->beginTransaction();
         $this->seededConnection = [$connection, $default];
     }
 

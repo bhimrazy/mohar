@@ -62,7 +62,7 @@ test('the token reads its own permissions and expiry by POST, and the token neve
     expect($request->method())->toBe('POST')
         ->and($request->data())->toBe(['token' => Whm::TOKEN])
         ->and($request->url())->not->toContain(Whm::TOKEN)
-        ->and($check->details['token_expires_at'])->toBe(now()->addDays(30)->startOfSecond()->toIso8601String())
+        ->and($check->details['token_expires_at'])->toBe(now()->addDays(30)->toIso8601String())
         ->and(checklist($check)['Permissions']['status'])->toBe('pass');
 });
 
