@@ -68,4 +68,17 @@ final class ClientCsv
 
         return $run->fresh();
     }
+
+    /**
+     * Confirm the reviewed rows and return the run after the queue applied them.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public static function apply(MigrationRun $run, array $input = []): MigrationRun
+    {
+        test()->post(route('admin.migration.imports.apply', $run), ['digest' => $run->fresh()->review_digest, ...$input])
+            ->assertSessionHasNoErrors()->assertRedirect();
+
+        return $run->fresh();
+    }
 }

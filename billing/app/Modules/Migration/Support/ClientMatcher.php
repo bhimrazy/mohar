@@ -2,6 +2,7 @@
 
 namespace App\Modules\Migration\Support;
 
+use App\Modules\Core\Import\ClientImporter;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\Like;
@@ -203,14 +204,14 @@ final class ClientMatcher
     private function changes(array $row, Client $client, bool $keepBlank, array $exclude): array
     {
         // Only mapped cells: a filled one that differs, or (when blank cells clear) an empty one over a value.
-        $blank = $keepBlank ? [] : array_map(fn (string $target): string => $target === 'client_group' ? 'client_group_id' : $target, $row['blank']);
+        $blank = $keepBlank ? [] : array_intersect(array_map(fn (string $target): string => $target === 'client_group' ? 'client_group_id' : $target, $row['blank']), ClientImporter::CLEARABLE);
 
         return array_values(array_filter(self::COMPARED, fn (string $field): bool => ! in_array($field, $exclude, true)
             // A re-run never reopens a client closed here.
             && ! ($field === 'status' && $client->status === 'closed')
             && match (true) {
                 array_key_exists($field, $row['client']) => (string) $client->getAttribute($field) !== (string) $row['client'][$field],
-                in_array($field, $blank, true) => ! in_array($client->getAttribute($field), [null, '', false], true),
+                in_array($field, $blank, true) => ! in_array($client->getAttribute($field), [null, ''], true),
                 default => false,
             }));
     }

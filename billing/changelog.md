@@ -187,8 +187,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Check results**: summary cards (new clients, updates, unchanged, skipped, needs a decision, errors, tax-exempt),
   tabs with counts, and every row with its file row number, the matching client and its notes; search by row number
   or exact email. Nothing is imported yet: reviewing and applying is the next step.
+- **Import** (client-import spec §5.6): confirming needs a recent password, the digest of the rows reviewed (a new
+  check or a changed decision needs a new review), no row left needing a decision, and an acknowledgement when
+  tax-exempt clients are included. One import runs per install at a time. Rows are applied on the `imports` queue,
+  200 per job, each in its own transaction: a stopped import continues where it stopped without creating anything
+  twice, and a new client whose email someone added after the review is not created. Clients are created through
+  Core's importer with origin `import`, the email source `import`, `imported_at`, the sign-up date as their creation
+  date, imported fields, and a marketing consent row with its evidence (never turning a withdrawal into a grant);
+  closed rows are created closed without a login. An update changes only the fields the file maps (defaults such as
+  currency, status and tax exemption apply to new clients only), and a client matched through a merge keeps its own
+  email. Each new open client gets an owner login whose password hash is of
+  a random secret nobody keeps, so it cannot sign in until an invitation sets a password; an email that belongs to a
+  staff login gets no login. Updates change only the fields that differ; the owner login follows a new email only if
+  it never signed in. The id map records every row, so the same file again comes out unchanged. No email is sent, and
+  no `ClientRegistered` or other client event fires; `MigrationRunCompleted` fires once. The page shows the progress
+  and the counts by outcome.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
-  expired client imports"); their counts stay.
+  expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`).
 
 ### Platform foundation
 

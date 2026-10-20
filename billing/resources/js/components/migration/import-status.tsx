@@ -17,11 +17,14 @@ export type ImportRun = {
         | 'mapping'
         | 'checking'
         | 'ready'
+        | 'applying'
+        | 'completed'
         | 'failed'
         | 'expired';
     rows: number;
     staged: number;
     checked: number;
+    applied: number;
     running: boolean;
     stalled: boolean;
     error: string | null;
@@ -128,18 +131,20 @@ export function ImportProgress({ run }: { run: ImportRun }) {
         return null;
     }
 
-    const checking = run.status === 'checking';
-    const done = checking ? run.checked : run.staged;
+    const [title, done, verb] =
+        run.status === 'checking'
+            ? ['Checking the rows', run.checked, 'checked']
+            : run.status === 'applying'
+              ? ['Importing the clients', run.applied, 'imported']
+              : ['Reading the file', run.staged, 'read'];
 
     return (
         <Alert>
             <Spinner />
-            <AlertTitle>
-                {checking ? 'Checking the rows' : 'Reading the file'}
-            </AlertTitle>
+            <AlertTitle>{title}</AlertTitle>
             <AlertDescription>
-                {count(done)} of {count(run.rows)} rows{' '}
-                {checking ? 'checked' : 'read'}. This page updates as it goes.
+                {count(done)} of {count(run.rows)} rows {verb}. This page
+                updates as it goes.
             </AlertDescription>
         </Alert>
     );

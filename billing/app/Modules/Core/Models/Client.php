@@ -46,6 +46,8 @@ use Illuminate\Support\Str;
  * @property ClientOrigin $origin how the client was created; set by each creation path, never by a form
  * @property EmailSource $email_source who set the current email; set wherever the email is, never by a form
  * @property CarbonImmutable|null $closed_at
+ * @property CarbonImmutable|null $imported_at when the client was created by an import
+ * @property list<array{label: string, value: string, source: string}>|null $imported_fields columns kept by an import
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read string $display_name
@@ -71,7 +73,7 @@ class Client extends Model
 
     protected function casts(): array
     {
-        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime', 'origin' => ClientOrigin::class, 'email_source' => EmailSource::class];
+        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime', 'imported_at' => 'immutable_datetime', 'imported_fields' => 'array', 'origin' => ClientOrigin::class, 'email_source' => EmailSource::class];
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\ClientMatcher;
+use App\Modules\Migration\Support\ReviewDigest;
 use App\Modules\Migration\Support\RowNormalizer;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -172,6 +173,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             'warning_count' => (int) ($statuses['warning'] ?? 0),
             'heartbeat_at' => now(),
         ])->save();
+        $run->forceFill(['review_digest' => ReviewDigest::of($run)])->save();
     }
 
     /**

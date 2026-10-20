@@ -6,6 +6,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client import, PR B1a (client-import spec §15, ADR 0019)
+
+- Added the event `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, bool $failed, array
+$counts)`, with `$counts` keyed by entity (`created`, `updated`, `unchanged`, `skipped`, `failed`), dispatched once
+  when an import run finishes applying.
+- Core registers the `client` and `user` importers in the kernel `ImportRegistry`; both honour dry runs.
+
 ### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
 
 - Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes
