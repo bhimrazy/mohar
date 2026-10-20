@@ -263,6 +263,7 @@ class GatewayCallbackHandler
             return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
                 $txnId = $event->txnId;
+                $first = null;
 
                 foreach ($parents as $parent) {
                     $portion = min($remaining, $parent->refundable_remaining);
@@ -271,33 +272,48 @@ class GatewayCallbackHandler
                         continue;
                     }
 
-                    $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
+                    $first ??= $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
                     $remaining -= $portion;
                     $txnId = null;
                 }
 
-                if ($remaining > 0 && ($flagged = $this->flaggedAttempt($parents)) !== null) {
-                    return $this->takeBackCredit($gatewayKey, $event, $flagged, $parents, $remaining);
+                if ($remaining === 0) {
+                    return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
                 }
 
-                // Money that went to account credit (an overpayment, or a payment of a closed invoice) is taken back
-                // from the credit those payments placed (#172).
-                $taken = $remaining > 0 && $event->txnId !== ''
+                // Money that went to account credit (an overpayment, a payment of a closed invoice, a refund to
+                // credit) is taken back from the credit those payments placed (#172, and #152 for flagged attempts).
+                $taken = $event->txnId !== ''
                     ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::CreditRemoved, __('Refunded at the gateway (:refund)', ['refund' => $event->txnId]))
                     : 0;
-                $payload = $taken > 0 ? [...$event->raw, 'credit_taken_back' => $taken] : $event->raw;
-                $remaining -= $taken;
+                $left = $remaining - $taken;
+                $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $left];
+                $flagged = $this->flaggedAttempt($parents);
 
-                if ($remaining > 0) {
-                    // More than the payments and the credit they placed: acknowledge (no retries) and leave it to staff.
-                    return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$payload, 'unallocated' => $remaining], $parents[0]->invoice_id);
+                // The refund books everything the provider refunded as money out; a credit-only refund gets its own row,
+                // which also carries the refund id for replays.
+                $first ??= $this->reversalRow($parents[0], TransactionType::Refund, $event, __('Refunded at the gateway'));
+                $this->finishReversal($first, $taken, $left, review: $flagged === null);
+
+                $payment = $flagged !== null ? (collect($parents)->firstWhere('id', $flagged->transaction_id) ?? $parents[0]) : $parents[0];
+
+                if ($flagged !== null && ($left > 0 || $this->credit->balance($payment->client_id, $payment->currency)->isNegative())) {
+                    // A flagged late or credited payment keeps its own to-do when the credit could not cover the refund.
+                    $flagged->update([
+                        'check_reason' => PaymentAttempt::CHECK_REFUND,
+                        'late_checked_at' => null,
+                        'review_reason' => mb_substr('Refunded at the provider beyond the account credit left', 0, 191),
+                    ]);
+
+                    return $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $payment->invoice_id);
                 }
 
-                if ($taken > 0) {
-                    return $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $parents[0]->invoice_id);
+                if ($left > 0) {
+                    // More than the payments and the credit they placed: on "Disputes and refunds to review".
+                    return $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $parents[0]->invoice_id);
                 }
 
-                return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
+                return $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $parents[0]->invoice_id);
             });
         } catch (UniqueConstraintViolationException|ReversalAlreadyRecorded) {
             // Another delivery of the same refund booked it first (refund row or credit line).
@@ -321,62 +337,10 @@ class GatewayCallbackHandler
     }
 
     /**
-     * Debit the refunded amount the payments could not absorb from the client's credit, up to what is left there.
-     * Anything the credit can't cover goes to staff ("Gateway payments to review"), so the client never keeps both
-     * the refund and the credit. Exactly once per provider refund id: the ledger line carries (gateway, refund id),
-     * unique in the database, and is written even when no credit is left (amount 0), so a replay never takes credit
-     * the client received later. A replay finds it under the client lock; a race that slips past hits the index and
-     * the caller (which runs this inside its transaction) answers "duplicate".
-     *
-     * @param  list<Transaction>  $parents
-     * @return Outcome
-     */
-    private function takeBackCredit(string $gatewayKey, CallbackEvent $event, PaymentAttempt $attempt, array $parents, int $remaining): array
-    {
-        $payment = collect($parents)->firstWhere('id', $attempt->transaction_id) ?? $parents[0];
-        $refundId = $event->txnId;
-
-        if ($refundId === '') {
-            return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $payment->invoice_id);
-        }
-
-        Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
-
-        if (CreditLedgerEntry::query()->where('gateway', $gatewayKey)->where('external_ref', $refundId)->exists()) {
-            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $payment->invoice_id);
-        }
-
-        $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
-        $this->credit->post(
-            $payment->client_id,
-            Money::of($taken, $payment->currency)->negate(),
-            CreditReason::CreditRemoved,
-            $payment->invoice_id,
-            $payment->id,
-            mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $refundId]), 0, 255),
-            gateway: $gatewayKey,
-            externalRef: $refundId,
-        );
-        $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $remaining - $taken];
-
-        if ($remaining > $taken) {
-            $attempt->update([
-                'check_reason' => PaymentAttempt::CHECK_REFUND,
-                'late_checked_at' => null,
-                'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
-            ]);
-
-            return $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $payment->invoice_id);
-        }
-
-        return $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $payment->invoice_id);
-    }
-
-    /**
-     * A dispute (chargeback): each payment gives back what it can still return, and what they can't (money that went
-     * to account credit) is taken back from that credit and added to the chargeback (#172). One transaction, so a
-     * crash never leaves the chargeback without its credit line, and a racing delivery of the same dispute books
-     * nothing (it waits on the payment lock, then finds the chargeback, or hits a unique index).
+     * A dispute (chargeback): each payment gives back what it can still return, what they can't (money that went to
+     * account credit) is taken back from that credit, and the chargeback books the whole disputed amount (#172).
+     * One transaction, so a crash never leaves the chargeback without its credit line. A replay is stopped by the
+     * chargeback row (under the payment lock); a credit line written without one ends as "duplicate" too.
      *
      * @return Outcome
      */
@@ -416,22 +380,21 @@ class GatewayCallbackHandler
                     $remaining -= $chargeback->amount_out;
                 }
 
-                $taken = $remaining > 0 && $first !== null && $event->txnId !== ''
+                if ($remaining === 0) {
+                    return $this->outcome($gatewayKey, 200, 'chargeback recorded', $event->raw, $parents[0]->invoice_id);
+                }
+
+                $taken = $event->txnId !== ''
                     ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::Reversal, __('Credit reversed (chargeback :dispute)', ['dispute' => $event->txnId]))
                     : 0;
+                $left = $remaining - $taken;
+                $this->finishReversal($first, $taken, $left, review: true);
+                $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $left];
 
-                $payload = $event->raw;
-
-                if ($taken > 0) {
-                    $first->update(['amount_out' => $first->amount_out + $taken]);
-                    $payload['credit_taken_back'] = $taken;
-                }
-
-                if ($remaining > $taken) {
-                    $payload['unallocated'] = $remaining - $taken;
-                }
-
-                return $this->outcome($gatewayKey, 200, $taken > 0 ? 'chargeback recorded; credit taken back' : 'chargeback recorded', $payload, $parents[0]->invoice_id);
+                return $this->outcome($gatewayKey, 200, match (true) {
+                    $left > 0 => 'chargeback needs staff review',
+                    default => 'chargeback recorded; credit taken back',
+                }, $payload, $parents[0]->invoice_id);
             });
         } catch (UniqueConstraintViolationException|ReversalAlreadyRecorded) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
@@ -439,12 +402,49 @@ class GatewayCallbackHandler
     }
 
     /**
+     * A refund row for a provider refund none of the payments could absorb (all of it went to account credit): it
+     * changes neither the payment's refundable amount nor the invoice, and carries the provider's refund id.
+     */
+    private function reversalRow(Transaction $payment, TransactionType $type, CallbackEvent $event, string $description): Transaction
+    {
+        return Transaction::query()->create([
+            'client_id' => $payment->client_id,
+            'invoice_id' => $payment->invoice_id,
+            'payment_batch_id' => $payment->payment_batch_id,
+            'gateway' => $payment->gateway,
+            'gateway_txn_id' => $event->txnId !== '' ? $event->txnId : null,
+            'type' => $type,
+            'status' => TransactionStatus::Succeeded,
+            'amount_out' => 0,
+            'currency' => $payment->currency,
+            'parent_transaction_id' => $payment->id,
+            'description' => $description,
+            'raw' => GatewayLogger::redact($event->raw),
+            'occurred_at' => now(),
+        ]);
+    }
+
+    /**
+     * Book the rest of a provider reversal on its first row: what came back from credit and what nothing absorbed
+     * both left the bank, so they are money out (net income stays right). The unabsorbed part is put up for staff
+     * review ("Disputes and refunds to review") unless a flagged attempt carries it.
+     */
+    private function finishReversal(Transaction $row, int $taken, int $left, bool $review): void
+    {
+        $row->update([
+            'amount_out' => $row->amount_out + $taken + $left,
+            'review_amount' => $review && $left > 0 ? $left : $row->review_amount,
+        ]);
+    }
+
+    /**
      * Take back from account credit what a provider refund or dispute reversed beyond what the payments could return:
-     * at most the credit these payments placed (overpayments, payments of closed invoices) that no earlier reversal
-     * took back, so it never reaches credit from anywhere else. The balance may go negative when the client already
-     * spent the credit; staff see that as "Clients owing account credit" on the dashboard. Exactly once per provider
-     * refund or dispute id: the ledger line carries (gateway, id), unique in the database. A replay finds it under the
-     * client lock and a race that slips past hits the index; either fails the caller's transaction, answered "duplicate".
+     * at most the credit these payments placed (overpayments, payments of closed invoices, and staff refunds of them
+     * to credit) that no earlier reversal took back, so it never reaches credit from anywhere else. The balance may
+     * go negative when the client already spent the credit; staff see that as "Clients owing account credit". Once
+     * per provider refund or dispute id: the ledger line carries (gateway, id), unique in the database. A replay finds
+     * it under the client lock and a race that slips past hits the index; either fails the caller's transaction,
+     * answered "duplicate". Called with the payment and invoice locked, so locks run payment, invoice, client.
      *
      * @param  list<Transaction>  $parents
      * @return int the amount taken back (document currency minor units)
@@ -459,10 +459,15 @@ class GatewayCallbackHandler
         }
 
         $ids = array_map(fn (Transaction $parent): int => $parent->id, $parents);
-        $lines = CreditLedgerEntry::query()->whereIn('transaction_id', $ids)->where('currency', $payment->currency);
+        $refunds = Transaction::query()->whereIn('parent_transaction_id', $ids)->where('type', TransactionType::Refund)
+            ->where('status', TransactionStatus::Succeeded)->pluck('id')->all();
 
-        $placed = (int) (clone $lines)->where('reason', CreditReason::Overpayment)->where('amount', '>', 0)->sum('amount');
-        $reversed = -(int) (clone $lines)->whereNotNull('gateway')->where('amount', '<', 0)->sum('amount');
+        $placed = (int) CreditLedgerEntry::query()->where('currency', $payment->currency)->where('amount', '>', 0)
+            ->where(fn ($lines) => $lines->where(fn ($own) => $own->whereIn('transaction_id', $ids)->where('reason', CreditReason::Overpayment))
+                ->orWhere(fn ($refunded) => $refunded->whereIn('transaction_id', $refunds)->where('reason', CreditReason::RefundToCredit)))
+            ->sum('amount');
+        $reversed = -(int) CreditLedgerEntry::query()->where('currency', $payment->currency)->whereIn('transaction_id', $ids)
+            ->whereNotNull('gateway')->where('amount', '<', 0)->sum('amount');
         $taken = min($remaining, max(0, $placed - $reversed));
 
         if ($taken > 0) {

@@ -59,7 +59,9 @@ test('a replayed provider refund of a payment that went wholly to credit takes i
     sandboxWebhook($refund)->assertOk()->assertJson(['result' => 'duplicate']);
 
     expect(creditBalance($client))->toBe(0)
-        ->and(CreditLedgerEntry::query()->where('external_ref', 're_r2')->count())->toBe(1);
+        ->and(CreditLedgerEntry::query()->where('external_ref', 're_r2')->count())->toBe(1)
+        ->and(Transaction::query()->where('type', 'refund')->sole())->gateway_txn_id->toBe('re_r2')->amount_out->toBe(5_000)
+        ->and(Transaction::query()->where('gateway_txn_id', 'ch_r2a')->sole()->refundable_remaining)->toBe(5_000);
 });
 
 test('a delivery that finds its credit line already written books nothing', function () {
@@ -102,15 +104,34 @@ test('partial refunds never take back more credit than the payment placed', func
     expect(creditBalance($client))->toBe(0);
 });
 
-test('a dispute of a payment that placed no credit leaves other credit alone', function () {
+test('a dispute beyond the payment and its credit leaves other credit alone and goes to staff review', function () {
     $client = billingClient();
     payInvoice(issueInvoice($client, [5_000]), 5_000, 'ch_r6', 'sandbox_card');
     app(CreditLedgerService::class)->post($client->id, Money::of(2_000, 'USD'), CreditReason::Manual);
 
-    // The provider reports more than the charge (e.g. its fee): the payment gives back what it has, the credit stays.
+    // The provider reverses more than the payment and its credit can cover: all of it is money out, the rest is reviewed.
     sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_r6', 'parent_txn_id' => 'ch_r6', 'amount' => 5_500, 'currency' => 'USD'])
-        ->assertOk()->assertJson(['result' => 'chargeback recorded']);
+        ->assertOk()->assertJson(['result' => 'chargeback needs staff review']);
 
     expect(creditBalance($client))->toBe(2_000)
-        ->and(Transaction::query()->where('type', 'chargeback')->sole()->amount_out)->toBe(5_000);
+        ->and(Transaction::query()->where('type', 'chargeback')->sole())->amount_out->toBe(5_500)->review_amount->toBe(500)
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.reversals_review')['count'])->toBe(1);
+});
+
+test('staff mark a reversal reviewed, which clears it from the to-do', function () {
+    $client = billingClient();
+    payInvoice(issueInvoice($client, [5_000]), 5_000, 'ch_r7', 'sandbox_card');
+    sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_r7', 'parent_txn_id' => 'ch_r7', 'amount' => 6_000, 'currency' => 'USD'])->assertOk();
+    $chargeback = Transaction::query()->where('type', 'chargeback')->sole();
+
+    actingAsStaff(['billing.transactions.view']);
+    $this->withSession(['auth.password_confirmed_at' => time()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertForbidden();
+
+    $staff = billingStaff();
+    $this->get(route('admin.billing.transactions.index', ['review' => 1]))->assertInertia(fn (Assert $page) => $page
+        ->where('transactions.data', fn ($rows) => collect($rows)->pluck('to_review')->all() === [1_000]));
+    $this->withSession(['auth.password_confirmed_at' => time()])->post(route('admin.billing.transactions.reviewed', $chargeback))->assertRedirect();
+
+    expect($chargeback->fresh()->reviewed_at)->not->toBeNull()
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', $staff))->firstWhere('key', 'billing.reversals_review'))->toBeNull();
 });

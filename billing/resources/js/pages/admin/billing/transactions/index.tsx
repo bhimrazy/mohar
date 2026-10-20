@@ -1,4 +1,4 @@
-import { Link } from '@inertiajs/react';
+import { Link, router } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { ArrowLeftRight, Plus, X } from 'lucide-react';
 import { DataTable } from '@/components/app/data-table';
@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import {
     index,
+    reviewed,
     store,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
 import type { ResourcePaginated, SelectOption } from '@/types/app';
@@ -37,7 +38,7 @@ type Props = {
     types: SelectOption[];
     gateways: GatewayOption[];
     client: (ClientOption & { currency: string }) | null;
-    can: { manage: boolean; refunds: boolean };
+    can: { manage: boolean; refunds: boolean; review: boolean };
 };
 
 export default function TransactionsIndex({
@@ -112,6 +113,38 @@ export default function TransactionsIndex({
                     label={humanize(txn.status)}
                 />
             ),
+        },
+        {
+            key: 'review',
+            header: 'Review',
+            hideOnMobile: true,
+            cell: (txn) =>
+                txn.to_review != null ? (
+                    <span className="flex items-center gap-2">
+                        <span className="text-sm font-medium whitespace-nowrap text-destructive">
+                            Not covered{' '}
+                            <Money
+                                amount={txn.to_review}
+                                currency={txn.currency}
+                            />
+                        </span>
+                        {can.review && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                    router.post(
+                                        reviewed.url(txn.id),
+                                        {},
+                                        { preserveScroll: true },
+                                    )
+                                }
+                            >
+                                Mark reviewed
+                            </Button>
+                        )}
+                    </span>
+                ) : null,
         },
         {
             key: 'amount',
@@ -360,6 +393,22 @@ export default function TransactionsIndex({
                         )
                     }
                 />
+
+                {filters.review && (
+                    <div className="flex items-center gap-2 text-sm">
+                        <span className="font-medium">
+                            Disputes and refunds to review
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => apply({ review: null })}
+                            aria-label="Show all transactions"
+                        >
+                            <X />
+                        </Button>
+                    </div>
+                )}
 
                 {client && (
                     <div className="flex items-center gap-2 text-sm">

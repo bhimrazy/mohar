@@ -93,6 +93,15 @@ class BillingDashboard
             'hint' => 'Paid late, or kept as credit: refund if needed',
         ], 'billing.payments.manage', 14);
 
+        $dashboard->todo('admin', 'billing.reversals_review', fn (?User $user): array => [
+            'label' => 'Disputes and refunds to review',
+            'count' => Transaction::toReview()->count(),
+            'href' => route('admin.billing.transactions.index', ['review' => 1]),
+            'tone' => 'danger',
+            'icon' => 'AlertTriangle',
+            'hint' => 'The provider reversed more than the payment and its credit could cover',
+        ], 'billing.payments.manage', 15);
+
         $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [
             'label' => 'Clients owing account credit',
             'count' => CreditLedgerEntry::owing()->distinct()->count('client_id'),
@@ -100,7 +109,7 @@ class BillingDashboard
             'tone' => 'warning',
             'icon' => 'Wallet',
             'hint' => 'A chargeback or refund took back credit they had spent',
-        ], 'billing.credit.manage', 15);
+        ], 'billing.credit.manage', 16);
 
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
