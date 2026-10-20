@@ -31,16 +31,7 @@ export function ImportClientFlag({
                     )}
                 </>
             ) : (
-                <>
-                    Signed up
-                    {flag.at && (
-                        <>
-                            {' on '}
-                            <DateTime value={flag.at} />
-                        </>
-                    )}
-                    , email not verified
-                </>
+                'Email set by the client and not verified'
             )}
             {children}
         </span>

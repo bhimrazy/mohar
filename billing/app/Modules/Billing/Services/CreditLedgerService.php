@@ -46,6 +46,7 @@ class CreditLedgerService implements CreditLedger
 
     /**
      * Append a signed movement. Throws when the balance would go negative unless $allowNegative (reversals).
+     * $gateway and $externalRef name the provider movement behind it; the pair is unique when set.
      */
     public function post(
         int $clientId,
@@ -56,8 +57,10 @@ class CreditLedgerService implements CreditLedger
         ?string $description = null,
         ?int $staffId = null,
         bool $allowNegative = false,
+        ?string $gateway = null,
+        ?string $externalRef = null,
     ): CreditLedgerEntry {
-        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative): CreditLedgerEntry {
+        return DB::transaction(function () use ($clientId, $amount, $reason, $invoiceId, $transactionId, $description, $staffId, $allowNegative, $gateway, $externalRef): CreditLedgerEntry {
             Client::query()->whereKey($clientId)->lockForUpdate()->firstOrFail();
 
             $balance = $this->balance($clientId, $amount->currency)->add($amount);
@@ -76,6 +79,8 @@ class CreditLedgerService implements CreditLedger
                 'transaction_id' => $transactionId,
                 'description' => $description,
                 'staff_id' => $staffId,
+                'gateway' => $gateway,
+                'external_ref' => $externalRef,
             ]);
         });
     }

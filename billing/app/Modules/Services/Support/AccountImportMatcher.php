@@ -7,6 +7,7 @@ use App\Data\Catalog\ProductSummary;
 use App\Data\Integrations\SettingField;
 use App\Data\Services\Provisioning\ServerConnection;
 use App\Enums\FieldType;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\CpanelDriver;
 use App\Modules\Services\Drivers\Provisioning\Cpanel\WhmClient;
@@ -194,10 +195,12 @@ class AccountImportMatcher
 
     /**
      * Why an email match to each of these clients is not proposed nor ticked in bulk, by client id (clients without a
-     * flag are left out). Either the client changed email in the last EMAIL_CHANGE_DAYS days, or the client signed up
-     * themselves and no owner login has verified the client's email. Sign-up and checkout always create an owner
-     * login with the client; clients staff created or imported have none until staff give them one, so they are not
-     * flagged for it.
+     * flag are left out). A match is trusted only when nobody vouches against it:
+     *
+     * - the client's email changed in the last EMAIL_CHANGE_DAYS days (whoever changed it); or
+     * - the address is the client's own (EmailSource::Client: sign-up, checkout, the client-area account form) and no
+     *   login on that client, owner or not, has verified that exact address. Staff and the importer vouch for the
+     *   addresses they enter.
      *
      * @param  array<int>  $clientIds
      * @return array<int, array{kind: string, at: string|null}>
@@ -208,19 +211,19 @@ class AccountImportMatcher
         $since = CarbonImmutable::now()->subDays(self::EMAIL_CHANGE_DAYS);
 
         foreach (array_chunk(array_values(array_unique($clientIds)), 500) as $chunk) {
-            $owners = DB::table('client_user')->join('users', 'users.id', '=', 'client_user.user_id')
-                ->whereIn('client_user.client_id', $chunk)->where('client_user.is_owner', true)
-                ->get(['client_user.client_id', 'users.email', 'users.email_verified_at'])
+            $logins = DB::table('client_user')->join('users', 'users.id', '=', 'client_user.user_id')
+                ->whereIn('client_user.client_id', $chunk)->whereNotNull('users.email_verified_at')
+                ->get(['client_user.client_id', 'users.email'])
                 ->groupBy(fn (stdClass $login): int => (int) $login->client_id);
 
-            foreach (Client::query()->toBase()->whereIn('id', $chunk)->get(['id', 'email', 'email_changed_at', 'created_at']) as $client) {
+            foreach (Client::query()->toBase()->whereIn('id', $chunk)->get(['id', 'email', 'email_changed_at', 'email_source']) as $client) {
                 $changed = $client->email_changed_at === null ? null : CarbonImmutable::parse((string) $client->email_changed_at);
-                $logins = $owners->get((int) $client->id, collect());
-                $verified = $logins->contains(fn (stdClass $login): bool => $login->email_verified_at !== null && mb_strtolower((string) $login->email) === mb_strtolower((string) $client->email));
+                $vouched = EmailSource::tryFrom((string) $client->email_source)?->isVouched() ?? false;
+                $verified = $logins->get((int) $client->id, collect())->contains(fn (stdClass $login): bool => mb_strtolower((string) $login->email) === mb_strtolower((string) $client->email));
 
                 $flag = match (true) {
                     $changed !== null && $changed->greaterThanOrEqualTo($since) => ['kind' => self::FLAG_EMAIL_CHANGED, 'at' => $changed->toIso8601String()],
-                    $logins->isNotEmpty() && ! $verified => ['kind' => self::FLAG_UNVERIFIED, 'at' => $client->created_at === null ? null : CarbonImmutable::parse((string) $client->created_at)->toIso8601String()],
+                    ! $vouched && ! $verified => ['kind' => self::FLAG_UNVERIFIED, 'at' => null],
                     default => null,
                 };
 
