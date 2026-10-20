@@ -50,10 +50,20 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 
 Waves: modules with no dependency on each other run in parallel, within the agent budget below.
 
-**Agent budget (CTO review, 2026-10-20; replaces the two-engineer rule, which was never enforced):** at most four
-agents running at once, two writing code and two reviewing. No launch while the 1-minute load is above 6 (resource
-log). Periodic reviews count against the budget. `state.md` "Running now" lists the running agents and the queue.
-Order when a slot frees: PRs awaiting sign-off (re-checks), then fix rounds, then new builds.
+**Agent budget (owner asked for speed, 2026-10-20 afternoon):** run agents up to the machine's limits, not a fixed
+count: launch while the 1-minute load is below 8, memory has 2 GB free and the disk is below 85%. In practice that is
+5–7 agents. Periodic reviews count. `state.md` "Running now" lists the running agents and the queue. Order when a slot
+frees: PRs awaiting sign-off (re-checks), then fix rounds, then new builds. No new builds while 8 or more PRs await
+review (CTO review round 3).
+
+**Review policy (owner asked for speed, 2026-10-20):**
+- Money, auth, permission and migration PRs get one combined review (code, security, database) and one re-check, then
+  merge. The CTO may verify a re-check's fixes from the diff only when the reviewer's probes for them are adopted and
+  pass.
+- Everything else gets one review, and the CTO verifies the fixes from the diff.
+- Lows and non-money mediums become issues, not new rounds.
+- Size cap: 2,000 changed lines (adopted probes don't count). Exceptions are named in the PR body with a reason.
+- Engineers flag the size before building, not after.
 
 ## Gates by PR type (from the 2026-10-18 Fable review)
 
@@ -88,9 +98,7 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
   page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
 - The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
 - Specs are written before the build starts, and briefs cite `product-standards.md`.
-- PR size cap is about 3,000 changed lines; split larger work before review. Drivers (gateway, panel,
-  registrar), money and security-sensitive PRs have a hard cap of 1,500 changed lines (tests and fixtures
-  count), with no overrides (CTO review, 2026-10-19).
+- PR size: see "Review policy" above. Split larger work before review.
 - Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
   `ci` label so PostgreSQL CI runs before review.
   The label takes effect on the next push (adding the label from the codespace token does not start a run), and
@@ -130,6 +138,15 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
   `password.recent`, CSP with nonce, secrets encrypted at rest and never sent to the browser,
   append-only audit log, client-area scoping through `ClientContext`). Payments settle only through
   server-side `lookup()`.
+
+## CI paused: local merge gate (owner, 2026-10-20 afternoon)
+
+The owner decided not to use GitHub Actions for now ("just use this machine and work here instead"); the repository
+stays private. Every merge into `develop` is gated by `scripts/merge-gate.sh <pr>`. It runs the same steps as
+`.github/workflows/ci.yml` (policy, pint, phpstan, tsc, vp check, npm test, build, and the full suite on SQLite and on
+PostgreSQL) against the PR merged into `develop`. Then the CTO pushes an empty `[skip ci]` commit naming the gate
+result, marks the PR ready and merges at that head, so no workflow starts. Smoke, load and E2E workflows run only on
+an explicit owner decision. Engineers still verify locally before handing back and always run `tests/Arch`.
 
 ## CI minutes budget (owner, 2026-10-20)
 
