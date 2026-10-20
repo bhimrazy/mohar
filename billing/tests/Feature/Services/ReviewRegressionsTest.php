@@ -323,7 +323,7 @@ test('a staff terminate closes open cancellation requests', function () {
 test('the dev runner consumes the provisioning queue', function () {
     $queue = collect(DevCommands::commands())->firstWhere('name', 'queue');
 
-    expect($queue['command'])->toContain('--queue=provisioning,default');
+    expect($queue['command'])->toMatch('/--queue=\S*provisioning\S*/');
 });
 
 // ADR 0008

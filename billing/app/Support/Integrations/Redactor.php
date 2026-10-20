@@ -29,6 +29,11 @@ final class Redactor
     /** Longest raw driver output kept for staff and logs, in bytes. */
     public const EXCERPT_BYTES = 4096;
 
+    /** Levels of `name=value` pairs searched inside another pair's value, and the longest value searched again. */
+    private const NESTED_PAIR_DEPTH = 2;
+
+    private const NESTED_PAIR_BYTES = 4096;
+
     /** Nested values deeper than this are masked rather than walked (self-referencing object graphs). */
     private const MAX_DEPTH = 32;
 
@@ -259,19 +264,27 @@ final class Redactor
     }
 
     /**
-     * Mask the value of every secret `name=value` or `name: value` pair. The value of any other pair is searched
-     * again, so a pair behind a label ("Rejected: api-key=…") is not hidden inside the label's value.
+     * Mask the value of every secret `name=value` or `name: value` pair. The value of another pair is searched again,
+     * so a pair behind a label ("Rejected: api-key=…") is not hidden inside the label's value. That second search is
+     * bounded (NESTED_PAIR_DEPTH levels, values up to NESTED_PAIR_BYTES), so long provider text costs linear time and
+     * memory.
      *
      * @param  list<string>  $sensitiveKeys
      */
-    private function maskPairs(string $value, array $sensitiveKeys): string
+    private function maskPairs(string $value, array $sensitiveKeys, int $depth = 0): string
     {
         return (string) preg_replace_callback(
             '/(?<![A-Za-z0-9_.\-\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63})(\s*[=:]\s*)(?!\/\/)((?:(?:Bearer|Basic|Digest|Token|whm)\s+)?(?:"[^"]*"|[^\s&;,"]+))/i',
-            fn (array $match): string => match (true) {
-                $this->isSensitiveKey(rtrim($match[1], '[]'), $sensitiveKeys) => $match[1].$match[2].self::MASK,
-                preg_match('/[=:]/', $match[3]) === 1 => $match[1].$match[2].$this->maskPairs($match[3], $sensitiveKeys),
-                default => $match[0],
+            function (array $match) use ($sensitiveKeys, $depth): string {
+                if ($this->isSensitiveKey(rtrim($match[1], '[]'), $sensitiveKeys)) {
+                    return $match[1].$match[2].self::MASK;
+                }
+
+                if ($depth < self::NESTED_PAIR_DEPTH && strlen($match[3]) <= self::NESTED_PAIR_BYTES && strpbrk($match[3], '=:') !== false) {
+                    return $match[1].$match[2].$this->maskPairs($match[3], $sensitiveKeys, $depth + 1);
+                }
+
+                return $match[0];
             },
             $value,
         );

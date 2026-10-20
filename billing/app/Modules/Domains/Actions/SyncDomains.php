@@ -110,6 +110,7 @@ class SyncDomains
 
         $stale = Domain::query()
             ->withStatus(DomainStatus::Pending)
+            ->where('needs_review', false) // swept once already: listed in Needs attention, not logged again each hour
             ->whereNotNull('registrar_meta')
             ->orderBy('id')
             ->get()

@@ -23,7 +23,8 @@ class SyncRegistrars implements ShouldBeUnique, ShouldQueue
 
     public int $timeout = 180;
 
-    public int $uniqueFor = 3600;
+    /** Shorter than the hourly schedule, so a lock left by a killed run never skips the next hour. */
+    public int $uniqueFor = 600;
 
     public function __construct()
     {
