@@ -1,0 +1,204 @@
+<?php
+
+namespace App\Modules\Storefront\Services;
+
+use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Branding\BrandProvider;
+use App\Contracts\Integrations\ProvidesLogo;
+use App\Contracts\Orders\ShopperSession;
+use App\Contracts\Support\PublicHelpDirectory;
+use App\Modules\Core\Support\Settings;
+use App\Modules\Storefront\Support\StorefrontCache;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+/**
+ * The shared public layout's data (spec §4): header groups with "from" prices, domain and support menus, the
+ * company block, payment marks, the tax statement and legal links. The visitor-independent part is cached per
+ * currency; the cart badge, currency and account links are read per request.
+ */
+class SiteData
+{
+    /** Header shows a link per group up to this many groups, then one menu (storefront spec §4). */
+    public const MAX_GROUP_LINKS = 3;
+
+    public function __construct(
+        private ContentStore $store,
+        private Catalogue $catalogue,
+        private PriceDisplay $prices,
+        private StorefrontCache $cache,
+        private ShopperSession $shopper,
+        private PublicHelpDirectory $help,
+        private Settings $settings,
+    ) {}
+
+    /**
+     * @param  array<string, mixed>|null  $draft  content to render instead of the published version (staff preview)
+     * @return array<string, mixed>
+     */
+    public function forRequest(Request $request, ?array $draft = null): array
+    {
+        $currency = $this->shopper->currency($request);
+        $signedIn = $request->user() !== null;
+        $shared = $draft !== null
+            ? $this->build($currency, $draft, $signedIn)
+            : $this->cache->remember("site.{$currency}.".(int) $signedIn, fn (): array => $this->build($currency, $this->store->published(), $signedIn));
+
+        return [
+            ...$shared,
+            'currency' => $currency,
+            'currencies' => $this->shopper->switchableCurrencies($request),
+            'currency_url' => $this->url('store.currency'),
+            'cart' => Route::has('store.cart') ? ['count' => $this->shopper->cartCount($request), 'url' => route('store.cart')] : null,
+            'account' => [
+                'signed_in' => $signedIn,
+                'client_area_url' => $this->url('dashboard'),
+                'login_url' => $this->url('login'),
+                'register_url' => $this->url('register'),
+                'reset_url' => $this->url('password.request'),
+                'invoices_url' => $this->url('client.invoices.index'),
+            ],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $content
+     * @return array<string, mixed>
+     */
+    private function build(string $currency, array $content, bool $signedIn): array
+    {
+        $display = $this->prices->forCurrency($currency, $content);
+        $groups = array_map(fn (array $group): array => array_diff_key($group, ['plans' => true]), $this->catalogue->groups($currency, $display));
+        $mode = $content['header']['products'];
+        $status = $this->help->networkStatus($signedIn);
+        $open = $status === null ? null : count(array_filter($status, fn (array $incident): bool => $incident['open']));
+        $company = $this->company();
+
+        return [
+            'products' => [
+                // Links only while they fit (product standard: up to three); "always links" falls back to the menu.
+                'mode' => $mode !== 'menu' && count($groups) <= self::MAX_GROUP_LINKS ? 'links' : 'menu',
+                'label' => $content['header']['menu_label'],
+                'groups' => $groups,
+                'compare_url' => $this->url('store.index'),
+            ],
+            'domains' => $this->links([
+                ['Register a domain', 'store.domains'],
+                ['Transfer a domain', 'store.domains', ['transfer' => 1]],
+                ['Domain prices', 'storefront.domain-pricing'],
+            ]),
+            'support' => [
+                ...$this->links([
+                    ['Knowledge base', 'support.kb.index'],
+                    ['Announcements', 'support.announcements.index'],
+                ]),
+                // Listed when the visitor may see it (it can require login): never a link that only leads to sign-in.
+                ...($status === null ? [] : $this->links([['Network status', 'support.network.index']], $open)),
+                ...$this->links([['Open a ticket', 'support.tickets.create']]),
+                ...(($contact = $this->contact()) !== null ? [[...$contact, 'badge' => null]] : []),
+            ],
+            'company' => $company,
+            'payments' => $this->paymentMarks($currency),
+            'tax_note' => $display['note'],
+            'legal' => array_values(array_filter([
+                ['label' => 'Terms of service', 'url' => $content['legal']['terms_url']],
+                ['label' => 'Privacy policy', 'url' => $content['legal']['privacy_url']],
+                ['label' => 'Refund policy', 'url' => $content['legal']['refund_url']],
+            ], fn (array $link): bool => $link['url'] !== '')),
+        ];
+    }
+
+    /**
+     * Company details for the footer and the Organization markup. Read from Settings → Company and the invoice
+     * seller details until the company profile (spec K1) replaces both.
+     *
+     * @return array{name: string, legal_name: string|null, address: string|null, email: string|null, phone: string|null, whatsapp: string|null, hours: string|null, ids: list<array{kind: string, label: string, value: string}>, social: list<array{label: string, url: string}>}
+     */
+    public function company(): array
+    {
+        $text = fn (string $key): ?string => is_string($value = $this->settings->get($key)) && trim($value) !== '' ? trim($value) : null;
+        $ids = [];
+
+        foreach (['pan' => ['PAN', 'billing.seller.pan'], 'vat' => ['VAT no.', 'billing.seller.vat_number'], 'gstin' => ['GSTIN', 'billing.seller.gstin'], 'registration' => ['Company reg. no.', 'core.registration_number']] as $kind => [$label, $key]) {
+            if (($value = $text($key)) !== null) {
+                $ids[$kind] = ['kind' => $kind, 'label' => $label, 'value' => $value];
+            }
+        }
+
+        // A VAT-registered Nepal business uses its PAN as its VAT number: one row, never the same number twice.
+        if (isset($ids['pan'], $ids['vat']) && $ids['pan']['value'] === $ids['vat']['value']) {
+            $ids['pan']['label'] = 'PAN/VAT no.';
+            unset($ids['vat']);
+        }
+
+        return [
+            'name' => app(BrandProvider::class)->brand()->name,
+            'legal_name' => $text('billing.seller.legal_name'),
+            'address' => $text('billing.seller.address'),
+            'email' => $text('core.support_email') ?? $text('billing.seller.email') ?? $text('core.company_email'),
+            'phone' => $text('billing.seller.phone'),
+            'whatsapp' => $text('core.whatsapp'),
+            'hours' => $text('core.support_hours'),
+            'ids' => array_values($ids),
+            'social' => array_values(array_filter(array_map(
+                fn (string $label, string $key): ?array => ($url = $text($key)) !== null && str_starts_with($url, 'https://') ? ['label' => $label, 'url' => $url] : null,
+                ['Facebook', 'Instagram', 'LinkedIn', 'X'],
+                ['core.social_facebook', 'core.social_instagram', 'core.social_linkedin', 'core.social_x'],
+            ))),
+        ];
+    }
+
+    /**
+     * Where "Contact us" goes: the support address; without one, a new support ticket (never the billing address).
+     *
+     * @return array{label: string, url: string}|null
+     */
+    public function contact(): ?array
+    {
+        $support = $this->settings->get('core.support_email');
+
+        return match (true) {
+            is_string($support) && trim($support) !== '' => ['label' => 'Contact us', 'url' => 'mailto:'.trim($support)],
+            Route::has('support.tickets.create') => ['label' => 'Contact us', 'url' => route('support.tickets.create')],
+            default => null,
+        };
+    }
+
+    /**
+     * Gateways a visitor can pay with in this currency; the driver's official logo when it ships one, else its name.
+     *
+     * @return list<array{key: string, label: string, logo: array{url: string, dark_url: string|null, alt: string}|null}>
+     */
+    private function paymentMarks(string $currency): array
+    {
+        $registry = app()->bound(GatewayRegistry::class) ? app(GatewayRegistry::class) : null;
+
+        return array_map(function (array $gateway) use ($registry): array {
+            $driver = $registry?->has($gateway['key']) ? $registry->driver($gateway['key']) : null;
+
+            return [
+                'key' => $gateway['key'],
+                'label' => $gateway['label'],
+                'logo' => $driver instanceof ProvidesLogo ? $driver->logo()?->toArray() : null,
+            ];
+        }, app(GatewayDirectory::class)->available($currency));
+    }
+
+    /**
+     * @param  list<array{0: string, 1: string, 2?: array<string, int|string>}>  $links
+     * @return list<array{label: string, url: string, badge: int|null}>
+     */
+    private function links(array $links, ?int $badge = null): array
+    {
+        return array_values(array_map(
+            fn (array $link): array => ['label' => $link[0], 'url' => route($link[1], $link[2] ?? []), 'badge' => $badge ?: null],
+            array_filter($links, fn (array $link): bool => Route::has($link[1])),
+        ));
+    }
+
+    private function url(string $name): ?string
+    {
+        return Route::has($name) ? route($name) : null;
+    }
+}

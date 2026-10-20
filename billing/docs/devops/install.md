@@ -168,7 +168,7 @@ are in `App\Support\Queues` (ADR 0014):
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
-php artisan queue:work --queue=default --tries=3
+php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256
 php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
 
@@ -178,6 +178,10 @@ or after the driver's declared command timeout up to `services.module.max_job_ti
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
 the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+The third pool also works the `imports` queue (client imports) after `default`, so a large import delays `default` work
+by at most one import job. Import jobs stop after 120 s; the pool's `--timeout` (150 s) covers that and stays below
+`retry_after`, and `--memory=256` lets a worker finish an import job (up to 192 MB) without restarting after it. On
+SQS, give the `imports` queue a visibility timeout of at least 150 s.
 
 The fourth worker runs **Run now** from Admin → Automation. A run can last longer than the pools' `retry_after` (a
 billing day for 50,000 clients took 546 s in load testing), and a worker hands a reserved job to a second worker once

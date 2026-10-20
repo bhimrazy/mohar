@@ -35,20 +35,20 @@ it('defaults to the configured app name, tagline and shipped assets', function (
 });
 
 it('shows the mark and name for a renamed brand without its own logo', function () {
-    app(Settings::class)->setMany(['core.company_name' => 'Himalaya Cloud', 'themes.tagline' => 'Hosting from the hills.']);
+    app(Settings::class)->setMany(['core.company_name' => 'Example Hosting', 'themes.tagline' => 'Hosting from the hills.']);
 
     expect(brand())
-        ->name->toBe('Himalaya Cloud')
+        ->name->toBe('Example Hosting')
         ->tagline->toBe('Hosting from the hills.')
         ->logoLight->toBeNull()
         ->logoDark->toBeNull()
         ->customised->toBeTrue();
 
     $this->get(route('login'))
-        ->assertSee('Himalaya Cloud</title>', false)
+        ->assertSee('Example Hosting</title>', false)
         ->assertInertia(fn (Assert $page) => $page
-            ->where('name', 'Himalaya Cloud')
-            ->where('brand.name', 'Himalaya Cloud')
+            ->where('name', 'Example Hosting')
+            ->where('brand.name', 'Example Hosting')
             ->where('brand.tagline', 'Hosting from the hills.')
             ->where('brand.logoLight', null));
 });
@@ -95,22 +95,22 @@ it('resets uploads and tagline but leaves Core\'s company name alone', function 
 });
 
 it('brands the mail layout header and footer', function () {
-    app(Settings::class)->setMany(['core.company_name' => 'Himalaya Cloud', 'themes.tagline' => 'Hosting from the hills.']);
+    app(Settings::class)->setMany(['core.company_name' => 'Example Hosting', 'themes.tagline' => 'Hosting from the hills.']);
 
     $html = (string) (new MailMessage)->line('Your invoice is ready.')->render();
 
-    expect($html)->toContain('Himalaya Cloud')
+    expect($html)->toContain('Example Hosting')
         ->toContain('Hosting from the hills.')
         ->not->toContain('Laravel');
 });
 
 it('shows only the host brand in email: the name alone by default, no product mark or tagline', function () {
-    app(Settings::class)->set('core.company_name', 'Himalaya Cloud');
+    app(Settings::class)->set('core.company_name', 'Example Hosting');
 
     $html = (string) (new MailMessage)->line('Hello')->render();
 
     expect(config('themes.tagline'))->toBe('')
-        ->and($html)->toMatch('#class="tx-strong brand-name"[^>]*>Himalaya Cloud</td>#')
+        ->and($html)->toMatch('#class="tx-strong brand-name"[^>]*>Example Hosting</td>#')
         ->not->toContain('brand/mark', 'brand/logo', 'sealed and settled', ' · </');
 });
 
@@ -157,10 +157,10 @@ it('saves the tagline with its own form and audits it', function () {
 
 it('shows the company name read-only and links to Core settings', function () {
     actingAsStaff(['themes.manage', 'core.settings.update']);
-    app(Settings::class)->set('core.company_name', 'Himalaya Cloud');
+    app(Settings::class)->set('core.company_name', 'Example Hosting');
 
     $this->get(route('admin.appearance.edit'))->assertInertia(fn (Assert $page) => $page
-        ->where('companyName', 'Himalaya Cloud')
+        ->where('companyName', 'Example Hosting')
         ->where('companySettingsUrl', fn (?string $url) => $url === null || str_contains($url, '/settings/company')));
 
     // The appearance form no longer writes Core's setting.
@@ -169,5 +169,5 @@ it('shows the company name read-only and links to Core settings', function () {
         'default_admin' => 'calm', 'default_client' => 'calm', 'default_public' => 'calm',
         'density' => 'theme', 'allow_user_choice' => '1',
     ]);
-    expect(app(Settings::class)->get('core.company_name'))->toBe('Himalaya Cloud');
+    expect(app(Settings::class)->get('core.company_name'))->toBe('Example Hosting');
 });

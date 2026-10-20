@@ -42,6 +42,17 @@ class FakeDomains implements DomainPricing, DomainRegistry
         return ($this->tlds[$tld][$action] ?? null) === null ? [] : [1, 2, 3, 5, 10];
     }
 
+    public function catalog(string $currency, ?int $clientId = null): array
+    {
+        $rows = [];
+
+        foreach ($this->tlds as $tld => $prices) {
+            $rows[] = ['tld' => $tld, 'featured' => true, 'badge' => null, ...$prices];
+        }
+
+        return $rows;
+    }
+
     public function split(string $domain): ?array
     {
         foreach (array_keys($this->tlds) as $tld) {

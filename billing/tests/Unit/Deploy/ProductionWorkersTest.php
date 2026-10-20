@@ -208,3 +208,12 @@ test('each green service is its blue twin, apart from the image variable and the
             ->and($all[$green]['profiles'])->toBe(['green']);
     }
 });
+
+test('an import job stops before the default pool would kill it, and the pool may use the memory one needs', function () {
+    $command = d2Services()['worker-default']['command'];
+
+    expect(Queues::IMPORT_JOB_TIMEOUT_SECONDS)->toBeLessThan(Queues::DEFAULT_POOL_TIMEOUT_SECONDS)
+        ->and(d2Option($command, 'timeout'))->toBe(Queues::DEFAULT_POOL_TIMEOUT_SECONDS)
+        ->and(d2Option($command, 'memory'))->toBe(Queues::DEFAULT_POOL_MEMORY_MB)
+        ->and(in_array(Queues::IMPORTS, d2Pools()['worker-default'], true))->toBeTrue();
+});
