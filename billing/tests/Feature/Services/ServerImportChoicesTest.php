@@ -47,11 +47,47 @@ test('Select all proposed leaves out a match whose client changed email in the l
     $this->anna->forceFill(['email_changed_at' => now()->subDays(3)])->save();
 
     $this->put(route('admin.services.servers.import.select', $this->server), ['proposed' => true])
-        ->assertSessionHas('inertia.flash_data.toast.message', '1 proposed account was not ticked: its client changed email in the last 30 days. Check it before ticking.');
+        ->assertSessionHas('inertia.flash_data.toast.message', '1 proposed account was not ticked: its client changed email recently or has not verified it. Check it before ticking.');
 
     $alpha = collect($this->get(route('admin.services.servers.import.show', $this->server))->inertiaProps('rows.data'))->keyBy('username')['alpha'];
     expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty()
-        ->and($alpha['email_changed_at'])->toStartWith('2026-10-16');
+        ->and($alpha['flag']['kind'])->toBe('email_changed')
+        ->and($alpha['flag']['at'])->toStartWith('2026-10-16');
+});
+
+test('a client who signed up and has not verified the email is shown but not proposed, and is imported only when chosen', function () {
+    $this->anna->delete();
+    $signup = Client::factory()->create(['email' => 'anna@alpha-books.com', 'currency' => 'USD']);
+    $signup->users()->attach(User::factory()->unverified()->create(['email' => 'anna@alpha-books.com']), ['is_owner' => true]);
+    $verified = Client::factory()->create(['email' => 'chef@bravo-cafe.com', 'currency' => 'USD']);
+    $verified->users()->attach(User::factory()->create(['email' => 'chef@bravo-cafe.com']), ['is_owner' => true]);
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+
+    $rows = collect($this->get(route('admin.services.servers.import.show', $this->server))->inertiaProps('rows.data'))->keyBy('username');
+    expect($rows['alpha']['category'])->toBe('unmatched')
+        ->and($rows['alpha']['client']['id'])->toBe($signup->id)
+        ->and($rows['alpha']['flag']['kind'])->toBe('unverified');
+
+    // Ticked without choosing the client: the review keeps it out; chosen explicitly, it can be imported.
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'product_id' => 21])->assertSessionHasNoErrors();
+    $alpha = collect($this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('rows'))->keyBy('username')['alpha'];
+    expect($alpha['decision']['problems'])->toBe(['This client has not verified their email: choose the client yourself to import it.'])
+        ->and($alpha['decision']['flag']['kind'])->toBe('unverified');
+
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'client_id' => $signup->id])->assertSessionHasNoErrors();
+    $alpha = collect($this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('rows'))->keyBy('username')['alpha'];
+    expect($alpha['decision']['problems'])->toBe([])->and($alpha['decision']['flag']['kind'])->toBe('unverified');
+});
+
+test('a choice is not carried by Fetch again to an account re-created under the same name', function () {
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha', 'charlie'], 'include' => true])->assertSessionHasNoErrors();
+    $accounts = array_map(fn (array $account): array => $account['user'] === 'alpha' ? [...$account, 'unix_startdate' => 1790000000] : $account,
+        [...Whm::fixture('listaccts_page1')['data']['acct'], ...Whm::fixture('listaccts_page2')['data']['acct']]);
+    Whm::fake(['listaccts' => Whm::fixture('listaccts_example', ['data' => ['acct' => $accounts]])]);
+
+    $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
+
+    expect(ServerAccountImport::query()->sole()->selections)->toBe(['charlie' => ['include' => true]]);
 });
 
 test('the cycle and due date can be set for every ticked account at once, and choices survive Fetch again', function () {
@@ -102,8 +138,22 @@ test('a stopped import keeps the choices it did not reach, and its report surviv
     $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page
         ->where('included', 1)
         ->where('import.report.stop_reason', 'The background job failed.')
+        ->where('import.report.not_reached', 1)
         ->where('import.report.lines.0.username', 'bravo')
         ->where('import.report.lines.0.message', 'Not reached.'));
+
+    // Going on: one report for both runs, with this run's progress counted on its own.
+    $digest = $this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('digest');
+    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasNoErrors();
+    $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page->where('import.progress', ['done' => 0, 'total' => 1]));
+    $import = ServerAccountImport::query()->sole();
+    app(ImportServerAccounts::class)->handle($this->server, $import, auth()->user());
+    app(ImportServerAccounts::class)->finish($this->server, $import->refresh(), auth()->user());
+
+    $this->get(route('admin.services.servers.import.show', $this->server))->assertInertia(fn (Assert $page) => $page
+        ->where('import.report.imported', 2)
+        ->where('import.report.not_imported', 0)
+        ->where('import.report.stop_reason', null));
 });
 
 test('a failed fetch leaves the last list in place and is shown beside it', function () {

@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Models;
 
 use App\Models\User;
+use App\Modules\Services\Support\AccountImportMatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -28,7 +29,7 @@ use Illuminate\Support\Facades\DB;
  * @property list<int>|null $missing ids of live services whose account the server did not report
  * @property string|null $connection_user the panel user the fetch signed in as
  * @property array<string, array{include?: bool, client_id?: int, product_id?: int, cycle?: string, next_due_date?: string}>|null $selections staff choices by username
- * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null}|null $reviewed what the review page showed
+ * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null, earlier?: int}|null $reviewed what the review page showed (earlier: report lines already there when the import started)
  * @property int $imported_count accounts the last import created
  * @property int $not_imported_count reviewed accounts the last import left out, or did not reach when it stopped
  * @property string|null $stop_reason why the last import stopped early
@@ -121,6 +122,15 @@ class ServerAccountImport extends Model
             ->get(['username', 'imported', 'message', 'service_id', 'created_at'])
             ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id, 'at' => $line->created_at === null ? null : CarbonImmutable::parse((string) $line->created_at)->toIso8601String()])
             ->all());
+    }
+
+    /**
+     * The report's accounts that a stop left unreached (stop()), as opposed to those that failed.
+     */
+    public function notReachedCount(): int
+    {
+        return DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)
+            ->where('imported', false)->where('message', AccountImportMatcher::text('Not reached.'))->count();
     }
 
     public function isRunning(): bool

@@ -14,6 +14,8 @@ import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
+import { ImportClientFlag } from '@/components/services/import-client-flag';
+import type { ImportClientFlagData } from '@/components/services/import-client-flag';
 import type { ImportChoice } from '@/components/services/import-choice-dialog';
 import { Button } from '@/components/ui/button';
 import type { SelectOption } from '@/types/app';
@@ -31,6 +33,7 @@ type Row = {
         amount: number | null;
         list_amount: number | null;
         discount: { group: string; percent: number } | null;
+        flag: ImportClientFlagData | null;
         problems: string[];
     };
 };
@@ -167,6 +170,16 @@ export default function ServerImportReview({
                                         {row.username}
                                     </span>
                                     <span className="text-muted-foreground">
+                                        {row.decision.flag && (
+                                            <>
+                                                <ImportClientFlag
+                                                    flag={row.decision.flag}
+                                                    className=""
+                                                >
+                                                    .
+                                                </ImportClientFlag>{' '}
+                                            </>
+                                        )}
                                         {row.decision.problems.join(' ')}{' '}
                                         <Link
                                             href={change(row)}
@@ -199,6 +212,13 @@ export default function ServerImportReview({
                                     <span className="text-xs text-muted-foreground">
                                         {row.decision.product?.name}
                                     </span>
+                                    {row.decision.flag && (
+                                        <ImportClientFlag
+                                            flag={row.decision.flag}
+                                        >
+                                            ; you chose this client.
+                                        </ImportClientFlag>
+                                    )}
                                 </span>
                             ),
                         },

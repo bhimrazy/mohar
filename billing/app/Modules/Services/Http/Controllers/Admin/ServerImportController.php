@@ -68,14 +68,15 @@ class ServerImportController extends Controller
                 'fetched_at' => $import->fetched_at?->toIso8601String(),
                 'expires_at' => $import->expires_at->toIso8601String(),
                 'running' => $import->isRunning(),
-                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => $import->imported_count + $import->not_imported_count, 'total' => count($import->reviewed['rows'] ?? [])] : null,
+                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => $import->imported_count + $import->not_imported_count - (int) ($import->reviewed['earlier'] ?? 0), 'total' => count($import->reviewed['rows'] ?? [])] : null,
                 // The last import's counts, why it stopped (if it did), and its lines a page at a time, not imported first.
                 'report' => $import->status === ServerAccountImport::IMPORTING || $import->imported_count + $import->not_imported_count === 0 ? null : [
                     'imported' => $import->imported_count,
                     'not_imported' => $import->not_imported_count,
+                    'not_reached' => $import->notReachedCount(),
                     'stop_reason' => $import->stop_reason,
                     'lines' => $import->reportLines(self::PER_PAGE, ($reportPage - 1) * self::PER_PAGE, failuresFirst: true),
-                    'page' => ['current' => $reportPage, 'last' => max(1, (int) ceil(($import->imported_count + $import->not_imported_count) / self::PER_PAGE))],
+                    'page' => ['current' => $reportPage, 'last' => max(1, (int) ceil(($import->imported_count + $import->not_imported_count) / self::PER_PAGE)), 'paged' => $request->has('report_page')],
                 ],
                 'failure' => ($failure = FetchAccountsForImport::failureAfter($server, $import)) === null ? null : [
                     'error' => $failure->error, 'requested_at' => $failure->created_at?->toIso8601String(), 'requested_by' => $failure->requester?->name,
@@ -141,18 +142,25 @@ class ServerImportController extends Controller
             'usernames' => ['required_without_all:proposed,ticked', 'array', 'max:500'],
             'usernames.*' => ['string', 'max:255'],
             'include' => ['sometimes', 'boolean'],
-            'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
-            'product_id' => ['sometimes', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
+            // The bulk scope sets only the cycle and due date: never one client or product for every ticked account.
+            'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'prohibited_if_accepted:ticked', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
+            'product_id' => ['sometimes', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
             // Null: back to the account's default (monthly, or the product's first cycle; the next anniversary).
             'cycle' => ['sometimes', 'nullable', Rule::in(array_column(self::cycles(), 'value'))],
             'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:today', 'before:+5 years'],
         ], [
             'client_id.prohibited' => __('Choosing a client needs the permission to view clients.'),
+            'client_id.prohibited_if_accepted' => __('Choose the client for each account on its own.'),
+            'product_id.prohibited_if_accepted' => __('Choose the product for each account on its own.'),
             'client_id.exists' => __('Choose an active client.'),
             'product_id.in' => __('Choose a product that provisions on :server.', ['server' => $server->name]),
             'next_due_date.after_or_equal' => __('The next due date cannot be in the past.'),
         ]);
-        $choice = isset($data['proposed']) ? ['include' => true] : array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date']));
+        $choice = match (true) {
+            isset($data['proposed']) => ['include' => true],
+            isset($data['ticked']) => array_intersect_key($data, array_flip(['cycle', 'next_due_date'])),
+            default => array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date'])),
+        };
 
         $flagged = $importer->select($server, match (true) {
             isset($data['proposed']) => 'proposed', isset($data['ticked']) => 'ticked', default => 'usernames'
@@ -160,14 +168,14 @@ class ServerImportController extends Controller
 
         if ($flagged > 0) {
             Inertia::flash('toast', ['type' => 'info', 'message' => $flagged === 1
-                ? __('1 proposed account was not ticked: its client changed email in the last :days days. Check it before ticking.', ['days' => ImportServerAccounts::EMAIL_CHANGE_DAYS])
-                : __(':count proposed accounts were not ticked: their clients changed email in the last :days days. Check them one by one.', ['count' => $flagged, 'days' => ImportServerAccounts::EMAIL_CHANGE_DAYS])]);
+                ? __('1 proposed account was not ticked: its client changed email recently or has not verified it. Check it before ticking.')
+                : __(':count proposed accounts were not ticked: their clients changed email recently or have not verified it. Check them one by one.', ['count' => $flagged])]);
         }
 
         if (isset($data['ticked']) && ($data['cycle'] ?? null) !== null) {
             // Say how many ticked accounts the bulk cycle leaves out because their product has no price for it.
             $unpriced = count(array_filter($plan->rows($server, $this->ready($server)), fn (array $row): bool => $row['decision']['client'] !== null && $row['decision']['product'] !== null && $row['decision']['amount'] === null));
-            $cycle = mb_strtolower(AccountImportPlan::cycleLabel(BillingCycle::from($data['cycle'])));
+            $cycle = AccountImportPlan::cycleAdjective(BillingCycle::from($data['cycle']));
             Inertia::flash('toast', ['type' => $unpriced > 0 ? 'info' : 'success', 'message' => match (true) {
                 $unpriced === 1 => __('1 ticked account has no :cycle price for its product and is left out until you change its cycle.', ['cycle' => $cycle]),
                 $unpriced > 1 => __(':count ticked accounts have no :cycle price for their product and are left out until you change their cycle.', ['count' => $unpriced, 'cycle' => $cycle]),
@@ -292,10 +300,11 @@ class ServerImportController extends Controller
             'include' => (bool) ($choices[$row['username']]['include'] ?? false),
         ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
-            ->get(['id', 'first_name', 'last_name', 'company_name', 'email_changed_at'])->keyBy('id');
+            ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
+        $flags = $matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
         $products = $matcher->serverProducts($server);
 
-        $fresh = array_map(function (array $row) use ($live, $clients, $products): array {
+        $fresh = array_map(function (array $row) use ($live, $clients, $flags, $products): array {
             $service = $live->get($row['username']);
             $client = $clients->get($row['client_id'] ?? 0);
             $product = $products[$row['product_id'] ?? 0] ?? null;
@@ -315,8 +324,8 @@ class ServerImportController extends Controller
                 'product' => $product === null ? null : ['id' => $product->id, 'name' => $product->name],
                 'service' => $service === null ? null : ['id' => $service->id, 'label' => $service->label(), 'client' => $service->client->display_name],
                 'note' => $notes === [] ? null : implode(' ', $notes),
-                // A recent change is flagged on the row; the page shows the date in the app's format.
-                'email_changed_at' => $client?->email_changed_at?->greaterThanOrEqualTo(now()->subDays(ImportServerAccounts::EMAIL_CHANGE_DAYS)) ? $client->email_changed_at->toIso8601String() : null,
+                // A recent email change or an unverified sign-up, flagged on the row; the page shows the date in the app's format.
+                'flag' => $client === null ? null : ($flags[$client->id] ?? null),
             ];
         }, $slice);
 

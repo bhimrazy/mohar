@@ -18,8 +18,9 @@ use Illuminate\Support\Facades\DB;
  * - only accounts staff ticked are included; nothing is ticked by default;
  * - each ticked account is matched again (AccountImportMatcher::classify()) against today's services, clients and
  *   products; staff choices win over the match, and an account owned by another WHM user needs a chosen client;
- * - a problem keeps the account out: held by a live service, no active client, a product that does not provision on
- *   this server, no price in the client's currency.
+ * - a problem keeps the account out: held by a live service, no active client, a flagged client staff did not choose
+ *   themselves (AccountImportMatcher::clientFlags(), checked against the client matched today), a product that does
+ *   not provision on this server, no price in the client's currency, a chosen due date that has passed.
  *
  * Cycle defaults to monthly (else the product's first recurring cycle in the client's currency); the next due date to
  * the next anniversary of the account's creation on the server.
@@ -55,9 +56,10 @@ class AccountImportPlan
         $products = $this->matcher->serverProducts($server);
         $clientIds = array_map(fn (array $row): int => (int) ($selections[$row['username']]['client_id'] ?? $row['client_id'] ?? 0), $fresh);
         $clients = Client::query()->whereKey(array_values(array_unique(array_filter($clientIds))))->with('group:id,name,discount_percent')->get(['id', 'first_name', 'last_name', 'company_name', 'currency', 'status', 'client_group_id'])->keyBy('id');
+        $flags = $this->matcher->clientFlags($clients->keys()->map(fn (mixed $id): int => (int) $id)->all());
         $today = CarbonImmutable::today();
 
-        return array_map(function (array $row) use ($selections, $products, $clients, $today): array {
+        return array_map(function (array $row) use ($selections, $products, $clients, $flags, $today): array {
             $choice = $selections[$row['username']] ?? [];
             $client = $clients->get($choice['client_id'] ?? $row['client_id'] ?? 0);
             $product = $products[$choice['product_id'] ?? $row['product_id'] ?? 0] ?? null;
@@ -67,6 +69,9 @@ class AccountImportPlan
             $anchor = isset($choice['next_due_date']) || ($row['created_at'] ?? null) === null ? $due?->day : CarbonImmutable::parse($row['created_at'])->day;
             $amount = $client !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client) : null;
             // A client group's discount is why one package can show two prices; the list price says so on the review.
+            // Flagged: shown on the review, and imported only when staff chose this very client themselves.
+            $flag = $client === null ? null : ($flags[$client->id] ?? null);
+            $confirmed = $client !== null && (int) ($choice['client_id'] ?? 0) === $client->id;
             $listAmount = $client?->client_group_id !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client, list: true) : null;
 
             $problems = array_values(array_filter([
@@ -74,8 +79,12 @@ class AccountImportPlan
                 $row['category'] === AccountImportMatcher::RESELLER && ! isset($choice['client_id']) ? AccountImportMatcher::text('Owned by another WHM user: choose its client yourself.') : null,
                 $client === null ? AccountImportMatcher::text('Choose a client.') : null,
                 $client !== null && $client->status !== 'active' ? AccountImportMatcher::text('The client :name is not active.', ['name' => $client->display_name]) : null,
+                $flag !== null && ! $confirmed ? ($flag['kind'] === AccountImportMatcher::FLAG_EMAIL_CHANGED
+                    ? AccountImportMatcher::text('This client changed email in the last :days days: choose the client yourself to import it.', ['days' => AccountImportMatcher::EMAIL_CHANGE_DAYS])
+                    : AccountImportMatcher::text('This client has not verified their email: choose the client yourself to import it.')) : null,
                 $product === null ? AccountImportMatcher::text('Choose a product that provisions on this server.') : null,
-                $product !== null && $client !== null && $amount === null ? AccountImportMatcher::text(':product has no :cycle price in :currency.', ['product' => $product->name, 'cycle' => $cycle === null ? 'recurring' : mb_strtolower(self::cycleLabel($cycle)), 'currency' => $client->currency]) : null,
+                $product !== null && $client !== null && $amount === null ? AccountImportMatcher::text(':product has no :cycle price in :currency.', ['product' => $product->name, 'cycle' => $cycle === null ? 'recurring' : self::cycleAdjective($cycle), 'currency' => $client->currency]) : null,
+                isset($choice['next_due_date']) && $due !== null && $due->lessThan($today) ? AccountImportMatcher::text('The chosen due date has passed: choose a new date.') : null,
             ]));
 
             return [...$row, 'decision' => [
@@ -87,6 +96,7 @@ class AccountImportPlan
                 'amount' => $amount,
                 'list_amount' => $listAmount !== $amount ? $listAmount : null,
                 'discount' => $listAmount !== $amount && $client?->group !== null ? ['group' => $client->group->name, 'percent' => (float) $client->group->discount_percent] : null,
+                'flag' => $flag,
                 'problems' => $problems,
             ]];
         }, $fresh);
@@ -184,6 +194,20 @@ class AccountImportPlan
     public static function cycleLabel(BillingCycle $cycle): string
     {
         return $cycle === BillingCycle::SemiAnnually ? AccountImportMatcher::text('Semi-annually') : AccountImportMatcher::text(ucfirst($cycle->value));
+    }
+
+    /**
+     * The cycle inside a sentence: "no semi-annual price", "no monthly price".
+     */
+    public static function cycleAdjective(BillingCycle $cycle): string
+    {
+        return AccountImportMatcher::text(match ($cycle) {
+            BillingCycle::SemiAnnually => 'semi-annual',
+            BillingCycle::Annually => 'annual',
+            BillingCycle::Biennially => 'biennial',
+            BillingCycle::Triennially => 'triennial',
+            default => $cycle->value,
+        });
     }
 
     /**

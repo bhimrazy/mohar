@@ -18,6 +18,8 @@ import { useEffect, useState } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
+import { ImportClientFlag } from '@/components/services/import-client-flag';
+import type { ImportClientFlagData } from '@/components/services/import-client-flag';
 import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar } from '@/components/app/filter-bar';
 import { Head } from '@/components/app/head';
@@ -68,7 +70,7 @@ type AccountRow = {
         cycle?: string;
         next_due_date?: string;
     };
-    email_changed_at: string | null;
+    flag: ImportClientFlagData | null;
 };
 
 type MissingRow = {
@@ -287,12 +289,10 @@ const accountColumns = (
                     </Muted>
                 )}
                 {row.note && <Muted>{row.note}</Muted>}
-                {row.email_changed_at && (
-                    <Muted>
-                        This client changed email{' '}
-                        <DateTime value={row.email_changed_at} />: check the
-                        match before ticking.
-                    </Muted>
+                {row.flag && (
+                    <ImportClientFlag flag={row.flag}>
+                        : check the match before ticking.
+                    </ImportClientFlag>
                 )}
                 {createProductUrl &&
                     row.plan &&

@@ -53,6 +53,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
   importing need a recent password; imports run on the `provisioning` queue.
   A Core migration adds `email_changed_at` to `clients` and `users` (nullable), set whenever the address changes.
+  An email match is no longer proposed when the client changed email in the last 30 days, or when the client has an
+  owner login and none with the client's email is verified (clients from sign-up or checkout until they verify).
+  Clients without an owner login, as staff create them, are proposed as before. Staff can still choose a flagged
+  client for an account; the review imports it only then. Match again to apply this to a list fetched earlier.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -207,6 +211,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   accounts it leaves out for lack of a price and can return them to each account's default; clearing a field in the
   choice dialog returns that account to its default. The client picker shows a loading state and works from the
   keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
+- Import accounts, flagged clients: a matched client who changed email in the last 30 days, or who signed up and has
+  not verified the email, is shown on the row with the date but not proposed, and "Select all proposed" leaves it out.
+  The review checks again against the client it matches at that moment, shows the flag and keeps the account out unless
+  staff chose that client themselves. A chosen due date that has passed by the review keeps the account out until a new
+  date is chosen. "Set the cycle and due date" for ticked accounts accepts only the cycle and due date. Choices carried
+  by "Fetch again" are dropped for an account re-created under the same username (another creation time on the server).
+- Import accounts, continuing: going on after a stop keeps one report for both runs, the stop banner separates failed
+  accounts from those not reached, paging the report keeps its details open ("Hide details"), and cycles read "no
+  semi-annual price" in sentences.
 - Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
   server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
   after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts

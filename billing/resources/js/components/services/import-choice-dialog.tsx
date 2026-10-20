@@ -121,9 +121,11 @@ export function ImportChoiceDialog({
                     <Field
                         htmlFor="import-client"
                         label="Client"
+                        hint="Search by name, company or email."
                         error={errors.client_id}
                     >
                         <ClientPicker
+                            placeholder="Search clients…"
                             id="import-client"
                             value={client}
                             onChange={setClient}

@@ -1,4 +1,5 @@
 import { Link } from '@inertiajs/react';
+import { useState } from 'react';
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
 import { DateTime } from '@/components/app/date';
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button';
 export type ImportReportData = {
     imported: number;
     not_imported: number;
+    not_reached: number;
     stop_reason: string | null;
     lines: {
         username: string;
@@ -17,7 +19,8 @@ export type ImportReportData = {
         service_id: number | null;
         at: string | null;
     }[];
-    page: { current: number; last: number };
+    /** paged: the staff member is paging through the lines, so they stay open. */
+    page: { current: number; last: number; paged: boolean };
 };
 
 const NOT_REACHED = 'Not reached.';
@@ -41,6 +44,10 @@ export function ImportReport({
 }) {
     const { merge } = useQueryParams();
     const total = report.imported + report.not_imported;
+    const failed = report.not_imported - report.not_reached;
+    const [open, setOpen] = useState(
+        report.page.paged || (report.not_imported > 0 && total <= 50),
+    );
     const pageLink = (page: number) => ({
         url: '?' + new URLSearchParams(merge({ report_page: page })).toString(),
     });
@@ -56,8 +63,10 @@ export function ImportReport({
                     <AlertDescription className="flex flex-col items-start gap-2">
                         <span>
                             {report.stop_reason}{' '}
-                            {plural(report.not_imported, 'account')} were not
-                            imported; your choices for them are kept.
+                            {failed > 0
+                                ? `${failed} failed and ${report.not_reached} ${report.not_reached === 1 ? 'was' : 'were'} not reached`
+                                : `${plural(report.not_reached, 'account')} ${report.not_reached === 1 ? 'was' : 'were'} not reached`}
+                            ; your choices for them are kept.
                         </span>
                         {remaining > 0 && (
                             <Button size="sm" asChild>
@@ -82,9 +91,12 @@ export function ImportReport({
                         `, ${report.not_imported} not imported`}
                 </AlertTitle>
                 <AlertDescription>
-                    <details open={report.not_imported > 0 && total <= 50}>
+                    <details
+                        open={open}
+                        onToggle={(event) => setOpen(event.currentTarget.open)}
+                    >
                         <summary className="cursor-pointer text-sm">
-                            Show details
+                            {open ? 'Hide details' : 'Show details'}
                         </summary>
                         <ul className="mt-2 grid gap-1">
                             {report.lines.map((line) => (
