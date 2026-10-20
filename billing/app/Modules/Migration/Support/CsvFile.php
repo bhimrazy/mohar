@@ -126,7 +126,7 @@ final class CsvFile
     {
         $record = '';
 
-        while (($line = fgets($handle, self::MAX_RECORD_BYTES + 2 - strlen($record))) !== false) {
+        while (($line = fgets($handle, max(2, self::MAX_RECORD_BYTES + 2 - strlen($record)))) !== false) {
             $record .= $line;
 
             if (strlen($record) > self::MAX_RECORD_BYTES) {
