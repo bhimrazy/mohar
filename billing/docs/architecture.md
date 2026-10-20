@@ -230,7 +230,7 @@ while the first still runs it; work that can run longer gets its own connection 
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, PaymentsNepal 75xxxx,
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, Storefront 72xxxx, PaymentsNepal 75xxxx,
 Notifications 80xxxx, Affiliates 85xxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx). New modules take a free
 block and add it here in the same PR.
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
@@ -247,6 +247,11 @@ database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops
 7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
 8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
 9. Booleans as `where('flag', true)`; no explicit ids in seeders.
+10. Dashboard and report figures are summed in SQL (one row per currency or group; a conditional `sum(case …)` per
+    series point); never read unbounded rows into PHP to total them. `DashboardQueryCountTest` enforces it.
+11. A contains search (`whereLike`, `Like::where`) on a table that grows with clients needs a trigram index on exactly
+    the searched expression of every OR'd column (`OnlineIndex::trigram()`), or PostgreSQL scans the table.
+    `SearchIndexesTest` checks the admin searches.
 
 ### Migrations during blue-green deploys (expand, then contract)
 
