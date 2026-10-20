@@ -253,8 +253,10 @@ class ImportServerAccounts
      */
     public function finish(Server $server, ServerAccountImport $import, ?User $staff): void
     {
-        $services = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->where('imported', true)
-            ->pluck('service_id', 'username')->all();
+        // Only this run's accounts become linked and lose their choices; an earlier run's (before a stop) were done
+        // then, and Fetch again may have matched them afresh since (their service may have ended).
+        $services = array_intersect_key(DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->where('imported', true)
+            ->pluck('service_id', 'username')->all(), array_flip(array_column($import->reviewed['rows'] ?? [], 'username')));
         $accounts = $import->accounts ?? [];
 
         foreach ($accounts as &$row) {
@@ -265,7 +267,7 @@ class ImportServerAccounts
 
         unset($row);
         $counts = array_count_values(array_column($accounts, 'category'));
-        $run = count(array_intersect_key($services, array_flip(array_column($import->reviewed['rows'] ?? [], 'username'))));
+        $run = count($services);
         $import->update([
             // Imported accounts are done; the choices of every other ticked account are kept, so a stopped import can go on.
             'status' => ServerAccountImport::READY, 'accounts' => $accounts, 'reviewed' => null,

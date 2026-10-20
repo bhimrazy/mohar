@@ -33,14 +33,10 @@ beforeEach(function () {
     $this->post(route('admin.services.servers.import.fetch', $this->server))->assertSessionHasNoErrors();
 });
 
-test('a changed email is recorded on the client and on the login', function () {
-    $user = User::factory()->create();
-
+test('a changed email is recorded on the client', function () {
     $this->anna->update(['email' => 'anna@new.example']);
-    $user->update(['email' => 'login@new.example']);
 
-    expect($this->anna->refresh()->email_changed_at?->toDateTimeString())->toBe('2026-10-19 10:00:00')
-        ->and($user->refresh()->email_changed_at?->toDateTimeString())->toBe('2026-10-19 10:00:00');
+    expect($this->anna->refresh()->email_changed_at?->toDateTimeString())->toBe('2026-10-19 10:00:00');
 });
 
 test('Select all proposed leaves out a match whose client changed email in the last 30 days, and the row says so', function () {

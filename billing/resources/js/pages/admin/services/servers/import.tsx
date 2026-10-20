@@ -747,6 +747,7 @@ export default function ServerImport({
                 )}
             </Page>
             <ImportChoiceDialog
+                key={choosing?.username ?? 'closed'}
                 serverId={server.id}
                 usernames={choosing ? [choosing.username] : []}
                 initial={
@@ -755,6 +756,11 @@ export default function ServerImport({
                         product: choosing.product,
                         cycle: choosing.chosen.cycle ?? null,
                         next_due_date: choosing.chosen.next_due_date ?? null,
+                        chosen: {
+                            client: !!choosing.chosen.client_id,
+                            product: !!choosing.chosen.product_id,
+                        },
+                        flag: choosing.flag,
                     }
                 }
                 onClose={() => setChoosing(null)}

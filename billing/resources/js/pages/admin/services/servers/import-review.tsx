@@ -340,6 +340,7 @@ export default function ServerImportReview({
                 data={{ digest }}
             />
             <ImportChoiceDialog
+                key={bulk ? 'bulk' : 'closed'}
                 serverId={server.id}
                 usernames={[]}
                 ticked

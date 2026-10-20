@@ -143,8 +143,9 @@ class ServerImportController extends Controller
             'usernames.*' => ['string', 'max:255'],
             'include' => ['sometimes', 'boolean'],
             // The bulk scope sets only the cycle and due date: never one client or product for every ticked account.
-            'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'prohibited_if_accepted:ticked', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
-            'product_id' => ['sometimes', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
+            // Null clears a choice: the account goes back to its match.
+            'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
+            'product_id' => ['sometimes', 'nullable', 'prohibited_if_accepted:ticked', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],
             // Null: back to the account's default (monthly, or the product's first cycle; the next anniversary).
             'cycle' => ['sometimes', 'nullable', Rule::in(array_column(self::cycles(), 'value'))],
             'next_due_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after_or_equal:today', 'before:+5 years'],

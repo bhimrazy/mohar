@@ -52,7 +52,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   without the owner check until fetched again.
   A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
   importing need a recent password; imports run on the `provisioning` queue.
-  A Core migration adds `email_changed_at` to `clients` and `users` (nullable), set whenever the address changes.
+  A Core migration adds `email_changed_at` to `clients` (nullable), set whenever the address changes.
   An email match is no longer proposed when the client changed email in the last 30 days, or when the client has an
   owner login and none with the client's email is verified (clients from sign-up or checkout until they verify).
   Clients without an owner login, as staff create them, are proposed as before. Staff can still choose a flagged
@@ -215,9 +215,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   behind "Show details", marks unreached accounts "Not reached", and stays on the page after "Fetch again" until the
   next import starts. A failed fetch no longer hides the last list: the error shows above it with a link to the server
   page to test the connection. The ticked count refreshes when an import finishes. The bulk cycle says how many ticked
-  accounts it leaves out for lack of a price and can return them to each account's default; clearing a field in the
-  choice dialog returns that account to its default. The client picker shows a loading state and works from the
-  keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
+  accounts it leaves out for lack of a price and can return them to each account's default. The choice dialog saves
+  only the fields staff change: clearing the client or product (or picking "As matched") returns the account to its
+  match, clearing the cycle or date returns it to its default, and a flagged match becomes a choice only through "Use
+  this client". The client picker, on every page that uses it, shows a loading state, opens on click or typing rather
+  than on focus, and works from the keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
 - Import accounts, flagged clients: a matched client who changed email in the last 30 days, or who signed up and has
   not verified the email, is shown on the row with the date but not proposed, and "Select all proposed" leaves it out.
   The review checks again against the client it matches at that moment, shows the flag and keeps the account out unless

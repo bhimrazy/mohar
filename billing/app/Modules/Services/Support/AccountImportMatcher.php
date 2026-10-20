@@ -142,18 +142,23 @@ class AccountImportMatcher
      * Match the accounts and store them, with the counts, on a fetched import. Under the server lock, before the list
      * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its import report and the
      * staff choices for accounts that are still the same account (same creation time on the server, else the same
-     * domain), then is deleted.
+     * domain), then is deleted. A fetch or match superseded while it ran (its row deleted or no longer running) stores
+     * nothing and deletes nothing.
      *
      * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
-     * @return int the number of accounts stored
+     * @return int|null the number of accounts stored, null when superseded
      */
-    public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): int
+    public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): ?int
     {
         $matched = $this->classify($import->server, $accounts, $connectionUser, $import->fetched_at);
         $counts = array_count_values(array_column($matched['rows'], 'category'));
 
-        DB::transaction(function () use ($import, $matched, $counts, $connectionUser): void {
+        $stored = DB::transaction(function () use ($import, $matched, $counts, $connectionUser): bool {
             Server::query()->whereKey($import->server_id)->lockForUpdate()->first();
+
+            if (! in_array(ServerAccountImport::query()->whereKey($import->id)->value('status'), [ServerAccountImport::FETCHING, ServerAccountImport::MATCHING], true)) {
+                return false;
+            }
             $previous = ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)
                 ->where('status', ServerAccountImport::READY)->latest('id')->first();
             $before = collect($previous->accounts ?? $import->accounts ?? [])->keyBy('username');
@@ -180,9 +185,11 @@ class AccountImportMatcher
                 'selections' => $selections ?: null,
             ]);
             ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
+
+            return true;
         });
 
-        return count($matched['rows']);
+        return $stored ? count($matched['rows']) : null;
     }
 
     /**

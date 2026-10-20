@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import { DateTime } from '@/components/app/date';
 import { Field } from '@/components/app/field';
@@ -7,15 +7,22 @@ import { SelectField } from '@/components/app/select-field';
 import { ClientPicker } from '@/components/billing/client-picker';
 import type { ClientOption } from '@/components/billing/types';
 import { FormDialog } from '@/components/services/form-dialog';
+import { ImportClientFlag } from '@/components/services/import-client-flag';
+import type { ImportClientFlagData } from '@/components/services/import-client-flag';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { SelectOption } from '@/types/app';
 
-/** What an account would be imported as (AccountImportPlan), or the choices already made for it. */
+/** What an account would be imported as (its match, or the choices already made for it). */
 export type ImportChoice = {
     client: { id: number; name: string; currency?: string } | null;
     product: { id: number; name: string } | null;
     cycle: string | null;
     next_due_date: string | null;
+    /** Whether staff chose the client and product; otherwise they are the match, never sent unless changed. */
+    chosen?: { client: boolean; product: boolean };
+    /** Why the matched client is not proposed (it is imported only when staff choose it). */
+    flag?: ImportClientFlagData | null;
 };
 
 type Props = {
@@ -38,7 +45,14 @@ type Props = {
 /** Cycle option that returns each account to its default (monthly, or the product's first cycle). */
 const DEFAULT_CYCLE = 'default';
 
-/** Choose how accounts are imported: client, product, cycle and next due date. Saved on the import, not applied. */
+/** Product option that drops a chosen product, back to the account's match. */
+const MATCHED_PRODUCT = 'match';
+
+/**
+ * Choose how accounts are imported: client, product, cycle and next due date. Saved on the import, not applied. Only
+ * the fields staff change are sent; a cleared client or product returns the account to its match. The state is set
+ * up once per opening, so render it with a key per account (a failed save keeps what was typed).
+ */
 export function ImportChoiceDialog({
     serverId,
     usernames,
@@ -50,37 +64,46 @@ export function ImportChoiceDialog({
     ticked = false,
     count = 0,
 }: Props) {
-    const [client, setClient] = useState<ClientOption | null>(null);
-    const [productId, setProductId] = useState('');
-    const [cycle, setCycle] = useState('');
-    const [due, setDue] = useState('');
+    const [client, setClient] = useState<ClientOption | null>(() =>
+        initial?.client
+            ? {
+                  id: initial.client.id,
+                  display_name: initial.client.name,
+                  currency: initial.client.currency,
+              }
+            : null,
+    );
+    const [productId, setProductId] = useState(() =>
+        initial?.product ? String(initial.product.id) : '',
+    );
+    const [clientChanged, setClientChanged] = useState(false);
+    const [productChanged, setProductChanged] = useState(false);
+    const [cycle, setCycle] = useState(initial?.cycle ?? '');
+    const [due, setDue] = useState(initial?.next_due_date ?? '');
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [processing, setProcessing] = useState(false);
-
-    useEffect(() => {
-        setClient(
-            initial?.client
-                ? {
-                      id: initial.client.id,
-                      display_name: initial.client.name,
-                      currency: initial.client.currency,
-                  }
-                : null,
-        );
-        setProductId(initial?.product ? String(initial.product.id) : '');
-        setCycle(initial?.cycle ?? '');
-        setDue(initial?.next_due_date ?? '');
-        setErrors({});
-    }, [initial]);
+    // A flagged match stays unconfirmed until staff use it (or pick a client) themselves.
+    const unconfirmed =
+        !!initial?.flag &&
+        !initial.chosen?.client &&
+        !clientChanged &&
+        client?.id === initial.client?.id;
 
     const submit = () =>
         router.put(
             ServerImportController.select(serverId).url,
             {
                 ...(ticked ? { ticked: true } : { usernames, include: true }),
-                ...(!datesOnly && client ? { client_id: client.id } : {}),
-                ...(!datesOnly && productId
-                    ? { product_id: Number(productId) }
+                ...(!datesOnly && clientChanged
+                    ? { client_id: client?.id ?? null }
+                    : {}),
+                ...(!datesOnly && productChanged
+                    ? {
+                          product_id:
+                              productId && productId !== MATCHED_PRODUCT
+                                  ? Number(productId)
+                                  : null,
+                      }
                     : {}),
                 // One account: an empty field returns it to the default. Ticked accounts: an empty field keeps theirs.
                 ...(cycle || !ticked
@@ -121,14 +144,17 @@ export function ImportChoiceDialog({
                     <Field
                         htmlFor="import-client"
                         label="Client"
-                        hint="Search by name, company or email."
+                        hint="Search by name, company or email. Empty: the account's match."
                         error={errors.client_id}
                     >
                         <ClientPicker
                             placeholder="Search clients…"
                             id="import-client"
                             value={client}
-                            onChange={setClient}
+                            onChange={(next) => {
+                                setClient(next);
+                                setClientChanged(true);
+                            }}
                             invalid={!!errors.client_id}
                             searchUrl={(q) =>
                                 ServerImportController.clients.url(serverId, {
@@ -136,6 +162,21 @@ export function ImportChoiceDialog({
                                 })
                             }
                         />
+                        {unconfirmed && initial?.flag && (
+                            <span className="flex flex-wrap items-center gap-2">
+                                <ImportClientFlag flag={initial.flag}>
+                                    : not imported unless you use this client.
+                                </ImportClientFlag>
+                                <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setClientChanged(true)}
+                                >
+                                    Use this client
+                                </Button>
+                            </span>
+                        )}
                     </Field>
                     <Field
                         htmlFor="import-product"
@@ -145,13 +186,26 @@ export function ImportChoiceDialog({
                         <SelectField
                             id="import-product"
                             value={productId}
-                            onValueChange={setProductId}
+                            onValueChange={(next) => {
+                                setProductId(next);
+                                setProductChanged(true);
+                            }}
                             placeholder="Choose a product"
                             invalid={!!errors.product_id}
-                            options={productOptions.map((product) => ({
-                                value: String(product.id),
-                                label: product.name,
-                            }))}
+                            options={[
+                                ...(initial?.chosen?.product
+                                    ? [
+                                          {
+                                              value: MATCHED_PRODUCT,
+                                              label: 'As matched',
+                                          },
+                                      ]
+                                    : []),
+                                ...productOptions.map((product) => ({
+                                    value: String(product.id),
+                                    label: product.name,
+                                })),
+                            ]}
                         />
                     </Field>
                 </>

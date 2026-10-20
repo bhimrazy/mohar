@@ -41,7 +41,6 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property CarbonInterface|null $invited_at
  * @property bool $must_change_password
  * @property CarbonInterface|null $password_changed_at
- * @property CarbonInterface|null $email_changed_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -61,16 +60,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     ];
 
     /**
-     * Changing the email address records when. Changing the password records when and clears a pending forced change
-     * (admin-set temporary password).
+     * Changing the password records when and clears a pending forced change (admin-set temporary password).
      */
     protected static function booted(): void
     {
         static::saving(function (self $user): void {
-            if ($user->exists && $user->isDirty('email')) {
-                $user->email_changed_at = now();
-            }
-
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;
@@ -95,7 +89,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             'invited_at' => 'datetime',
             'must_change_password' => 'boolean',
             'password_changed_at' => 'datetime',
-            'email_changed_at' => 'datetime',
         ];
     }
 
