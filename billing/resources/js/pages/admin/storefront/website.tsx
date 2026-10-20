@@ -384,6 +384,120 @@ export default function Website({
                     </SectionCard>
 
                     <SectionCard
+                        title="Trust facts"
+                        description="Up to four short facts under the headline, such as “Hosting since · 2014”. Only state what you can show."
+                    >
+                        <div className="grid gap-3">
+                            {data.trust_facts.map((fact, index) => (
+                                <div
+                                    key={index}
+                                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
+                                >
+                                    <Input
+                                        aria-label={`Label of fact ${index + 1}`}
+                                        maxLength={30}
+                                        placeholder="Hosting since"
+                                        value={fact.label}
+                                        aria-invalid={
+                                            !!error(
+                                                `trust_facts.${index}.label`,
+                                            )
+                                        }
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'trust_facts',
+                                                data.trust_facts.map(
+                                                    (item, i) =>
+                                                        i === index
+                                                            ? {
+                                                                  ...item,
+                                                                  label: event
+                                                                      .target
+                                                                      .value,
+                                                              }
+                                                            : item,
+                                                ),
+                                            )
+                                        }
+                                    />
+                                    <Input
+                                        aria-label={`Value of fact ${index + 1}`}
+                                        maxLength={40}
+                                        placeholder="2014"
+                                        value={fact.value}
+                                        aria-invalid={
+                                            !!error(
+                                                `trust_facts.${index}.value`,
+                                            )
+                                        }
+                                        onChange={(event) =>
+                                            form.setData(
+                                                'trust_facts',
+                                                data.trust_facts.map(
+                                                    (item, i) =>
+                                                        i === index
+                                                            ? {
+                                                                  ...item,
+                                                                  value: event
+                                                                      .target
+                                                                      .value,
+                                                              }
+                                                            : item,
+                                                ),
+                                            )
+                                        }
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-9"
+                                        aria-label={`Remove fact ${index + 1}`}
+                                        onClick={() =>
+                                            form.setData(
+                                                'trust_facts',
+                                                data.trust_facts.filter(
+                                                    (_, i) => i !== index,
+                                                ),
+                                            )
+                                        }
+                                    >
+                                        <Trash2 aria-hidden="true" />
+                                    </Button>
+                                    {(error(`trust_facts.${index}.label`) ||
+                                        error(
+                                            `trust_facts.${index}.value`,
+                                        )) && (
+                                        <p className="text-sm text-danger-text sm:col-span-3">
+                                            {error(
+                                                `trust_facts.${index}.label`,
+                                            ) ??
+                                                error(
+                                                    `trust_facts.${index}.value`,
+                                                )}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="w-fit"
+                                disabled={data.trust_facts.length >= 4}
+                                onClick={() =>
+                                    form.setData('trust_facts', [
+                                        ...data.trust_facts,
+                                        { label: '', value: '' },
+                                    ])
+                                }
+                            >
+                                <Plus aria-hidden="true" />
+                                Add a fact
+                            </Button>
+                        </div>
+                    </SectionCard>
+
+                    <SectionCard
                         title="Why choose us"
                         description="Up to six short points. Only claim what you offer; the section stays hidden until you add one."
                     >
@@ -535,147 +649,6 @@ export default function Website({
                     </SectionCard>
 
                     <SectionCard
-                        title="Trust facts"
-                        description="Up to four short facts under the headline, such as “Hosting since · 2014”. Only state what you can show."
-                    >
-                        <div className="grid gap-3">
-                            {data.trust_facts.map((fact, index) => (
-                                <div
-                                    key={index}
-                                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
-                                >
-                                    <Input
-                                        aria-label={`Label of fact ${index + 1}`}
-                                        maxLength={30}
-                                        placeholder="Hosting since"
-                                        value={fact.label}
-                                        aria-invalid={
-                                            !!error(
-                                                `trust_facts.${index}.label`,
-                                            )
-                                        }
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'trust_facts',
-                                                data.trust_facts.map(
-                                                    (item, i) =>
-                                                        i === index
-                                                            ? {
-                                                                  ...item,
-                                                                  label: event
-                                                                      .target
-                                                                      .value,
-                                                              }
-                                                            : item,
-                                                ),
-                                            )
-                                        }
-                                    />
-                                    <Input
-                                        aria-label={`Value of fact ${index + 1}`}
-                                        maxLength={40}
-                                        placeholder="2014"
-                                        value={fact.value}
-                                        aria-invalid={
-                                            !!error(
-                                                `trust_facts.${index}.value`,
-                                            )
-                                        }
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'trust_facts',
-                                                data.trust_facts.map(
-                                                    (item, i) =>
-                                                        i === index
-                                                            ? {
-                                                                  ...item,
-                                                                  value: event
-                                                                      .target
-                                                                      .value,
-                                                              }
-                                                            : item,
-                                                ),
-                                            )
-                                        }
-                                    />
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="size-9"
-                                        aria-label={`Remove fact ${index + 1}`}
-                                        onClick={() =>
-                                            form.setData(
-                                                'trust_facts',
-                                                data.trust_facts.filter(
-                                                    (_, i) => i !== index,
-                                                ),
-                                            )
-                                        }
-                                    >
-                                        <Trash2 aria-hidden="true" />
-                                    </Button>
-                                    {(error(`trust_facts.${index}.label`) ||
-                                        error(
-                                            `trust_facts.${index}.value`,
-                                        )) && (
-                                        <p className="text-sm text-danger-text sm:col-span-3">
-                                            {error(
-                                                `trust_facts.${index}.label`,
-                                            ) ??
-                                                error(
-                                                    `trust_facts.${index}.value`,
-                                                )}
-                                        </p>
-                                    )}
-                                </div>
-                            ))}
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="w-fit"
-                                disabled={data.trust_facts.length >= 4}
-                                onClick={() =>
-                                    form.setData('trust_facts', [
-                                        ...data.trust_facts,
-                                        { label: '', value: '' },
-                                    ])
-                                }
-                            >
-                                <Plus aria-hidden="true" />
-                                Add a fact
-                            </Button>
-                        </div>
-                    </SectionCard>
-
-                    <SectionCard
-                        title="Call to action band"
-                        description="A band near the end of the page with your lowest plan price and a button to all plans. An empty headline hides it."
-                    >
-                        <div className="grid gap-5 sm:grid-cols-2">
-                            <Counted
-                                id="cta_headline"
-                                label="Headline"
-                                optional
-                                max={80}
-                                value={data.cta.headline}
-                                error={error('cta.headline')}
-                                onChange={(headline) =>
-                                    set('cta', { headline })
-                                }
-                            />
-                            <Counted
-                                id="cta_button"
-                                label="Button"
-                                max={24}
-                                value={data.cta.button}
-                                error={error('cta.button')}
-                                onChange={(button) => set('cta', { button })}
-                            />
-                        </div>
-                    </SectionCard>
-
-                    <SectionCard
                         title="Featured plans"
                         description="One to three product groups shown as plan cards. A plan marked Featured in the catalog is the hero's most popular plan."
                     >
@@ -810,6 +783,33 @@ export default function Website({
                                 onCheckedChange={(status) =>
                                     set('news', { status })
                                 }
+                            />
+                        </div>
+                    </SectionCard>
+
+                    <SectionCard
+                        title="Call to action band"
+                        description="A band near the end of the page with your lowest plan price and a button to all plans. An empty headline hides it."
+                    >
+                        <div className="grid gap-5 sm:grid-cols-2">
+                            <Counted
+                                id="cta_headline"
+                                label="Headline"
+                                optional
+                                max={80}
+                                value={data.cta.headline}
+                                error={error('cta.headline')}
+                                onChange={(headline) =>
+                                    set('cta', { headline })
+                                }
+                            />
+                            <Counted
+                                id="cta_button"
+                                label="Button"
+                                max={24}
+                                value={data.cta.button}
+                                error={error('cta.button')}
+                                onChange={(button) => set('cta', { button })}
                             />
                         </div>
                     </SectionCard>
