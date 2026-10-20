@@ -274,6 +274,46 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - a dispute, recorded as a chargeback once, putting the invoice in collections;
     - a declined card and then an abandoned checkout: the session is expired at Stripe by the driver, the attempt is expired, and the invoice stays unpaid.
 
+### S4 as delivered
+
+- **The scenario.** `tests/Simulators/HostingLifecycleTest.php` is HTTP-level, with every module real and only the providers simulated:
+    1. `migrate`, then `app:install` (no demo data). The administrator replaces the one-time password through the password route and confirms it for the `password.recent` routes.
+    2. The WHM server is trusted through Test connection and "Trust this certificate" on the staff routes.
+    3. A product on `root_basic`, and Stripe in test mode against its simulator.
+    4. A customer registers, verifies the address (asserted), orders and pays on the hosted page.
+    5. The invoice is Paid, the service is Active and the WHM account exists. The customer has the verification, welcome, order, invoice, payment and hosting welcome emails.
+    6. Overdue (the due dates are backdated in the throwaway database, as §4 allows): suspension in WHM and its email, the renewal paid on Stripe, then unsuspension and its email.
+    7. An immediate cancellation, after which the account is gone from WHM. The service ends Cancelled, with the cancellation-request email; no email confirms the removal (#146).
+    8. Staff refund 10.00 through the admin refund route (`password.recent`), which the driver sends to Stripe once. Then a dispute on the renewal is raised from the control plane: a chargeback, and the invoice in Collections.
+    - **Fixtures, not staff routes:** the server row, the product and the Stripe gateway row are created directly (factories and `stripeGateway()`). Everything else above goes through the app's routes.
+    - Single sign-on waits for cPanel PR 2.
+- **§4 fault cases and the #124 retry path, and where each is proved:**
+
+| Case                                                                              | Proved by                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createacct` commits then times out; the verify sweep adopts with proof           | `tests/Simulators/HostingLifecycleTest.php` (second test, end to end); `tools/simulators/tests/Whm/CpanelDriverAgainstWhmTest.php`                                                                                                                                                              |
+| A foreign account with the same name is never adopted                             | `CpanelDriverAgainstWhmTest` "after a 5xx the sweep never adopts someone else's account…" (driver against the simulator); not in the e2e scenario                                                                                                                                               |
+| A duplicate webhook is settled once                                               | `HostingLifecycleTest` (every replay answers `duplicate`); `tools/simulators/tests/Stripe/StripeDriverAgainstSimulatorTest.php`                                                                                                                                                                 |
+| A forged (wrong secret) and a stale webhook are refused                           | `HostingLifecycleTest` (wrong secret); `StripeDriverAgainstSimulatorTest` "a forged or stale webhook is refused…"; `StripeLiveParityProbesTest` (unsigned, 403)                                                                                                                                 |
+| An out-of-order refund before the payment                                         | Handler level only: `tests/Feature/Billing/WebhookTest.php` "a refund webhook before its payment is rejected for retry, then recorded once". **Not covered against the simulator yet** (#145)                                                                                                   |
+| A dispute before its payment is answered 409, and booked on Stripe's retry (#124) | `StripeDriverAgainstSimulatorTest` "#124"; `tools/simulators/tests/Stripe/StripeReReviewProbesTest.php` (the outbox's `drain()` against the real app); `tests/Feature/PaymentsStripe/StripeWebhookTest.php`. The e2e scenario's dispute arrives after its payment, so its harness never retries |
+| A rotated WHM certificate is refused                                              | `CpanelDriverAgainstWhmTest` "a rotated certificate is refused before anything is sent…"                                                                                                                                                                                                        |
+| A refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false` (§5 guarantee 2)          | Unit level: `tests/Feature/Integrations/EndpointsTest.php` "an override to loopback is refused unless the install policy allows loopback"; not end to end                                                                                                                                       |
+| A tampered eSewa return (NPR variant)                                             | **Not covered yet**; it comes with S5                                                                                                                                                                                                                                                           |
+
+- **The runner.** `php artisan simulate:e2e`:
+    - creates `billing_e2e_<random>` on PostgreSQL (or a temporary SQLite file);
+    - runs the scenario in a Pest subprocess with phpunit.xml's environment, so the host's `.env` (a database queue, say) does not leak in, within a time budget (at least 60 s, 360 s by default);
+    - drops the database unless `--keep`, which keeps the last test's state (`--filter` chooses it).
+    - A detached guard drops the database and stops the scenario if the runner is interrupted (Ctrl-C, SIGTERM). Where pcntl is loaded, a signal trap also cleans up at once. `scripts/pg.sh --prune` drops idle `billing_e2e_*` databases as a backstop.
+    - The harness refuses every database except `billing_e2e_*` or SQLite in memory. It judges the connection Laravel really opens (`getDatabaseName()`, and `current_database()` on PostgreSQL), whatever `DB_URL` says.
+    - Deviation from §4, accepted by the CTO on 2026-10-20: one runner, the in-process Pest scenario on a throwaway database. The second topology, `artisan serve` and `queue:work`, is deferred until the E2E job is stable or a deployment workstream needs the worker topology proven. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
+- **CI.** The `E2E simulators (hosting lifecycle)` job is opt-in:
+    - it runs on `workflow_dispatch`, on pushes to `main`, and on PRs labelled `e2e`, never on ordinary PR events;
+    - it has its own PostgreSQL service and `timeout-minutes: 10`, about 2 billable minutes a run;
+    - it is not a required check.
+    - The main job never runs `tests/Simulators`, which is in no testsuite.
+
 ## Limits: what simulators cannot prove
 
 - That the provider really behaves as we read its reference: undocumented fields, error wording, rate limits, real

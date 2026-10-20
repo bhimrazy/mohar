@@ -17,8 +17,9 @@ use Tests\Support\Cpanel\Whm;
 /**
  * Security re-check of #95 (import step 3b-1): apply is bound to the review digest and runs on the queue. These pin
  * the 3b-1 scope (only proposed accounts, on their stored match; no client or product chosen by request) and that the
- * queued job imports what was confirmed, not what today's plan says. Adopted; R2-5 changes the review through the price,
- * since this step accepts no cycle in the request.
+ * queued job imports what was confirmed, not what today's plan says. Adopted. R2-5 changes the review through the
+ * price. R2-1 and R2-2 pinned 3b-1's no-choices scope; with choices (3b-2) they pin that a choice made after the
+ * review is not imported without a new review.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-10-19 10:00:00');
@@ -50,18 +51,24 @@ function r2RunQueued(): void
 
 // 3b-1 scope: unmatched and reseller-owned accounts stay out; no client or product comes from the request.
 
-test('[R2-1] an unmatched or reseller-owned account cannot be imported by naming a client and product in the request', function (string $username) {
-    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => [$username], 'include' => true, 'client_id' => $this->mallory->id, 'product_id' => 21]);
-    test()->post(route('admin.services.servers.import.apply', $this->server), ['digest' => r2Digest($this->server)]);
+// 3b-2 lets staff choose a client and product; a choice reaches an import only through a new review.
+
+test('[R2-1] a client and product chosen after the review do not import an unmatched or reseller-owned account', function (string $username) {
+    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true])->assertSessionHasNoErrors();
+    $digest = r2Digest($this->server);
+    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => [$username], 'include' => true, 'client_id' => $this->mallory->id, 'product_id' => 21])->assertSessionHasNoErrors();
+    test()->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasNoErrors();
 
     expect(Service::query()->where('username', $username)->exists())->toBeFalse();
 })->with(['unmatched' => 'charlie', 'reseller-owned' => 'bravo']);
 
-test('[R2-2] a proposed account cannot be moved to another client by a crafted client_id', function () {
-    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'client_id' => $this->mallory->id]);
-    test()->post(route('admin.services.servers.import.apply', $this->server), ['digest' => r2Digest($this->server)]);
+test('[R2-2] a proposed account moved to another client after the review is not imported onto either without a new review', function () {
+    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true])->assertSessionHasNoErrors();
+    $digest = r2Digest($this->server);
+    test()->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'client_id' => $this->mallory->id])->assertSessionHasNoErrors();
+    test()->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $digest])->assertSessionHasErrors('import');
 
-    expect(Service::query()->where('client_id', $this->mallory->id)->exists())->toBeFalse();
+    expect(Service::query()->count())->toBe(0);
 });
 
 // The queued job imports what was confirmed.

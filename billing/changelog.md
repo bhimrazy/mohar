@@ -62,6 +62,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   without the owner check until fetched again.
   A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
   importing need a recent password; imports run on the `provisioning` queue.
+  A Core migration adds `email_changed_at` to `clients` (nullable), set whenever the address changes.
+  An email match is no longer proposed when the client changed email in the last 30 days, or when the client has an
+  owner login and none with the client's email is verified (clients from sign-up or checkout until they verify).
+  Clients without an owner login, as staff create them, are proposed as before. Staff can still choose a flagged
+  client for an account; the review imports it only then. Match again to apply this to a list fetched earlier.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -148,6 +153,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   idempotency keys and the API version header, and signed webhooks for the app's endpoint. With the printed
   `INTEGRATION_ENDPOINTS` and the gateway's test keys set to the simulator's, the real Stripe gateway takes payments,
   settles them from webhooks and lookups, refunds and records disputes against it.
+- Developers and CI get `php artisan simulate:e2e`, the hosting lifecycle end to end against the `whm` and `stripe`
+  simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
+  provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
+  and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
+  409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
   (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
@@ -207,6 +218,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   service) or left out (with the reason). Each account becomes a service, active or suspended as on the server, with
   no invoice, welcome email, module command or password, keeps its day of the month for billing, is recorded in the
   activity log, and dispatches `ServiceImported`. Choosing a client or product per account follows in the next step.
+- Import accounts, choices: staff choose the client (a picker that lists the most recently added active clients
+  before anything is typed; it needs the permission to view clients), product, billing cycle and next due date per
+  account, and the cycle and due date for every ticked account at once from the review. Review rows link back to change
+  them and say when a client group discount explains a lower price; the date field shows the renewal date in the app's
+  format. "Select all proposed" leaves out, and the page flags, accounts whose matched client changed email in the last
+  30 days. "Fetch again" keeps choices for accounts still on the server. A choice reaches an import only through a new
+  review.
+- Import accounts, stopped and failed runs: an import that stops partway keeps the ticks and choices of the accounts
+  it did not reach, says once why it stopped ("The background job took too long.") and offers "Review the remaining N",
+  which goes through a new review. The last import's report lists accounts not imported first, a page at a time
+  behind "Show details", marks unreached accounts "Not reached", and stays on the page after "Fetch again" until the
+  next import starts. A failed fetch no longer hides the last list: the error shows above it with a link to the server
+  page to test the connection. The ticked count refreshes when an import finishes. The bulk cycle says how many ticked
+  accounts it leaves out for lack of a price and can return them to each account's default. The choice dialog saves
+  only the fields staff change: clearing the client or product (or picking "As matched") returns the account to its
+  match, clearing the cycle or date returns it to its default, and a flagged match becomes a choice only through "Use
+  this client". The client picker, on every page that uses it, shows a loading state, opens on click or typing rather
+  than on focus, and works from the keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
+- Import accounts, flagged clients: a matched client who changed email in the last 30 days, or who signed up and has
+  not verified the email, is shown on the row with the date but not proposed, and "Select all proposed" leaves it out.
+  The review checks again against the client it matches at that moment, shows the flag and keeps the account out unless
+  staff chose that client themselves. A chosen due date that has passed by the review keeps the account out until a new
+  date is chosen. "Set the cycle and due date" for ticked accounts accepts only the cycle and due date. Choices carried
+  by "Fetch again" are dropped for an account re-created under the same username (another creation time on the server).
+- Import accounts, continuing: going on after a stop keeps one report for both runs, the stop banner separates failed
+  accounts from those not reached, paging the report keeps its details open ("Hide details"), and cycles read "no
+  semi-annual price" in sentences.
 - Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
   server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
   after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts

@@ -18,6 +18,8 @@ type FormDialogProps = {
     children: ReactNode;
     submitLabel: string;
     processing: boolean;
+    /** The submit button is disabled (nothing to save yet). */
+    disabled?: boolean;
     destructive?: boolean;
     onSubmit: () => void;
 };
@@ -31,6 +33,7 @@ export function FormDialog({
     children,
     submitLabel,
     processing,
+    disabled = false,
     destructive = false,
     onSubmit,
 }: FormDialogProps) {
@@ -68,7 +71,7 @@ export function FormDialog({
                         <Button
                             type="submit"
                             variant={destructive ? 'destructive' : 'default'}
-                            disabled={processing}
+                            disabled={processing || disabled}
                         >
                             {processing && <Spinner />}
                             {submitLabel}

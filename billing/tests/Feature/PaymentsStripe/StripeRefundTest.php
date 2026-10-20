@@ -75,7 +75,7 @@ test('a refund webhook arriving while the refund action is still recording it is
 
     app(RefundTransaction::class)->handle($payment, 2_500, RefundMode::Gateway);
 
-    $during->assertStatus(409)->assertJson(['result' => 'refund still being recorded']);
+    $during->assertStatus(409)->assertJson(['result' => 'refund still being recorded; retry expected']);
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0009'))->assertOk();
     expect(Transaction::query()->where('type', TransactionType::Refund)->sole())->status->toBe(TransactionStatus::Succeeded)->amount_out->toBe(2_500);
 });

@@ -32,6 +32,13 @@ use Illuminate\Http\Request;
  */
 class GatewayCallbackHandler
 {
+    /**
+     * A refund or dispute for a payment not booked yet (it arrived first: Stripe can send a dispute before the payment's
+     * own events). 409 makes the provider deliver it again, which books it; the log says so rather than reporting an
+     * error (#124).
+     */
+    public const PAYMENT_NOT_BOOKED = 'payment not booked yet; retry expected';
+
     public const MAX_CALLBACK_AGE_SECONDS = 300;
 
     /** Larger bodies are refused before any signature work (no provider sends callbacks near this size). */
@@ -232,14 +239,14 @@ class GatewayCallbackHandler
         }
 
         if ($own?->status === TransactionStatus::Pending) {
-            return $this->outcome($gatewayKey, 409, 'refund still being recorded', $event->raw, $own->invoice_id);
+            return $this->outcome($gatewayKey, 409, 'refund still being recorded; retry expected', $event->raw, $own->invoice_id);
         }
 
         $parents = $this->parents($gatewayKey, $event);
 
         if ($parents === []) {
             // Out of order (refund before payment): reject so the provider retries later.
-            return $this->outcome($gatewayKey, 409, 'parent transaction not found', $event->raw, $event->invoiceId);
+            return $this->outcome($gatewayKey, 409, self::PAYMENT_NOT_BOOKED, $event->raw, $event->invoiceId);
         }
 
         $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
@@ -277,7 +284,7 @@ class GatewayCallbackHandler
         $parents = $this->parents($gatewayKey, $event);
 
         if ($parents === []) {
-            return $this->outcome($gatewayKey, 409, 'parent transaction not found', $event->raw, $event->invoiceId);
+            return $this->outcome($gatewayKey, 409, self::PAYMENT_NOT_BOOKED, $event->raw, $event->invoiceId);
         }
 
         $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);

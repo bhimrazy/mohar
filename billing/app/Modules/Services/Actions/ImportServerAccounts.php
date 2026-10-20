@@ -42,16 +42,20 @@ class ImportServerAccounts
     public function __construct(private AccountImportPlan $plan, private AccountImportMatcher $matcher, private ActivityLogger $activity) {}
 
     /**
-     * Tick or untick accounts in the fetched list ($usernames null: every proposed account), under the server lock, so
-     * nothing is written once an import has started.
+     * Record staff choices under the server lock, so nothing is written once an import has started: for $usernames in
+     * the fetched list, every proposed account ($scope proposed: ticked, except where the matched client is flagged
+     * now, AccountImportMatcher::clientFlags()), or every ticked one ($scope ticked).
      *
-     * @param  list<string>|null  $usernames
+     * @param  'usernames'|'proposed'|'ticked'  $scope
+     * @param  list<string>  $usernames
+     * @param  array<string, mixed>  $choice
+     * @return int proposed accounts left unticked because their client is flagged
      *
      * @throws ValidationException when the list is not ready
      */
-    public function tick(Server $server, ?array $usernames, bool $include): void
+    public function select(Server $server, string $scope, array $usernames, array $choice): int
     {
-        DB::transaction(function () use ($server, $usernames, $include): void {
+        return DB::transaction(function () use ($server, $scope, $usernames, $choice): int {
             Server::query()->whereKey($server->id)->lockForUpdate()->first();
             $import = FetchAccountsForImport::latest($server, withAccounts: true);
 
@@ -61,12 +65,29 @@ class ImportServerAccounts
 
             $accounts = collect($import->accounts ?? [])->keyBy('username');
             $selections = $import->selections ?? [];
+            $flagged = [];
+            $usernames = match ($scope) {
+                'proposed' => $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all(),
+                'ticked' => array_keys(array_filter($selections, fn (array $selected): bool => (bool) ($selected['include'] ?? false))),
+                default => array_values(array_intersect(array_unique($usernames), $accounts->keys()->all())),
+            };
 
-            foreach ($usernames === null ? $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all() : array_intersect(array_unique($usernames), $accounts->keys()->all()) as $username) {
-                $selections[$username] = ['include' => $include];
+            if ($scope === 'proposed') {
+                // A client who changed email lately or never verified it may have taken an account's contact address
+                // since the match: never ticked in bulk.
+                $recent = array_keys($this->matcher->clientFlags($accounts->only($usernames)->pluck('client_id')->filter()->map(fn (mixed $id): int => (int) $id)->values()->all()));
+                $flagged = $accounts->only($usernames)->whereIn('client_id', $recent)->keys()->all();
+                $usernames = array_values(array_diff($usernames, $flagged));
+            }
+
+            foreach ($usernames as $username) {
+                // A null choice returns that field to the account's default.
+                $selections[$username] = array_filter([...($selections[$username] ?? []), ...$choice], fn (mixed $value): bool => $value !== null);
             }
 
             $import->update(['selections' => $selections]);
+
+            return count($flagged);
         });
     }
 
@@ -89,8 +110,22 @@ class ImportServerAccounts
                 throw ValidationException::withMessages(['import' => $problem ?? __('Nothing to import: tick accounts and review them first.')]);
             }
 
-            DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->delete();
-            $import->update(['status' => ServerAccountImport::IMPORTING, 'imported_count' => 0, 'not_imported_count' => 0, 'stop_reason' => null]);
+            $lines = fn () => DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id);
+
+            if ($import->stop_reason === null) {
+                $lines()->delete();
+            } else {
+                // Going on after a stop: one report for both runs. The earlier run's lines stay, except for the
+                // accounts this run tries again.
+                foreach (array_chunk(array_column($import->reviewed['rows'], 'username'), 1000) as $chunk) {
+                    $lines()->where('imported', false)->whereIn('username', $chunk)->delete();
+                }
+            }
+
+            $earlier = ['imported_count' => $lines()->where('imported', true)->count(), 'not_imported_count' => $lines()->where('imported', false)->count()];
+            // The lines already there when this run started, so its progress counts only its own accounts.
+            $import->update(['status' => ServerAccountImport::IMPORTING, ...$earlier, 'stop_reason' => null,
+                'reviewed' => [...$import->reviewed, 'earlier' => array_sum($earlier)]]);
 
             return $import;
         });
@@ -148,7 +183,7 @@ class ImportServerAccounts
                 // The service and its report line commit together, so a chunk that fails later keeps both.
                 $service = DB::transaction(function () use ($server, $import, $account, $row, $product, &$report): Service {
                     $service = $this->create($server, $account, $row, $product, $row['currency']);
-                    $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported just now.'), 'service_id' => $service->id]);
+                    $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported.'), 'service_id' => $service->id]);
 
                     return $service;
                 });
@@ -197,7 +232,7 @@ class ImportServerAccounts
             $import->update(['stop_reason' => $reason]);
             $reached = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->pluck('username')->flip();
             $missing = array_values(array_filter(array_column($import->reviewed['rows'] ?? [], 'username'), fn (string $username): bool => ! $reached->has($username)));
-            $message = mb_substr(AccountImportMatcher::text('The import stopped: :reason', ['reason' => $reason]), 0, 255);
+            $message = AccountImportMatcher::text('Not reached.');
 
             foreach (array_chunk($missing, 1000) as $chunk) {
                 DB::table('server_account_import_report_lines')->insert(array_map(fn (string $username): array => [
@@ -218,8 +253,10 @@ class ImportServerAccounts
      */
     public function finish(Server $server, ServerAccountImport $import, ?User $staff): void
     {
-        $services = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->where('imported', true)
-            ->pluck('service_id', 'username')->all();
+        // Only this run's accounts become linked and lose their choices; an earlier run's (before a stop) were done
+        // then, and Fetch again may have matched them afresh since (their service may have ended).
+        $services = array_intersect_key(DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->where('imported', true)
+            ->pluck('service_id', 'username')->all(), array_flip(array_column($import->reviewed['rows'] ?? [], 'username')));
         $accounts = $import->accounts ?? [];
 
         foreach ($accounts as &$row) {
@@ -230,12 +267,15 @@ class ImportServerAccounts
 
         unset($row);
         $counts = array_count_values(array_column($accounts, 'category'));
+        $run = count($services);
         $import->update([
-            'status' => ServerAccountImport::READY, 'accounts' => $accounts, 'selections' => null, 'reviewed' => null,
+            // Imported accounts are done; the choices of every other ticked account are kept, so a stopped import can go on.
+            'status' => ServerAccountImport::READY, 'accounts' => $accounts, 'reviewed' => null,
+            'selections' => array_diff_key($import->selections ?? [], $services) ?: null,
             'proposed_count' => $counts[AccountImportMatcher::PROPOSED] ?? 0, 'unmatched_count' => $counts[AccountImportMatcher::UNMATCHED] ?? 0,
             'reseller_count' => $counts[AccountImportMatcher::RESELLER] ?? 0, 'linked_count' => $counts[AccountImportMatcher::LINKED] ?? 0,
         ]);
-        $this->activity->log('Imported '.count($services)." accounts from server {$server->name}", $server, properties: ['imported' => count($services), 'not_imported' => $import->not_imported_count, 'stopped' => $import->stop_reason], actor: $staff);
+        $this->activity->log("Imported {$run} accounts from server {$server->name}", $server, properties: ['imported' => $run, 'not_imported' => $import->not_imported_count, 'stopped' => $import->stop_reason], actor: $staff);
     }
 
     /**

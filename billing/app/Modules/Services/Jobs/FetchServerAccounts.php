@@ -88,6 +88,11 @@ class FetchServerAccounts implements ShouldQueue
         }
 
         $count = $matcher->store($import, $accounts, AccountImportMatcher::connectionUser($driver, $connection));
+
+        if ($count === null) {
+            return; // superseded by a later fetch while it ran
+        }
+
         $activity->log("Accounts on server {$server->name} fetched for import", $server, properties: ['accounts' => $count], actor: $import->requester);
     }
 

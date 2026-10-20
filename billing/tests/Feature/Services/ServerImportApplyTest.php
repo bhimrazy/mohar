@@ -137,7 +137,7 @@ test('a chunk that fails stops the import with the reason, and every reviewed ac
 
     $import->refresh();
     expect($import->status)->toBe('ready')
-        ->and($import->stop_reason)->toContain('stopped unexpectedly')
+        ->and($import->stop_reason)->toBe('The background job failed.')
         ->and([$import->imported_count, $import->not_imported_count])->toBe([100, 200])
         ->and(collect($import->report)->pluck('username')->unique()->count())->toBe(300)
         ->and(Service::query()->count())->toBe(100);

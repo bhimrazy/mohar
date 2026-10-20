@@ -44,7 +44,8 @@ Living status board. Each workstream updates its row when it opens a PR for revi
   per-account report; 50k-account stop in 6.8 s on PostgreSQL).
 - Stripe verified against the owner's sandbox and eSewa against its UAT environment, with no code changes; a late
   payment booking bug found by the test matrix (#130).
-- Docs site v1 built on Astro Starlight (#137), not published.
+- Merged later the same day: production compose stack (#80), Stripe simulator (#113), end-to-end lifecycle `simulate:e2e`
+  (#115, 50 s on a runner), docs site (#137, Astro Starlight, not published), cPanel import step 3b-2 (#133).
 
 ### 2026-10-18
 

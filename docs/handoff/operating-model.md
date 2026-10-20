@@ -142,7 +142,12 @@ left (about 200 runs in two days). CI is a budget:
   repeated pushes. Merges into `develop` do not trigger CI; the CTO dispatches one `develop` run (workflow_dispatch)
   after a batch of merges, and before cutting `main`.
 - Deploy smoke, load and E2E simulator workflows run only on an explicit CTO decision, never on routine pushes.
-- Docs-only changes need no runner.
+- Docs-only changes need no runner. Open them as drafts: marking a PR ready starts CI. `docs-site/` is not yet on the
+  docs fast path (#144), so a docs-site change runs the full suite once at merge.
+- Engineers always run `tests/Arch` locally before handing back (a missed Arch rule cost #115 a red run).
+- A head commit carrying `[skip ci]` also blocks label-triggered runs. The final head of a PR must not carry it; WIP
+  commits before it may.
+- The E2E simulator job is opt-in: the `e2e` label, `workflow_dispatch` or a push to `main`. It is never a required check.
 - Check usage (Settings → Billing) before any burst of runs and record it in `state.md` when above 75%.
 
 ## Machine limits (GitHub Codespace)
