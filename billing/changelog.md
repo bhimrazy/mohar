@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
+  attempt that had already closed (expired, cancelled or replaced) was logged but never booked. It is now booked
+  after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
+  (all of it when the invoice was already paid). A Stripe webhook for a closed attempt now answers
+  `late payment recorded` instead of `attempt expired`. The reconciliation poller also re-checks expired and failed
+  attempts once an hour for 48 hours after they started (new setting "Hosted payments: keep checking closed payments
+  for late success", `billing.gateways.late_lookup_hours`, 0 = off). Run `php artisan migrate` (adds
+  `late_payment_at` and `late_checked_at` to `payment_attempts`). Attempts that closed before the upgrade are
+  re-checked only if they started within that window: look up older ones from Billing → Payment attempts with
+  "Check now".
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -389,6 +399,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
   `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
   (USD/INR/NPR).
+- Late gateway payments (#130): each one writes an activity entry ("Late payment received after the attempt
+  closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
+  checked on Payment attempts (new "Late payments" filter; marking needs a recent password). The client sees
+  the payment on the invoice and any surplus on the account credit page. A late payment whose attempt no longer
+  matches the invoice currency is not booked and goes to "Gateway payments to review". "Check now" also works on
+  expired and failed attempts.
 
 ### Nepal payments
 

@@ -176,6 +176,7 @@ lifetime transition to paid), `InvoicePartiallyPaid`, `InvoiceCancelled`, `Invoi
 - **Double callbacks / webhook retries** → unique `(gateway, txn_id, type)` + `InvoicePaid` only on status transition.
 - **Return-URL spoofing** → only signed callbacks mark paid.
 - **Callback for cancelled invoice** → still record the payment; if balance ≤ 0 reopen to paid only via staff, else credit to account; alert staff.
+- **Late provider success on a closed attempt** (expired, cancelled, replaced) → booked after the same server-side lookup and guards as any success: on the invoice up to its balance, the rest (all of it on a closed or paid invoice) as account credit in the invoice currency. Each case writes an activity entry and raises the staff to-do "Late payments to check" until staff mark it checked (Payment attempts). An attempt whose currency no longer matches its invoice is not booked and goes to staff review. Idempotent per provider transaction id. (#130)
 - **Partial refund then reversal** → refundable_remaining prevents over-refund; reversals reference the parent transaction.
 - **Currency mismatch** between gateway account and invoice → reject or convert explicitly; store the rate.
 - **Rounding drift** inclusive tax across many lines → assign remainder to net, keep gross equal to catalog price.
