@@ -16,8 +16,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
   empty fields are not shown. A new support email (Settings → Company) is the website's contact address and "Contact
   us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
-  now runs a fictional host ("Himal Host", with seller details, support hours, WhatsApp, PAN/VAT, registration
-  number and social links), and its card gateway is named "Card".
+  now runs a clearly fictional host, "Example Hosting" (seller details, support hours, WhatsApp, PAN/VAT,
+  registration number, `example.com` email, social and Terms, Privacy and Refund links), and its card gateway is
+  named "Card". The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
+  country to NP, so NPR invoices carry 13% VAT and INR invoices no longer charge Indian GST. Only the demo seeders
+  change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
+  seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
+  `migrate:fresh --seed` for the new demo values.
 
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
@@ -180,8 +185,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   default, and adds tax only to taxed products (and to domains while domains are taxed).
 - Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
   with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,
-  registration and tax numbers, social links and "Pay an invoice"; the Support menu lists network status and Contact
-  us, and the phone menu lists the cart. Log-in and sign-up pages link back to the website.
+  registration and tax numbers (one "PAN/VAT no." row when the VAT number is the PAN), social links and "Pay an
+  invoice"; the Support menu lists network status and Contact us, and the phone menu lists the cart. The 404 page
+  links to Hosting plans, Knowledge base, Contact us and Home. Log-in and sign-up pages link back to the website.
 - Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
   never the product's own logo or mark.
 - `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.

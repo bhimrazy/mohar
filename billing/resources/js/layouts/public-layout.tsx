@@ -1,5 +1,13 @@
 import { Link, router, usePage } from '@inertiajs/react';
-import { Clock, Mail, MapPin, Menu, Phone, ShoppingCart } from 'lucide-react';
+import {
+    Clock,
+    Mail,
+    MapPin,
+    Menu,
+    MessageCircle,
+    Phone,
+    ShoppingCart,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageWidthContext } from '@/components/app/page';
@@ -629,6 +637,13 @@ function MobileNav({ site }: { site: Site }) {
     );
 }
 
+/** A sentence continued after a colon starts lower-case ("Tax added …" → "tax added …"); acronyms stay ("VAT …"). */
+function afterColon(text: string): string {
+    return /^[A-Z][a-z]/.test(text)
+        ? text.charAt(0).toLowerCase() + text.slice(1)
+        : text;
+}
+
 function SiteFooter({ site }: { site: Site }) {
     const { auth } = usePage().props;
     const { company, account } = site;
@@ -721,18 +736,11 @@ function SiteFooter({ site }: { site: Site }) {
                         </p>
                     )}
                     {company.whatsapp && (
-                        <p
-                            className={cn(
-                                'flex items-center gap-2',
-                                company.phone && 'pl-6',
-                            )}
-                        >
-                            {!company.phone && (
-                                <Phone
-                                    className="size-4 shrink-0 text-muted-foreground"
-                                    aria-hidden="true"
-                                />
-                            )}
+                        <p className="flex items-center gap-2">
+                            <MessageCircle
+                                className="size-4 shrink-0 text-muted-foreground"
+                                aria-hidden="true"
+                            />
                             <a
                                 href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
                                 className="whitespace-nowrap hover:underline"
@@ -809,7 +817,7 @@ function SiteFooter({ site }: { site: Site }) {
                     )}
                     {site.tax_note && (
                         <TaxNote
-                            note={`Prices in ${site.currency}: ${site.tax_note}`}
+                            note={`Prices in ${site.currency}: ${afterColon(site.tax_note)}`}
                             className="text-sm"
                         />
                     )}

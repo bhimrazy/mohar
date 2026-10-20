@@ -43,7 +43,12 @@ export default function NotFound({ path, links, search_url, seo }: Props) {
                             asChild
                             variant={index === 0 ? 'default' : 'outline'}
                         >
-                            <Link href={link.url}>{link.label}</Link>
+                            {link.url.startsWith('/') ||
+                            link.url.startsWith(window.location.origin) ? (
+                                <Link href={link.url}>{link.label}</Link>
+                            ) : (
+                                <a href={link.url}>{link.label}</a>
+                            )}
                         </Button>
                     ))}
                 </div>

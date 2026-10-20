@@ -93,10 +93,7 @@ class SiteData
                 // Listed when the visitor may see it (it can require login): never a link that only leads to sign-in.
                 ...($status === null ? [] : $this->links([['Network status', 'support.network.index']], $open)),
                 ...$this->links([['Open a ticket', 'support.tickets.create']]),
-                // Questions go to the support address; without one, to a support ticket (never the billing address).
-                ...(is_string($support = $this->settings->get('core.support_email')) && $support !== ''
-                    ? [['label' => 'Contact us', 'url' => 'mailto:'.$support, 'badge' => null]]
-                    : $this->links([['Contact us', 'support.tickets.create']])),
+                ...(($contact = $this->contact()) !== null ? [[...$contact, 'badge' => null]] : []),
             ],
             'company' => $company,
             'payments' => $this->paymentMarks($currency),
@@ -122,8 +119,14 @@ class SiteData
 
         foreach (['pan' => ['PAN', 'billing.seller.pan'], 'vat' => ['VAT no.', 'billing.seller.vat_number'], 'gstin' => ['GSTIN', 'billing.seller.gstin'], 'registration' => ['Company reg. no.', 'core.registration_number']] as $kind => [$label, $key]) {
             if (($value = $text($key)) !== null) {
-                $ids[] = ['kind' => $kind, 'label' => $label, 'value' => $value];
+                $ids[$kind] = ['kind' => $kind, 'label' => $label, 'value' => $value];
             }
+        }
+
+        // A VAT-registered Nepal business uses its PAN as its VAT number: one row, never the same number twice.
+        if (isset($ids['pan'], $ids['vat']) && $ids['pan']['value'] === $ids['vat']['value']) {
+            $ids['pan']['label'] = 'PAN/VAT no.';
+            unset($ids['vat']);
         }
 
         return [
@@ -134,13 +137,29 @@ class SiteData
             'phone' => $text('billing.seller.phone'),
             'whatsapp' => $text('core.whatsapp'),
             'hours' => $text('core.support_hours'),
-            'ids' => $ids,
+            'ids' => array_values($ids),
             'social' => array_values(array_filter(array_map(
                 fn (string $label, string $key): ?array => ($url = $text($key)) !== null && str_starts_with($url, 'https://') ? ['label' => $label, 'url' => $url] : null,
                 ['Facebook', 'Instagram', 'LinkedIn', 'X'],
                 ['core.social_facebook', 'core.social_instagram', 'core.social_linkedin', 'core.social_x'],
             ))),
         ];
+    }
+
+    /**
+     * Where "Contact us" goes: the support address; without one, a new support ticket (never the billing address).
+     *
+     * @return array{label: string, url: string}|null
+     */
+    public function contact(): ?array
+    {
+        $support = $this->settings->get('core.support_email');
+
+        return match (true) {
+            is_string($support) && trim($support) !== '' => ['label' => 'Contact us', 'url' => 'mailto:'.trim($support)],
+            Route::has('support.tickets.create') => ['label' => 'Contact us', 'url' => route('support.tickets.create')],
+            default => null,
+        };
     }
 
     /**

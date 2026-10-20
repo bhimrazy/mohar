@@ -93,6 +93,7 @@ class HomeController extends Controller
             'links' => array_values(array_filter([
                 ['label' => 'Hosting plans', 'url' => Route::has('store.index') ? route('store.index') : null],
                 ['label' => 'Knowledge base', 'url' => Route::has('support.kb.index') ? route('support.kb.index') : null],
+                ['label' => 'Contact us', 'url' => app(SiteData::class)->contact()['url'] ?? null],
                 ['label' => 'Home', 'url' => route('home')],
             ], fn (array $link): bool => $link['url'] !== null)),
             'search_url' => Route::has('store.domains') ? route('store.domains') : null,
