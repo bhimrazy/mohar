@@ -1,0 +1,34 @@
+---
+title: eSewa
+description: Take payments in Nepalese rupees with eSewa.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Clients are sent to eSewa to pay, then come back to the invoice. The app checks the payment with eSewa before it
+marks the invoice paid. eSewa charges in Nepalese rupees (NPR).
+
+You need an eSewa merchant account. eSewa gives you a merchant (product) code and a secret key.
+
+<Steps>
+
+1. Go to **Setup → Gateways → eSewa**.
+
+2. Under **Settings**, turn **Sandbox mode** off and enter your **Merchant (product) code** and **Secret key**. On a
+   staging copy (not production), you can keep sandbox mode on and use eSewa's test code `EPAYTEST` with the public
+   test key from eSewa's developer documentation.
+
+3. If your invoices are in another currency, set **Charge in currency** to Nepalese rupee. The balance is converted
+   at the current exchange rate, and the client sees the converted amount before paying.
+
+4. Select **Save gateway**, then **Test connection**. The test opens an unpaid Rs 10 session at eSewa, which expires
+   on its own; no money moves.
+
+5. Turn on **Active** and save.
+
+</Steps>
+
+<Aside>
+	eSewa has no refund call. Refund the client in eSewa's merchant portal, then use **Refund payment** on the invoice's
+	transaction with **Record only**, so your books match.
+</Aside>

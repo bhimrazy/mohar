@@ -1,0 +1,42 @@
+---
+title: Invoices and payments
+description: Find invoices, record payments, refund and write off.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Most invoices are created for you: one when an order is placed, and renewal invoices before each service's due date
+(see [Automation](../automation/)). Online payments mark them paid on their own. You step in for offline payments,
+refunds and exceptions.
+
+<Screenshot name="invoices" alt="Invoices list with status, client, totals and due dates." />
+
+## Record an offline payment
+
+<Steps>
+
+1. Go to **Billing → Invoices** and open the invoice.
+
+2. Select **Record payment**. Enter the amount, the date, the gateway (for example Bank transfer) and, in
+   **Transaction ID**, the reference from your bank.
+
+3. Save. A part payment lowers the balance and leaves the invoice unpaid; when the balance reaches zero the invoice is
+   marked paid and any service waiting for payment is set up.
+
+    <Screenshot name="invoice" alt="An unpaid invoice with totals, line items, the bill-to details and the Record payment button." />
+
+</Steps>
+
+## Other actions on an invoice
+
+The **⋯** menu and the transaction list on the invoice page hold the less common actions:
+
+- **Apply credit**: use the client's credit balance towards the invoice.
+- **Mark paid (write off)**: close the invoice without money. It is recorded as a write-off, not as income.
+- **Refund payment** on a transaction: refund in full or in part through the gateway when it supports refunds, or
+  **Record only** when you refunded outside the app.
+- **Send reminder** and **Download PDF**.
+
+Numbers, tax and the client's address are fixed when an invoice is issued. Later changes to tax rules or the client's
+profile do not alter it.

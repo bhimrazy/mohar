@@ -6,6 +6,8 @@ use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Events\Core\ClientRegistered;
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +40,10 @@ class CreateNewUser implements CreatesNewUsers
                 'password' => $input['password'],
             ]);
 
-            $client = Client::query()->create([
+            // Origin is never mass-assigned: each creation path names its own.
+            $client = Client::query()->forceCreate([
+                'origin' => ClientOrigin::SignUp,
+                'email_source' => EmailSource::Client,
                 'first_name' => Str::before($input['name'], ' '),
                 'last_name' => Str::contains($input['name'], ' ') ? Str::after($input['name'], ' ') : '',
                 'email' => $email,

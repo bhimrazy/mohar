@@ -5,12 +5,14 @@ namespace Mohar\Simulators;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Support\ServiceProvider;
 use Mohar\Simulators\Console\CleanCommand;
+use Mohar\Simulators\Console\E2eCommand;
 use Mohar\Simulators\Console\ListCommand;
 use Mohar\Simulators\Console\RecordCommand;
 use Mohar\Simulators\Console\ScanCommand;
 use Mohar\Simulators\Console\StartCommand;
 use Mohar\Simulators\Console\StopCommand;
 use Mohar\Simulators\Contracts\Simulator;
+use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
 
 /**
@@ -43,7 +45,7 @@ final class SimulatorsServiceProvider extends ServiceProvider
      */
     public function simulators(): array
     {
-        return [WhmSimulator::class];
+        return [WhmSimulator::class, StripeSimulator::class];
     }
 
     public function boot(): void
@@ -52,6 +54,6 @@ final class SimulatorsServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->commands([ListCommand::class, StartCommand::class, StopCommand::class, CleanCommand::class, RecordCommand::class, ScanCommand::class]);
+        $this->commands([ListCommand::class, StartCommand::class, StopCommand::class, CleanCommand::class, RecordCommand::class, ScanCommand::class, E2eCommand::class]);
     }
 }

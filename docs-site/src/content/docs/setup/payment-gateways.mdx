@@ -1,0 +1,50 @@
+---
+title: Payment gateways
+description: How gateways work, and the settings every gateway shares.
+sidebar:
+    label: Overview
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+A gateway is a way for clients to pay an invoice. Online gateways (Stripe, eSewa, Khalti) send the client to the
+provider's payment page and confirm the payment with the provider before the invoice is marked paid. Offline
+gateways (bank transfer) show instructions, and staff record the payment when the money arrives.
+
+<Screenshot name="gateways" alt="Payment gateways list with each gateway's status, whether clients see it, and what it can do." />
+
+## Settings every gateway has
+
+<Steps>
+
+1. Go to **Setup → Gateways** and open a gateway.
+
+2. Under **General**:
+    - **Name shown to clients**;
+    - **Active**: payments and provider callbacks are accepted only while this is on;
+    - **Offer to clients**: whether clients can choose it when paying;
+    - **Display order**;
+    - **Charge in currency**: charge in the invoice's currency, or convert the balance to another currency at the
+      current exchange rate. eSewa and Khalti charge in Nepalese rupees, so use this for invoices in other currencies.
+
+3. Fill in the gateway's own settings, save, then select **Test connection**. The test checks your saved credentials
+   with the provider; no money moves.
+
+</Steps>
+
+<Aside title="Test mode and production">
+	Online gateways start in test (sandbox) mode, where no real money moves. Test mode is refused when
+	`APP_ENV=production`, which is how both install guides set it up. Try the test keys on a separate staging copy
+	of the app instead. On your live install, turn test mode off, enter live keys, run **Test connection**, then
+	make one small real payment and refund it.
+</Aside>
+
+## Gateway guides
+
+- [Stripe](../stripe/): cards and other methods Stripe offers, with refunds.
+- [eSewa](../esewa/) and [Khalti](../khalti/): wallets in Nepal, in Nepalese rupees.
+- [Bank transfer](../bank-transfer/): instructions on the invoice, recorded by staff.
+
+Requests to and callbacks from each provider are listed in **Setup → Gateway log**, with sensitive values hidden.
+Each attempt to pay is listed in **Billing → Payment attempts**.

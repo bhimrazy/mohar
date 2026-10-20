@@ -19,8 +19,9 @@ final class Recorder
     /**
      * @param  array<array-key, mixed>  $response
      * @param  list<string>  $secrets  values to mask wherever they appear (the credentials used)
+     * @param  array<string, string>  $context  how the call was made, for its replay (e.g. which login)
      */
-    public function record(string $operation, array $response, string $source, array $secrets = []): string
+    public function record(string $operation, array $response, string $source, array $secrets = [], array $context = []): string
     {
         if (! is_dir($this->directory)) {
             mkdir($this->directory, 0755, true);
@@ -31,6 +32,7 @@ final class Recorder
         file_put_contents($path, json_encode([
             'source' => $source,
             'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'context' => $context,
             'shape' => self::shape($response),
             'response' => $this->payments ? $this->redactor->redactPayment($redacted) : $redacted,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");

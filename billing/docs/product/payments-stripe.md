@@ -84,7 +84,8 @@ the same metadata on the session and on `payment_intent_data`: `mohar_reference`
 `mohar_amount` (Stripe units), `mohar_currency`, `mohar_flow=checkout`.
 
 - The returned `url` must be `https://checkout.stripe.com/…` (exact host, no userinfo or port), otherwise the
-  start fails and the attempt is closed.
+  start fails and the attempt is closed. In development the host and port may come from the `stripe.checkout`
+  endpoint override instead (ADR 0016), and the check is the same against that endpoint.
 - The attempt keeps Stripe's own `expires_at`, so the invoice stays locked only while the session can be paid.
 - **Cancel:** Stripe's back button returns to the cancel URL. The driver then expires the session
   (`POST /v1/checkout/sessions/<id>/expire`; only an `open` session can be expired, so this can't touch a paid
@@ -136,6 +137,9 @@ stored:
 | `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
 | anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
 
+- **Closed attempts:** an event for an attempt we already closed (expired, failed or cancelled) is verified and
+  looked up the same way; a session or PaymentIntent Stripe reports as paid is booked as a late payment
+  (billing.md §13) and answered `late payment recorded`.
 - **Idempotency:** payments are unique on `(stripe, pi_…, payment)`, refunds on `re_…`, chargebacks on `du_…`
   (Billing's unique index). A replayed or duplicated delivery, or a webhook racing the return route or the
   poller, ends as "duplicate".
@@ -258,7 +262,9 @@ DTOs in `app/Data/Billing` (final, readonly):
 - Secrets only in `gateways.config` (encrypted array); never in Inertia props, logs, exceptions or `raw`.
   Stored payloads keep ids, statuses, amounts and Stripe's error code/type, nothing else.
 - Every call: `Authorization: Bearer <secret>`, `Stripe-Version: 2026-09-30.endive`, TLS verification on, pinned
-  host `https://api.stripe.com/v1/`, 5 s connect and `billing.gateways.http_timeout_seconds` total timeout. Every
+  host `https://api.stripe.com/v1/` (through `Endpoints::for('stripe.api')`, so a development override is verified
+  against the scenario CA and pinned by the outbound guard; ADR 0016), 5 s connect and
+  `billing.gateways.http_timeout_seconds` total timeout. Every
   `POST` sends an `Idempotency-Key` derived from our own record (`mohar-checkout-<ref>`, `mohar-expire-<ref>`,
   `mohar-refund-<refund row id>`). POSTs are never retried automatically; background lookups retry on
   connection errors and 5xx.

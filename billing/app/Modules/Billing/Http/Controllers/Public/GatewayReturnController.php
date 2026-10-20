@@ -7,6 +7,7 @@ use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\Billing\Services\PaymentReconciler;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,7 +18,7 @@ use Inertia\Inertia;
  */
 class GatewayReturnController extends Controller
 {
-    public function __invoke(Request $request, string $gateway, GatewayManager $gateways, SettlePaymentAttempt $settle): RedirectResponse
+    public function __invoke(Request $request, string $gateway, GatewayManager $gateways, SettlePaymentAttempt $settle, PaymentReconciler $reconciler): RedirectResponse
     {
         $driver = $gateways->hosted($gateway);
         abort_if($driver === null || ! $gateways->isActive($gateway), 404);
@@ -31,6 +32,14 @@ class GatewayReturnController extends Controller
             Inertia::flash('toast', ['type' => 'error', 'message' => __('We couldn\'t match this payment. If you were charged, contact us.')]);
 
             return to_route('client.invoices.index');
+        }
+
+        // A closed attempt is looked up again (for a late payment) only inside the late window, and not once the
+        // provider said its session can never be paid: this route is anonymous.
+        if ($attempt->status->isClosed() && ($attempt->lookups_closed_at !== null || ! $reconciler->inLateWindow($attempt))) {
+            Inertia::flash('toast', ['type' => 'warning', 'message' => __('This payment session has ended. Start the payment again.')]);
+
+            return $attempt->invoice_id !== null ? to_route('client.invoices.show', $attempt->invoice_id) : to_route('client.invoices.index');
         }
 
         // At most one provider lookup per attempt per minute from this anonymous route; otherwise reuse the last result.

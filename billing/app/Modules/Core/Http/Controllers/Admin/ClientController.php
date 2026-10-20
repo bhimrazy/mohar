@@ -6,6 +6,8 @@ use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Http\Requests\ClientRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Models\ActivityLog;
@@ -56,7 +58,7 @@ class ClientController extends Controller
 
     public function store(ClientRequest $request): RedirectResponse
     {
-        $client = Client::query()->create($request->validated());
+        $client = Client::query()->forceCreate([...$request->validated(), 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff]);
         $this->activity->log('Client created', $client, $client->id, event: 'client.created');
         ClientRegistered::dispatch($client->id, null);
 
@@ -138,8 +140,8 @@ class ClientController extends Controller
     {
         abort_if($client->merged_into_client_id !== null, 404);
 
-        $original = $client->only(array_keys($request->validated()));
-        $client->update($request->validated());
+        // Locked, so a client-area save cannot interleave; staff vouch for an address they enter (account import).
+        [$client, $original] = Client::updateDetails($client->id, $request->validated(), EmailSource::Staff);
         $changes = array_keys($client->getChanges());
         $diff = collect($changes)
             ->reject(fn (string $key): bool => $key === 'updated_at')
