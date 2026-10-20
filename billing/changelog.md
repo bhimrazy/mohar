@@ -720,6 +720,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 4 (D4): the manual "Build image" workflow (`workflow_dispatch` only) builds the image for amd64,
+  arm64 or both as an OCI artifact with SBOM and provenance (7 days), reports each platform's compressed size against
+  a limit, packs the release tarball for hosts without Docker (new Dockerfile target `release`), and optionally pushes
+  the very same archive to GHCR (`skopeo copy --preserve-digests`, `packages: write` only in that job). cPanel shared
+  hosting is supported in cron mode (`docs/devops/cpanel.md`, `deploy/cpanel/crontab.example`), tested by
+  `deploy/cpanel/simulate-cron`.
+
 - Deployment, part 3 (D3): blue-green deploys on one host. `deploy/bin/deploy` checks and runs the migrations with
   the new image, starts the idle colour beside the live one, switches Caddy with a graceful reload once it is
   healthy, moves the single scheduler and drains the old workers (each finishes its current job), and keeps the old
