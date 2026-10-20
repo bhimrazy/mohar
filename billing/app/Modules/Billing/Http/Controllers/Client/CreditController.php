@@ -32,7 +32,9 @@ class CreditController extends Controller
         return Inertia::render('client/billing/credit/index', [
             'balance' => $ledger->balance($client->id, $client->currency)->amount,
             'currency' => $client->currency,
-            'entries' => CreditEntryResource::collection(CreditLedgerEntry::query()->where('client_id', $client->id)->orderByDesc('id')->paginate(15, pageName: 'credit_page')->withQueryString()),
+            // Zero-amount lines (a provider refund that found no credit to take back, kept as its idempotency record)
+            // move nothing for the client; staff still see them on the admin credit page.
+            'entries' => CreditEntryResource::collection(CreditLedgerEntry::query()->where('client_id', $client->id)->where('amount', '!=', 0)->orderByDesc('id')->paginate(15, pageName: 'credit_page')->withQueryString()),
             'transactions' => TransactionResource::collection(Transaction::query()->where('client_id', $client->id)
                 ->with('invoice:id,number,proforma_number')
                 ->whereIn('type', [TransactionType::Payment, TransactionType::Refund, TransactionType::ManualIncome, TransactionType::Chargeback])
