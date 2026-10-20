@@ -38,7 +38,8 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      && git -C <d> push origin $c:refs/heads/wip/<branch>-snapshot && git -C <d> reset -q
    ```
 
-   Merge green PRs whose merge watchers died with the session (watchers are shell jobs and stop too), and retarget
+   Merge green PRs whose merge watchers died with the session (watchers are shell jobs and stop too), but only
+   those with a CTO sign-off comment at their current head; never on CI alone. Retarget
    PRs stacked on a branch that merged (`gh pr list --json number,baseRefName`).
 
 4. **New device only.** Install prerequisites from `billing/docs/devops/local-setup.md` (PHP 8.4 with
@@ -59,7 +60,9 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
        echo "$a $(tail -1 $f | jq -r '.timestamp[:16]') $(jq -r .description agent-$a.meta.json)"; done
      ```
 
-     Resume each with SendMessage to its agent id. Tell it the exact state found in step 3 (head commit, dirty
+     Resume within the agent budget (`operating-model.md`, "Waves": four running, two code and two review, load
+     under 6), in order: re-checks of PRs awaiting sign-off, then fix rounds, then builds. The rest wait in the
+     queue in `state.md`. Resume each with SendMessage to its agent id. Tell it the exact state found in step 3 (head commit, dirty
      files, snapshot branch, PR) and that processes it had running were stopped.
    - Restart the session's background shell jobs: the resource monitor (step 2), the storage cleanup loop
      (`scripts/storage-cleanup.sh --apply` every 30 minutes) and, if the owner was using it, the preview server

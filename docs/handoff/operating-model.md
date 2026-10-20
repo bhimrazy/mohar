@@ -48,8 +48,12 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 9. **Record.** Update `docs/handoff/state.md`, `billing/docs/progress.md`, `billing/changelog.md`.
    Non-blocking review items become GitHub issues.
 
-Waves: modules with no dependency on each other run in parallel. With the current machine, at most two
-engineers build at once; reviewers are lighter and can overlap.
+Waves: modules with no dependency on each other run in parallel, within the agent budget below.
+
+**Agent budget (CTO review, 2026-10-20; replaces the two-engineer rule, which was never enforced):** at most four
+agents running at once, two writing code and two reviewing. No launch while the 1-minute load is above 6 (resource
+log). Periodic reviews count against the budget. `state.md` "Running now" lists the running agents and the queue.
+Order when a slot frees: PRs awaiting sign-off (re-checks), then fix rounds, then new builds.
 
 ## Gates by PR type (from the 2026-10-18 Fable review)
 
@@ -65,6 +69,10 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 
 - `qa-design-reviewer` is retired; `product-reviewer` (it includes QA) covers user-facing PRs, and sweeps
   `develop` once per wave.
+- **No merge path without verification.** A PR whose latest review verdict is "Changes requested" is not marked
+  ready and gets no merge watcher. The CTO posts the sign-off only after a re-review, or a recorded diff read that
+  names each blocking item, at the current head. Merge watchers are set only on PRs with that sign-off. (#101 merged
+  on CI alone with unverified blockers, 2026-10-20.)
 - Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
   secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
   finding.
@@ -170,7 +178,8 @@ session (CronCreate, every 12 hours) and is recreated by the `resume-session` sk
 ## Session restarts
 
 The codespace reboots without warning (four times on 2026-10-19; the last stop ran overnight, 16:09 to 06:36 UTC). Engineers commit and push work in progress at
-least every 30 minutes; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
+least every 30 minutes, as `wip(<scope>): … [skip ci]` so WIP pushes don't queue CI runs (34 of 111 runs on 10-19
+were cancelled as superseded); the review-ready push is a normal commit; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
 
 Background agents and shell jobs stop when the Claude Code process exits, but agent transcripts survive
 on the same machine. On restart: audit worktrees (commits ahead, dirty files), push unpushed commits and
