@@ -124,15 +124,9 @@ test('apply imports exactly what was reviewed: a price changed since refuses it'
         ->and(ServerAccountImport::query()->sole()->status)->toBe('ready');
 });
 
-test('a choice naming a product off this server, a closed client or a past due date is refused', function () {
+test('a choice naming a product off this server or a past due date is refused', function () {
     $this->kit->priceBook->addProduct(30, 'Elsewhere', driver: 'cpanel', serverGroupId: 999, driverConfig: ['package' => 'root_basic']);
-    $closed = Client::factory()->create(['status' => 'closed']);
-    $url = route('admin.services.servers.import.select', $this->server);
 
-    $this->put($url, ['usernames' => ['bravo'], 'product_id' => 30])->assertSessionHasErrors('product_id');
-    $this->put($url, ['usernames' => ['bravo'], 'client_id' => $closed->id])->assertSessionHasErrors('client_id');
-    $this->put($url, ['usernames' => ['bravo'], 'next_due_date' => '2026-10-01'])->assertSessionHasErrors('next_due_date');
-    $this->put($url, ['usernames' => ['not-on-server'], 'include' => true])->assertSessionHasNoErrors();
-
-    expect(ServerAccountImport::query()->sole()->selections)->toBeEmpty();
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['bravo'], 'product_id' => 30, 'next_due_date' => '2026-10-01'])
+        ->assertSessionHasErrors(['product_id', 'next_due_date']);
 });

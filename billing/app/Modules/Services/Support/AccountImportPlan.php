@@ -131,8 +131,6 @@ class AccountImportPlan
     }
 
     /**
-     * The importable rows as the digest covers them.
-     *
      * @param  list<array<string, mixed>>  $rows
      * @return list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int}>
      */
@@ -172,8 +170,6 @@ class AccountImportPlan
     }
 
     /**
-     * The products staff may pick for an account on this server.
-     *
      * @return list<array{id: int, name: string}>
      */
     public function productOptions(Server $server): array
