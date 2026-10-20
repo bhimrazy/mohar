@@ -10,7 +10,8 @@
 # Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; every service up; /up through
 # Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job processed
 # by the automation worker (its own queue connection); the app container runs as UID 10001 on a read-only root filesystem; PHP stream TLS
-# verifies public certificates; compiled views stay out of the shared storage volume.
+# verifies public certificates; compiled views stay out of the shared storage volume; URL tokens never reach Caddy's
+# access log.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -88,7 +89,7 @@ step "first install on empty PostgreSQL and RustFS"
 "${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
     && php artisan objects:ensure-bucket --no-interaction \
     && php artisan app:install --no-interaction --admin-name='Smoke Admin' --admin-email=${admin_email}" > "$work/install.log" 2>&1 \
-    || { tail -40 "$work/install.log" >&2; fail "first install"; }
+    || { awk 'hide && NF { print "   <one-time password hidden>"; hide = 0; next } /one-time password/ { hide = 1 } { print }' "$work/install.log" | tail -40 >&2; fail "first install"; }
 # The one-time password is the first non-empty line after the notice; it is masked and never printed.
 password="$(awk 'found && NF { print $1; exit } /one-time password/ { found = 1 }' "$work/install.log")"
 [ -n "$password" ] || fail "no one-time password in the install output"
@@ -111,7 +112,8 @@ for _ in $(seq 30); do
     sleep 1
 done
 [ -s "$work/root.crt" ] || fail "Caddy's internal root certificate"
-curl_tls=(curl -sS --cacert "$work/root.crt" --max-time 15)
+# Retries: the leaf certificate can lag a moment behind the root certificate.
+curl_tls=(curl -sS --cacert "$work/root.crt" --max-time 15 --retry 5 --retry-all-errors --retry-delay 1)
 headers="$("${curl_tls[@]}" -D - -o /dev/null "${base}/up")"
 grep -q '^HTTP/[0-9.]* 200' <<< "$headers" || fail "GET /up through Caddy: $(head -1 <<< "$headers")"
 grep -qi '^strict-transport-security:' <<< "$headers" || fail "no HSTS on /up: the app does not trust the proxy"
@@ -136,6 +138,15 @@ ok_pattern='^200 '
 login_page='/login$'
 { [[ "$after" =~ $ok_pattern ]] && ! [[ "$after" =~ $login_page ]]; } || fail "signed-in request to /admin: $after"
 pass "POST /login = ${login}; /admin then answers ${after} (the one-time password asks for confirmation and 2FA next)"
+
+step "no one-time token in Caddy's access log"
+"${curl_tls[@]}" -o /dev/null "${base}/reset-password/SMOKESECRETTOKEN?email=smoke%40example.com"
+"${curl_tls[@]}" -o /dev/null -H "Referer: ${base}/staff-invitation/SMOKESECRETREFERER" "${base}/login?signature=SMOKESECRETSIG"
+sleep 1
+access_log="$("${compose[@]}" logs --no-color caddy)"
+grep -q 'SMOKESECRET' <<< "$access_log" && fail "a URL token reached Caddy's access log"
+grep -q '"uri":"/reset-password/REDACTED?REDACTED"' <<< "$access_log" || fail "the access log does not show the redacted reset link"
+pass "URL tokens are redacted in Caddy's access log (path, query and Referer)"
 
 step "queued job through the automation worker"
 "${compose[@]}" exec -T app php artisan tinker --execute \

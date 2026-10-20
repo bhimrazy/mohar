@@ -10,7 +10,6 @@
  */
 
 use App\Support\Queues;
-
 use Illuminate\Filesystem\Filesystem;
 use Symfony\Component\Yaml\Yaml;
 

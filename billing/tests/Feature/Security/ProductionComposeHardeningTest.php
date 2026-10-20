@@ -13,9 +13,12 @@ function prodCompose(): array
 }
 
 /** @return list<string> */
+/** Every service that runs the app's own image (web, workers, scheduler, migrate), whatever it is named. */
 function phpServices(): array
 {
-    return ['app', 'worker-critical', 'worker-notifications', 'worker-default', 'scheduler', 'migrate'];
+    return collect(prodCompose()['services'])
+        ->filter(fn (array $service) => str_starts_with((string) ($service['image'] ?? ''), '${APP_IMAGE'))
+        ->keys()->all();
 }
 
 test('only caddy publishes ports, and the data stores sit on the internal network alone', function () {

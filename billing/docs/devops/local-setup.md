@@ -148,8 +148,9 @@ reach:
 TRUSTED_PROXIES=172.18.0.0/16
 ```
 
-Only requests that arrive from those addresses may set the client IP, scheme, host and port; the
-`X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value
+Only requests that arrive from those addresses may set the client IP, scheme and host (`X-Forwarded-For`, `-Proto`,
+`-Host`); the port follows from the scheme. `X-Forwarded-Port`, `X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS
+ELB headers are never trusted: Caddy passes a client's own `X-Forwarded-Port` through unchanged (`bootstrap/app.php`). The value
 is read per request, so it also works with a cached configuration. Unset means no proxy at all, including on
 `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework would otherwise trust every proxy: set
 `TRUSTED_PROXIES` there too.
