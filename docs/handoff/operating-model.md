@@ -68,6 +68,9 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 - Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
   secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
   finding.
+- Integration PRs (gateways, panels, registrars) update `billing/docs/testing/integration-test-matrix.md`: the cases they
+  cover, the tests that prove them, and any live sandbox result with its date. Reviewers check the matrix column for the
+  integration and flag cases left uncovered.
 - Reviewer probes become committed regression tests: reviewers push them to `review/pr-<n>-probes` and the
   engineer adopts them in the fix push, so a re-review is mostly a CI check.
 - CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
@@ -128,7 +131,8 @@ left (about 200 runs in two days). CI is a budget:
 - Drafts carry no `ci` label. Engineers verify locally (touched tests on SQLite and PostgreSQL via `scripts/pg.sh`,
   phpstan, pint, tsc, `vp check`, through `scripts/heavy.sh`) and paste the commands and results into their report.
 - The CTO adds `ci` once per PR, after reviews pass and just before merging; a red run means a fix and one more run, not
-  repeated pushes. Merges into `develop` run CI once each.
+  repeated pushes. Merges into `develop` do not trigger CI; the CTO dispatches one `develop` run (workflow_dispatch)
+  after a batch of merges, and before cutting `main`.
 - Deploy smoke, load and E2E simulator workflows run only on an explicit CTO decision, never on routine pushes.
 - Docs-only changes need no runner.
 - Check usage (Settings → Billing) before any burst of runs and record it in `state.md` when above 75%.
