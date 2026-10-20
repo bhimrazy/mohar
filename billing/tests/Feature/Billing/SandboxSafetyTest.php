@@ -39,6 +39,21 @@ test('a disabled sandbox is not registered and cannot be activated', function ()
         ], []))->toThrow(BillingException::class, 'Sandbox gateways can\'t be activated in production.');
 });
 
+test('sandbox mode can\'t be turned on in production for any gateway that has one', function (string $key, array $credentials) {
+    $withSandboxSetting = collect(app(GatewayRegistry::class)->drivers())
+        ->filter(fn ($driver) => collect($driver->settingsFields())->contains('key', 'sandbox'))->keys()->sort()->values()->all();
+    app()->detectEnvironment(fn () => 'production');
+
+    expect($withSandboxSetting)->toBe(['esewa', 'khalti', 'stripe'])
+        ->and(fn () => app(ConfigureGateway::class)->handle($key, ['display_name' => ucfirst($key), 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], [...$credentials, 'sandbox' => '1']))
+        ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.')
+        ->and(Gateway::query()->where('key', $key)->exists())->toBeFalse();
+})->with([
+    'stripe' => ['stripe', ['secret_key' => 'sk_test_51SandboxPolicyCheck00000', 'webhook_secret' => 'whsec_SandboxPolicyCheck000000']],
+    'khalti' => ['khalti', ['secret_key' => 'test_secret_key_sandbox_policy_check']],
+    'esewa' => ['esewa', ['product_code' => 'EPAYTEST', 'secret_key' => 'sandbox-policy-esewa-secret']],
+]);
+
 test('the seeder never creates the sandbox gateway outside local and testing', function () {
     app()->detectEnvironment(fn () => 'staging');
 

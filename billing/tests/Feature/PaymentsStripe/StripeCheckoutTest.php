@@ -16,9 +16,11 @@ use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\StripeAmount;
 use App\Support\Money;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Sleep;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
@@ -177,13 +179,62 @@ test('a Checkout url that is not on checkout.stripe.com is never handed to the c
         ->and(PaymentAttempt::query()->sole()->status)->toBe(AttemptStatus::Failed);
 });
 
+test('Stripe failing or timing out on session create closes the attempt and shows a safe message', function (Closure $answer) {
+    Sleep::fake();
+    [, $invoice] = usdInvoice();
+    Http::fake([STRIPE_API.'checkout/sessions' => $answer]);
+
+    $this->from(route('client.invoices.show', $invoice->id))
+        ->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY])
+        ->assertRedirect(route('client.invoices.show', $invoice->id))
+        ->assertSessionHasErrors(['billing' => 'Stripe couldn\'t start the payment. Try again in a few minutes or use another method.']);
+
+    expect(PaymentAttempt::query()->sole())->status->toBe(AttemptStatus::Failed)->review_reason->toBe('Provider refused to start the payment')
+        ->and(json_encode(GatewayLog::query()->where('result', 'hosted payment start failed')->sole()->payload))->not->toContain(STRIPE_SECRET);
+
+    // Nothing is left in progress, so the customer can pay another way at once.
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress', null));
+})->with([
+    'Stripe outage' => [fn (Request $request) => Http::response(['error' => ['type' => 'api_error', 'message' => 'Something went wrong on our end.']], 500)],
+    'timeout' => [fn (Request $request) => throw new ConnectionException('cURL error 28: Operation timed out')],
+]);
+
+test('an invoice in a currency Stripe can\'t charge doesn\'t offer Stripe and a start is refused', function () {
+    Currency::factory()->create(['code' => 'XTS', 'name' => 'Test units', 'prefix' => 'T ', 'decimals' => 2, 'is_default' => false]);
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'XTS']));
+    $invoice = issueInvoice($client, [5_000]);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => ! collect($gateways)->contains('key', StripeDriver::KEY)));
+    $this->from(route('client.invoices.show', $invoice->id))
+        ->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Stripe can\'t take payments in XTS.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
+test('an amount below Stripe\'s minimum is shown disabled with the reason and refused', function () {
+    Gateway::factory()->create();
+    [, $invoice] = usdInvoice([49]);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', StripeDriver::KEY)['unavailable_reason'] === 'Stripe needs at least $0.50.')
+        ->where('payment.selected_gateway', 'bank_transfer'));
+    $this->from(route('client.invoices.show', $invoice->id))
+        ->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Stripe needs at least $0.50. Choose another way to pay.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
+    Http::assertNothingSent();
+});
+
 test('test mode is never usable in production and keys must match the mode', function () {
     [, $invoice] = usdInvoice();
     app()->detectEnvironment(fn () => 'production');
 
-    expect(fn () => app(ConfigureGateway::class)->handle(StripeDriver::KEY, ['display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '1']))
-        ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.')
-        ->and(fn () => app(StartHostedPayment::class)->handle($invoice, StripeDriver::KEY))->toThrow(BillingException::class, 'This payment method is not available.');
+    // Turning test mode on in production is refused for every gateway with a sandbox setting (SandboxSafetyTest).
+    expect(fn () => app(StartHostedPayment::class)->handle($invoice, StripeDriver::KEY))->toThrow(BillingException::class, 'This payment method is not available.');
 
     $config = app(GatewayManager::class)->config(StripeDriver::KEY);
     expect(app(StripeDriver::class)->testConnection($config))->ok->toBeFalse()->message->toContain('not allowed in production');
@@ -293,6 +344,12 @@ test('calls to Stripe carry short timeouts: quick for the waiting customer, boun
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => StripeDriver::KEY]);
     $this->get(stripeReturn(PaymentAttempt::query()->sole()));
 
-    expect($options['POST '.STRIPE_API.'checkout/sessions'])->toBe([5, 15])
-        ->and($options['GET '.STRIPE_API.'checkout/sessions/'.STRIPE_SESSION])->toBe([3, 6]);
+    // Upper bounds, not exact values: about 3 s to connect and 6 s in all while the customer waits on the return, 5 s and
+    // 15 s otherwise (payments-stripe.md §8). Zero would mean no timeout at all.
+    [$connect, $total] = $options['POST '.STRIPE_API.'checkout/sessions'];
+    [$quickConnect, $quickTotal] = $options['GET '.STRIPE_API.'checkout/sessions/'.STRIPE_SESSION];
+    expect($quickConnect)->toBeGreaterThan(0)->toBeLessThanOrEqual(3)
+        ->and($quickTotal)->toBeGreaterThan(0)->toBeLessThanOrEqual(6)
+        ->and($connect)->toBeGreaterThan(0)->toBeLessThanOrEqual(5)
+        ->and($total)->toBeGreaterThan(0)->toBeLessThanOrEqual(15);
 });

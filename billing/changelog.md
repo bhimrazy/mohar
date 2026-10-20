@@ -427,6 +427,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
   `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
   (USD/INR/NPR).
+- Payment tests (no behaviour change): the gaps and duplicates listed in `docs/testing/integration-test-matrix.md`
+  are closed. New tests cover hosted payments on part-paid invoices, the invoice lock against a second checkout (a
+  real concurrent PostgreSQL session), cancel on the sandbox hosted page, Stripe failing or timing out on session
+  create, unsupported currencies and minimum amounts for Stripe and eSewa, a dispute or chargeback that arrives before
+  its payment, and the `REDIRECT` capability rule. Per-driver duplicates are folded into datasets over every hosted
+  driver. Found: the sandbox card driver's `initiate()` accepts a currency it does not list (#155); Billing refuses
+  that currency before the driver is called.
 
 ### Nepal payments
 

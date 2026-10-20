@@ -1,6 +1,9 @@
 <?php
 
 use App\Contracts\Billing\GatewayDirectory;
+use App\Contracts\Billing\GatewayDriver;
+use App\Contracts\Billing\GatewayRegistry;
+use App\Contracts\Billing\HostedPaymentDriver;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
@@ -47,6 +50,16 @@ test('every billing config default has a setting definition', function () {
         ->map(fn (string $key) => 'billing.'.preg_replace('/\.\d+$/', '', $key))->unique();
 
     expect($defaults->diff($keys)->values()->all())->toBe([]);
+});
+
+test('every registered gateway declares REDIRECT exactly when it is a hosted payment driver', function () {
+    $drivers = app(GatewayRegistry::class)->drivers();
+
+    // Billing's own drivers and the extension modules' (PaymentsStripe, PaymentsNepal), hosted and offline.
+    expect(array_keys($drivers))->toContain('bank_transfer', 'manual', 'sandbox_card', 'stripe', 'khalti', 'esewa');
+    foreach ($drivers as $key => $driver) {
+        expect($driver->supports(GatewayDriver::REDIRECT))->toBe($driver instanceof HostedPaymentDriver, "{$key} declares REDIRECT without being a hosted payment driver, or the other way round");
+    }
 });
 
 test('billing automation tasks are registered in pipeline order', function () {
