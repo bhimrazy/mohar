@@ -30,6 +30,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
   off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
   checked with the registrar (never re-sent) and listed in the sync report. No schema change.
+- **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
+  `storefront.publish` (make it live). `storefront.publish` is sensitive: only an exact grant (or `*`) gives it, never
+  `storefront.*`, and publishing asks for the password when it was not confirmed recently. Grant both explicitly to
+  staff who maintain the public site.
+- **Public website (Storefront module).** A migration adds `storefront_revisions`. Until a version is published, the
+  home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
+  `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
+  other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
+  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists. Settings → Company gains support
+  hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
+  empty fields are not shown. A new support email (Settings → Company) is the website's contact address and "Contact
+  us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
+  now runs a clearly fictional host, "Example Hosting" (seller details, support hours, WhatsApp, PAN/VAT,
+  registration number, `example.com` email, social and Terms, Privacy and Refund links), and its card gateway is
+  named "Card"; its bank transfer instructions name a fictional bank and an example NPR account. The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
+  country to NP, so NPR invoices carry 13% VAT and INR invoices no longer charge Indian GST. Only the demo seeders
+  change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
+  seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
+  `migrate:fresh --seed` for the new demo values.
+
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
   after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
@@ -44,6 +64,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
   can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
   records and refund any duplicate.
+
+- **The default queue worker also runs client imports** (client-import spec C2): start it as
+  `php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256` (it was `--queue=default`), and give
+  it a stop timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked
+  after `default`, stop themselves after 120 s and may use up to 192 MB. Without the change, client imports wait in the
+  queue. On SQS, give the `imports` queue a visibility timeout of at least 150 s.
 
 - **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
   migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
@@ -181,6 +207,43 @@ pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searc
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Storefront
+
+- New home page (direction A): the host's own headline and text from the published website content, domain search with featured extensions and their
+  first-year and renewal prices, the most popular plan (the catalog's Featured flag), and sections the host turns on
+  and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
+  network status, ways to pay. The product's own name and tagline never appear.
+- One public layout for home, store, cart, checkout, domains, knowledge base, announcements, network status and the
+  404 page. The header lists the catalog's visible product groups live (a link each up to three groups on wide screens,
+  otherwise one menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
+  (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
+  area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
+  visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
+- Price cards show the cycle price, "Renews at" and any setup fee; with `catalog.show_monthly_breakdown` on they lead
+  with the per-month price and "Billed …". Each currency states tax for its own market from Billing's tax rules
+  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR whatever the rules are
+  named, by `storefront.tax_families`; "Tax added at checkout where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
+  default, and adds tax only to taxed products (and to domains while domains are taxed).
+- Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
+  with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,
+  registration and tax numbers (one "PAN/VAT no." row when the VAT number is the PAN), social links and "Pay an
+  invoice"; the Support menu lists network status and Contact us, and the phone menu lists the cart. The 404 page
+  links to Hosting plans, Knowledge base, Contact us and Home. Log-in and sign-up pages link back to the website.
+- Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
+  never the product's own logo or mark.
+- Admin → Website: headline, text, sections on/off and order, trust facts, why-us points, the call-to-action band,
+  featured groups and first billing cycle, news counts, header product menu, legal links, page title and description, and price display per currency
+  (tax included or not, and the tax note's wording). Changes are saved as a draft, previewed at a signed staff-only
+  link under `/admin/website/preview` (60 minutes, not indexed, no Referer, admin sign-in checks) and published after a
+  dialog that lists the changes. Publishing refuses a draft that was saved again after the dialog opened, is
+  audit-logged with the change list and fires `StorefrontPublished`; draft saves are audit-logged with the changed
+  sections, and at most one draft can exist. A fresh install is marked "Needs your text" until the host publishes a headline.
+- `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
+  "Transfer a domain" opens the domain search with transfer preselected.
+- Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
+  in the first HTML response, plus `Organization` and `WebSite` JSON-LD on the home page. `/sitemap.xml` lists the
+  home page, store, domain prices, public knowledge-base articles and live announcements.
 
 ### Performance
 

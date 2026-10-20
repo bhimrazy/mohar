@@ -25,7 +25,6 @@ use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
-use App\Modules\Core\Support\Settings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
@@ -50,12 +49,21 @@ class BillingSeeder extends DemoSeeder
             return;
         }
 
-        app(Settings::class)->setMany([
+        // The demo host is a Nepal company: Nepal VAT is its home tax. Only empty settings are filled, so a re-seed
+        // keeps a developer's own values.
+        $this->fillEmptySettings([
             'billing.number_format' => 'INV-{NUMBER}',
             'billing.quote_number_format' => 'Q-{NUMBER}',
             'billing.tax.enabled' => true,
-            'billing.tax.home_country' => 'IN',
-            'billing.tax.home_state' => 'MH',
+            'billing.tax.home_country' => 'NP',
+            'billing.tax.home_state' => 'Bagmati',
+            // The demo host's invoice seller details (also the public site footer).
+            'billing.seller.legal_name' => 'Example Hosting Pvt. Ltd.',
+            'billing.seller.address' => 'Jhamsikhel Road, Lalitpur 44600, Bagmati, Nepal',
+            'billing.seller.email' => 'billing@example.com',
+            'billing.seller.phone' => '+977 1-5900000',
+            'billing.seller.pan' => '600000001',
+            'billing.seller.vat_number' => '600000001',
         ]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'invoice', 'period' => ''], ['next_number' => 1041]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'quote', 'period' => ''], ['next_number' => 204]);
@@ -139,11 +147,11 @@ class BillingSeeder extends DemoSeeder
     {
         Gateway::query()->firstOrCreate(['key' => 'bank_transfer'], [
             'display_name' => 'Bank transfer', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 1,
-            'config' => ['instructions' => "Transfer the amount to:\nHosting Co Ltd · IBAN DE89 3704 0044 0532 0130 00 · BIC COBADEFFXXX\nReference: {invoice}"],
+            'config' => ['instructions' => "Transfer the amount in NPR to:\nExample Hosting Pvt. Ltd. · Example Bank Ltd., Lalitpur branch\nAccount no. 0000-0000-0000-0001 (example only)\nReference: {invoice}"],
         ]);
         if (self::sandboxAllowed()) {
             Gateway::query()->firstOrCreate(['key' => SandboxCardDriver::KEY], [
-                'display_name' => 'Card (sandbox)', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0,
+                'display_name' => 'Card', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0,
                 'config' => ['webhook_secret' => 'whsec_demo', 'fee_percent' => '2.9'],
             ]);
         }
@@ -170,9 +178,9 @@ class BillingSeeder extends DemoSeeder
     public static function marketClients(): array
     {
         $markets = [
-            ['first_name' => 'Priya', 'last_name' => 'Sharma', 'company_name' => 'Sharma Digital LLP', 'email' => 'priya@sharmadigital.in', 'city' => 'Pune', 'state' => 'Maharashtra', 'postcode' => '411001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '27AAPFU0939F1ZV', 'amount' => 149_900],
-            ['first_name' => 'Arjun', 'last_name' => 'Rao', 'company_name' => 'Bengaluru Cloudworks Pvt Ltd', 'email' => 'arjun@cloudworks.in', 'city' => 'Bengaluru', 'state' => 'Karnataka', 'postcode' => '560001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '29AAGCB7383J1Z4', 'amount' => 299_900],
-            ['first_name' => 'Sita', 'last_name' => 'Gurung', 'company_name' => 'Himalayan Treks', 'email' => 'sita@himalayantreks.com.np', 'city' => 'Kathmandu', 'state' => 'Bagmati', 'postcode' => '44600', 'country' => 'NP', 'currency' => 'NPR', 'tax_id' => null, 'amount' => 250_000],
+            ['first_name' => 'Priya', 'last_name' => 'Sharma', 'company_name' => 'Sharma Digital LLP', 'email' => 'priya@sharma-digital.example', 'city' => 'Pune', 'state' => 'Maharashtra', 'postcode' => '411001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '27AAPFU0939F1ZV', 'amount' => 149_900],
+            ['first_name' => 'Arjun', 'last_name' => 'Rao', 'company_name' => 'Bengaluru Cloudworks Pvt Ltd', 'email' => 'arjun@cloudworks.example', 'city' => 'Bengaluru', 'state' => 'Karnataka', 'postcode' => '560001', 'country' => 'IN', 'currency' => 'INR', 'tax_id' => '29AAGCB7383J1Z4', 'amount' => 299_900],
+            ['first_name' => 'Sita', 'last_name' => 'Gurung', 'company_name' => 'Gurung Trekking', 'email' => 'sita@gurung-trekking.example', 'city' => 'Kathmandu', 'state' => 'Bagmati', 'postcode' => '44600', 'country' => 'NP', 'currency' => 'NPR', 'tax_id' => null, 'amount' => 250_000],
         ];
 
         return array_map(function (array $market): array {
