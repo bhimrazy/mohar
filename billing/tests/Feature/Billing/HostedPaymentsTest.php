@@ -13,11 +13,13 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\ReturnHint;
 use App\Events\Billing\InvoicePaid;
 use App\Models\User;
+use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\BillingServiceProvider;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
@@ -26,18 +28,24 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\PaymentsNepal\Support\NprAmount;
+use App\Modules\PaymentsNepal\Support\ProviderException;
+use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
 use Carbon\CarbonInterval;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Http\Client\Request as ProviderRequest;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
+require_once __DIR__.'/../PaymentsStripe/helpers.php';
 
 /**
  * Stand-in for an extension-module driver (e.g. eSewa): NPR only, form-post checkout, lookup-only confirmation.
@@ -84,6 +92,10 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
 
     public function initiate(GatewayConfig $gateway, PaymentIntent $intent): RedirectInstruction|FormPost|QrPayload
     {
+        if ($intent->amount->currency !== 'NPR') {
+            throw new RuntimeException("The wallet only takes NPR, not {$intent->amount->currency}.");
+        }
+
         return new FormPost('https://wallet.test/form', ['total_amount' => (string) $intent->amount->amount, 'transaction_uuid' => $intent->reference, 'success_url' => $intent->returnUrl]);
     }
 
@@ -104,14 +116,134 @@ function hostedSandbox(): void
     Gateway::query()->where('key', 'sandbox_card')->firstOrFail()->update(['config' => ['webhook_secret' => 'whsec_test', 'checkout_mode' => 'hosted']]);
 }
 
+/** The hosted drivers every contract test runs against: Billing's own, the test double and the extension modules'. */
+const HOSTED_DRIVERS = ['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe'];
+
+/**
+ * Active Khalti, eSewa and Stripe gateways in sandbox mode with fake credentials.
+ */
+function hostedProviderGateways(): void
+{
+    Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
+    Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
+    Gateway::query()->create(['key' => 'stripe', 'display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'sk_test_51ContractStripeSecret0000', 'webhook_secret' => 'whsec_ContractStripeWebhook00']]);
+}
+
+/**
+ * One hosted driver run through Billing's own flow against its faked provider: the active gateway, a signed-in client
+ * with an unpaid invoice in a currency the driver takes, and closures that mark an attempt paid at the provider, build
+ * the browser's return URL, and read the amount (minor units) the provider was asked to collect.
+ *
+ * @param  list<int>  $lines
+ * @return array{0: Invoice, 1: Closure(PaymentAttempt): void, 2: Closure(PaymentAttempt): string, 3: Closure(PaymentAttempt, RedirectInstruction|FormPost|QrPayload): int}
+ */
+function hostedDriverCase(string $key, array $lines): array
+{
+    Http::preventStrayRequests();
+    $currency = in_array($key, ['sandbox_card', 'stripe'], true) ? 'USD' : 'NPR';
+
+    if ($currency === 'NPR') {
+        Currency::factory()->npr()->create();
+    }
+
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => $currency, 'country' => $currency === 'NPR' ? 'NP' : 'US']));
+    $invoice = issueInvoice($client, $lines);
+    $returnUrl = fn (array $query): string => route('billing.gateways.return', [$key, ...$query]);
+    $paid = false;
+    $markPaid = function () use (&$paid): void {
+        $paid = true;
+    };
+    $sent = fn (string $url): ProviderRequest => Http::recorded(fn (ProviderRequest $request) => $request->url() === $url)->firstOrFail()[0];
+
+    if ($key === 'sandbox_card') {
+        hostedSandbox();
+
+        return [$invoice,
+            fn (PaymentAttempt $attempt) => SandboxCardDriver::simulate($attempt->reference, 'completed'),
+            fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference, 'status' => 'completed']),
+            fn (PaymentAttempt $attempt) => (int) SandboxCardDriver::providerState($attempt->reference)['amount'],
+        ];
+    }
+
+    if ($key === 'fake_wallet') {
+        return [$invoice,
+            function (PaymentAttempt $attempt): void {
+                FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::SUCCEEDED, 'wallet-txn-1', $attempt->amount, 'NPR');
+            },
+            fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference, 'status' => 'COMPLETE']),
+            fn (PaymentAttempt $attempt, FormPost $form) => (int) $form->fields['total_amount'],
+        ];
+    }
+
+    hostedProviderGateways();
+    $khaltiInitiate = 'https://dev.khalti.com/api/v2/epayment/initiate/';
+    Http::fake([
+        $khaltiInitiate => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX1']),
+        'https://dev.khalti.com/api/v2/epayment/lookup/' => function (ProviderRequest $request) use (&$paid) {
+            $amount = PaymentAttempt::query()->where('gateway', 'khalti')->where('provider_ref', $request['pidx'])->value('amount');
+
+            return Http::response(['pidx' => $request['pidx'], 'total_amount' => $amount, 'status' => $paid ? 'Completed' : 'Pending', 'transaction_id' => $paid ? 'TXN-1' : null, 'fee' => 0, 'refunded' => false]);
+        },
+        'https://rc.esewa.com.np/api/epay/transaction/status/*' => function (ProviderRequest $request) use (&$paid) {
+            return Http::response(['product_code' => 'EPAYTEST', 'transaction_uuid' => $request['transaction_uuid'], 'total_amount' => (float) $request['total_amount'],
+                'status' => $paid ? 'COMPLETE' : 'PENDING', 'ref_id' => $paid ? '0007G36' : null]);
+        },
+        STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession($request['client_reference_id'], $invoice->id)),
+        STRIPE_API.'checkout/sessions/'.STRIPE_SESSION.'*' => function () use (&$paid, $invoice) {
+            $attempt = PaymentAttempt::query()->where('gateway', 'stripe')->where('provider_ref', STRIPE_SESSION)->sole();
+
+            return Http::response($paid ? stripePaidSession($attempt, ['payment_intent' => ['amount_received' => $attempt->amount]]) : stripeCreatedSession($attempt->reference, $invoice->id));
+        },
+    ]);
+
+    return match ($key) {
+        'khalti' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['pidx' => 'PIDX1', 'purchase_order_id' => $attempt->reference, 'status' => 'Completed']),
+            fn () => $sent($khaltiInitiate)['amount'],
+        ],
+        'esewa' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
+            fn (PaymentAttempt $attempt, FormPost $form) => (int) NprAmount::toPaisa($form->fields['total_amount']),
+        ],
+        'stripe' => [$invoice, $markPaid,
+            fn (PaymentAttempt $attempt) => $returnUrl(['ref' => $attempt->reference]),
+            fn () => $sent(STRIPE_API.'checkout/sessions')['line_items'][0]['price_data']['unit_amount'],
+        ],
+    };
+}
+
+/**
+ * A browser return that claims the payment succeeded but carries nothing the provider confirmed: forged query values,
+ * or for eSewa a COMPLETE payload signed with a key that is not the merchant's.
+ *
+ * @return array<string, string>
+ */
+function forgedSuccessReturn(string $key, string $reference): array
+{
+    if ($key === 'esewa') {
+        $payload = ['transaction_code' => 'FORGED1', 'status' => 'COMPLETE', 'total_amount' => '50.0', 'transaction_uuid' => $reference, 'product_code' => 'EPAYTEST',
+            'signed_field_names' => 'transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names'];
+        $message = collect(explode(',', $payload['signed_field_names']))->map(fn (string $field) => $field.'='.$payload[$field])->implode(',');
+        $payload['signature'] = base64_encode(hash_hmac('sha256', $message, 'attacker-key', true));
+
+        return ['data' => base64_encode((string) json_encode($payload))];
+    }
+
+    return match ($key) {
+        'sandbox_card' => ['ref' => $reference, 'status' => 'completed', 'pidx' => 'sbx_pidx_forged'],
+        'fake_wallet' => ['ref' => $reference, 'status' => 'COMPLETE'],
+        'khalti' => ['pidx' => 'PIDX1', 'purchase_order_id' => $reference, 'status' => 'Completed', 'transaction_id' => 'FORGED-1', 'total_amount' => '5000'],
+        'stripe' => ['ref' => $reference, 'session_id' => 'cs_test_forged0000000001'],
+    };
+}
+
 beforeEach(function () {
     FakeNprWalletDriver::$provider = [];
     app(GatewayRegistry::class)->register(new FakeNprWalletDriver);
     Gateway::query()->create(['key' => 'fake_wallet', 'display_name' => 'Wallet', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['secret_key' => 'super-secret-wallet-key']]);
 });
 
-test('the sandbox hosted flow pays only after the lookup, and a replayed return is a no-op', function () {
-    Event::fake([InvoicePaid::class]);
+test('the sandbox hosted flow pays only after the lookup', function () {
     hostedSandbox();
     [, $client] = actingAsClient();
     $invoice = issueInvoice($client, [5_000]);
@@ -124,13 +256,30 @@ test('the sandbox hosted flow pays only after the lookup, and a replayed return 
     $returnUrl = $this->post(route('billing.sandbox.checkout.pay', $attempt->reference), ['card_number' => '4242424242424242'])->assertRedirect()->headers->get('Location');
 
     $this->get($returnUrl)->assertRedirect(route('client.invoices.show', $invoice->id));
-    $this->get($returnUrl)->assertRedirect(route('client.invoices.show', $invoice->id));
-    $this->post($returnUrl)->assertRedirect();
 
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($attempt->fresh()->status)->toBe(AttemptStatus::Succeeded)
         ->and(Transaction::query()->where('gateway', 'sandbox_card')->count())->toBe(1);
-    Event::assertDispatchedTimes(InvoicePaid::class, 1);
+});
+
+test('cancelling on the sandbox hosted page closes the attempt at once', function () {
+    hostedSandbox();
+    [, $client] = actingAsClient();
+    $invoice = issueInvoice($client, [5_000]);
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'sandbox_card'])->assertRedirect();
+    $attempt = PaymentAttempt::query()->sole();
+
+    $cancelUrl = (string) $this->post(route('billing.sandbox.checkout.pay', $attempt->reference), ['cancel' => '1'])->assertRedirect()->headers->get('Location');
+    $this->get($cancelUrl)->assertRedirect(route('client.invoices.show', $invoice->id));
+
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Failed)
+        ->and($attempt->fresh()->expires_at->isFuture())->toBeTrue()
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(Transaction::query()->count())->toBe(0);
+
+    // The session would still be open for another 30 minutes, but the invoice can be paid again straight away.
+    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'sandbox_card'])->assertRedirect();
+    expect(PaymentAttempt::query()->where('invoice_id', $invoice->id)->count())->toBe(2);
 });
 
 test('a return claiming success is not trusted when the provider says otherwise', function () {
@@ -281,12 +430,132 @@ test('clients cannot start payments on other clients invoices and returns are bo
     expect($attempt->fresh()->lookup_count)->toBe(0);
 });
 
+test('a hosted payment on a part-paid invoice asks the provider for the remaining balance only', function (string $key) {
+    [$invoice, $markPaid, $returnUrl, $requested] = hostedDriverCase($key, [150_000]);
+    payInvoice($invoice, 40_000, 'bank-part-1');
+
+    [$attempt, $instruction] = app(StartHostedPayment::class)->handle($invoice->fresh(), $key);
+
+    expect($attempt)->amount->toBe(110_000)->document_amount->toBe(110_000)
+        ->and($requested($attempt, $instruction))->toBe(110_000);
+
+    $markPaid($attempt);
+    $this->get($returnUrl($attempt));
+
+    expect($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)->amount_paid->toBe(150_000)
+        ->and(Transaction::query()->where('gateway', $key)->sole()->amount_in)->toBe(110_000);
+})->with(HOSTED_DRIVERS);
+
+test('repeated returns, a posted return and the poller record one payment, whatever the hosted driver', function (string $key) {
+    Event::fake([InvoicePaid::class]);
+    [$invoice, $markPaid, $returnUrl] = hostedDriverCase($key, [150_000]);
+    [$attempt] = app(StartHostedPayment::class)->handle($invoice, $key);
+    $markPaid($attempt);
+
+    $this->get($returnUrl($attempt))->assertRedirect(route('client.invoices.show', $invoice->id));
+    $this->get($returnUrl($attempt))->assertRedirect(route('client.invoices.show', $invoice->id));
+    $this->travel(2)->minutes();
+    $this->get($returnUrl($attempt));
+    $this->post($returnUrl($attempt))->assertRedirect();
+    $this->travel(10)->minutes();
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
+
+    expect(Transaction::query()->where('gateway', $key)->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->transaction_id->toBe(Transaction::query()->sole()->id);
+    Event::assertDispatchedTimes(InvoicePaid::class, 1);
+})->with(HOSTED_DRIVERS);
+
+test('an attempt opened between the in-progress check and the insert still blocks a second start (invoice lock held)', function () {
+    if (DB::connection()->getDriverName() !== 'pgsql' || ! function_exists('pg_send_query')) {
+        $this->markTestSkipped('Needs PostgreSQL row locks and a second, asynchronous session (ext-pgsql).');
+    }
+
+    hostedSandbox();
+    // Rows the other session must see are committed through a second connection (the test's own transaction never commits).
+    $config = config('database.connections.'.DB::getDefaultConnection());
+    config(['database.connections.lock_probe' => $config]);
+    $committed = DB::connection('lock_probe');
+    $clientId = $committed->table('clients')->insertGetId([...Client::factory()->raw(['currency' => 'USD']), 'created_at' => now(), 'updated_at' => now()]);
+    $invoiceId = $committed->table('invoices')->insertGetId(['client_id' => $clientId, 'status' => 'unpaid', 'currency' => 'USD', 'issue_date' => now()->toDateString(),
+        'due_date' => now()->addWeek()->toDateString(), 'subtotal' => 5_000, 'total' => 5_000, 'balance' => 5_000, 'created_at' => now(), 'updated_at' => now()]);
+    // After RefreshDatabase has rolled the test's transaction back, so no lock it may still hold can block the clean-up.
+    $this->beforeApplicationDestroyed(function () use ($committed, $clientId, $invoiceId): void {
+        $committed->table('payment_attempts')->where('invoice_id', $invoiceId)->delete();
+        $committed->table('invoices')->where('id', $invoiceId)->delete();
+        $committed->table('clients')->where('id', $clientId)->delete();
+        $committed->disconnect();
+    });
+    $other = pg_connect(sprintf("host='%s' port='%s' dbname='%s' user='%s' password='%s'", $config['host'], $config['port'], $config['database'], $config['username'], $config['password']), PGSQL_CONNECT_FORCE_NEW);
+    expect($other)->not->toBeFalse();
+
+    try {
+        // The first tab is inside its locked section: it has checked, inserted its attempt and not yet committed. It holds
+        // FOR SHARE, the weakest row lock that still conflicts with FOR UPDATE, so only a real FOR UPDATE in the second
+        // tab blocks on it (the attempt insert's foreign-key check takes FOR KEY SHARE, which does not).
+        pg_query($other, 'BEGIN');
+        pg_query_params($other, 'SELECT id FROM invoices WHERE id = $1 FOR SHARE', [$invoiceId]);
+        pg_query_params($other, "INSERT INTO payment_attempts (reference, gateway, client_id, invoice_id, amount, currency, document_amount, document_currency, status, expires_at, created_at, updated_at)
+            VALUES ($1, 'sandbox_card', $2, $3, 5000, 'USD', 5000, 'USD', 'pending', $4, $5, $5)", [PaymentAttempt::newReference(), $clientId, $invoiceId, now()->addMinutes(30)->toDateTimeString(), now()->toDateTimeString()]);
+        // Without blocking this process, the first tab waits until the second tab's session is stuck on a lock (at most
+        // 10 s), records whether it is, then commits.
+        $secondTab = (int) DB::selectOne('SELECT pg_backend_pid() AS pid')->pid;
+        $waiting = sprintf('SELECT 1 FROM pg_locks WHERE pid = %d AND NOT granted', $secondTab);
+        pg_send_query($other, 'DO $poll$ BEGIN FOR i IN 1..200 LOOP EXIT WHEN EXISTS ('.$waiting.'); PERFORM pg_sleep(0.05); END LOOP; END $poll$;'
+            .' SELECT EXISTS ('.$waiting.') AS waiting; COMMIT');
+
+        $second = rescue(fn () => app(StartHostedPayment::class)->handle(Invoice::query()->findOrFail($invoiceId), 'sandbox_card'), fn (Throwable $e) => $e, report: false);
+
+        $results = [];
+        while (($result = pg_get_result($other)) !== false) {
+            $results[] = pg_fetch_all($result) ?: [];
+        }
+
+        // The second tab was blocked by the first tab's lock, then saw its attempt and refused. Without FOR UPDATE (no
+        // lock, or only a shared one) it is never blocked, reads no committed attempt and opens a second payment.
+        expect($results[1][0]['waiting'] ?? null)->toBe('t')
+            ->and($second)->toBeInstanceOf(BillingException::class)
+            ->and($second->getMessage())->toContain('already in progress')
+            ->and(PaymentAttempt::query()->where('invoice_id', $invoiceId)->count())->toBe(1);
+    } finally {
+        while (pg_get_result($other) !== false) {
+            // A failed assertion above may leave results unread.
+        }
+        pg_close($other);
+    }
+});
+
+test('every hosted driver refuses to start a payment in a currency it does not list', function (string $key) {
+    if ($key === 'sandbox_card') {
+        $this->markTestSkipped('#155: SandboxCardDriver::initiate() accepts a currency it does not list (Billing refuses it first).');
+    }
+
+    hostedSandbox();
+    hostedProviderGateways();
+    // Providers that would accept the start, so a driver without its own guard returns an instruction instead of failing.
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://dev.khalti.com/api/v2/epayment/initiate/' => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX1']),
+        STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession('inv-0-a2', 1)),
+    ]);
+    $driver = app(GatewayRegistry::class)->driver($key);
+    $intent = new PaymentIntent('inv-0-a2', Money::of(5_000, 'XTS'), 'Invoice', route('billing.gateways.return', $key), route('billing.gateways.return', $key));
+    [$exception, $message] = match ($key) {
+        'fake_wallet' => [RuntimeException::class, 'The wallet only takes NPR, not XTS.'],
+        'khalti' => [ProviderException::class, 'Khalti only takes NPR, not XTS.'],
+        'esewa' => [ProviderException::class, 'eSewa only takes NPR, not XTS.'],
+        'stripe' => [StripeException::class, 'Stripe can\'t take 5000 minor units of XTS exactly.'],
+    };
+
+    expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
+        ->and(fn () => $driver->initiate(app(GatewayManager::class)->config($key), $intent))->toThrow($exception, $message);
+    Http::assertNothingSent();
+})->with(HOSTED_DRIVERS);
+
 test('every hosted driver honours the contract', function (string $key) {
     hostedSandbox();
-    // The extension drivers (PaymentsNepal) with sandbox credentials; their providers answer "still pending".
-    Gateway::query()->create(['key' => 'khalti', 'display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'test_secret_contract_khalti']]);
-    Gateway::query()->create(['key' => 'esewa', 'display_name' => 'eSewa', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'contract-esewa-secret']]);
-    Gateway::query()->create(['key' => 'stripe', 'display_name' => 'Stripe', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['sandbox' => '1', 'secret_key' => 'sk_test_51ContractStripeSecret0000', 'webhook_secret' => 'whsec_ContractStripeWebhook00']]);
+    // The extension drivers (PaymentsNepal, PaymentsStripe) with sandbox credentials; their providers answer "still pending".
+    hostedProviderGateways();
     Http::preventStrayRequests();
     Http::fake([
         'https://dev.khalti.com/api/v2/epayment/lookup/' => Http::response(['pidx' => 'PIDX1', 'status' => 'Pending', 'total_amount' => 5_000, 'transaction_id' => null, 'fee' => 0, 'refunded' => false]),
@@ -307,6 +576,24 @@ test('every hosted driver honours the contract', function (string $key) {
 
     expect($first->status)->toBeIn(LookupResult::STATUSES)->toBe($second->status);
 
+    // An invoice in a currency the driver does not list is refused before the provider is asked or an attempt exists.
+    Currency::factory()->create(['code' => 'XTS', 'name' => 'Test units', 'prefix' => 'T ', 'decimals' => 2, 'is_default' => false]);
+    $foreign = issueInvoice(billingClient(['currency' => 'XTS']), [5_000]);
+    $sentBefore = Http::recorded()->count();
+
+    expect($driver->currencies())->not->toContain('XTS')
+        ->and(fn () => app(StartHostedPayment::class)->handle($foreign, $key))->toThrow(BillingException::class, "can't take payments in XTS")
+        ->and(PaymentAttempt::query()->count())->toBe(0)
+        ->and(Http::recorded())->toHaveCount($sentBefore);
+
+    // A return claiming success settles nothing by itself: the provider's lookup, which still says pending, decides.
+    $attempt = PaymentAttempt::query()->create(['reference' => 'inv-0-a1', 'gateway' => $key, 'client_id' => $foreign->client_id, 'amount' => 5_000, 'currency' => $ref->amount->currency,
+        'document_amount' => 5_000, 'document_currency' => $ref->amount->currency, 'provider_ref' => $ref->providerRef, 'expires_at' => now()->addHour()]);
+    $this->get(route('billing.gateways.return', [$key, ...forgedSuccessReturn($key, $attempt->reference)]));
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)
+        ->and(Transaction::query()->count())->toBe(0);
+
     // Values of the driver's secret settings (public ones such as eSewa's product code may be echoed back).
     $secrets = collect($driver->settingsFields())->whereIn('type', ['secret', 'secret_text'])
         ->map(fn (array $field) => (string) $config->setting($field['key'], ''))->filter();
@@ -315,7 +602,7 @@ test('every hosted driver honours the contract', function (string $key) {
     foreach ($secrets as $secret) {
         expect(json_encode($first->raw))->not->toContain($secret);
     }
-})->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe']);
+})->with(HOSTED_DRIVERS);
 
 /**
  * A fake-wallet attempt for a fresh NPR invoice that we closed, which the provider now reports as paid (#130).

@@ -445,13 +445,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
   checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
   A hosted payment that goes to account credit (the invoice was already paid or cancelled, or the payment was held
-  for review) gets the same to-do. The client sees
-  the payment on the invoice and any surplus on the account credit page. A provider refund of such a payment takes
-  the credit back, up to what is left, once per refund id (one credit line, even when nothing was left; staff see a zero line, the client does not); the rest
-  goes to "Gateway payments to review", as do a closed attempt the
-  provider reports as partly refunded and a late payment whose attempt no longer matches the invoice currency.
-  "Check now" also works on expired and failed attempts. The customer's return looks a closed attempt up only
-  within the late window, and a session the provider reports as expired, failed or cancelled is not swept again.
+  for review) gets the same to-do. The client sees the payment on the invoice and any surplus on the account credit
+  page. A provider refund of such a payment takes the credit back, up to what is left, once per refund id (one
+  credit line, even when nothing was left; staff see a zero line, the client does not); the rest goes to "Gateway
+  payments to review", as do a closed attempt the provider reports as partly refunded and a late payment whose
+  attempt no longer matches the invoice currency. "Check now" also works on expired and failed attempts. The
+  customer's return looks a closed attempt up only within the late window, and a session the provider reports as
+  expired, failed or cancelled is not swept again.
+- Payment tests (no behaviour change): the gaps and duplicates listed in `docs/testing/integration-test-matrix.md`
+  are closed. New tests cover hosted payments on part-paid invoices, the invoice lock against a second checkout (a
+  real concurrent PostgreSQL session), cancel on the sandbox hosted page, Stripe failing or timing out on session
+  create, unsupported currencies and minimum amounts for Stripe and eSewa, a dispute or chargeback that arrives before
+  its payment, and the `REDIRECT` capability rule. Per-driver duplicates are folded into datasets over every hosted
+  driver. Found: the sandbox card driver's `initiate()` accepts a currency it does not list (#155); Billing refuses
+  that currency before the driver is called.
 
 ### Nepal payments
 

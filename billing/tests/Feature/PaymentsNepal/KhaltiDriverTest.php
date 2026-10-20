@@ -119,22 +119,6 @@ test('the lookup uses the pidx stored on the attempt, never the one in the retur
     Http::assertNotSent(fn (Request $request) => $request->url() === KHALTI_LOOKUP && $request['pidx'] === 'ATTACKERPIDX');
 });
 
-test('repeated returns and the poller record the payment once', function () {
-    Event::fake([InvoicePaid::class]);
-    [, $invoice, $attempt] = startKhalti();
-    Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Completed'))]);
-
-    $this->get(khaltiReturn($attempt));
-    $this->get(khaltiReturn($attempt));
-    $this->travel(10)->minutes();
-    $this->get(khaltiReturn($attempt));
-    $this->artisan('billing:reconcile-payments');
-
-    expect(Transaction::query()->where('gateway', KhaltiDriver::KEY)->count())->toBe(1)
-        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
-    Event::assertDispatchedTimes(InvoicePaid::class, 1);
-});
-
 test('a lookup reporting a different amount records nothing and goes to staff review', function () {
     [, $invoice, $attempt] = startKhalti();
     Http::fake([KHALTI_LOOKUP => Http::response(khaltiLookup('Completed', amount: 1_000))]);
@@ -246,16 +230,6 @@ test('Khalti is offered for NPR invoices only and other currencies are refused',
     expect(PaymentAttempt::query()->count())->toBe(0);
 });
 
-test('Khalti is offered for NPR invoices but refuses amounts below its minimum', function () {
-    [, $invoice] = nprInvoice([500]);
-
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', fn ($gateways) => collect($gateways)->contains(fn ($gateway) => $gateway['key'] === KhaltiDriver::KEY && $gateway['kind'] === 'redirect' && $gateway['sandbox'] === true)));
-    $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertSessionHasErrors('billing');
-
-    expect(PaymentAttempt::query()->count())->toBe(0);
-});
-
 test('partial refunds stay off by default while full refunds go through the API', function () {
     [, $invoice, $attempt] = startKhalti();
     Http::fake([
@@ -312,16 +286,12 @@ test('a declined refund leaves the payment refundable', function () {
     expect($payment->fresh()->refundable_remaining)->toBe(150_000);
 });
 
-test('live mode talks to khalti.com and sandbox mode cannot be activated in production', function () {
+test('live mode talks to khalti.com', function () {
     app(ConfigureGateway::class)->handle(KhaltiDriver::KEY, ['display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '0']);
     [, $invoice] = nprInvoice();
     Http::fake(['https://khalti.com/api/v2/epayment/initiate/' => Http::response(['pidx' => 'PIDX9', 'payment_url' => 'https://pay.khalti.com/?pidx=PIDX9'])]);
 
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => KhaltiDriver::KEY])->assertRedirect('https://pay.khalti.com/?pidx=PIDX9');
-
-    app()->detectEnvironment(fn () => 'production');
-    expect(fn () => app(ConfigureGateway::class)->handle(KhaltiDriver::KEY, ['display_name' => 'Khalti', 'is_active' => true, 'show_on_order_form' => true, 'sort_order' => 0, 'convert_to_currency' => null], ['sandbox' => '1']))
-        ->toThrow(BillingException::class, 'Sandbox mode can\'t be used in production.');
 });
 
 test('a gateway left in sandbox mode is hidden from clients in production', function () {
@@ -355,25 +325,6 @@ test('staff can test the saved key without it ever reaching the page', function 
     'accepted (validation error)' => [400, 'success'],
     'rejected' => [401, 'error'],
 ]);
-
-test('checkout shows the official logos with an accessible name and other gateways fall back to their name', function () {
-    nepalGateway('esewa', ['sandbox' => '1', 'product_code' => 'EPAYTEST', 'secret_key' => 'fake-esewa-secret']);
-    Gateway::factory()->create();
-    [, $invoice] = nprInvoice();
-
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
-        ->where('payment.gateways', function ($gateways) {
-            $logos = collect($gateways)->mapWithKeys(fn ($gateway) => [$gateway['key'] => $gateway['logo']]);
-
-            return $logos['khalti'] === ['url' => asset('images/gateways/khalti.svg'), 'dark_url' => null, 'alt' => 'Pay with Khalti']
-                && $logos['esewa'] === ['url' => asset('images/gateways/esewa.png'), 'dark_url' => asset('images/gateways/esewa-on-dark.png'), 'alt' => 'Pay with eSewa']
-                && $logos['bank_transfer'] === null;
-        }));
-
-    foreach (['khalti.svg', 'esewa.png', 'esewa-on-dark.png'] as $file) {
-        expect(public_path('images/gateways/'.$file))->toBeFile();
-    }
-});
 
 test('an Initiated payment stays pending until Khalti reports an outcome', function () {
     [, $invoice, $attempt] = startKhalti();

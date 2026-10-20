@@ -124,6 +124,23 @@ test('a refund webhook before its payment is rejected for retry, then recorded o
         ->and(Transaction::query()->where('gateway_txn_id', 'sbx_ch_5')->value('refundable_remaining'))->toBe(4_000);
 });
 
+test('a chargeback before its payment is rejected for retry, then recorded once', function () {
+    Event::fake([PaymentReversed::class]);
+    $invoice = issueInvoice(billingClient(), [5_000]);
+    $chargeback = ['type' => 'charge.dispute', 'invoice_id' => $invoice->id, 'txn_id' => 'sbx_dp_early', 'parent_txn_id' => 'sbx_ch_6', 'amount' => 5_000, 'currency' => 'USD'];
+
+    webhook($chargeback)->assertStatus(409)->assertJson(['result' => 'payment not booked yet; retry expected']);
+    expect(Transaction::query()->where('type', 'chargeback')->count())->toBe(0);
+
+    webhook(['type' => 'payment.succeeded', 'invoice_id' => $invoice->id, 'txn_id' => 'sbx_ch_6', 'amount' => 5_000, 'currency' => 'USD'])->assertOk();
+    webhook($chargeback)->assertOk()->assertJson(['result' => 'chargeback recorded']);
+    webhook($chargeback)->assertOk();
+
+    expect(Transaction::query()->where('type', 'chargeback')->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
+    Event::assertDispatchedTimes(PaymentReversed::class, 1);
+});
+
 test('a failed settlement webhook returns a pending invoice to unpaid', function () {
     $invoice = issueInvoice(billingClient(), [5_000]);
     $invoice->update(['status' => InvoiceStatus::PaymentPending]);
