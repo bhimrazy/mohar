@@ -50,6 +50,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   who bring existing accounts in. Fetches run on the `provisioning` queue.
   A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
   without the owner check until fetched again.
+  A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
+  importing need a recent password; imports run on the `provisioning` queue.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -180,6 +182,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
   asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
+- Import accounts, step 2: staff tick accounts (nothing is ticked by default; "Select all proposed" ticks the proposed
+  ones and opens the review) and review them, a page at a time, with the price-book amount, totals per cycle and a list
+  of accounts left out with the reason. Confirming imports exactly the reviewed rows: the matched client is pinned when
+  the review is shown, and the import is refused if any account, client, product, date or price changed since. The
+  import runs on the queue in chunks; the page shows its progress, then each account imported (with a link to its
+  service) or left out (with the reason). Each account becomes a service, active or suspended as on the server, with
+  no invoice, welcome email, module command or password, keeps its day of the month for billing, is recorded in the
+  activity log, and dispatches `ServiceImported`. Choosing a client or product per account follows in the next step.
 - Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
   server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
   after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts
