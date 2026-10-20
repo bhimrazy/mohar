@@ -57,7 +57,7 @@ driver rotates at 10 MB × 5 files per container. Read them with
 - A Linux host with Docker Engine and the Compose v2 plugin (the smoke test runs on GitHub's `ubuntu-24.04`
   runner; Compose 5.5 was used locally). 2 vCPU and 6 GB of memory as a minimum, 8 GB recommended (see Sizing).
 - DNS `A`/`AAAA` records for `APP_DOMAIN` pointing at the host, and ports 80 and 443 (TCP, plus 443/UDP) open. Caddy
-  obtains the certificate on first start from Let's Encrypt. Set `CADDY_GLOBAL_OPTIONS="email ops@example.com"`: Caddy
+  obtains the certificate on first start from Let's Encrypt. Set `CADDY_GLOBAL_OPTIONS="email <your address>"` (Let's Encrypt refuses `example.com`): Caddy
   then also uses ZeroSSL as a fallback issuer (without an email it uses Let's Encrypt only) and you get expiry notices.
 - An SMTP account or mail API; password resets, invoices and security notices depend on it.
 - A place off the host for backups.
@@ -73,7 +73,7 @@ All commands run from the repository root (a clone at the release you deploy).
     ```
 
     Set `APP_DOMAIN` and `APP_URL` (`https://` + the domain), `DB_PASSWORD`, `OBJECTS_ACCESS_KEY`,
-    `OBJECTS_SECRET_KEY` and the `MAIL_*` block. `DB_HOST`, `OBJECTS_ENDPOINT` and `TRUSTED_PROXIES` are set by the
+    `OBJECTS_SECRET_KEY`, the `MAIL_*` block and `CADDY_GLOBAL_OPTIONS="email <your address>"`. `DB_HOST`, `OBJECTS_ENDPOINT` and `TRUSTED_PROXIES` are set by the
     compose file; do not set them here.
 
 2. **Image.** Build it on the host, or name a pushed image in `APP_IMAGE` (by digest) and skip the build.
@@ -166,12 +166,15 @@ What to back up, as in [install.md](install.md#backups): the database, the objec
 
 - **Objects** (invoice PDFs, attachments, exports, brand assets): point `OBJECTS_*` at a managed bucket with versioning
   or replication, or copy the `rustfs-data` volume. Stop RustFS for the copy, so no object is caught half-written
-  (uploads and PDF downloads fail for those seconds; run it outside the automation window). The RustFS image has `tar`:
+  (uploads and PDF downloads fail for those seconds; run it outside the automation window). The RustFS image has `tar`.
+  It runs as root (`--user 0:0`), because the image's own user cannot write to a root-owned `/backups`, and with
+  `umask 077` inside the container, so the archive is readable by root only:
 
     ```bash
     compose="docker compose -f /srv/billing/deploy/compose.prod.yaml"
     $compose stop rustfs
-    (umask 077 && $compose run --rm --no-deps -v /backups:/backup --entrypoint tar rustfs czf /backup/objects-$(date +%F).tgz -C /data .)
+    $compose run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
+      -c 'umask 077 && tar czf /backup/objects-$(date +%F).tgz -C /data .'
     $compose start rustfs
     ```
 
@@ -188,7 +191,7 @@ docker compose -f deploy/compose.prod.yaml up -d --wait postgres rustfs
 docker compose -f deploy/compose.prod.yaml exec -T postgres \
   sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < /backups/billing-2026-10-19.dump
 docker compose -f deploy/compose.prod.yaml stop rustfs
-docker compose -f deploy/compose.prod.yaml run --rm --no-deps -v /backups:/backup --entrypoint tar rustfs \
+docker compose -f deploy/compose.prod.yaml run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint tar rustfs \
   xzf /backup/objects-2026-10-19.tgz -C /data
 docker compose -f deploy/compose.prod.yaml up -d --wait
 ```
