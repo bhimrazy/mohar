@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
+  attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
+  after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
+  (all of it when the invoice was already paid). A Stripe webhook for a closed attempt now answers
+  `late payment recorded` instead of `attempt expired`. Run `php artisan migrate` (adds four nullable columns and
+  two indexes to `payment_attempts`, and `gateway` and `external_ref` to `credit_ledger` with a unique index on the
+  pair). The scheduler now runs `billing:reconcile-payments --only=open` every five
+  minutes and `billing:reconcile-payments --only=late` hourly, each on its own lock; without `--only` the command
+  runs both. New settings: "Hosted payments: keep checking closed payments for late success" (48 hours, 0 to 168)
+  and "Hosted payments: late checks per hourly run" (100). Attempts that closed before the upgrade are not swept;
+  a webhook or "Check now" can still book them. **After upgrading, check Billing → Payment attempts with the
+  "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
+  can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
+  records and refund any duplicate.
+
 - **The default queue worker also runs client imports** (client-import spec C2): start it as
   `php artisan queue:work --queue=default,imports --tries=3 --timeout=150` (it was `--queue=default`), and give it a stop
   timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked after
@@ -481,6 +496,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
   `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
   (USD/INR/NPR).
+- Late gateway payments (#130): each one writes an activity entry ("Late payment received after the attempt
+  closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
+  checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
+  A hosted payment that goes to account credit (the invoice was already paid or cancelled, or the payment was held
+  for review) gets the same to-do. The client sees the payment on the invoice and any surplus on the account credit
+  page. A provider refund of such a payment takes the credit back, up to what is left, once per refund id (one
+  credit line, even when nothing was left; staff see a zero line, the client does not); the rest goes to "Gateway
+  payments to review", as do a closed attempt the provider reports as partly refunded and a late payment whose
+  attempt no longer matches the invoice currency. "Check now" also works on expired and failed attempts. The
+  customer's return looks a closed attempt up only within the late window, and a session the provider reports as
+  expired, failed or cancelled is not swept again.
 - Payment tests (no behaviour change): the gaps and duplicates listed in `docs/testing/integration-test-matrix.md`
   are closed. New tests cover hosted payments on part-paid invoices, the invoice lock against a second checkout (a
   real concurrent PostgreSQL session), cancel on the sandbox hosted page, Stripe failing or timing out on session
