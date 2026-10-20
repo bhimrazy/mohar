@@ -29,6 +29,9 @@ Dev server ports: <range, e.g. 8100-8199>; screenshots to billing/docs/screensho
 Module-specific constraints: <contracts to use, events to consume or emit, security requirements,
 integration notes with modules already merged>.
 Order of work: <if several drivers or phases, which first and what "done" means for each>.
+Rules: verify locally (touched tests on SQLite and PostgreSQL, tests/Arch, phpstan, pint, tsc, vp check) through
+scripts/heavy.sh; draft PR, no `ci` label; `[skip ci]` on WIP commits but not on the final head; chain every `cd`
+with `&&` and never run commands in the main checkout (a missing worktree after a reboot made two agents do that).
 ```
 
 ## 3. Review (round 1)
