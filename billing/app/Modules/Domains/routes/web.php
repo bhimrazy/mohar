@@ -39,7 +39,7 @@ Route::adminArea(fn () => Route::prefix('domains')->name('domains.')->group(func
     Route::post('{domain}/commands/{command}', [DomainActionController::class, 'command'])
         ->whereNumber('domain')->whereIn('command', ['register', 'transfer', 'renew', 'sync'])->name('command');
     Route::post('{domain}/np/{action}', [NpRegistrationController::class, 'step'])
-        ->whereNumber('domain')->whereIn('action', ['review', 'submitted', 'decision', 'confirm'])->name('np.step');
+        ->whereNumber('domain')->whereIn('action', ['review', 'submitted', 'decision', 'confirm', 'extend'])->name('np.step');
     Route::get('{domain}/np/documents/{document}/open', [NpRegistrationController::class, 'open'])
         ->whereNumber('domain')->whereNumber('document')->name('np.document.open');
     Route::get('{domain}/np/documents/{document}', [NpRegistrationController::class, 'document'])

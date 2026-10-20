@@ -203,16 +203,14 @@ test('an interrupted .np submission is recovered by the sync sweep without openi
         ->and(NpRegistration::query()->where('domain_id', $domain->id)->count())->toBe(1);
 });
 
-test('a request without uploads or staff steps for 90 days is closed and its documents get a retention date', function () {
+test('staff can keep an abandoned request open, which restarts its 90 days', function () {
     ($this->upload)();
-    $kept = Domain::factory()->pending()->named('active-one', $this->tld)->create(['registrar_key' => 'np_manual']);
-    app(NpWorkflow::class)->start($kept);
-    $this->travelTo(CarbonImmutable::parse('2027-01-18 10:00:00'));
-    app(NpWorkflow::class)->upload(NpRegistration::query()->where('domain_id', $kept->id)->sole(), 'individual', 'identity', fakePng('id.png', 5, 5), null);
+    $this->travelTo(CarbonImmutable::parse('2027-01-20 10:00:00'));
+    expect(app(NpWorkflow::class)->queue('abandoned')->count())->toBe(1);
 
-    app(NpWorkflow::class)->pruneDocuments(CarbonImmutable::parse('2027-01-20'));
+    actingAsStaff(['domains.np.review']);
+    $this->post(route('admin.domains.np.step', ['domain' => $this->domain->id, 'action' => 'extend']))->assertSessionHasNoErrors();
 
-    expect($this->domain->fresh()->status)->toBe(DomainStatus::Cancelled)
-        ->and(NpDocument::query()->whereHas('registration', fn ($query) => $query->where('domain_id', $this->domain->id))->value('delete_after')->toDateString())->toBe('2027-02-19')
-        ->and($kept->fresh()->status)->toBe(DomainStatus::Pending);
+    expect(app(NpWorkflow::class)->queue('abandoned')->count())->toBe(0)
+        ->and($this->domain->fresh()->status)->toBe(DomainStatus::PendingRegistration);
 });

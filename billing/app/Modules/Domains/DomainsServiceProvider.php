@@ -217,6 +217,21 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'icon' => 'Globe',
         ], 'domains.np.review', 63);
 
+        // Abandoned .np requests are only listed with what was paid: staff decide (cancel and refund, or keep waiting).
+        $dashboard->todo('admin', 'domains.np_abandoned', function (?User $user): array {
+            $workflow = $this->app->make(NpWorkflow::class);
+            $count = $workflow->queue('abandoned')->count();
+            $only = $count === 1 ? $workflow->queue('abandoned')->with('domain.client')->first() : null;
+
+            return [
+                'label' => $only === null ? 'Abandoned .np requests' : 'Abandoned .np request: '.$workflow->abandonedSummary($only),
+                'count' => $count,
+                'href' => $only === null ? route('admin.domains.index', ['np' => 'abandoned']) : route('admin.domains.show', $only->domain_id),
+                'tone' => 'warning',
+                'icon' => 'Globe',
+            ];
+        }, 'domains.np.review', 64);
+
         $dashboard->health('admin', 'domains.registrars', fn (?User $user): array => $this->registrarHealth(), 'domains.domains.view', 50);
 
         $dashboard->todo('client', 'domains.renew', fn (?User $user, Client $client): array => [

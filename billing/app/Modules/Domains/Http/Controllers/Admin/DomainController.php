@@ -39,7 +39,11 @@ class DomainController extends Controller
             ->when($request->integer('expiring') > 0, fn (Builder $query) => $query->expiringWithin(min(3650, $request->integer('expiring'))))
             ->when($request->boolean('attention'), fn (Builder $query) => $query->needingAttention())
             ->when($request->integer('client') > 0, fn (Builder $query) => $query->where('client_id', $request->integer('client')))
-            ->when(in_array($request->string('np')->toString(), ['waiting', 'overdue'], true), fn (Builder $query) => $query->whereIn('id', app(NpWorkflow::class)->queue($request->string('np')->toString() === 'overdue' ? 'overdue' : 'waiting')->select('domain_id')))
+            ->when(in_array($request->string('np')->toString(), ['waiting', 'overdue', 'abandoned'], true), fn (Builder $query) => $query->whereIn('id', app(NpWorkflow::class)->queue(match ($request->string('np')->toString()) {
+                'overdue' => 'overdue',
+                'abandoned' => 'abandoned',
+                default => 'waiting',
+            })->select('domain_id')))
             ->orderBy($request->integer('expiring') > 0 ? 'expiry_date' : 'id', $request->integer('expiring') > 0 ? 'asc' : 'desc')
             ->orderByDesc('id')
             ->paginate(25)

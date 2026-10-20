@@ -13,6 +13,7 @@ use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\NpDocument;
 use App\Modules\Domains\Models\NpRegistration;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Support\Currencies\MoneyFormatter;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
@@ -20,8 +21,10 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * The .np registration workflow (registrars.md §9). The registry has no API: the client uploads documents, staff
@@ -39,7 +42,7 @@ class NpWorkflow
     /** Business days a rejected request may wait: the registry drops rejected requests after three to four. */
     public const RESUBMIT_BUSINESS_DAYS = 2;
 
-    /** Days without a client upload or a staff step after which an unsubmitted request is closed (CTO, 2026-10-20). */
+    /** Days without a client upload or a staff step after which a request waiting for documents is listed as abandoned. */
     public const ABANDONED_DAYS = 90;
 
     public function __construct(
@@ -204,51 +207,67 @@ class NpWorkflow
     }
 
     /**
-     * Daily: close abandoned requests, start the retention period of documents whose domain was closed or deleted,
-     * then delete documents past their retention date (one activity entry per request).
+     * Daily: start the retention period of documents whose domain was closed or deleted (by staff or any other
+     * path), then delete documents past their retention date, one activity entry per request. Each document is
+     * deleted on its own: one failure is logged and skipped, and never stops the rest.
      */
     public function pruneDocuments(CarbonImmutable $today): int
     {
-        $this->closeAbandoned($today);
         $deleteAfter = $today->addDays($this->retentionDays())->toDateString();
         NpDocument::query()->whereNull('delete_after')
             ->whereIn('np_registration_id', NpRegistration::query()->whereNotIn('id', NpRegistration::query()->open()->select('id'))->select('id'))
             ->update(['delete_after' => $deleteAfter]);
 
-        $documents = NpDocument::query()->whereDate('delete_after', '<=', $today)->with('registration.domain')->orderBy('id')->get();
-        $this->delete($documents);
+        $deleted = [];
 
-        foreach ($documents->groupBy('np_registration_id') as $deleted) {
-            $this->log($deleted->first()->registration, '.np documents deleted after the retention period', ['count' => $deleted->count()]);
+        foreach (NpDocument::query()->whereDate('delete_after', '<=', $today)->with('registration.domain')->orderBy('id')->get() as $document) {
+            try {
+                $this->delete(collect([$document]));
+                $deleted[$document->np_registration_id][] = $document;
+            } catch (Throwable $exception) {
+                Log::warning('A .np document past its retention date could not be deleted; retrying tomorrow.', ['document_id' => $document->id, 'error' => $exception->getMessage()]);
+            }
         }
 
-        return $documents->count();
+        foreach ($deleted as $documents) {
+            try {
+                $this->log($documents[0]->registration, '.np documents deleted after the retention period', ['count' => count($documents)]);
+            } catch (Throwable $exception) {
+                Log::warning('Logging a .np document deletion failed.', ['document_id' => $documents[0]->id, 'error' => $exception->getMessage()]);
+            }
+        }
+
+        return array_sum(array_map('count', $deleted));
     }
 
     /**
-     * Close requests that saw no client upload and no staff step for ABANDONED_DAYS before submission: the domain is
-     * cancelled and the documents get their retention date (CTO decision, 2026-10-20).
+     * Staff decided to keep waiting for an abandoned request's documents: the 90-day clock starts again.
      */
-    private function closeAbandoned(CarbonImmutable $today): void
+    public function extend(NpRegistration $registration): void
     {
-        $cutoff = $this->calendar->startOfDayUtc($today->subDays(self::ABANDONED_DAYS));
-
-        NpRegistration::query()->open()
-            ->whereIn('stage', [NpStage::AwaitingDocuments->value, NpStage::DocumentsReview->value, NpStage::ReadyToSubmit->value])
-            ->where('stage_changed_at', '<', $cutoff)
-            ->whereDoesntHave('documents', fn (Builder $query) => $query->where('created_at', '>=', $cutoff))
-            ->with('domain')->orderBy('id')->get()
-            ->each(function (NpRegistration $registration): void {
-                $this->states->transition($registration->domain, DomainStatus::Cancelled, 'The .np request was abandoned: no documents or staff step for '.self::ABANDONED_DAYS.' days');
-                $this->log($registration, 'Staff task: a .np request was closed after '.self::ABANDONED_DAYS.' days without activity; refund the order if it was paid');
-            });
+        $this->step($registration, [NpStage::AwaitingDocuments], function (NpRegistration $locked): void {
+            $locked->forceFill(['stage_changed_at' => now()])->save();
+            $this->log($locked, '.np request kept open: staff are waiting for the documents');
+        });
     }
 
     /**
-     * Requests waiting for staff, or overdue at the registry: submitted longer than the SLA, or rejected and not
-     * resubmitted within two business days.
+     * What staff need to decide on an abandoned request: the domain, the client and what was paid.
+     */
+    public function abandonedSummary(NpRegistration $registration): string
+    {
+        $domain = $registration->domain;
+        $paid = $domain->first_payment_amount > 0 ? app(MoneyFormatter::class)->amount($domain->first_payment_amount, $domain->currency).' paid' : 'nothing paid';
+
+        return "{$domain->name_unicode} for {$domain->client->display_name}, {$paid}".($domain->provision_invoice_id !== null ? ' on its order invoice' : '');
+    }
+
+    /**
+     * Requests waiting for staff; overdue at the registry (submitted longer than the SLA, or rejected and not
+     * resubmitted within two business days); or abandoned (still waiting for the client's documents, with no upload
+     * and no staff step for ABANDONED_DAYS). Abandoned requests are only listed: staff decide, nothing is cancelled.
      *
-     * @param  'waiting'|'overdue'  $queue
+     * @param  'waiting'|'overdue'|'abandoned'  $queue
      * @return Builder<NpRegistration>
      */
     public function queue(string $queue): Builder
@@ -256,9 +275,11 @@ class NpWorkflow
         // Business days are counted on the company's calendar, then compared with UTC timestamps.
         $now = CarbonImmutable::now($this->calendar->timezone());
 
-        return $queue === 'overdue'
-            ? NpRegistration::query()->overdue(self::businessDaysBefore($now, max(1, (int) ($this->option('staff_sla_business_days') ?? 4)))->utc(), self::businessDaysBefore($now, self::RESUBMIT_BUSINESS_DAYS)->utc())
-            : NpRegistration::query()->waitingForStaff();
+        return match ($queue) {
+            'overdue' => NpRegistration::query()->overdue(self::businessDaysBefore($now, max(1, (int) ($this->option('staff_sla_business_days') ?? 4)))->utc(), self::businessDaysBefore($now, self::RESUBMIT_BUSINESS_DAYS)->utc()),
+            'abandoned' => NpRegistration::query()->abandoned($this->calendar->startOfDayUtc($this->calendar->today()->subDays(self::ABANDONED_DAYS))),
+            default => NpRegistration::query()->waitingForStaff(),
+        };
     }
 
     /**

@@ -113,6 +113,21 @@ class NpRegistration extends Model
     }
 
     /**
+     * Requests still waiting for the client's documents on an unregistered domain, with no client upload and no staff
+     * step since $before.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeAbandoned(Builder $query, CarbonImmutable $before): void
+    {
+        $query->where('stage', NpStage::AwaitingDocuments->value)
+            ->where('stage_changed_at', '<', $before)
+            ->whereHas('domain', fn (Builder $domain) => $domain->withoutTrashed()
+                ->whereIn('status', [DomainStatus::Pending->value, DomainStatus::PendingRegistration->value]))
+            ->whereDoesntHave('documents', fn (Builder $documents) => $documents->where('created_at', '>=', $before));
+    }
+
+    /**
      * Requests the registry has had longer than the staff SLA, or rejections not resubmitted within two business
      * days (the registry drops rejected requests after three to four).
      *
