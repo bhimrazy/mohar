@@ -3,17 +3,22 @@
 namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Console\Commands\RunAutomation;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Modules\Platform\Support\AutomationInsights;
 use App\Support\Automation\Automation;
+use Illuminate\Bus\UniqueLock;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class AutomationController extends Controller
 {
@@ -76,7 +81,31 @@ class AutomationController extends Controller
         ]);
 
         $force = (bool) ($data['force'] ?? false);
-        RunAutomationJob::dispatch($data['task'] ?? null, $force);
+        $job = new RunAutomationJob($data['task'] ?? null, $force);
+
+        if (RunAutomation::inProgress()) {
+            Inertia::flash('toast', ['type' => 'info', 'message' => __('An automation run is in progress. Try again when it finishes; results appear in the run log.')]);
+
+            return to_route('admin.platform.automation.index');
+        }
+
+        // The job's unique lock is taken here rather than by dispatch(), so the page can say that a run is already
+        // waiting or running instead of reporting a run it skipped. The worker releases it when the job finishes.
+        $lock = new UniqueLock(Cache::store());
+
+        if (! $lock->acquire($job)) {
+            Inertia::flash('toast', ['type' => 'info', 'message' => __('An automation run is already queued or running. Results appear in the run log.')]);
+
+            return to_route('admin.platform.automation.index');
+        }
+
+        try {
+            Bus::dispatch($job);
+        } catch (Throwable $exception) {
+            $lock->release($job);
+
+            throw $exception;
+        }
 
         $activity->log('Automation run requested', properties: [
             'task' => $data['task'] ?? null,

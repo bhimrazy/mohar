@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Start a fourth queue worker for Admin → Automation → Run now** (#82):
+  `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
+  (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
+  `default` queue to their own `automation` connection: the backend of `QUEUE_CONNECTION` (`database`, `redis`,
+  `beanstalkd` or `sqs`; `database` for any other driver), the `automation` queue, and a `retry_after` of 3,900 s. A run
+  longer than 240 s was handed to a second worker, which failed it while the first worker was still running it.
+  Without the new worker, Run now requests wait in the queue; the scheduled daily run is not affected. On SQS, create
+  an `automation` queue with a visibility timeout of at least 3,900 s. Jobs already waiting on `default` from an
+  earlier Run now still run there. Start the worker with the `automation` connection argument: a job taken by a
+  worker on another connection (`queue:work --queue=automation`) fails without running and names the right command.
+  The `app:install` hint prints the four workers and the 200 s timeout that `install.md` documents for the first pool
+  (it printed 85 s).
 - **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
   by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
   encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new
@@ -270,6 +282,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Platform admin
 
+- Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
+  page says "An automation run is already queued or running." During the scheduled run it says "An automation run
+  is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
+  ("Automation run skipped"). Runs of any length finish on one worker (#82).
+- `php artisan automation:release-locks` releases the automation locks a killed worker left behind (otherwise Run
+  now is refused for about 65 minutes after the interrupted request). It asks for confirmation, `--force` skips it,
+  and the release is recorded in the activity log.
 - Staff: invite by email (7-day link, resend/cancel) or create with a temporary password (forced change on first
   sign-in); edit, assign role, deactivate (sessions revoked, next request 401), reset 2FA; last sign-in time/IP.
 - Staff 2FA enforcement (`security.staff_2fa_required`, default on) before any admin route.

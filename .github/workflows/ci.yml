@@ -12,10 +12,11 @@
 name: CI
 
 on:
+    # develop is not built on every merge (Actions minutes budget, operating-model.md): each PR runs CI once before
+    # merging, and the CTO dispatches a develop run after a batch of merges.
     push:
         branches:
             - main
-            - develop
     pull_request:
         branches:
             - main
