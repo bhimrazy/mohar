@@ -23,23 +23,23 @@ job therefore costs less than several parallel ones. Steps run cheapest first so
 the dependency policy runs **before** anything is installed (no package code — e.g. Composer's
 `package:discover` hook — executes before the lockfiles pass):
 
-| #   | Step                                                                                                 | s (run 39273012764) |
+| #   | Step                                                                                                 | s (run 39279853998) |
 | --- | ---------------------------------------------------------------------------------------------------- | ------------------- |
-| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                               | 12                  |
+| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                               | 20                  |
 | 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base     | 3                   |
-| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                     | 4                   |
+| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                     | 6                   |
 | 3   | postgres digest drift (ci.yml = compose.yaml)                                                        | 0                   |
-| 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 3                   |
+| 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 2                   |
 | 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)         | 1                   |
-| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | 21                  |
+| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | 17                  |
 | 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                               | 10                  |
-| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`)                                               | 1 + 4 + 7 + 5       |
-| 9   | PHPStan (result cache restored; 4 s when few files changed)                                          | 21                  |
-| 10  | Pest on SQLite (`--parallel`, 2 workers)                                                             | 155                 |
-| 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers)                              | 288                 |
-| 12  | `npm run build` · app without dev dependencies · cache save · container stop                         | 24 + 4 + 2          |
+| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`)                                               | 1 + 1 + 3 + 4       |
+| 9   | PHPStan (result cache restored)                                                                      | 2                   |
+| 10  | Pest on SQLite (`--parallel`, 2 workers, every suite)                                                | 132                 |
+| 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers, Feature and Extensions)      | 212                 |
+| 12  | `npm run build` · app without dev dependencies · cache save · container stop                         | 21 + 2 + 2          |
 
-`timeout-minutes` caps a hung run. Shared setup lives in `.github/actions/setup-app` (composite action).
+`timeout-minutes: 15` caps a hung run (steps take about 7.5 minutes). Shared setup lives in `.github/actions/setup-app` (composite action).
 
 Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm (`package-lock.json`, via
 `setup-node`), and one tool cache restored from the latest run and saved again by every run: PHPStan's result cache
@@ -52,6 +52,17 @@ of 33–42 s and tsc 4–7 s instead of 17–19 s. Vite/vp builds have no persis
 vCPUs; 4 in the Codespace). Every process gets its own SQLite in-memory database or its own
 `billing_test_test_<n>` PostgreSQL database, migrates it once and runs each test in a transaction, so it is
 reliable and nothing migrates or seeds the base database first.
+
+The Unit and Arch suites never touch the database, so they run only in the SQLite step: `composer test:pgsql`
+passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they name). `Tests\TestCase` fails a
+test in `tests/Unit` or `tests/Arch` that uses a database trait or runs a query; such a test belongs in
+`tests/Feature`.
+
+A seed that takes tens of seconds is seeded once per worker, not in every test:
+`$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates, migrates and seeds a
+separate database the first time a worker asks for it (`<database>_<name>` on PostgreSQL, a temporary file on
+SQLite), then runs each test in a transaction on it that is rolled back in `tearDown()`. BillingSeederTest uses it
+for the 730-day demo billing history.
 
 Each worker is one PHP process that runs about half the suite, so memory a test file leaves behind (static
 caches, singletons) adds up against the 1 GB `memory_limit` in `phpunit.xml`. The largest such cache is the arch
@@ -72,33 +83,35 @@ the measured PostgreSQL step after that change):
 | (before)                                                                                                                                                                                                                                                                                                 |                                                                                                                                          | 550 s |
 | `test:pgsql` ran `migrate:fresh --seed` on the base database first (110 s, the demo history seed). No test uses that database: each worker migrates its own copy, and the demo seed runs in the suite.                                                                                                   | removed                                                                                                                                  |       |
 | `localhost:5432` goes through docker-proxy; 2 workers left the CPUs waiting on the database; durability work for a database that is thrown away.                                                                                                                                                         | connect to the container's IP on the job network; 4 workers (`PEST_PROCESSES`); `fsync`, `synchronous_commit`, `full_page_writes` off    | 341 s |
-| pdo_pgsql makes three round trips per query (prepare, execute, deallocate).                                                                                                                                                                                                                              | `DB_PGSQL_DISABLE_PREPARES=true`: one `PQexecParams` round trip, parameters still bound by the server                                    | 304 s |
 | Laravel never releases a nested transaction's savepoint, so inside the test transaction every `DB::transaction()` stays on PostgreSQL's subtransaction stack and each row check walks it. Seeding tests slowed down quadratically (one `billing_sequences` update went from 0.2 to 42 ms during a seed). | `Tests\TestCase` releases the savepoint when a nested transaction commits, on both databases. BillingSeederTest: 275 → 181 s worker time | 294 s |
 | A SCRAM handshake for each test's new connection.                                                                                                                                                                                                                                                        | `POSTGRES_HOST_AUTH_METHOD=trust` on the service                                                                                         | small |
+| The Unit and Arch suites ran again on PostgreSQL without touching it; BillingSeederTest seeded the demo history in each of its tests.                                                                                                                                                                    | Unit and Arch only on SQLite; `useSeededDatabase()` seeds once per worker                                                                | 212 s |
 
-The suite also grew from 2,479 to 2,657 tests during these runs. Memory per worker stays under the 1 GB
+Sending each query in one round trip (`Pdo\Pgsql::ATTR_DISABLE_PREPARES`) saved a further 37 s (341 → 304 s in runs
+39262008137 and 39268842996) but was dropped: production uses native prepared statements, and the PostgreSQL gate
+(ADR 0006) must exercise the same path. The suite also grew from 2,479 to 2,691 tests during these runs. Memory per worker stays under the 1 GB
 `memory_limit` in `phpunit.xml`.
 
 Both suites print their ten slowest files from a JUnit report (`scripts/slowest-tests.mjs`), and the PostgreSQL step
 prints how busy the CPUs were. With both CPUs saturated, more workers do not help: the remaining time is CPU spent
 running the tests. JIT (`opcache.jit=tracing`) was tried and made no measurable difference (run 39273012764).
 
-The largest remaining items are the three demo-history seeds inside the suite (BillingSeederTest seeds twice,
-InstallCommandTest once; together about 30 % of PostgreSQL test time) and Unit, Arch and Extensions tests, which do
-not touch the database but run in both suites.
+The largest remaining item is InstallCommandTest, which runs the whole `DatabaseSeeder` (with the demo history) in
+one test to prove the demo seed installs the same reference data as `app:install`: about 18 % of PostgreSQL test
+time. It cannot share a pre-seeded database because it changes the registry and deletes reference data first.
 
 ## Billable minutes per PR run
 
-| Design                                    | Jobs | Job durations                                                                                      | Billable      |
-| ----------------------------------------- | ---- | -------------------------------------------------------------------------------------------------- | ------------- |
-| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s               | **5 min**     |
-| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                          | 3–4 min       |
-| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                              | **2 min**     |
-| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                        | **4–6 min**   |
-| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                                  | **14–15 min** |
-| One job after PR #91                      | 1    | measured 555–589 s (runs 39268842996, 39271202624, 39273012764, 39275043513; PostgreSQL 288–304 s) | **10 min**    |
-| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                             | **1 min**     |
-| Draft PR / feature-branch push            | 0    | —                                                                                                  | **0**         |
+| Design                                    | Jobs | Job durations                                                                              | Billable      |
+| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------------ | ------------- |
+| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s       | **5 min**     |
+| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                  | 3–4 min       |
+| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                      | **2 min**     |
+| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                | **4–6 min**   |
+| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                          | **14–15 min** |
+| One job after PR #91                      | 1    | steps 442 s (run 39279853998; PostgreSQL 212 s, SQLite 132 s); earlier revisions 555–589 s | **8 min**     |
+| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                     | **1 min**     |
+| Draft PR / feature-branch push            | 0    | —                                                                                          | **0**         |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
 (job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the

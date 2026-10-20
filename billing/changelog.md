@@ -129,10 +129,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `DomainPricing`, `MergeFieldRegistry`), DTOs and 37 domain events.
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
-- CI back from about 14.5 to under 10 minutes: the PostgreSQL step went from 550 s to under 300 s (no pre-suite
-  migrate and seed, direct container connection, one round trip per query, savepoints released inside the test
-  transaction, 4 workers), and Pint and tsc reuse cached results. `composer test:pgsql` no longer migrates or seeds
-  the base database; `PEST_PROCESSES` sets its worker count (docs/devops/ci.md).
+- CI back from about 14.5 to about 7.5 minutes: the PostgreSQL step went from 550 s to 212 s (no pre-suite migrate
+  and seed, direct container connection, savepoints released inside the test transaction, 4 workers, Unit and Arch
+  suites only on SQLite, the demo billing history seeded once per worker with `useSeededDatabase()`), and Pint and
+  tsc reuse cached results. `composer test:pgsql` no longer migrates or seeds the base database and skips the
+  database-free suites; `PEST_PROCESSES` sets its worker count (docs/devops/ci.md).
 
 ### Themes & brand
 
