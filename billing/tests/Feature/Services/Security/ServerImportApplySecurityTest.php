@@ -9,7 +9,6 @@ use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerGroup;
 use App\Modules\Services\Models\Service;
-use App\Modules\Services\Support\AccountImportPlan;
 use Carbon\CarbonImmutable;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
@@ -64,13 +63,14 @@ function secApply(Server $server): void
 
 test('a client that takes the account\'s contact email after staff reviewed the account does not receive it on apply', function () {
     secSelect($this->server, ['usernames' => ['alpha'], 'include' => true]);
-    expect(secReview($this->server)['alpha']['decision']['client']['id'])->toBe($this->anna->id);
+    $review = $this->get(route('admin.services.servers.import.review', $this->server));
+    expect(collect($review->inertiaProps('rows'))->keyBy('username')['alpha']['decision']['client']['id'])->toBe($this->anna->id);
 
     // Between review and apply: Anna changes her email, and Mallory sets hers (client area, no verification) to the
-    // account's contact email.
+    // account's contact email. Staff confirm what they reviewed.
     $this->anna->update(['email' => 'anna@new-domain.example']);
     $this->mallory->update(['email' => 'anna@alpha-books.com']);
-    secApply($this->server);
+    $this->post(route('admin.services.servers.import.apply', $this->server), ['digest' => $review->inertiaProps('digest')])->assertRedirect();
 
     expect(Service::query()->where('username', 'alpha')->value('client_id'))->not->toBe($this->mallory->id);
 });
@@ -132,23 +132,14 @@ test('a reseller-owned account with no chosen client, or a client made inactive 
 
 // Races, audit, step-up, replay
 
-test('the live unique index catches a service created for the account between plan and insert', function () {
+test('the live unique index catches a service created for the account between review and insert', function () {
     secSelect($this->server, ['usernames' => ['alpha'], 'include' => true]);
+    $this->get(route('admin.services.servers.import.review', $this->server))->assertOk();
     $import = ServerAccountImport::query()->where('server_id', $this->server->id)->sole();
-    $rows = app(AccountImportPlan::class)->rows($this->server, $import);
-    expect($rows[0]['decision']['problems'])->toBe([]);
+    expect($import->reviewed['rows'][0]['username'])->toBe('alpha');
 
+    // The queued import creates the reviewed rows; a service created for the account in between makes the insert fail.
     $racer = Service::factory()->create(['server_id' => $this->server->id, 'username' => 'alpha', 'status' => ServiceStatus::Active]);
-    app()->instance(AccountImportPlan::class, new class($rows) extends AccountImportPlan
-    {
-        public function __construct(private array $planned) {}
-
-        public function rows(Server $server, ServerAccountImport $import): array
-        {
-            return $this->planned;
-        }
-    });
-
     $report = app(ImportServerAccounts::class)->handle($this->server, $import->refresh(), $this->staff);
 
     expect($report[0]['imported'])->toBeFalse()

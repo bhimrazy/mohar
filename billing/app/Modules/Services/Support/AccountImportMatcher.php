@@ -75,10 +75,12 @@ class AccountImportMatcher
             $matchedProducts = $offered[(string) $plan] ?? [];
             $owner = $account['owner'] ?? null;
             // An owner WHM does not report (or reports invalidly) is unknown, so it is never taken as the connection's.
-            $otherOwner = $connectionUser !== null && $owner !== $connectionUser;
+            // Fail closed: with no recorded connection user (a list read before it was stored) no owner is taken as ours.
+            $otherOwner = $connectionUser === null || $owner !== $connectionUser;
             $notes = array_filter([
-                $otherOwner && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
-                $otherOwner && $owner !== null ? ($connectionUser === 'root'
+                $connectionUser === null ? self::text('This list does not record the WHM user it was read with: fetch it again to match owners.') : null,
+                $otherOwner && $connectionUser !== null && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
+                $otherOwner && $connectionUser !== null && $owner !== null ? ($connectionUser === 'root'
                     ? self::text('Owned by the reseller :owner.', ['owner' => $owner])
                     : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
