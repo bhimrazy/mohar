@@ -152,7 +152,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   queue into encrypted rows 500 at a time, and then deleted. Columns named like passwords, card numbers or security
   answers are never stored. The page shows the progress, a "did not finish" alert after 10 minutes without a worker
   with a button to continue, every earlier upload, and a notice when the same file was uploaded to the source before.
-- Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
+- **Map columns**: each column of the file becomes a client field, the External ID, an imported field (kept as is with
+  its header as label) or nothing. Suggestions come from the header names, with a preset for the WHMCS clients export;
+  password and card columns stay ignored. First name, last name and email are required. Dates are read in the chosen
+  order (year-first is picked automatically). Options: what to do when an email matches a client (skip or update),
+  blank cells on update, closed clients, company-name and tax-ID duplicate flags, logins, and trusting the file's
+  verified column.
+- **Check**: every row is checked on the `imports` queue, 1,000 rows per job, with the admin client form's own rules
+  (shared in Core, so the two cannot disagree), ISO country codes, enabled currencies (blank means the default) and
+  client groups by name. Client groups not found stop the check until each is mapped, created or dropped; currencies
+  not enabled can be mapped; unrecognised countries are listed. Spreadsheet damage (numbers in scientific notation,
+  Indian postcodes missing a leading zero) is a warning.
+ (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay.
 
 ### Platform foundation

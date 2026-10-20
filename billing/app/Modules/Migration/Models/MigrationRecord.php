@@ -44,6 +44,15 @@ class MigrationRecord extends Model
     }
 
     /**
+     * The keyed hash of an email, for duplicate checks and exact search without decrypting rows. The key is derived
+     * from APP_KEY, so the hash means nothing outside this install.
+     */
+    public static function emailHash(string $email): string
+    {
+        return hash_hmac('sha256', mb_strtolower(trim($email)), hash_hmac('sha256', 'migration.email_hash', (string) config('app.key')));
+    }
+
+    /**
      * @return BelongsTo<MigrationRun, $this>
      */
     public function run(): BelongsTo
