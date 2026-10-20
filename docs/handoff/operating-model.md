@@ -120,6 +120,19 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
   append-only audit log, client-area scoping through `ClientContext`). Payments settle only through
   server-side `lookup()`.
 
+## CI minutes budget (owner, 2026-10-20)
+
+GitHub Actions on this private repository is capped at 3,000 minutes a month; on 2026-10-20 it reached 90% with 12 days
+left (about 200 runs in two days). CI is a budget:
+
+- Drafts carry no `ci` label. Engineers verify locally (touched tests on SQLite and PostgreSQL via `scripts/pg.sh`,
+  phpstan, pint, tsc, `vp check`, through `scripts/heavy.sh`) and paste the commands and results into their report.
+- The CTO adds `ci` once per PR, after reviews pass and just before merging; a red run means a fix and one more run, not
+  repeated pushes. Merges into `develop` run CI once each.
+- Deploy smoke, load and E2E simulator workflows run only on an explicit CTO decision, never on routine pushes.
+- Docs-only changes need no runner.
+- Check usage (Settings → Billing) before any burst of runs and record it in `state.md` when above 75%.
+
 ## Machine limits (GitHub Codespace)
 
 - 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
