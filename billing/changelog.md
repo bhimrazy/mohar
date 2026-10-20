@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` and the `reconcile`
+  capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
+  Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
+  off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
+  checked with the registrar (never re-sent) and listed in the sync report. No schema change.
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -385,6 +392,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+- Registrar prerequisites (registrars.md §2): a submission or renewal whose outcome was lost is checked in the
+  registrar account with `findSubmission` (executed → applied; in progress → waits for sync; absent or unknown →
+  staff review, never re-sent); registrar ids such as order and transfer ids are kept in `registrar_meta.remote`;
+  the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
+  driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
+- Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
 
 ### Orders
 

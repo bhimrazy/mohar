@@ -576,7 +576,25 @@ The same layout will hold control panels and registrars on their own pages (`con
   standard §7: create, suspend, unsuspend, terminate; timeout after commit, adopted only with proof; a foreign
   account with the same name never adopted; a rotated certificate refused; reseller scoping; SSO links single-use.
   The WHM simulator (S2, `tools/simulators/tests/Whm/`) already covers several.
-- **Registrars (`RG-`)**: register, renew, transfer in, nameserver and contact updates, lock and EPP code, an
-  asynchronous action status, a refused IP allow-list.
+- **Registrars (`RG-`)**: started below; API drivers add their columns (ResellerClub next).
+
+### Registrars (started 2026-10-20)
+
+Shared = the Domains module's own code, run with the scriptable `FakeRegistrar` or every shipped driver.
+Tests: `tests/Feature/Domains/` (`RC` = `ReconcileTest.php`, `CT` = `RegistrarContractTest.php`, which runs
+`tests/Support/Contracts/RegistrarDriverContract.php` per driver, `XO` = `ExactlyOnceTest.php`).
+
+| ID    | Case                                                                         | Shared | log |
+| ----- | ---------------------------------------------------------------------------- | ------ | --- |
+| RG-01 | Settings typed; credential-like keys are secrets with no default             | —      | CT  |
+| RG-02 | Calls outside the capabilities throw `CapabilityNotSupported`                | —      | CT  |
+| RG-03 | Every call answers with one documented outcome (result or registrar error)   | —      | CT  |
+| RG-04 | Credentials in requests and error text never reach the command log (C5)      | —      | CT  |
+| RG-05 | Unknown register/transfer outcome parks the domain, never re-sent            | XO     | n/a |
+| RG-06 | Lost submission resolved by `findSubmission` (executed, in progress, absent) | RC     | CT  |
+| RG-07 | Lost renewal applied only when the registrar shows it ran                    | RC, XO | CT  |
+| RG-08 | A submission a killed worker left `pending` is swept and verified (#12)      | RC     | n/a |
+| RG-09 | Registrar ids (`remote`) kept for later calls; malformed ones dropped        | RC     | n/a |
+| RG-10 | Live sandbox run                                                             | n/a    | n/a |
 
 Columns are the drivers (one per provider), plus a "Shared" column for the module's own code, exactly as above.

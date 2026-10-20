@@ -50,18 +50,23 @@ sandbox before we rely on it.
   `SubmissionLookup` is `final readonly` with `string $status` (`executed|in_progress|absent|unknown`),
   `?CarbonImmutable $expiryDate = null`, `array $remote = []`, `?string $message = null`.
   `SubmitToRegistrar::reconcile()` and `PerformRenewal::reconcile()` call it in place of `info()` when it is supported.
-  `executed` → apply. `in_progress` → stay pending + keep the claim. `absent` → keep `needs_review`, and staff may
-  "re-submit" (we never re-submit automatically). `unknown` → `needs_review`.
+  `executed` → apply. `in_progress` → the accepted-asynchronously path (`pending_registration` /
+  `pending_transfer`, resolved by sync; nothing is re-sent); a renewal in progress keeps its claim and goes to staff
+  review. `absent` → keep `needs_review`, and staff may "re-submit" (Change status → Pending, then register; we never
+  re-submit automatically). `unknown` → `needs_review`. _Built 2026-10-20._
 - **C3 — issue #12 (stale claims).** In `SyncDomains`, sweep `status = pending` with
   `registrar_meta.submission` older than `SubmitToRegistrar::IN_FLIGHT_MINUTES` → set `needs_review = true`, log a
   staff task, then run C2. **Ship this before any real driver.** RC/OpenSRS orders can sit "pending" at the
-  registrar, and that is exactly when a killed worker leaves a paid order invisible.
+  registrar, and that is exactly when a killed worker leaves a paid order invisible. _Built 2026-10-20; the sweep also
+  runs when registrar sync is off, and each swept domain is listed in the sync report._
 - **C4 — registrar refs store** (not on the interface). New table
   `registrar_refs(registrar_key, ref_type customer|contact|profile, local_type, local_id, remote_id, payload_hash, secret encrypted null)`
   behind a `RegistrarRefs` service that drivers receive by injection. RC customers/contacts and OpenSRS profile
   credentials (`reg_username`/`reg_password`) live here.
 - **C5 — redaction gaps.** `RegistrarGateway` SECRET lists miss `api-key` (hyphen, RC), `passwd` (RC customer signup)
   and `signature` (OpenSRS). Add them. Drivers must never copy raw request params into `meta` or exception messages.
+  _2026-10-20: the kernel `Redactor` already matches these keys by word (and `domsecret`, `auth-code`); the contract
+  test found that a pair quoted behind a label (`Rejected: api-key=…`) was kept whole, which is fixed._
 - Deferred (premium is off): `RegistrationRequest` needs `?int $premiumRegisterCost` and `?string $costCurrency`, because
   Namecheap (`PremiumPrice`) and OpenSRS (`premium_price_to_verify`) reject mismatched prices. Also,
   `AvailabilityResult` premium costs currently have no currency.
@@ -243,6 +248,10 @@ executes it. Using two phases gives us a remote order id _before_ money moves. I
   apply them, and Namecheap also wants the IP in `ClientIp`. Our hosting (Codespaces / Laravel Cloud) must provide
   a fixed outbound IP. If it can't, route registrar traffic through a fixed-IP egress proxy (`http_proxy` setting). Show the
   detected egress IP on the registrar settings page.
+  _Decision 2026-10-20: drivers do not assume the host has a fixed IP. Every API driver ships the `http_proxy` setting
+  (secret) and the registrar page shows the detected egress IP; both land with the first API driver (ResellerClub).
+  Before its first live sandbox run the owner provides a fixed IPv4: the hosting's static egress or a fixed-IP proxy.
+  `np_manual` sends nothing and needs neither._
 - Rotating keys: RC and Namecheap invalidate the old key **immediately**, so rotation is "regenerate → paste → test
   connection" in one sitting.
 - TLS verification always on. OpenSRS signs with MD5, which is acceptable only over TLS. Webhook signatures are verified
