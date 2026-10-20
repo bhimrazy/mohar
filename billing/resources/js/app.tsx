@@ -28,11 +28,15 @@ router.on('beforeUpdate', (event) => {
 });
 
 void createInertiaApp({
-    title: (title) => (title ? `${title} · ${brandName}` : brandName),
+    // Same rule as the server's PageHead::title(): the brand is appended unless the title already names it.
+    title: (title) =>
+        !title
+            ? brandName
+            : brandName && title.includes(brandName)
+              ? title
+              : `${title} · ${brandName}`,
     layout: (name, page) => {
         switch (true) {
-            case name === 'welcome':
-                return null;
             case name.startsWith('dev/') && name.endsWith('-preview'):
                 return PreviewLayout;
             case name.startsWith('auth/'):

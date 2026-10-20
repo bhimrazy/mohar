@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Home direction B: Plans first</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .hero-b { padding: 48px 0 56px; }
+        .hero-b .top { display: grid; grid-template-columns: 1.2fr 1fr; gap: 40px; align-items: end; margin-bottom: 28px; }
+        .hero-b .ticks { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 14px; }
+        .hero-b .ticks span { display: inline-flex; align-items: center; gap: 6px; }
+        .hero-b .ticks .icon { color: var(--success); }
+        .controls { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .tabs { display: inline-flex; gap: 4px; border-bottom: 1px solid var(--border); }
+        .tabs button { white-space: nowrap; border: 0; background: none; font: inherit; font-size: 14px; font-weight: 550; color: var(--muted-foreground); padding: 10px 14px; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+        .tabs button[aria-selected='true'] { color: var(--foreground); border-color: var(--primary); }
+        .tabs .count { font-size: 12px; color: var(--muted-foreground); font-weight: 500; }
+        .domain-band { display: grid; grid-template-columns: 1fr 1.1fr; gap: 40px; align-items: start; }
+        .domain-band .copy { display: flex; flex-direction: column; gap: 16px; }
+        .faq { display: grid; grid-template-columns: 1fr 1.6fr; gap: 40px; }
+        .faq details { border-bottom: 1px solid var(--border); padding: 14px 0; }
+        .faq summary { font-weight: 550; cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+        .faq summary::-webkit-details-marker { display: none; }
+        .faq details[open] summary .icon { transform: rotate(180deg); }
+        .faq details p { color: var(--muted-foreground); font-size: 14px; margin-top: 8px; }
+        .help-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+        .help-row a { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+        .help-row .ht-icon { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--accent); color: var(--accent-foreground); flex: none; }
+        .help-row strong { font-size: 14px; display: block; }
+        .help-row small { font-size: 12.5px; color: var(--muted-foreground); }
+        .cta-band { background: var(--accent); border-radius: 16px; padding: 32px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; }
+        .cta-band h2 { font-size: 22px; color: var(--accent-foreground); }
+        .cta-band p { color: var(--muted-foreground); }
+        .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
+        @media (max-width: 1080px) { .hero-b .top, .domain-band, .faq { grid-template-columns: 1fr; gap: 20px; } .help-row { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 720px) { .hero-b { padding: 32px 0 40px; } .help-row { grid-template-columns: 1fr; } .tabs { width: 100%; overflow-x: auto; } .controls .segmented { width: 100%; } .controls .segmented button { flex: 1; justify-content: center; padding: 0 6px; } .cta-band { padding: 24px; } .cta-band .btn { width: 100%; } }
+    </style>
+</head>
+<body data-currency="NPR" data-header="links">
+<div id="site-header"></div>
+
+<main>
+    <!-- 1. Hero with plans in view: headline, three ticks, group tabs, cycle switch, plan cards -->
+    <section class="hero hero-b" data-section="hero" aria-labelledby="hero-title">
+        <div class="container">
+            <div class="top">
+                <div style="display:flex;flex-direction:column;gap:14px">
+                    <span class="eyebrow">Hosting for businesses in Nepal</span>
+                    <h1 id="hero-title">Fast, local web hosting with support that answers</h1>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:14px">
+                    <p class="lede">Choose a plan, add a domain and pay with eSewa, Khalti or bank transfer. Prices in rupees, no surprises at renewal.</p>
+                    <div class="ticks"><span><span data-icon="check"></span>30-day money-back</span><span><span data-icon="check"></span>Free site transfer</span><span><span data-icon="check"></span>Help every day</span></div>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="tabs" role="tablist" aria-label="Product groups">
+                    <button role="tab" aria-selected="true">Shared Hosting <span class="count">3</span></button>
+                    <button role="tab" aria-selected="false">VPS <span class="count">2</span></button>
+                    <button role="tab" aria-selected="false">SSL Certificates <span class="count">1</span></button>
+                </div>
+                <div class="segmented" role="group" aria-label="Billing cycle">
+                    <button type="button" aria-pressed="false">Monthly</button>
+                    <button type="button" aria-pressed="true">Annually <span class="badge badge-success">Save 15%</span></button>
+                    <button type="button" aria-pressed="false">2 years</button>
+                </div>
+            </div>
+
+            <div class="grid g3">
+                <article class="card plan">
+                    <div><h3>Starter</h3><p class="desc">For a single site or portfolio</p></div>
+                    <div><div class="price"><span class="amt num">Rs 515.75</span><span class="per">/mo</span></div><p class="billed">Billed Rs 6,189.00 annually · Save 15%</p></div>
+                    <ul class="features"><li><span data-icon="check"></span>1 website</li><li><span data-icon="check"></span>10 GB SSD storage</li></ul>
+                    <a class="btn btn-outline btn-lg btn-block" href="#">Configure and order</a>
+                </article>
+                <article class="card plan featured">
+                    <span class="badge ribbon" style="background:var(--primary);color:var(--primary-foreground)">Most popular</span>
+                    <div><h3>Pro</h3><p class="desc">For growing businesses with several sites</p></div>
+                    <div><div class="price"><span class="amt num">Rs 1,032.42</span><span class="per">/mo</span></div><p class="billed">Billed Rs 12,389.00 annually · Save 15%</p></div>
+                    <ul class="features"><li><span data-icon="check"></span>10 websites</li><li><span data-icon="check"></span>50 GB SSD storage</li><li><span data-icon="check"></span>Free domain</li></ul>
+                    <a class="btn btn-primary btn-lg btn-block" href="#">Configure and order</a>
+                </article>
+                <article class="card plan">
+                    <div><h3>Business</h3><p class="desc">For busy shops and agencies</p></div>
+                    <div><div class="price"><span class="amt num">Rs 1,936.58</span><span class="per">/mo</span></div><p class="billed">Billed Rs 23,239.00 annually · Save 15%</p></div>
+                    <ul class="features"><li><span data-icon="check"></span>Unlimited websites</li><li><span data-icon="check"></span>200 GB NVMe storage</li><li><span data-icon="check"></span>Daily backups</li></ul>
+                    <a class="btn btn-outline btn-lg btn-block" href="#">Configure and order</a>
+                </article>
+            </div>
+            <p class="muted" style="font-size:13px;margin-top:14px">Prices exclude tax. <a class="link-arrow" href="#" style="font-size:13px">Compare every plan and cycle <span data-icon="right"></span></a></p>
+        </div>
+    </section>
+
+    <!-- 2. Domains: search plus a register / renew / transfer table for spotlight TLDs -->
+    <section class="section" data-section="domains" aria-labelledby="dom-title">
+        <div class="container domain-band">
+            <div class="copy">
+                <span class="eyebrow">Domains</span>
+                <h2 id="dom-title" style="font-size:26px">Find the right name</h2>
+                <p class="muted">Search for a new domain, or bring one you already own. Renewal prices are shown up front.</p>
+                <form class="domain-search" role="search" aria-label="Domain search">
+                    <div class="input-wrap"><span data-icon="globe"></span><input class="input" aria-label="Domain name" placeholder="mybusiness.com"></div>
+                    <button class="btn btn-primary btn-lg" type="submit">Search</button>
+                </form>
+                <div style="display:flex;gap:16px;flex-wrap:wrap"><a class="link-arrow" href="#">Transfer a domain <span data-icon="right"></span></a><a class="link-arrow" href="#">All domain prices <span data-icon="right"></span></a></div>
+            </div>
+            <div class="table-wrap">
+                <table class="table">
+                    <caption class="sr-only">Domain prices for one year</caption>
+                    <thead><tr><th>Extension</th><th class="r">Register</th><th class="r">Renew</th><th class="r hide-sm">Transfer</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>.com</strong> <span class="badge badge-accent">Popular</span></td><td class="r num">Rs 1,979.00</td><td class="r num">Rs 2,279.00</td><td class="r num hide-sm">Rs 1,829.00</td></tr>
+                        <tr><td><strong>.net</strong></td><td class="r num">Rs 2,279.00</td><td class="r num">Rs 2,589.00</td><td class="r num hide-sm">Rs 2,129.00</td></tr>
+                        <tr><td><strong>.org</strong></td><td class="r num">Rs 2,129.00</td><td class="r num">Rs 2,429.00</td><td class="r num hide-sm">Rs 1,979.00</td></tr>
+                        <tr><td><strong>.io</strong> <span class="badge badge-info">New</span></td><td class="r num">Rs 6,079.00</td><td class="r num">Rs 6,839.00</td><td class="r num hide-sm">Rs 5,929.00</td></tr>
+                        <tr><td><strong>.co.uk</strong></td><td class="r num">Rs 1,519.00</td><td class="r num">Rs 1,669.00</td><td class="r num hide-sm">Free</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. More products -->
+    <section class="section section-muted" data-section="groups" aria-labelledby="groups-title">
+        <div class="container">
+            <div class="section-head"><div><h2 id="groups-title">Need more power?</h2><p>Dedicated resources and certificates, billed in rupees.</p></div><a class="link-arrow" href="#">Browse the store <span data-icon="right"></span></a></div>
+            <div class="grid g2">
+                <a class="card group-card" href="#"><span class="gc-icon"><span data-icon="cpu" class="icon-lg"></span></span><div><h3>VPS</h3><p>Root access on dedicated resources</p><p class="gc-price">From <strong class="num">Rs 1,549.92</strong>/mo · 2 plans</p></div></a>
+                <a class="card group-card" href="#"><span class="gc-icon"><span data-icon="shield" class="icon-lg"></span></span><div><h3>SSL Certificates</h3><p>Encrypt traffic and earn the padlock</p><p class="gc-price"><strong class="num">Rs 4,409.00</strong> one-time · 1 certificate</p></div></a>
+            </div>
+        </div>
+    </section>
+
+    <!-- 4. FAQ, written by the host -->
+    <section class="section" data-section="faq" aria-labelledby="faq-title">
+        <div class="container faq">
+            <div><span class="eyebrow">Questions</span><h2 id="faq-title" style="font-size:26px;margin-top:8px">Before you buy</h2><p class="muted" style="margin-top:8px">Still unsure? <a class="link-arrow" href="#">Contact us</a></p></div>
+            <div>
+                <details open><summary>Can I pay with eSewa or Khalti?<span data-icon="chev"></span></summary><p>Yes. Pay any invoice with eSewa, Khalti or bank transfer. Card payments are also accepted.</p></details>
+                <details><summary>Is tax included in the prices?<span data-icon="chev"></span></summary><p>Prices exclude tax. Tax is added at checkout where it applies.</p></details>
+                <details><summary>Can you move my site from another host?<span data-icon="chev"></span></summary><p>Yes, free of charge.</p></details>
+                <details><summary>Can I upgrade later?<span data-icon="chev"></span></summary><p>Yes, from the client area.</p></details>
+            </div>
+        </div>
+    </section>
+
+    <!-- 5. Help strip with the live status -->
+    <section class="section-tight" data-section="help" aria-label="Help" style="padding-bottom:40px">
+        <div class="container help-row">
+            <a class="card" href="#"><span class="ht-icon"><span data-icon="book"></span></span><span><strong>Knowledge base</strong><small>8 guides</small></span></a>
+            <a class="card" href="#"><span class="ht-icon"><span data-icon="megaphone"></span></span><span><strong>Announcements</strong><small>New datacenter in Frankfurt · 16 Oct</small></span></a>
+            <a class="card" href="#"><span class="ht-icon"><span data-icon="activity"></span></span><span><strong>Network status</strong><small><span class="badge badge-warning">1 open issue</span></small></span></a>
+            <a class="card" href="#"><span class="ht-icon"><span data-icon="ticket"></span></span><span><strong>Open a ticket</strong><small>We answer every day</small></span></a>
+        </div>
+    </section>
+
+    <!-- 6. Closing call to action and payment logos -->
+    <section class="section-tight" data-section="cta" aria-labelledby="cta-title" style="padding-bottom:56px">
+        <div class="container">
+            <div class="cta-band">
+                <div><h2 id="cta-title">Ready to get online?</h2><p>Plans from <span class="num">Rs 485.38</span>/mo. Pay with</p>
+                    <div class="pay-strip" style="margin-top:10px">
+                        <span class="pay-logo"><img src="../../../../public/images/gateways/esewa.png" alt="eSewa"></span>
+                        <span class="pay-logo"><img src="../../../../public/images/gateways/khalti.svg" alt="Khalti" style="height:26px"></span>
+                        <span class="pay-logo"><svg class="icon" aria-hidden="true"><use href="#i-card"/></svg>Card</span>
+                        <span class="pay-logo"><svg class="icon" aria-hidden="true"><use href="#i-bank"/></svg>Bank transfer</span>
+                    </div>
+                </div>
+                <a class="btn btn-primary btn-lg" href="#">See all plans <span data-icon="right"></span></a>
+            </div>
+        </div>
+    </section>
+</main>
+
+<div id="site-footer"></div>
+<script src="shared.js"></script>
+</body>
+</html>

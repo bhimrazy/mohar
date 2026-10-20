@@ -8,6 +8,7 @@ use App\Modules\Domains\Exceptions\CapabilityNotSupported;
 use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Support\Integrations\Redactor;
 use Closure;
@@ -18,6 +19,9 @@ use Throwable;
 /**
  * The only way to call a registrar driver: refuses disabled registrars and unsupported capabilities,
  * times the call and writes registrar_command_log with secrets redacted and responses truncated.
+ *
+ * Error text a driver raises is masked (secret pairs by name, and the account's own configured credentials by value)
+ * before it is logged or re-thrown, so callers can store it in last_error, the activity log and events.
  *
  * Failure semantics for the non-idempotent commands (register, transfer, renew, restore): only a
  * RegistrarException(retryable: true) from the driver means "not executed, safe to retry". Any other
@@ -59,27 +63,34 @@ class RegistrarGateway
 
         $started = hrtime(true);
         $staffId ??= $this->currentStaffId();
+        $secrets = $this->secretValues($registrarKey);
 
         try {
             $result = $call($driver);
 
             if ($logSuccess) {
-                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId);
+                $this->record($registrarKey, $capability, $domain, $request, $this->normalise($result), true, null, $started, $staffId, $secrets);
             }
 
             return $result;
         } catch (RegistrarException $exception) {
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $exception->getMessage(), $started, $staffId);
+            $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
 
-            throw $exception;
+            throw match (true) {
+                $error === $exception->getMessage() => $exception,
+                $exception instanceof RegistrarTimeout => new RegistrarTimeout($error),
+                default => new RegistrarException($error, $exception->retryable),
+            };
         } catch (Throwable $exception) {
-            $this->record($registrarKey, $capability, $domain, $request, null, false, $exception->getMessage(), $started, $staffId);
+            $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
+            $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
 
             if (in_array($capability, self::MUTATING, true)) {
-                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$exception->getMessage()}");
+                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}");
             }
 
-            throw new RegistrarException('The registrar call failed: '.$exception->getMessage(), retryable: true, previous: $exception);
+            throw new RegistrarException('The registrar call failed: '.$error, retryable: true);
         }
     }
 
@@ -110,19 +121,39 @@ class RegistrarGateway
     }
 
     /**
+     * The registrar account's configured credentials (its secret settings), masked by value wherever they appear.
+     *
+     * @return list<string>
+     */
+    private function secretValues(string $registrarKey): array
+    {
+        $settings = RegistrarAccount::query()->where('key', $registrarKey)->first()->settings ?? [];
+        $secrets = [];
+
+        foreach ($this->registrars->fields($registrarKey) as $field) {
+            if ($field->isSecret() && is_string($settings[$field->key] ?? null) && $settings[$field->key] !== '') {
+                $secrets[] = $settings[$field->key];
+            }
+        }
+
+        return $secrets;
+    }
+
+    /**
      * @param  array<string, mixed>  $request
      * @param  array<string, mixed>|null  $response
+     * @param  list<string>  $secrets
      */
-    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId): void
+    private function record(string $registrarKey, string $command, ?Domain $domain, array $request, ?array $response, bool $success, ?string $error, int|float $started, ?int $staffId, array $secrets = []): void
     {
         RegistrarCommandLog::query()->create([
             'domain_id' => $domain?->id,
             'registrar_key' => $registrarKey,
             'command' => $command,
-            'request' => $this->redactor->redact($request, sensitiveKeys: self::codeKeys($command)),
-            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, sensitiveKeys: self::codeKeys($command))),
+            'request' => $this->redactor->redact($request, $secrets, self::codeKeys($command)),
+            'response' => $response === null ? null : $this->truncate($this->redactor->redact($response, $secrets, self::codeKeys($command))),
             'success' => $success,
-            'error' => $error === null ? null : $this->redactor->maskValues($error, []),
+            'error' => $error === null ? null : $this->redactor->maskValues($error, $secrets),
             'duration_ms' => (int) ((hrtime(true) - $started) / 1_000_000),
             'staff_id' => $staffId,
         ]);

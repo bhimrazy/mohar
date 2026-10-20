@@ -48,8 +48,22 @@ Reviewers are read-only. All agents run as the same GitHub account, so reviews a
 9. **Record.** Update `docs/handoff/state.md`, `billing/docs/progress.md`, `billing/changelog.md`.
    Non-blocking review items become GitHub issues.
 
-Waves: modules with no dependency on each other run in parallel. With the current machine, at most two
-engineers build at once; reviewers are lighter and can overlap.
+Waves: modules with no dependency on each other run in parallel, within the agent budget below.
+
+**Agent budget (owner asked for speed, 2026-10-20 afternoon):** run agents up to the machine's limits, not a fixed
+count: launch while the 1-minute load is below 8, memory has 2 GB free and the disk is below 85%. In practice that is
+5–7 agents. Periodic reviews count. `state.md` "Running now" lists the running agents and the queue. Order when a slot
+frees: PRs awaiting sign-off (re-checks), then fix rounds, then new builds. No new builds while 8 or more PRs await
+review (CTO review round 3).
+
+**Review policy (owner asked for speed, 2026-10-20):**
+- Money, auth, permission and migration PRs get one combined review (code, security, database) and one re-check, then
+  merge. The CTO may verify a re-check's fixes from the diff only when the reviewer's probes for them are adopted and
+  pass.
+- Everything else gets one review, and the CTO verifies the fixes from the diff.
+- Lows and non-money mediums become issues, not new rounds.
+- Size cap: 2,000 changed lines (adopted probes don't count). Exceptions are named in the PR body with a reason.
+- Engineers flag the size before building, not after.
 
 ## Gates by PR type (from the 2026-10-18 Fable review)
 
@@ -63,18 +77,33 @@ Use the smallest set that fits; more reviewers on a small PR waste time without 
 | Shared kernel or ADR               | `principal-architect` + `review-board`                                                                                                 |
 | Driver (gateway, panel, registrar) | `review-board` + `security-reviewer` + contract-test dataset + a recorded real sandbox run in the PR body                              |
 
-- `qa-design-reviewer` and `product-reviewer` overlap. Use `product-reviewer` (it includes QA) for user-facing
-  PRs, and sweep `develop` once per wave rather than every PR.
+- `qa-design-reviewer` is retired; `product-reviewer` (it includes QA) covers user-facing PRs, and sweeps
+  `develop` once per wave.
+- **No merge path without verification.** A PR whose latest review verdict is "Changes requested" is not marked
+  ready and gets no merge watcher. The CTO posts the sign-off only after a re-review, or a recorded diff read that
+  names each blocking item, at the current head. Merge watchers are set only on PRs with that sign-off. (#101 merged
+  on CI alone with unverified blockers, 2026-10-20.)
+- Re-review only when the round had blocking or medium items, or the fix touched locks, gates, money or
+  secrets; otherwise the CTO verifies the diff and CI. Security re-checks stay mandatory after any security
+  finding.
+- Integration PRs (gateways, panels, registrars) update `billing/docs/testing/integration-test-matrix.md`: the cases they
+  cover, the tests that prove them, and any live sandbox result with its date. Reviewers check the matrix column for the
+  integration and flag cases left uncovered.
+- Reviewer probes become committed regression tests: reviewers push them to `review/pr-<n>-probes` and the
+  engineer adopts them in the fix push, so a re-review is mostly a CI check.
+- CI is the only full-suite runner. Locally, engineers and reviewers run the tests they touched (on SQLite and,
+  for queries or migrations, PostgreSQL); the full suite runs locally only to diagnose a CI failure.
+- Scale engineers by location: at most two building locally; further engineers run as remote agents with CI
+  as the gate. Pilot result (2026-10-19): `isolation: "remote"` was not available here and the storefront home
+  page agent ran in a local worktree under `.claude/worktrees/`; until remote agents work, all builds are local.
 - The architect reviews the brief and the kernel diff **before** the build, not only the finished PR.
 - Specs are written before the build starts, and briefs cite `product-standards.md`.
-- PR size cap is about 3,000 changed lines; split larger work before review.
+- PR size: see "Review policy" above. Split larger work before review.
 - Every review verdict states "PostgreSQL run: yes/no". "No" means the review is incomplete. Draft PRs get the
   `ci` label so PostgreSQL CI runs before review.
   The label takes effect on the next push (adding the label from the codespace token does not start a run), and
   GitHub runs no PR workflow while a PR has merge conflicts with its base: merge `develop` first.
 - Batch handoff and standards doc edits per session instead of one commit per line.
-
-## Gates
 
 ## Gates
 
@@ -110,6 +139,45 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
   append-only audit log, client-area scoping through `ClientContext`). Payments settle only through
   server-side `lookup()`.
 
+## Repository visibility and CI (owner, 2026-10-20)
+
+The owner switches the repository between public and private as needed; it is the owner's call each time. GitHub has
+no per-branch visibility: while public, every branch, PR, issue, review file and the full history are visible. `main`
+stays a landing page (readme and `LICENSE`, all rights reserved); work stays on `develop`. Forks made while it is public
+stay public after it goes private, and going private drops stars and watchers.
+
+- **Before each switch to public**, the CTO re-runs the secret scan over every remote branch and over issue and PR text
+  (live key prefixes, private-key headers, committed `.env` or key files) and confirms the workflows still use only
+  GitHub-hosted runners, no `pull_request_target` and no repository secrets. Open security findings in
+  `docs/reviews/` become readable; accepted while no host runs Mohar in production, revisited before the first one does.
+- **While public:** GitHub-hosted Actions minutes are free, so the minutes budget below is suspended. Drafts still
+  carry no `ci` label; the CTO adds it before merging, and smoke and E2E runs need no special budget decision.
+- **While private: CI paused, local merge gate.** Every merge into `develop` is gated by `scripts/merge-gate.sh <pr>`. It
+  runs the same steps as `.github/workflows/ci.yml` (policy, pint, phpstan, tsc, vp check, npm test, build, and the
+  full suite on SQLite and on PostgreSQL) against the PR merged into `develop`. Then the CTO pushes an empty
+  `[skip ci]` commit naming the gate result, marks the PR ready and merges at that head, so no workflow starts. Smoke,
+  load and E2E workflows run only on an explicit owner decision. Engineers still verify locally before handing back
+  and always run `tests/Arch`.
+
+## CI minutes budget (owner, 2026-10-20; applies while private)
+
+GitHub Actions on this private repository is capped at 3,000 minutes a month; on 2026-10-20 it reached 90% with 12 days
+left (about 200 runs in two days). CI is a budget:
+
+- Drafts carry no `ci` label. Engineers verify locally (touched tests on SQLite and PostgreSQL via `scripts/pg.sh`,
+  phpstan, pint, tsc, `vp check`, through `scripts/heavy.sh`) and paste the commands and results into their report.
+- The CTO adds `ci` once per PR, after reviews pass and just before merging; a red run means a fix and one more run, not
+  repeated pushes. Merges into `develop` do not trigger CI; the CTO dispatches one `develop` run (workflow_dispatch)
+  after a batch of merges, and before cutting `main`.
+- Deploy smoke, load and E2E simulator workflows run only on an explicit CTO decision, never on routine pushes.
+- Docs-only changes need no runner. Open them as drafts: marking a PR ready starts CI. `docs-site/` is not yet on the
+  docs fast path (#144), so a docs-site change runs the full suite once at merge.
+- Engineers always run `tests/Arch` locally before handing back (a missed Arch rule cost #115 a red run).
+- A head commit carrying `[skip ci]` also blocks label-triggered runs. The final head of a PR must not carry it; WIP
+  commits before it may.
+- The E2E simulator job is opt-in: the `e2e` label, `workflow_dispatch` or a push to `main`. It is never a required check.
+- Check usage (Settings → Billing) before any burst of runs and record it in `state.md` when above 75%.
+
 ## Machine limits (GitHub Codespace)
 
 - 4 vCPU, 15 GB RAM, 32 GB disk. No swap. The 32 GB disk is shared by `/`, `/workspaces` and Docker; about
@@ -139,10 +207,33 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
 - Tests: Pest feature tests per capability, reasonable not exhaustive. Browser E2E will use the Pest
   browser plugin (Playwright) for critical flows only.
 
+## Periodic reviews (owner request, 2026-10-19)
+
+Every 12 hours, and after a restart if the last round is older than that, the CTO session runs one review
+round in parallel, read-only, each writing to `docs/reviews/<date>-<kind>.md`:
+
+| Kind         | Agent                 | Model | Scope                                                                              |
+| ------------ | --------------------- | ----- | ---------------------------------------------------------------------------------- |
+| CEO          | `ceo-advisor`         | Fable | progress score, priorities, business risks, first-week experience of a host        |
+| CTO          | `cto-advisor`         | Fable | velocity, recurring defects, gates, CTO decisions, debt                            |
+| Security     | `security-reviewer`   | Opus  | whole `develop`: auth, permissions, money, secrets, outbound calls, webhooks, mail |
+| Architecture | `principal-architect` | Opus  | kernel surface, module boundaries, ADR drift, scalability                          |
+
+Rules: reviewers do not modify product code; the CTO merges the review files (docs-only PR), turns findings
+into issues or workstream briefs, records owner-relevant items in `state.md`, and reports a short summary to
+the owner. Skip a kind when nothing relevant changed since its last review. Heavy test runs go through
+`scripts/heavy.sh`; when the machine is loaded, security runs targeted tests only. The schedule lives in the
+session (CronCreate, every 12 hours) and is recreated by the `resume-session` skill after a restart.
+
 ## Session restarts
 
+The codespace reboots without warning (four times on 2026-10-19; the last stop ran overnight, 16:09 to 06:36 UTC). Engineers commit and push work in progress at
+least every 30 minutes, as `wip(<scope>): … [skip ci]` so WIP pushes don't queue CI runs (34 of 111 runs on 10-19
+were cancelled as superseded); the review-ready push is a normal commit; /tmp and the shared PostgreSQL are lost on reboot (`pg.sh` recreates the server).
+
 Background agents and shell jobs stop when the Claude Code process exits, but agent transcripts survive
-on the same machine. On restart: audit worktrees (commits ahead, dirty files), check open PRs and CI,
+on the same machine. On restart: audit worktrees (commits ahead, dirty files), push unpushed commits and
+snapshot uncommitted work to `wip/<branch>-snapshot`, merge green PRs whose watchers died, check open PRs and CI,
 then resume each agent with SendMessage to its id, telling it what state its worktree is in. On a new
 device the transcripts are not available: relaunch from the agent definitions and the brief template,
 pointing the agent at the existing branch and PR. The `resume-session` skill covers both.

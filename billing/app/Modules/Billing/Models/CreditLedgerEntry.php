@@ -7,6 +7,7 @@ use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -23,12 +24,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $transaction_id
  * @property string|null $description
  * @property int|null $staff_id
+ * @property string|null $gateway
+ * @property string|null $external_ref
  * @property CarbonImmutable|null $created_at
  * @property-read Client $client
  * @property-read Invoice|null $invoice
  * @property-read User|null $staff
  */
-#[Fillable(['client_id', 'currency', 'amount', 'balance_after', 'reason', 'invoice_id', 'transaction_id', 'description', 'staff_id'])]
+#[Fillable(['client_id', 'currency', 'amount', 'balance_after', 'reason', 'invoice_id', 'transaction_id', 'description', 'staff_id', 'gateway', 'external_ref'])]
 class CreditLedgerEntry extends Model
 {
     protected $table = 'credit_ledger';
@@ -40,6 +43,21 @@ class CreditLedgerEntry extends Model
             'amount' => 'integer',
             'balance_after' => 'integer',
         ];
+    }
+
+    /**
+     * Each negative balance: the latest line of every client and currency whose balance is below zero, e.g. after a
+     * chargeback or provider refund took back credit the client had already spent.
+     *
+     * @return Builder<self>
+     */
+    public static function owing(): Builder
+    {
+        return self::query()
+            ->where('balance_after', '<', 0)
+            ->where('id', fn ($latest) => $latest->from('credit_ledger as later')->selectRaw('max(later.id)')
+                ->whereColumn('later.client_id', 'credit_ledger.client_id')
+                ->whereColumn('later.currency', 'credit_ledger.currency'));
     }
 
     /**

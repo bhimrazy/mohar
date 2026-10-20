@@ -157,13 +157,14 @@ test('unknown callback types are ignored, not booked as chargebacks', function (
         ->and($payment->fresh()->refundable_remaining)->toBe(1_000);
 });
 
-test('a refund of money that went to credit is acknowledged for staff review', function () {
+test('a refund of money that went to credit takes that credit back', function () {
     $invoice = issueInvoice(billingClient(), [1_000]);
     app(Invoicer::class)->cancel($invoice->id);
     payInvoice($invoice, 1_000, 'ch_closed', 'sandbox_card');
 
     sandboxWebhook(['type' => 'charge.refunded', 'txn_id' => 're_closed', 'parent_txn_id' => 'ch_closed', 'amount' => 1_000, 'currency' => 'USD'])
-        ->assertOk()->assertJson(['result' => 'refund needs staff review']);
+        ->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
+    expect(app(CreditLedger::class)->balance($invoice->client_id, 'USD')->amount)->toBe(0);
 });
 
 test('refunds of combined payments go to the real batch charge', function () {

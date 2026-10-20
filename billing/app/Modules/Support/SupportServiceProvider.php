@@ -3,6 +3,7 @@
 namespace App\Modules\Support;
 
 use App\Contracts\Notifications\MergeFieldRegistry;
+use App\Contracts\Support\PublicHelpDirectory;
 use App\Data\Notifications\SensitiveValue;
 use App\Models\User;
 use App\Modules\Core\Models\Client;
@@ -16,6 +17,7 @@ use App\Modules\Support\Models\KbArticle;
 use App\Modules\Support\Models\NetworkIncident;
 use App\Modules\Support\Models\Ticket;
 use App\Modules\Support\Models\TicketMessage;
+use App\Modules\Support\Services\SupportPublicHelp;
 use App\Modules\Support\Services\SupportSettings;
 use App\Modules\Support\Services\TicketAccess;
 use App\Support\Automation\Automation;
@@ -25,6 +27,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -46,6 +49,7 @@ class SupportServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(SupportSettings::class);
         $this->app->scoped(TicketAccess::class);
+        $this->app->bind(PublicHelpDirectory::class, SupportPublicHelp::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -55,6 +59,11 @@ class SupportServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(SitemapRegistry::class)->register('support', fn (): iterable => [
+            ['loc' => route('support.kb.index'), 'lastmod' => null],
+            ['loc' => route('support.announcements.index'), 'lastmod' => null],
+            ...$this->app->make(SupportPublicHelp::class)->sitemapEntries(),
+        ]);
         $this->registerRateLimits();
         $this->registerNavigation();
         $this->registerDashboard();
@@ -206,7 +215,8 @@ class SupportServiceProvider extends ModuleServiceProvider
             'support.network.manage' => 'Manage network status incidents',
             'support.inbound.manage' => 'View the inbound email log and manage spam rules',
             'support.settings.manage' => 'Manage support settings',
-        ]);
+            'support.inbound_webhook.manage' => 'Manage the inbound email webhook secret',
+        ], sensitive: ['support.inbound_webhook.manage']);
     }
 
     private function registerSettings(): void
@@ -224,7 +234,6 @@ class SupportServiceProvider extends ModuleServiceProvider
             new SettingDefinition('support.reply_ratings_enabled', 'Let clients rate staff replies', 'boolean'),
             new SettingDefinition('support.show_clients_only_to_guests', 'Show clients-only departments to guests', 'boolean'),
             new SettingDefinition('support.network_status_requires_login', 'Network status requires login', 'boolean'),
-            new SettingDefinition('support.inbound_secret', 'Inbound email webhook secret', help: 'HMAC-SHA256 secret for the X-Support-Signature header.'),
             new SettingDefinition('support.inbound_max_per_sender', 'Max inbound emails per sender per 15 minutes', 'integer', rules: ['min:1']),
             new SettingDefinition('support.allow_unverified_email_replies', 'Accept email replies from unknown senders', 'boolean'),
             new SettingDefinition('support.prevent_email_reopen', 'Email replies cannot reopen closed tickets', 'boolean'),
@@ -232,6 +241,12 @@ class SupportServiceProvider extends ModuleServiceProvider
             new SettingDefinition('support.reply_marker', 'Reply marker line'),
             new SettingDefinition('support.auto_add_cc', 'Add Cc addresses of inbound emails to the ticket', 'boolean'),
         ], 'support.settings.manage');
+
+        // The inbound webhook's only credential: write-only, encrypted at rest, and behind a sensitive permission, so a
+        // support.* role can neither read nor change it and a change needs a recent password confirmation.
+        $this->app->make(SettingsRegistry::class)->section('support_inbound', 'Inbound email webhook', [
+            new SettingDefinition('support.inbound_secret', 'Inbound email webhook secret', help: 'HMAC-SHA256 secret for the X-Support-Signature header. Write-only: enter a new value to replace it.', rules: ['min:32'], secret: true),
+        ], 'support.inbound_webhook.manage');
     }
 
     private function registerSearch(): void

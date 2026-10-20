@@ -10,10 +10,13 @@ use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Integrations\Endpoints;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
 use App\Support\Security\PasswordPolicy;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Services\ProvisioningDriverRegistry;
 use App\Support\Settings\SettingsRegistry;
 use App\Support\Themes\ThemeRegistry;
@@ -48,10 +51,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Automation::class);
         $this->app->singleton(ThemeRegistry::class);
         $this->app->singleton(ClientMergeRegistry::class);
+        $this->app->singleton(ImportRegistry::class);
         $this->app->singleton(ReferenceDataRegistry::class);
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);
         $this->app->singleton(ProvisioningDriverRegistry::class);
+        $this->app->singleton(SitemapRegistry::class);
+        $this->app->singleton(Endpoints::class);
     }
 
     /**
@@ -59,6 +65,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Simulator endpoint overrides (ADR 0016) are logged once per boot; production ignores them.
+        $this->app->make(Endpoints::class)->report();
+
         $this->configureDefaults();
         $this->configureModules();
         $this->configureAuthMail();

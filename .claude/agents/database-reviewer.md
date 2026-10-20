@@ -16,6 +16,7 @@ your database when done (`docker exec mohar-pg dropdb -U billing <db>`); don't s
 `/workspaces/whmcs/scripts/heavy.sh`, with `XDEBUG_MODE=off`.
 
 Check:
+
 - **Schema integrity:** primary keys; foreign keys with the right `ON DELETE` behaviour; unique
   constraints that enforce business rules (one default currency, gap-free invoice numbers, idempotency
   keys, one pending review per currency); NOT NULL and defaults; check constraints where cheap

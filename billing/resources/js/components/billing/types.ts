@@ -82,6 +82,7 @@ export type Transaction = {
     exchange_rate: string | null;
     refundable_remaining: number;
     refundable: boolean;
+    to_review?: number | null;
     description: string | null;
     parent_transaction_id: number | null;
     invoice_id: number | null;
@@ -150,7 +151,10 @@ export type CreditEntry = {
 
 export type ClientGatewayOption = {
     key: string;
+    /** Staff-chosen method name, shown in the method list. */
     name: string;
+    /** The provider the customer is sent to (e.g. "Stripe"), used in redirect copy. */
+    provider: string;
     kind: 'card' | 'redirect' | 'offline';
     instructions: string | null;
     vault_url: string | null;

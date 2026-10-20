@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Served with HTTP 404 (never 200) inside the public layout; never indexed (spec §3, criterion 15). -->
+    <title>Page not found | Acme Hosting</title>
+    <meta name="robots" content="noindex">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .nf { padding: 64px 0 72px; }
+        .nf .inner { max-width: 40rem; display: flex; flex-direction: column; gap: 18px; }
+        .nf .code { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--muted-foreground); }
+        .nf h1 { font-size: 36px; line-height: 1.15; }
+        .nf .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; background: var(--muted); border: 1px solid var(--border); border-radius: var(--badge-radius); padding: 1px 6px; overflow-wrap: anywhere; }
+        .ways { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 8px; }
+        .ways a { display: flex; flex-direction: column; gap: 8px; padding: 16px; }
+        .ways .ht-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--accent); color: var(--accent-foreground); }
+        .ways strong { font-size: 14.5px; }
+        .ways small { font-size: 13px; color: var(--muted-foreground); }
+        @media (max-width: 1080px) { .ways { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 720px) { .nf { padding: 40px 0 48px; } .nf h1 { font-size: 28px; } }
+    </style>
+</head>
+<body data-currency="NPR" data-header="links" data-footer="r1">
+<div id="site-header"></div>
+
+<main>
+    <section class="nf hero" aria-labelledby="nf-title">
+        <div class="container">
+            <div class="inner">
+                <span class="code"><span data-icon="info"></span>Error 404</span>
+                <h1 id="nf-title">We can't find that page</h1>
+                <p class="lede">Nothing lives at <span class="path">/hosting/wordpres</span>. The link may be old or the address mistyped. Try one of these instead.</p>
+                <form class="domain-search" role="search" aria-label="Domain search">
+                    <div class="input-wrap"><span data-icon="globe"></span><input class="input" aria-label="Domain name" placeholder="Find a domain, e.g. mybusiness.com"></div>
+                    <button class="btn btn-primary btn-lg" type="submit"><span data-icon="search"></span>Search domains</button>
+                </form>
+            </div>
+            <div class="ways">
+                <a class="card" href="#"><span class="ht-icon"><span data-icon="server"></span></span><strong>Hosting plans</strong><small>Shared Hosting, VPS and SSL Certificates</small></a>
+                <a class="card" href="#"><span class="ht-icon"><span data-icon="book"></span></span><strong>Knowledge base</strong><small>Guides for email, DNS and billing</small></a>
+                <a class="card" href="#"><span class="ht-icon"><span data-icon="message"></span></span><strong>Contact us</strong><small>Tell us what you were looking for</small></a>
+                <a class="card" href="#"><span class="ht-icon"><span data-icon="cloud"></span></span><strong>Home page</strong><small>Start again from the top</small></a>
+            </div>
+        </div>
+    </section>
+</main>
+
+<div id="site-footer"></div>
+<script src="a-storefront.js"></script>
+<script src="shared.js"></script>
+</body>
+</html>

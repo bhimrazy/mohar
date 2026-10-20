@@ -30,12 +30,26 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Production install path                           | Senior Engineer         | #57         | ✅ merged       | `app:install`, reference-data installers                                                                                                     |
 | Kernel contracts (ADR 0009 PR A)                  | Senior Engineer         | #61         | ✅ merged       | outbound address guard, Redactor, SettingField, driver registry                                                                              |
 | Provisioning on kernel (ADR 0009 PR B, B2)        | Senior Engineer         | #62         | 🔍 in review    | base for the cPanel/WHM driver                                                                                                               |
-| Stripe gateway                                    | Senior Engineer         | #58         | 🔍 in review    | needs owner's test keys                                                                                                                      |
+| Stripe gateway                                    | Senior Engineer         | #58         | ✅ merged       | fixture-tested, not live-verified; simulator in S3                                                                                           |
 | cPanel/WHM driver                                 | Senior Engineer         | #69, #73    | ✅ 1a+1b merged | spec: provisioning-cpanel.md; after #62                                                                                                      |
 | Registrar drivers (.np, ResellerClub, Namecheap)  | Senior Engineer         | —           | ⏳ wave 2       | spec: registrars.md; needs #12 first                                                                                                         |
 | Reports, AI module, WHMCS importer                | Senior Engineers        | —           | ⏳ wave 3       | specs ready                                                                                                                                  |
 
 ## Timeline
+
+### 2026-10-20
+
+- Afternoon: the repository went public (owner; licence all rights reserved, `main` a readme-and-licence page, #179,
+  #180, #186, #187). Merged #166 (dashboard and search on the 50k-client hot paths), #165, #94 (storefront home page
+  and public layout) and #99 (Admin > Website). Reviews: #181 and #164 changes requested, #189 approve with fixes.
+
+- Merged: CI speed-up (#91), import-page re-review fixes (#119), local DB options (#125), automation redelivery fix
+  (#122, closes #82), CI minutes budget (#131), cPanel import step 3b-1 (#95, tick, review and a queued import with a
+  per-account report; 50k-account stop in 6.8 s on PostgreSQL).
+- Stripe verified against the owner's sandbox and eSewa against its UAT environment, with no code changes; a late
+  payment booking bug found by the test matrix (#130).
+- Merged later the same day: production compose stack (#80), Stripe simulator (#113), end-to-end lifecycle `simulate:e2e`
+  (#115, 50 s on a runner), docs site (#137, Astro Starlight, not published), cPanel import step 3b-2 (#133).
 
 ### 2026-10-18
 

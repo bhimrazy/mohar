@@ -4,7 +4,8 @@
  *
  * Fails when anything we install was published less than MIN_RELEASE_AGE_DAYS (default 7) days ago:
  *   - Composer packages  (billing/composer.lock     → repo.packagist.org/p2 "time")
- *   - npm packages       (billing/package-lock.json → registry.npmjs.org time[version])
+ *   - npm packages       (billing/ and docs-site/ package-lock.json → registry.npmjs.org time[version]; direct
+ *                         dependencies in their package.json must be exact versions)
  *   - GitHub Actions     (.github/**: `uses: owner/repo@<sha> # <tag>` → release date; SHA must match the tag)
  *   - Docker images      (billing/compose.yaml, workflow, deploy/*.yaml and loadtest/*.yaml `image:`; `# syntax=`,
  *                         `FROM` and `--from=` of every Dockerfile/Containerfile → Docker Hub tag push date; digest
@@ -37,7 +38,9 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     composerDistProblems,
+    directPinProblems,
     digestBelongsToTag,
+    composeImages,
     dockerfileImages,
     isComposeFile,
     isDockerfile,
@@ -53,6 +56,8 @@ const repoRoot =
     git(['rev-parse', '--show-toplevel'], appRoot)?.trim() ??
     join(appRoot, '..');
 const appDir = relative(repoRoot, appRoot) || '.';
+/** Directories with their own npm lockfile and .nvmrc: the app and the documentation site. */
+const npmDirs = [appDir, 'docs-site'];
 
 const args = process.argv.slice(2);
 const option = (name) =>
@@ -104,6 +109,13 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         ...(composerLock?.packages ?? []),
         ...(composerLock?.['packages-dev'] ?? []),
     ]) {
+        if (
+            pkg.dist?.type === 'path' &&
+            pkg.name === 'mohar/simulators' &&
+            pkg.dist?.url === 'tools/simulators'
+        ) {
+            continue; // the first-party simulators package in this repository (ADR 0016), not a third-party release
+        }
         items.push({
             kind: 'composer',
             name: pkg.name,
@@ -115,25 +127,28 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         });
     }
 
-    const npmLock = parseJson(read(`${appDir}/package-lock.json`));
-    for (const [path, entry] of Object.entries(npmLock?.packages ?? {})) {
-        if (path === '' || entry.link || entry.inBundle) {
-            continue; // the root, workspace links and files shipped inside another tarball
+    // The app and the documentation site (docs-site/) each have their own npm lockfile.
+    for (const npmDir of npmDirs) {
+        const npmLock = parseJson(read(`${npmDir}/package-lock.json`));
+        for (const [path, entry] of Object.entries(npmLock?.packages ?? {})) {
+            if (path === '' || entry.link || entry.inBundle) {
+                continue; // the root, workspace links and files shipped inside another tarball
+            }
+            const name =
+                entry.name ??
+                path.slice(
+                    path.lastIndexOf('node_modules/') + 'node_modules/'.length,
+                );
+            items.push({
+                kind: 'npm',
+                name,
+                version: entry.version,
+                ref: `${entry.resolved ?? ''}#${entry.integrity ?? ''}`,
+                resolved: entry.resolved,
+                integrity: entry.integrity,
+                file: `${npmDir}/package-lock.json`,
+            });
         }
-        const name =
-            entry.name ??
-            path.slice(
-                path.lastIndexOf('node_modules/') + 'node_modules/'.length,
-            );
-        items.push({
-            kind: 'npm',
-            name,
-            version: entry.version,
-            ref: `${entry.resolved ?? ''}#${entry.integrity ?? ''}`,
-            resolved: entry.resolved,
-            integrity: entry.integrity,
-            file: `${appDir}/package-lock.json`,
-        });
     }
 
     const repoFiles = listRepoFiles();
@@ -146,10 +161,8 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         if (text === null) {
             continue;
         }
-        for (const [, image, comment = ''] of text.matchAll(
-            /^\s*image:\s*['"]?([^\s'"#]+)['"]?[ \t]*(#.*)?$/gm,
-        )) {
-            if (isOwnImage(image, comment)) {
+        for (const { image, own } of composeImages(text)) {
+            if (own) {
                 continue;
             }
             items.push({
@@ -196,29 +209,19 @@ function collect(read, listWorkflowFiles, listRepoFiles) {
         }
     }
 
-    const nvmrc = read(`${appDir}/.nvmrc`);
-    if (nvmrc !== null) {
-        items.push({
-            kind: 'tool',
-            name: 'node',
-            version: nvmrc.trim().replace(/^v/, ''),
-            file: `${appDir}/.nvmrc`,
-        });
+    for (const npmDir of npmDirs) {
+        const nvmrc = read(`${npmDir}/.nvmrc`);
+        if (nvmrc !== null) {
+            items.push({
+                kind: 'tool',
+                name: 'node',
+                version: nvmrc.trim().replace(/^v/, ''),
+                file: `${npmDir}/.nvmrc`,
+            });
+        }
     }
 
     return items;
-}
-
-/**
- * The app's own image (built from deploy/Dockerfile or pushed by us) is not a third-party dependency. Only a
- * value that is wholly a ${VAR} reference and carries a `# own image` comment counts, so a pinned third-party
- * image cannot be hidden behind a variable by accident.
- */
-function isOwnImage(image, comment) {
-    return (
-        /^\$\{[A-Z0-9_]+(:-[^}]*)?\}$/.test(image) &&
-        /^#\s*own image\b/.test(comment)
-    );
 }
 
 const key = (item) =>
@@ -270,6 +273,20 @@ if (!checkAll) {
 }
 
 // ---------------------------------------------------------------- pinning (offline, every item)
+
+for (const npmDir of npmDirs) {
+    const packageJsonPath = join(repoRoot, npmDir, 'package.json');
+    if (!existsSync(packageJsonPath)) {
+        continue;
+    }
+    for (const problem of directPinProblems(
+        parseJson(readFileSync(packageJsonPath, 'utf8')),
+    )) {
+        violations.push(
+            `${npmDir}/package.json: ${problem} must be one exact version`,
+        );
+    }
+}
 
 for (const item of headItems) {
     if (

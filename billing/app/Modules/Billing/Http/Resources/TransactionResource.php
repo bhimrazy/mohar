@@ -33,6 +33,8 @@ class TransactionResource extends JsonResource
             'exchange_rate' => $this->exchange_rate,
             'refundable_remaining' => $this->refundable_remaining,
             'refundable' => $this->isRefundable(),
+            // The part of a chargeback or provider refund staff still have to review (staff only).
+            'to_review' => $this->when($staff, $this->reviewed_at === null ? $this->review_amount : null),
             'description' => $this->description,
             'parent_transaction_id' => $this->parent_transaction_id,
             'invoice_id' => $this->invoice_id,

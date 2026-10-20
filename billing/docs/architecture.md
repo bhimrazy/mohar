@@ -222,17 +222,21 @@ shadcn primitives from `@/components/ui/*`. Run `php artisan wayfinder:generate 
 authorized controller downloads or temporary URLs. Tests: `Storage::fake('objects')`.
 
 **Queues & scheduler** — provisioning/registrar/gateway/webhook calls run in queued jobs with `$tries` and
-backoff; automation registered in the provider's `schedule()` with `->withoutOverlapping()`.
+backoff; automation registered in the provider's `schedule()` with `->withoutOverlapping()`. Queue names come from
+`App\Support\Queues`. A job's `$timeout` stays below its connection's `retry_after`, or a second worker starts it
+while the first still runs it; work that can run longer gets its own connection with a larger `retry_after`, as
+`RunAutomationJob` does with `Queues::AUTOMATION`.
 
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
 `2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, PaymentsNepal 75xxxx,
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, Storefront 72xxxx, PaymentsNepal 75xxxx,
 Notifications 80xxxx, Affiliates 85xxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx). New modules take a free
 block and add it here in the same PR.
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
 
-PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0006):
+PostgreSQL portability (CI runs every suite that touches the database on SQLite **and** PostgreSQL; the
+database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops/ci.md`):
 
 1. User search: `whereLike($column, "%{$term}%")` (case-insensitive), never raw `like`.
 2. `sum()`/`avg()` return strings on PostgreSQL — cast `(int)` before `Money`.
@@ -243,6 +247,33 @@ PostgreSQL portability (CI runs the suite on SQLite **and** PostgreSQL — ADR 0
 7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
 8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
 9. Booleans as `where('flag', true)`; no explicit ids in seeders.
+10. Dashboard and report figures are summed in SQL (one row per currency or group; a conditional `sum(case …)` per
+    series point); never read unbounded rows into PHP to total them. `DashboardQueryCountTest` enforces it.
+11. A contains search (`whereLike`, `Like::where`) on a table that grows with clients needs a trigram index on exactly
+    the searched expression of every OR'd column (`OnlineIndex::trigram()`), or PostgreSQL scans the table.
+    `SearchIndexesTest` checks the admin searches.
+
+### Migrations during blue-green deploys (expand, then contract)
+
+Production deploys are blue-green (`deploy/bin/deploy`, `docs/devops/production.md`): the new release's
+migrations run first, then the new version starts beside the old one, and traffic moves only when it is healthy.
+The old version keeps serving, and stays ready for a rollback, against the **new** schema. So every release's
+migrations must be ones the previous release can run against:
+
+1. **Expand only** in the release that needs the change: add tables, nullable columns or columns with a default,
+   indexes and foreign keys that existing rows satisfy. New code writes both the old and the new shape while it
+   matters (a renamed column: write both, read the new one, backfill in a queued job, not in the migration).
+2. **Contract later**, in a release after the one where no code reads or writes the old schema: drop the old
+   column or table, or tighten a constraint. Tag that migration `@contract` with the release that stopped using
+   it.
+3. **Never in one step:** drop, rename (`renameColumn`, `Schema::rename`), change a column's type or nullability
+   (`->change()`), or raw `DROP`/`RENAME` SQL. An in-place change the previous release demonstrably tolerates
+   (widening a `decimal` or `varchar`) is tagged `@compatible` with the reason.
+4. **Jobs too:** a queued job's payload must stay readable by both versions, because old workers drain while new
+   ones start. Add properties with defaults; remove them a release later.
+
+`php artisan deploy:check-migrations` enforces rules 1 to 3: `--since=origin/develop` locally before a pull request,
+and `--pending` in the new image before every deploy (the deploy script stops on a finding). It is not part of CI.
 
 ## Testing (Pest)
 

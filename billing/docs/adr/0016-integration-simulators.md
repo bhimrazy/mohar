@@ -93,19 +93,21 @@ then every recording is `source: docs`.
   run unchanged. `rotate_certificate` must then produce the driver's "server certificate changed" failure.
 - **Fixed-host providers (Stripe, Khalti, eSewa, ResellerClub, Razorpay, PayPal)** need one kernel helper,
   `App\Support\Integrations\Endpoints`:
-    - Drivers always call `Endpoints::url('stripe.api', config('payments_stripe.api'))` and
-      `Endpoints::options('stripe.api')`. They do this whether or not an override exists, so there is no simulator branch
-      in driver code.
+    - Drivers always call `Endpoints::for('stripe.api', config('payments_stripe.api'))`, which returns the URL and its
+      request options together. They do this whether or not an override exists, so there is no simulator branch in
+      driver code.
     - Overrides come only from the environment: `INTEGRATION_ENDPOINTS` (a JSON map) and `INTEGRATION_CA_BUNDLE`. They
       are never database settings, so staff cannot change them.
-    - With no override, `options()` returns `[]` and behaviour is byte-for-byte the current behaviour.
-    - With an override, `options()` adds `verify => <scenario CA bundle>`, so TLS and hostname checks stay on. The
-      destination is also resolved and pinned through `OutboundAddressGuard`, so loopback is reachable only when
-      `OUTBOUND_ALLOW_LOOPBACK` allows it.
-- **Fail closed.** When `app()->isProduction()`, `Endpoints` ignores every override and logs `critical` once per boot
-  with the keys only. The health check and `app:install` report the override as an error. Outside production, active
-  overrides are logged at `warning` at boot.
-- **Guard tightening (kernel, amends ADR 0015).** Loopback is refused in production whatever
+    - With no override, the endpoint is the default and its options are `[]`: behaviour is byte-for-byte the current
+      behaviour.
+    - With an override (https only, no credentials, query or fragment), the options add `verify => <scenario CA
+bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
+      `OutboundAddressGuard`, so loopback is reachable only when `OUTBOUND_ALLOW_LOOPBACK` allows it.
+- **Fail closed.** Overrides are honoured only when the app runs as `local` or `testing` (S0 review on #77). In every
+  other environment, including `production`, `staging`, an empty or an unknown name, `Endpoints` ignores every
+  override and logs `critical` once per boot with the keys only. The health check and `app:install` report the
+  override as an error (S1). In development and tests, active overrides are logged at `warning` at boot.
+- **Guard tightening (kernel, amends ADR 0015).** Loopback is refused outside `local` and `testing` whatever
   `OUTBOUND_ALLOW_LOOPBACK` says. It stays off by default everywhere except `APP_ENV=local`.
 - **Signatures and settlement stay real.** Signature checks, timestamp tolerance, idempotency and `lookup()` settlement
   run as in production. A return or webhook alone never settles a payment. The simulator must answer `lookup()`.
@@ -154,7 +156,7 @@ Fault cases:
 
 | #   | Guarantee                     | Enforced by                                                                                                                                                                                                                                                                   | Tested by                                                                                                                                                                                                                 |
 | --- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Zero production footprint     | The code is outside `app/` in a `require-dev` path package. Its provider is registered only by package discovery and returns early when `isProduction()`. Each command re-checks in `handle()`.                                                                               | An Arch test checks that `App\` never uses `Mohar\Simulators`. A CI step installs with `composer install --no-dev`, boots `artisan list`, and asserts there are no `simulate:*` commands and no class from the namespace. |
+| 1   | Zero production footprint     | The code is outside `app/` in a `require-dev` path package. Its provider is registered only by package discovery and does nothing unless the app runs as `local` or `testing`. Each command re-checks in `handle()`.                                                          | An Arch test checks that `App\` never uses `Mohar\Simulators`. A CI step installs with `composer install --no-dev`, boots `artisan list`, and asserts there are no `simulate:*` commands and no class from the namespace. |
 | 2   | No weakened security paths    | There is no override for host policy, pinning or signatures. Only `Endpoints` exists, and it adds the guard. cPanel uses the trust flow.                                                                                                                                      | E2E fault cases for a forged webhook, a rotated certificate and a refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false`. An Arch test checks that no driver mentions `simulat`.                                           |
 | 3   | Narrow, fail-closed overrides | Overrides come from the environment only. They are ignored in production, with a critical log and a health error, and logged at boot elsewhere.                                                                                                                               | Unit tests on `Endpoints`: in production the override is ignored; the key is logged; no settings key exists.                                                                                                              |
 | 4   | Isolation                     | The state store is in the temp dir. Ports are ephemeral, and 8000 is refused. The E2E database is `billing_e2e_*`, and the harness refuses `database/preview.sqlite` and the dev database name. A `finally` block cleans up, and `simulate:clean` reaps leftovers by pidfile. | A harness test with the forbidden port and database names. A teardown test checks that no process or temp dir is left.                                                                                                    |
@@ -171,15 +173,146 @@ conformance tests. That is a data file, not running code, but it still goes thro
 
 ## Delivery
 
-| PR  | Scope (≈ lines)                                                                                                     | Depends on                      |
-| --- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| S0  | Kernel: `Endpoints`, loopback refused in production, Arch rules, ADR 0015 amendment (≈ 400)                         | —                               |
-| S1  | Framework: kernel pieces, registry, commands, `--no-dev` CI step (≈ 2,200)                                          | S0                              |
-| S2  | `whm` simulator and conformance tests against the #69 fixtures (≈ 2,000)                                            | S1, #69 and #73 merged          |
-| S3  | `stripe` simulator, hosted checkout, webhooks; PaymentsStripe adopts `Endpoints` (≈ 2,600)                          | S1, #58 merged                  |
-| S4  | E2E: `Simulators` suite, `simulate:e2e`, CI job (≈ 1,800)                                                           | S2, S3; SSO step in cPanel PR 2 |
-| S5  | `khalti` and `esewa`; PaymentsNepal adopts `Endpoints`; NPR scenario (≈ 2,200)                                      | S4                              |
-| S6+ | `inbound-mail` and `webhook-receiver`, then `resellerclub`, `razorpay`, `paypal`, `whmcs-api`, each with its driver | S1                              |
+| PR  | Scope (≈ lines)                                                                                                                                                        | Depends on                      |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| S0  | Kernel: `Endpoints::for()`, loopback and overrides only in `local` and `testing`, Arch rules (`Mohar\Simulators`, no "simulat" in drivers), ADR 0015 amendment (≈ 400) | —                               |
+| S1  | Framework: kernel pieces, registry, commands, `--no-dev` CI step, health check and `app:install` error for an override outside development (≈ 2,200)                   | S0                              |
+| S2  | `whm` simulator and conformance tests against the #69 fixtures (≈ 2,000)                                                                                               | S1, #69 and #73 merged          |
+| S3  | `stripe` simulator, hosted checkout, webhooks; PaymentsStripe adopts `Endpoints` (≈ 2,600)                                                                             | S1, #58 merged                  |
+| S4  | E2E: `Simulators` suite, `simulate:e2e`, CI job (≈ 1,800)                                                                                                              | S2, S3; SSO step in cPanel PR 2 |
+| S5  | `khalti` and `esewa`; PaymentsNepal adopts `Endpoints`; NPR scenario (≈ 2,200)                                                                                         | S4                              |
+| S6+ | `inbound-mail` and `webhook-receiver`, then `resellerclub`, `razorpay`, `paypal`, `whmcs-api`, each with its driver                                                    | S1                              |
+
+### S1 as delivered
+
+- `tools/simulators/src/`: `Contracts` (`Simulator`, plus the optional `SignsCallbacks`, `HasControlActions`,
+  `RecordsLive`), `Http` (request, response, route, the API kernel that applies faults and logs each call, the
+  token-gated control plane), `Kernel` (TlsFront, ScenarioCa, StateStore, RequestLog, FaultPlan, CallbackDispatcher,
+  Recorder, Scenario, Processes), the registry and the `simulate:list|start|stop|clean|record` commands. The guide for
+  adding a provider is `tools/simulators/README.md`.
+- Transport faults (`reset_before_commit`, `truncate`, `slow_body`) are carried from the API backend to the TLS front
+  in `X-Sim-*` response headers, which the front strips. A fault without an nth call fires on every call; one with an
+  nth fires once.
+- The `simulate:e2e` command, the `Simulators` testsuite and the harness refusing the preview and dev databases come
+  with S4; the pre-commit scan over `recordings/` comes with the first provider that ships recordings (S2).
+- Isolation (PR #92 review):
+    - Scenarios live under a root per checkout and per parallel test worker.
+    - A scenario a test starts stops itself when its owner process is gone (TLS front watchdog).
+    - `simulate:clean` never touches a scenario another live process owns.
+    - Pids are signalled only when `/proc` shows they are the scenario's own.
+    - The scenario CA is name-constrained to `127.0.0.1` and `localhost`, and its keys are 0600.
+- Health: `app:install` fails and the dashboard health check is red when `INTEGRATION_ENDPOINTS` is set outside
+  `local`/`testing`; in development the health check is amber and names the active keys.
+
+### S2 as delivered
+
+- **The simulator.** `whm` (`tools/simulators/src/Providers/Whm`) is stateful WHM API 1 for the driver's 17 functions:
+    - token and password sign-in (a token never exceeds its user's privileges);
+    - root and reseller ACLs, package grants and account limits;
+    - username rules in one table, duplicate usernames and domains, kept DNS zones;
+    - the driver fixtures' reasons;
+    - single-use login links on the TLS port.
+- **Conformance.** `tests/Whm/WhmConformanceTest.php` checks each answer against `tests/Fixtures/Cpanel`: key paths and types, and the refusal kind through the driver's `WhmReasons`.
+- **End to end.** `tests/Whm/CpanelDriverAgainstWhmTest.php` runs the unchanged driver through the host over a real socket:
+    - the outbound guard resolves and pins 127.0.0.1;
+    - Test connection, then "Trust this certificate", through the staff routes;
+    - the lifecycle with slow answers;
+    - `commit_then_hang` on createacct, adopted by the verify sweep;
+    - a 5xx followed by a foreign account with the same name, never adopted;
+    - a 5xx on a read, after which no create is sent;
+    - a rotated certificate, refused before any request is sent, then trusted again;
+    - reseller scoping and a single-use login link.
+- **Recording.** `simulate:record whm` is read-only and anonymises before it redacts. `simulate:scan` and `RecordingScanner` are the secret scan over `recordings/`; it runs in `simulate:record`, in the CI tests, and as an optional pre-commit hook.
+- **After the #100 review.**
+    - Recording is staged and scanned before anything is saved.
+    - Anonymisation is deny-by-default.
+    - Recordings store their unmasked shape.
+    - The payment rule is applied per simulator (`RedactsPayments`).
+    - Live recordings are replayed against the simulator (the drift test).
+    - The request log masks session paths.
+    - Transactions nest.
+    - Login links and `removeacct` are checked under the lock.
+    - WHM is followed more closely: no `user` alias on `removeacct`, token IP allow-lists, API 0 without `api.version`, IP delegation for resellers, and root packages only with `viewglobalpackages`.
+- **Framework changes.**
+    - `Request::fields()` keeps dotted names (`api.version`) and nests brackets (`card[number]`).
+    - `StateStore::transaction()`, nestable.
+    - The API kernel logs a committed call before a `commit_then_hang` delay.
+
+### S3 as delivered
+
+- **After the #113 review**, including the 2026-10-20 live-sandbox parity run:
+    - the outbox completes a delivery only on a 2xx and retries anything else on a compressed backoff, up to a maximum number of attempts; `drain()` is included, so a dispute that arrives before its payment books on the retry, with no manual replay (#124);
+    - an `unsigned` delivery variant;
+    - a validation failure saves no idempotent result;
+    - a disputed charge refuses a refund (`charge_disputed`);
+    - sessions expire on their own past `expires_at`;
+    - a double Pay charges once.
+    - Forged delivery variants leave the genuine delivery's attempts, schedule and completion untouched (#113 re-review).
+    - Drift against real Stripe: a recording script (`StripeRecording`, `simulate:record stripe`) replayed as the same sequence against the simulator, normalised, and compared on the paths the driver reads. Recording is deferred by CTO decision until the owner provides a long-lived restricted test key as a GitHub or Codespaces secret; the live check is skipped until then.
+
+- **#100 re-check lows**, carried into S3:
+    - keys are anonymised (a data-like key is renamed) and scanned like values;
+    - numeric strings are kept only under known-safe keys;
+    - WHM's free-text reason is scrubbed of emails, URLs, addresses and host names;
+    - each recording notes its login, and the drift replay uses it instead of assuming root.
+
+- **The simulator.** `stripe` (`tools/simulators/src/Providers/Stripe`) provides:
+    - stateful Checkout Sessions with a hosted page (pay, decline, back), PaymentIntents, Charges, balance transactions, Refunds and Disputes;
+    - `expand[]`, idempotency keys and the API version check;
+    - every change as an event, signed for the app's webhook endpoint.
+- **Driver change** (#90, the only product change):
+    - `StripeClient` takes its base URL and request options from `Endpoints::for('stripe.api')`;
+    - the checkout URL check compares host and port with `Endpoints::for('stripe.checkout')`;
+    - without an override the options are `[]` and the hosts are unchanged, and the 68 existing Stripe tests pass untouched;
+    - with one, the guard resolves and pins the connection and TLS is verified against the scenario CA.
+    - With no override, calls do not go through the outbound guard: `api.stripe.com` is a fixed host, and pinning it would bypass an install's HTTP proxy (ADR 0015). Guarantee 5 keeps the default byte for byte.
+- **Conformance.** `tests/Stripe/StripeConformanceTest.php` checks every path and type in `tests/Fixtures/Stripe`; the fixtures are trimmed, so extra fields are allowed. It also covers the error envelopes, idempotency and the version check.
+- **End to end.** `tests/Stripe/StripeDriverAgainstSimulatorTest.php` drives the real driver through the app's routes, with no `Http::fake`:
+    - a payment on the hosted page, settled by webhooks delivered out of order, then replays and the late browser return, booked once with Stripe's fee;
+    - forged and stale signatures, refused before any retrieve;
+    - a staff refund, sent once, whose webhook is a duplicate;
+    - a dispute, recorded as a chargeback once, putting the invoice in collections;
+    - a declined card and then an abandoned checkout: the session is expired at Stripe by the driver, the attempt is expired, and the invoice stays unpaid.
+
+### S4 as delivered
+
+- **The scenario.** `tests/Simulators/HostingLifecycleTest.php` is HTTP-level, with every module real and only the providers simulated:
+    1. `migrate`, then `app:install` (no demo data). The administrator replaces the one-time password through the password route and confirms it for the `password.recent` routes.
+    2. The WHM server is trusted through Test connection and "Trust this certificate" on the staff routes.
+    3. A product on `root_basic`, and Stripe in test mode against its simulator.
+    4. A customer registers, verifies the address (asserted), orders and pays on the hosted page.
+    5. The invoice is Paid, the service is Active and the WHM account exists. The customer has the verification, welcome, order, invoice, payment and hosting welcome emails.
+    6. Overdue (the due dates are backdated in the throwaway database, as §4 allows): suspension in WHM and its email, the renewal paid on Stripe, then unsuspension and its email.
+    7. An immediate cancellation, after which the account is gone from WHM. The service ends Cancelled, with the cancellation-request email; no email confirms the removal (#146).
+    8. Staff refund 10.00 through the admin refund route (`password.recent`), which the driver sends to Stripe once. Then a dispute on the renewal is raised from the control plane: a chargeback, and the invoice in Collections.
+    - **Fixtures, not staff routes:** the server row, the product and the Stripe gateway row are created directly (factories and `stripeGateway()`). Everything else above goes through the app's routes.
+    - Single sign-on waits for cPanel PR 2.
+- **§4 fault cases and the #124 retry path, and where each is proved:**
+
+| Case                                                                              | Proved by                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createacct` commits then times out; the verify sweep adopts with proof           | `tests/Simulators/HostingLifecycleTest.php` (second test, end to end); `tools/simulators/tests/Whm/CpanelDriverAgainstWhmTest.php`                                                                                                                                                              |
+| A foreign account with the same name is never adopted                             | `CpanelDriverAgainstWhmTest` "after a 5xx the sweep never adopts someone else's account…" (driver against the simulator); not in the e2e scenario                                                                                                                                               |
+| A duplicate webhook is settled once                                               | `HostingLifecycleTest` (every replay answers `duplicate`); `tools/simulators/tests/Stripe/StripeDriverAgainstSimulatorTest.php`                                                                                                                                                                 |
+| A forged (wrong secret) and a stale webhook are refused                           | `HostingLifecycleTest` (wrong secret); `StripeDriverAgainstSimulatorTest` "a forged or stale webhook is refused…"; `StripeLiveParityProbesTest` (unsigned, 403)                                                                                                                                 |
+| An out-of-order refund before the payment                                         | Handler level only: `tests/Feature/Billing/WebhookTest.php` "a refund webhook before its payment is rejected for retry, then recorded once". **Not covered against the simulator yet** (#145)                                                                                                   |
+| A dispute before its payment is answered 409, and booked on Stripe's retry (#124) | `StripeDriverAgainstSimulatorTest` "#124"; `tools/simulators/tests/Stripe/StripeReReviewProbesTest.php` (the outbox's `drain()` against the real app); `tests/Feature/PaymentsStripe/StripeWebhookTest.php`. The e2e scenario's dispute arrives after its payment, so its harness never retries |
+| A rotated WHM certificate is refused                                              | `CpanelDriverAgainstWhmTest` "a rotated certificate is refused before anything is sent…"                                                                                                                                                                                                        |
+| A refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false` (§5 guarantee 2)          | Unit level: `tests/Feature/Integrations/EndpointsTest.php` "an override to loopback is refused unless the install policy allows loopback"; not end to end                                                                                                                                       |
+| A tampered eSewa return (NPR variant)                                             | **Not covered yet**; it comes with S5                                                                                                                                                                                                                                                           |
+
+- **The runner.** `php artisan simulate:e2e`:
+    - creates `billing_e2e_<random>` on PostgreSQL (or a temporary SQLite file);
+    - runs the scenario in a Pest subprocess with phpunit.xml's environment, so the host's `.env` (a database queue, say) does not leak in, within a time budget (at least 60 s, 360 s by default);
+    - drops the database unless `--keep`, which keeps the last test's state (`--filter` chooses it).
+    - A detached guard drops the database and stops the scenario if the runner is interrupted (Ctrl-C, SIGTERM). Where pcntl is loaded, a signal trap also cleans up at once. `scripts/pg.sh --prune` drops idle `billing_e2e_*` databases as a backstop.
+    - The harness refuses every database except `billing_e2e_*` or SQLite in memory. It judges the connection Laravel really opens (`getDatabaseName()`, and `current_database()` on PostgreSQL), whatever `DB_URL` says.
+    - Deviation from §4, accepted by the CTO on 2026-10-20: one runner, the in-process Pest scenario on a throwaway database. The second topology, `artisan serve` and `queue:work`, is deferred until the E2E job is stable or a deployment workstream needs the worker topology proven. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
+- **CI.** The `E2E simulators (hosting lifecycle)` job is opt-in:
+    - it runs on `workflow_dispatch`, on pushes to `main`, and on PRs labelled `e2e`, never on ordinary PR events;
+    - it has its own PostgreSQL service and `timeout-minutes: 10`, about 2 billable minutes a run;
+    - it is not a required check.
+    - The main job never runs `tests/Simulators`, which is in no testsuite.
 
 ## Limits: what simulators cannot prove
 

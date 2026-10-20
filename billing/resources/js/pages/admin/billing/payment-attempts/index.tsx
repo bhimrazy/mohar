@@ -14,7 +14,10 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { humanize } from '@/components/billing/types';
 import { Button } from '@/components/ui/button';
 import { show as showInvoice } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
-import { check } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
+import {
+    check,
+    lateChecked,
+} from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import type { LaravelPaginated, SelectOption } from '@/types/app';
 
 type Attempt = {
@@ -32,6 +35,10 @@ type Attempt = {
     last_lookup_at: string | null;
     expires_at: string | null;
     created_at: string | null;
+    late_payment_at: string | null;
+    late_checked_at: string | null;
+    check_reason: string | null;
+    needs_check: boolean;
 };
 
 type Props = {
@@ -39,6 +46,30 @@ type Props = {
     filters: Record<string, string>;
     statuses: SelectOption[];
 };
+
+const LATE_OPTIONS: SelectOption[] = [{ value: '1', label: 'Late payments' }];
+
+/** Why staff should check a booked payment (`check_reason`). */
+const CHECK_LABELS: Record<string, string> = {
+    late: 'Late payment',
+    credit: 'Kept as credit',
+    refund: 'Refund over credit',
+};
+
+function flagLabel(attempt: Attempt): string | null {
+    const label = attempt.check_reason
+        ? (CHECK_LABELS[attempt.check_reason] ?? 'To check')
+        : attempt.late_payment_at
+          ? CHECK_LABELS.late
+          : null;
+
+    return label && attempt.late_checked_at ? `${label}, checked` : label;
+}
+
+/** Closed attempts can still be looked up: a late success at the gateway is booked. */
+const CHECKABLE = ['pending', 'ambiguous', 'expired', 'failed'];
+
+const post = (url: string) => router.post(url, {}, { preserveScroll: true });
 
 const TONES: Record<string, string> = {
     pending: 'pending',
@@ -83,10 +114,22 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             header: 'Status',
             cell: (attempt) => (
                 <div className="space-y-1">
-                    <StatusBadge
-                        status={TONES[attempt.status] ?? attempt.status}
-                        label={humanize(attempt.status)}
-                    />
+                    <div className="flex flex-wrap gap-1">
+                        <StatusBadge
+                            status={TONES[attempt.status] ?? attempt.status}
+                            label={humanize(attempt.status)}
+                        />
+                        {flagLabel(attempt) && (
+                            <StatusBadge
+                                status={
+                                    attempt.late_checked_at
+                                        ? 'resolved'
+                                        : 'review'
+                                }
+                                label={flagLabel(attempt) ?? ''}
+                            />
+                        )}
+                    </div>
                     {attempt.review_reason && (
                         <div className="text-xs whitespace-normal text-muted-foreground">
                             {attempt.review_reason}
@@ -119,23 +162,28 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             key: 'actions',
             header: <span className="sr-only">Actions</span>,
             align: 'right',
-            hideOnMobile: true,
-            cell: (attempt) =>
-                ['pending', 'ambiguous'].includes(attempt.status) ? (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                            router.post(
-                                check.url(attempt.id),
-                                {},
-                                { preserveScroll: true },
-                            )
-                        }
-                    >
-                        Check now
-                    </Button>
-                ) : null,
+            cell: (attempt) => (
+                <div className="flex justify-end gap-1">
+                    {attempt.needs_check && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => post(lateChecked.url(attempt.id))}
+                        >
+                            Mark checked
+                        </Button>
+                    )}
+                    {CHECKABLE.includes(attempt.status) && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => post(check.url(attempt.id))}
+                        >
+                            Check now
+                        </Button>
+                    )}
+                </div>
+            ),
         },
     ];
 
@@ -149,13 +197,21 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                 />
                 <FilterBar
                     searchParam={null}
-                    filterKeys={['status']}
+                    filterKeys={['status', 'late']}
                     filters={
-                        <FilterSelect
-                            name="status"
-                            label="Statuses"
-                            options={statuses}
-                        />
+                        <>
+                            <FilterSelect
+                                name="status"
+                                label="Statuses"
+                                options={statuses}
+                            />
+                            <FilterSelect
+                                name="late"
+                                label="Late payments"
+                                allLabel="All attempts"
+                                options={LATE_OPTIONS}
+                            />
+                        </>
                     }
                 />
                 <DataTable

@@ -63,7 +63,8 @@ class ServerRequest extends FormRequest
             'currency' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
             'datacenter' => ['nullable', 'string', 'max:255'],
             'status_url' => ['nullable', 'url', 'max:255'],
-            ...app(ServerSettings::class)->rules((string) $this->input('driver'), $this->routeServer()),
+            // A new destination counts as having no stored secrets: they are never sent anywhere they were not saved for.
+            ...app(ServerSettings::class)->rules((string) $this->input('driver'), $this->retargeted() ? null : $this->routeServer()),
         ];
     }
 
@@ -86,7 +87,9 @@ class ServerRequest extends FormRequest
 
     /**
      * Every credential the driver reads with the submitted settings must be entered or already stored: switching
-     * "Sign in with" never leaves a server without one (the unused one is removed on save).
+     * "Sign in with" never leaves a server without one (the unused one is removed on save). A stored credential counts
+     * only while the destination (Server::DESTINATION) is unchanged: after a new hostname, address, port or driver it
+     * must be entered again, so a stored token is never sent to a host it was not saved for.
      *
      * @return list<Closure(Validator): void>
      */
@@ -96,14 +99,20 @@ class ServerRequest extends FormRequest
             $driver = (string) $this->input('driver');
             $used = app(ServerSettings::class)->usedCredentials($driver, (array) $this->input('settings', []));
             $server = $this->routeServer();
+            $retargeted = $this->retargeted();
 
             foreach ($used ?? [] as $credential) {
-                $stored = $server !== null && $server->driver === $driver && (string) $server->getAttribute($credential) !== '';
+                $stored = $server !== null && ! $retargeted && (string) $server->getAttribute($credential) !== '';
 
                 if (! $this->filled($credential) && ! $stored) {
-                    $validator->errors()->add($credential, match ($credential) {
-                        'password' => __('Enter the password, or keep signing in with the API token.'),
-                        'api_token' => __('Enter the API token, or keep signing in with the password.'),
+                    $validator->errors()->add($credential, match (true) {
+                        $retargeted && (string) $server?->getAttribute($credential) !== '' => __('The server\'s address changed: enter the :credential again. The stored one is never sent to a new address.', ['credential' => match ($credential) {
+                            'password' => __('password'),
+                            'api_token' => __('API token'),
+                            default => __('access hash'),
+                        }]),
+                        $credential === 'password' => __('Enter the password, or keep signing in with the API token.'),
+                        $credential === 'api_token' => __('Enter the API token, or keep signing in with the password.'),
                         default => __('Enter the access hash.'),
                     });
                 }
@@ -139,6 +148,14 @@ class ServerRequest extends FormRequest
     protected function secretInputPaths(): array
     {
         return ['api_token', 'access_hash', ...$this->settingInputPaths('settings', app(ServerSettings::class)->fields((string) $this->input('driver')))];
+    }
+
+    /**
+     * Whether this update points the stored server at another destination.
+     */
+    private function retargeted(): bool
+    {
+        return $this->routeServer()?->retargetedBy($this->only(Server::DESTINATION)) ?? false;
     }
 
     private function routeServer(): ?Server

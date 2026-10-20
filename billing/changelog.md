@@ -8,6 +8,162 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
+  of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
+  cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
+  and the refund only logged "refund needs staff review". Now the part the payment could not return is taken back
+  from the credit that payment placed, once per dispute or refund id, never from other credit. If the client
+  already spent it, the balance goes negative; this now also applies to refunds of flagged late payments (#152),
+  which keep their "Gateway payments to review" flag. Chargeback and refund rows book the whole reversed amount as
+  money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
+  left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
+  to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
+  balances only" filter) and "Disputes to review" (`billing.payments.manage` and `billing.transactions.view`; Billing → Transactions,
+  "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
+  recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
+  `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
+  built concurrently on PostgreSQL. Not handled yet: a dispute the merchant wins books nothing, so correct the
+  credit by hand. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  were disputed or refunded at the provider.
+- **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
+  `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
+  capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
+  Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
+  hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
+  scheduler process no longer calls registrars itself. The provider pool (`queue:work
+--queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
+  queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
+  ones, so local runs process registrar jobs too.
+- **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
+  off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
+  checked with the registrar (never re-sent) and listed in the sync report. No schema change.
+- **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
+  `storefront.publish` (make it live). `storefront.publish` is sensitive: only an exact grant (or `*`) gives it, never
+  `storefront.*`, and publishing asks for the password when it was not confirmed recently. Grant both explicitly to
+  staff who maintain the public site.
+- **Public website (Storefront module).** A migration adds `storefront_revisions`. Until a version is published, the
+  home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
+  `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
+  other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
+  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists. Settings → Company gains support
+  hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
+  empty fields are not shown. A new support email (Settings → Company) is the website's contact address and "Contact
+  us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
+  now runs a clearly fictional host, "Example Hosting" (seller details, support hours, WhatsApp, PAN/VAT,
+  registration number, `example.com` email, social and Terms, Privacy and Refund links), and its card gateway is
+  named "Card"; its bank transfer instructions name a fictional bank and an example NPR account. The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
+  country to NP, so NPR invoices carry 13% VAT and INR invoices no longer charge Indian GST. Only the demo seeders
+  change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
+  seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
+  `migrate:fresh --seed` for the new demo values.
+
+- **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
+  attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
+  after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
+  (all of it when the invoice was already paid). A Stripe webhook for a closed attempt now answers
+  `late payment recorded` instead of `attempt expired`. Run `php artisan migrate` (adds four nullable columns and
+  two indexes to `payment_attempts`, and `gateway` and `external_ref` to `credit_ledger` with a unique index on the
+  pair). The scheduler now runs `billing:reconcile-payments --only=open` every five
+  minutes and `billing:reconcile-payments --only=late` hourly, each on its own lock; without `--only` the command
+  runs both. New settings: "Hosted payments: keep checking closed payments for late success" (48 hours, 0 to 168)
+  and "Hosted payments: late checks per hourly run" (100). Attempts that closed before the upgrade are not swept;
+  a webhook or "Check now" can still book them. **After upgrading, check Billing → Payment attempts with the
+  "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
+  can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
+  records and refund any duplicate.
+
+- **The default queue worker also runs client imports** (client-import spec C2): start it as
+  `php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256` (it was `--queue=default`), and give
+  it a stop timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked
+  after `default`, stop themselves after 120 s and may use up to 192 MB. Without the change, client imports wait in the
+  queue. On SQS, give the `imports` queue a visibility timeout of at least 150 s.
+- **Client import files can be 20 MB.** The container's PHP `upload_max_filesize` is now 21M (was 12M). On other
+  installs, raise `upload_max_filesize` (and `post_max_size`) to at least 21M; the Import clients page says when PHP
+  accepts less than the setting. New permissions `migration.runs.view` and `migration.runs.execute` (sensitive: never
+  granted by a wildcard, needs a recent password) control the page.
+
+- **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
+  migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
+  (`staff`, `import`, `client`; default `client`), with CHECK constraints on PostgreSQL. It runs outside a transaction
+  and backfills in batches of 1,000 clients from the activity log:
+    - `origin` becomes `staff` where a staff member created the client (`client.created`), and `signup` otherwise;
+    - `email_source` becomes `staff` where the last entry that set the email was a staff member's (`client.created`, or
+      `client.updated` with `email` changed); a client-area account-details save counts as the client's.
+
+    Clients seeded or created before the activity log recorded event keys (2026-10-17) count as `signup` with a
+    `client` email. Account import does not propose their email matches until a login on the client verifies the
+    address; staff can still choose such a client for an account. To vouch for addresses your staff entered or checked
+    with the client, with an audit entry per client:
+    `php artisan tinker --execute 'foreach ([12, 15] as $id) { $c = App\Modules\Core\Models\Client::query()->findOrFail($id); $c->forceFill(["email_source" => "staff"])->save(); app(App\Modules\Core\Support\ActivityLogger::class)->log("Client email vouched for by staff", $c, $c->id, ["email" => $c->email], "client.email_vouched"); }'`.
+    **Do not vouch for an address a client chose** (a sign-up, or one changed in the client area): that lets an email
+    match to it be proposed, and re-opens the gap this closes.
+
+- **PostgreSQL: the `pg_trgm` extension and 12 search indexes.** Four migrations run `create extension if not exists
+pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
+  (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
+  (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
+  and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
+  needs a superuser to run `create extension pg_trgm` first. Some managed services also need `pg_trgm` allow-listed
+  before it can be created (Azure Database for PostgreSQL: the `azure.extensions` server parameter). If creating the
+  extension fails, `migrate` stops at the first trigram migration with the database error; allow the extension and run
+  `migrate` again, which is safe to repeat. On 20,000 clients the builds took 2.4 s and the indexes use about 10 MB.
+  SQLite is unchanged.
+- **Start a fourth queue worker for Admin → Automation → Run now** (#82):
+  `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
+  (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
+  `default` queue to their own `automation` connection: the backend of `QUEUE_CONNECTION` (`database`, `redis`,
+  `beanstalkd` or `sqs`; `database` for any other driver), the `automation` queue, and a `retry_after` of 3,900 s. A run
+  longer than 240 s was handed to a second worker, which failed it while the first worker was still running it.
+  Without the new worker, Run now requests wait in the queue; the scheduled daily run is not affected. On SQS, create
+  an `automation` queue with a visibility timeout of at least 3,900 s. Jobs already waiting on `default` from an
+  earlier Run now still run there. Start the worker with the `automation` connection argument: a job taken by a
+  worker on another connection (`queue:work --queue=automation`) fails without running and names the right command.
+  The `app:install` hint prints the four workers and the 200 s timeout that `install.md` documents for the first pool
+  (it printed 85 s).
+- **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
+  by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
+  encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new
+  sensitive permission `support.inbound_webhook.manage`, and a change needs a recent password. `support.*` no longer
+  reaches it; grant the permission explicitly to staff who manage the mail relay. After upgrading, enter a new secret
+  of at least 32 characters and set it on the relay: mail signed with the old one stops being accepted.
+- **Changing where a server connects clears its stored credentials.** A new hostname, IP address, port, TLS setting
+  or driver needs the API token or password entered again in the same save; the stored ones and any trusted
+  certificate are removed, and the move is recorded in the activity log as "Server connection address changed".
+  Server audit entries now read "Server settings changed", with the server name in the properties.
+- **Registration and password reset are rate-limited.** `POST /register`: 10 an hour per IP and 5 an hour per email
+  address. `POST /reset-password`: 5 a minute per IP (no per-address limit, so failures from elsewhere cannot block
+  a valid link). Over the limit the answer is 429.
+- **More step-up confirmations.** Creating, editing and deleting server groups, capturing an authorised invoice
+  charge, and saving or testing a registrar now need a recent password. `domains.registrars.manage` is sensitive:
+  wildcards such as `domains.*` no longer grant it, so grant it explicitly. Registrar tests allow 6 a minute.
+  Sensitive settings sections ask for the password before they validate the form, like every other step-up route.
+- **Clients can change a hosting password 6 times a minute.**
+- **Webhook deliveries ignore `HTTPS_PROXY`.** They connect directly to the vetted address, and also refuse the
+  addresses the kernel outbound guard refuses (documentation, tunnelled and non-canonical forms). In local
+  development a loopback receiver needs `OUTBOUND_ALLOW_LOOPBACK=true` (the default when `APP_ENV=local`).
+- **New installs encrypt sessions** (`SESSION_ENCRYPT=true` in `.env.example`). Existing installs keep their
+  setting; turning it on signs everyone out once.
+- **Account import, step 1.** A migration adds the `server_account_imports` table: one fetched account list per
+  server with how each account matched, encrypted, deleted once expired (24 hours) when next read or by the daily
+  housekeeping task "Discard expired account imports". The new permission `services.servers.import` is sensitive:
+  wildcards such as `services.*` never grant it, and fetching needs a recent password. Grant it explicitly to staff
+  who bring existing accounts in. Fetches run on the `provisioning` queue.
+  A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
+  without the owner check until fetched again.
+  A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
+  importing need a recent password; imports run on the `provisioning` queue.
+  A Core migration adds `email_changed_at` to `clients` (nullable), set whenever the address changes.
+  An email match is no longer proposed when the client changed email in the last 30 days, or when the client has an
+  owner login and none with the client's email is verified (clients from sign-up or checkout until they verify).
+  Clients without an owner login, as staff create them, are proposed as before. Staff can still choose a flagged
+  client for an account; the review imports it only then. Match again to apply this to a list fetched earlier.
+- **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
+  unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
+  reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
 - **Module queue check results.** A migration adds three nullable columns to `module_queue` (`lookup_status`,
   `lookup_message`, `looked_up_at`); no rows are rewritten. The scheduler must run for `services:verify-unknown`.
 
@@ -58,8 +214,132 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   both; it is flattened onto white when uploaded so it reads in every mode. WebP marks are converted to PNG when
   uploaded; re-upload an existing WebP mark for it to appear in mail.
 - Invitations and account security notices are always sent: their templates can't be switched off.
+- **Email templates follow new defaults.** Run `php artisan migrate` (adds `default_hash` and `previous_text` to
+  `email_template_translations`); the upgrade's `app:install` then replaces the text of templates nobody edited with
+  the new shipped wording, with an activity-log entry each. Edited templates are left as they are.
+- **Client-login invitations have their own link.** A new `client_invitations` table holds a single-use invitation
+  token (stored hashed) instead of a password-reset token. Links work for "Invitation links work for (days)"
+  (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
+  before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
+  use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Client import
+
+- **Admin → Clients → Import clients**: upload a CSV file of clients (up to 20 MB, 100,000 rows and 200 columns; each
+  a setting) into a named source. Files must be UTF-8 (other encodings are refused with the fix); the separator
+  (comma, semicolon or tab) is detected or chosen. The file is encrypted before it is stored, read on the `imports`
+  queue into encrypted rows 500 at a time, and then deleted. Columns named like passwords, card numbers or security
+  answers are never stored. The page shows the progress, a "did not finish" alert after 10 minutes without a worker
+  with a button to continue, every earlier upload, and a notice when the same file was uploaded to the source before.
+- **Map columns**: each column of the file becomes a client field, the External ID, an imported field (kept as is with
+  its header as label) or nothing. Suggestions come from the header names, with a preset for the WHMCS clients export;
+  password and card columns stay ignored. First name, last name and email are required. Dates are read in the chosen
+  order (year-first is picked automatically). Options: what to do when an email matches a client (skip or update),
+  blank cells on update, closed clients, company-name and tax-ID duplicate flags, logins, and trusting the file's
+  verified column.
+- **Check**: every row is checked on the `imports` queue, 1,000 rows per job, with the admin client form's own rules
+  (shared in Core, so the two cannot disagree), ISO country codes, enabled currencies (blank means the default) and
+  client groups by name. Client groups not found stop the check until each is mapped, created or dropped; currencies
+  not enabled can be mapped; unrecognised countries are listed. Spreadsheet damage (numbers in scientific notation,
+  Indian postcodes missing a leading zero) is a warning.
+- **Duplicates** (client-import spec §7): the same email or External ID twice in the file makes the later row an error
+  naming the first; a row imported from the source before comes out unchanged or as an update; an email that matches
+  one client is skipped or updated by the option, with the fields an update changes; several matches, a closed match,
+  a match whose email changed in the last 30 days, and (when flagged) the same company name or tax ID need a decision;
+  a merged match resolves to the client it was merged into; an email that belongs to a contact is a warning.
+- **Check results**: summary cards (new clients, updates, unchanged, skipped, needs a decision, errors, tax-exempt),
+  tabs with counts, and every row with its file row number, the matching client and its notes; search by row number
+  or exact email. Nothing is imported yet: reviewing and applying is the next step.
+- Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
+  expired client imports"); their counts stay.
+
+### Storefront
+
+- New home page (direction A): the host's own headline and text from the published website content, domain search with featured extensions and their
+  first-year and renewal prices, the most popular plan (the catalog's Featured flag), and sections the host turns on
+  and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
+  network status, ways to pay. The product's own name and tagline never appear.
+- One public layout for home, store, cart, checkout, domains, knowledge base, announcements, network status and the
+  404 page. The header lists the catalog's visible product groups live (a link each up to three groups on wide screens,
+  otherwise one menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
+  (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
+  area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
+  visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
+- Price cards show the cycle price, "Renews at" and any setup fee; with `catalog.show_monthly_breakdown` on they lead
+  with the per-month price and "Billed …". Each currency states tax for its own market from Billing's tax rules
+  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR whatever the rules are
+  named, by `storefront.tax_families`; "Tax added at checkout where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
+  default, and adds tax only to taxed products (and to domains while domains are taxed).
+- Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
+  with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,
+  registration and tax numbers (one "PAN/VAT no." row when the VAT number is the PAN), social links and "Pay an
+  invoice"; the Support menu lists network status and Contact us, and the phone menu lists the cart. The 404 page
+  links to Hosting plans, Knowledge base, Contact us and Home. Log-in and sign-up pages link back to the website.
+- Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
+  never the product's own logo or mark.
+- Admin → Website: headline, text, sections on/off and order, trust facts, why-us points, the call-to-action band,
+  featured groups and first billing cycle, news counts, header product menu, legal links, page title and description, and price display per currency
+  (tax included or not, and the tax note's wording). Changes are saved as a draft, previewed at a signed staff-only
+  link under `/admin/website/preview` (60 minutes, not indexed, no Referer, admin sign-in checks) and published after a
+  dialog that lists the changes. Publishing refuses a draft that was saved again after the dialog opened, is
+  audit-logged with the change list and fires `StorefrontPublished`; draft saves are audit-logged with the changed
+  sections, and at most one draft can exist. A fresh install is marked "Needs your text" until the host publishes a headline.
+- `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
+  "Transfer a domain" opens the domain search with transfer preselected.
+- Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
+  in the first HTML response, plus `Organization` and `WebSite` JSON-LD on the home page. `/sitemap.xml` lists the
+  home page, store, domain prices, public knowledge-base articles and live announcements.
+
+### Performance
+
+Measured on the load-test data at 20,000 clients (143,247 invoices), PostgreSQL 18 capped at 2 CPUs, one request at
+a time: medians of three runs before and three after, on the same database, on a shared host (load 4 to 7).
+
+- **Admin dashboard:** first paint with an empty cache 5.7 s → 0.75 s, the deferred widgets 6.0 s → 0.42 s, with the
+  60-second cache warm 400 ms → 283 ms; peak memory 125 MB → 39 MB (the deferred request failed at PHP's 128 MB
+  default). Receivables, monthly recurring revenue, tax collected and weekly sign-ups are summed in SQL, one row per
+  currency, instead of reading every open or recently paid invoice and every service into PHP. The figures are
+  unchanged: the full dashboard payload is identical byte for byte in UTC and in Asia/Kathmandu. MRR is cached for
+  60 seconds, as the Billing figures already were.
+- **Search on PostgreSQL:** admin global search 226 ms → 47 ms, invoice list search 220 ms → 113 ms, the client
+  picker 70 ms → 28 ms; the services and clients list searches spend less time in the database (70 → 50 ms and
+  42 → 27 ms). Contains searches use trigram indexes instead of reading the whole table (#48).
+- Tests now fail if a dashboard query reads unbounded rows of invoices, services, clients, tickets or transactions,
+  if the admin invoice, client, service and ticket lists or the client invoice and service lists query per row, or
+  if a searched column has no usable index on PostgreSQL.
 
 ### Platform foundation
+
+- `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
+  They are honoured only when `APP_ENV` is `local` or `testing`; only https base URLs without credentials, query or
+  fragment are used, and the connection stays verified and pinned. In any other environment they are ignored and
+  logged as critical at boot, `app:install` fails its environment check, and the admin dashboard's system health shows
+  a red "Integration endpoints" check (amber, with the keys, while they are active in development). No integration
+  uses them yet. A malformed key is never shown, only counted, since it may be a pasted URL.
+- Developers get `php artisan simulate:list|start|stop|clean|record|scan` (ADR 0016) from the dev-only `mohar/simulators`
+  package in `tools/simulators`: a provider simulator runs on free local ports behind TLS signed by a per-scenario
+  CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
+  commit, a reset before commit, certificate rotation) and signed callbacks. The first provider simulator is `whm`;
+  `stripe` follows. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
+--no-dev` build contains neither the commands nor the package (checked in CI).
+- Developers get a `whm` simulator (`php artisan simulate:start whm`), a stateful cPanel & WHM server. Point a cPanel
+  server at it (host 127.0.0.1, the printed port and token), run Test connection and trust its certificate, and the
+  real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
+  including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
+  comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
+- Developers get a `stripe` simulator (`php artisan simulate:start stripe`), Stripe in test mode: Checkout with a
+  hosted page (pay, a declined card, back), PaymentIntents, charges, refunds, disputes raised from its control plane,
+  idempotency keys and the API version header, and signed webhooks for the app's endpoint. With the printed
+  `INTEGRATION_ENDPOINTS` and the gateway's test keys set to the simulator's, the real Stripe gateway takes payments,
+  settles them from webhooks and lookups, refunds and records disputes against it.
+- Developers and CI get `php artisan simulate:e2e`, the hosting lifecycle end to end against the `whm` and `stripe`
+  simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
+  provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
+  and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
+  409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
+- The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
+  (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -70,6 +350,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `DomainPricing`, `MergeFieldRegistry`), DTOs and 37 domain events.
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
+- CI back from about 14.5 to about 10 minutes (579–622 s per job): the PostgreSQL step went from 550 s to
+  212–309 s (no pre-suite migrate and seed, direct container connection, savepoints released inside the test
+  transaction, 4 workers, the database-free Unit and Arch suites on SQLite only, the demo billing history seeded once
+  per worker with `useSeededDatabase()`), and Pint and tsc reuse cached results. The job warns past 12 of its 15
+  minutes. `composer test:pgsql` no longer migrates or seeds the base database and skips Unit and Arch;
+  `PEST_PROCESSES` sets its worker count (docs/devops/ci.md, ADR 0006 amended).
 
 ### Themes & brand
 
@@ -89,6 +375,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
+  on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
+  finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
+  that server; unmatched with the reason otherwise; listed apart when another WHM user owns it (a reseller's customer
+  on a root connection, which signs in as root when no username is set); linked when a live service already holds it,
+  with differences in domain, package, suspension and IP. Live services whose account is missing on the server are
+  recorded. WHM usernames and contact emails that are not valid are left out. Nothing is created or changed, on the
+  server or here; the request and its result are recorded in the activity log.
+- Import accounts page (Admin → Servers → server menu → Import accounts): summary cards, tabs with counts, search and
+  pages over the stored match. The rows shown are re-checked against today (a service created since links the account,
+  a client closed since is dropped, as is a product that no longer provisions there). "Match again" re-matches on the
+  queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
+  asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
+  server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
+- Import accounts, step 2: staff tick accounts (nothing is ticked by default; "Select all proposed" ticks the proposed
+  ones and opens the review) and review them, a page at a time, with the price-book amount, totals per cycle and a list
+  of accounts left out with the reason. Confirming imports exactly the reviewed rows: the matched client is pinned when
+  the review is shown, and the import is refused if any account, client, product, date or price changed since. The
+  import runs on the queue in chunks; the page shows its progress, then each account imported (with a link to its
+  service) or left out (with the reason). Each account becomes a service, active or suspended as on the server, with
+  no invoice, welcome email, module command or password, keeps its day of the month for billing, is recorded in the
+  activity log, and dispatches `ServiceImported`. Choosing a client or product per account follows in the next step.
+- Import accounts, choices: staff choose the client (a picker that lists the most recently added active clients
+  before anything is typed; it needs the permission to view clients), product, billing cycle and next due date per
+  account, and the cycle and due date for every ticked account at once from the review. Review rows link back to change
+  them and say when a client group discount explains a lower price; the date field shows the renewal date in the app's
+  format. "Select all proposed" leaves out, and the page flags, accounts whose matched client changed email in the last
+  30 days. "Fetch again" keeps choices for accounts still on the server. A choice reaches an import only through a new
+  review.
+- Import accounts, stopped and failed runs: an import that stops partway keeps the ticks and choices of the accounts
+  it did not reach, says once why it stopped ("The background job took too long.") and offers "Review the remaining N",
+  which goes through a new review. The last import's report lists accounts not imported first, a page at a time
+  behind "Show details", marks unreached accounts "Not reached", and stays on the page after "Fetch again" until the
+  next import starts. A failed fetch no longer hides the last list: the error shows above it with a link to the server
+  page to test the connection. The ticked count refreshes when an import finishes. The bulk cycle says how many ticked
+  accounts it leaves out for lack of a price and can return them to each account's default. The choice dialog saves
+  only the fields staff change: clearing the client or product (or picking "As matched") returns the account to its
+  match, clearing the cycle or date returns it to its default, and a flagged match becomes a choice only through "Use
+  this client". The client picker, on every page that uses it, shows a loading state, opens on click or typing rather
+  than on focus, and works from the keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
+- Import accounts, flagged clients: a matched client who changed email in the last 30 days, or who signed up and has
+  not verified the email, is shown on the row with the date but not proposed, and "Select all proposed" leaves it out.
+  The review checks again against the client it matches at that moment, shows the flag and keeps the account out unless
+  staff chose that client themselves. A chosen due date that has passed by the review keeps the account out until a new
+  date is chosen. "Set the cycle and due date" for ticked accounts accepts only the cycle and due date. Choices carried
+  by "Fetch again" are dropped for an account re-created under the same username (another creation time on the server).
+- Import accounts, continuing: going on after a stop keeps one report for both runs, the stop banner separates failed
+  accounts from those not reached, paging the report keeps its details open ("Hide details"), and cycles read "no
+  semi-annual price" in sentences.
+- Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
+  server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
+  after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts
+  apart instead of proposing them, until the list is fetched again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
@@ -161,6 +500,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Core
 
+- Each client records how it was created (sign-up, checkout, staff, import or API) and who set its current email
+  (staff, import or the client), both written by the path that does it and never by a form. Account import proposes an
+  email match only when staff or an importer set the address, or a login on that client (owner or not) has verified
+  it, and the address has not changed in the last 30 days. Otherwise the row shows "Email set by the client and not
+  verified" and staff choose the client themselves. Before, a client-area login could set the email of a
+  staff-created client, or a sign-up's owner could delete their login, and after 30 days the match was proposed.
+
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,
   roles with wildcard permissions, currencies, settings store, activity log.
 - Admin: client list/search/filter, create, view, edit. Client area: dashboard, account details, account switcher.
@@ -169,6 +515,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Platform admin
 
+- Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
+  page says "An automation run is already queued or running." During the scheduled run it says "An automation run
+  is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
+  ("Automation run skipped"). Runs of any length finish on one worker (#82).
+- `php artisan automation:release-locks` releases the automation locks a killed worker left behind (otherwise Run
+  now is refused for about 65 minutes after the interrupted request). It asks for confirmation, `--force` skips it,
+  and the release is recorded in the activity log.
 - Staff: invite by email (7-day link, resend/cancel) or create with a temporary password (forced change on first
   sign-in); edit, assign role, deactivate (sessions revoked, next request 401), reset 2FA; last sign-in time/IP.
 - Staff 2FA enforcement (`security.staff_2fa_required`, default on) before any admin route.
@@ -228,6 +581,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+- Registrar prerequisites (registrars.md §2): a submission or renewal whose outcome was lost is checked in the
+  registrar account with `findSubmission` (executed → applied; in progress → waits for sync; absent or unknown →
+  staff review, never re-sent); registrar ids such as order and transfer ids are kept in `registrar_meta.remote`;
+  the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
+  driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
+- Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+  The registrar gateway also masks the account's configured credentials by value in its log and in the error text
+  that reaches the domain's last error, the activity log and `RegistrarActionFailed`.
 
 ### Orders
 
@@ -250,6 +611,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Billing
 
+- **Fewer database queries per issued invoice** (renewal runs, and every other invoice):
+    - On 20,000 clients a billing day's 4,251 renewals took 42.7 queries each, now 34.7. On this shared host that was
+      138 → 126 ms per renewal (medians of three alternating runs).
+    - Issuing reuses the client and the new lines it has just written instead of reading them again, and reads the
+      order's payment guard only when there is account credit to apply.
+    - Invoice, proforma and quote numbers take one query fewer after a period's first number.
+    - Webhooks no longer build a payload when no endpoint subscribes to the event. As a result, an error in a payload
+      resolver for such an event is no longer reported to the error log; with a subscribed endpoint it still is.
+    - The stored result is unchanged: a full renewal run on that data leaves every invoice, line, service link, credit
+      entry, transaction, email and queued job identical.
 - Implements `Invoicer`, `TaxCalculator`, `CreditLedger`, `GatewayDirectory` and `InvoiceQueries`, and consults
   `PaymentGuard` before taking a payment.
 - Invoices are immutable once issued; changes go through an adjustments ledger. Gap-free and proforma numbering,
@@ -270,6 +641,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
   `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
   (USD/INR/NPR).
+- Late gateway payments (#130): each one writes an activity entry ("Late payment received after the attempt
+  closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
+  checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
+  A hosted payment that goes to account credit (the invoice was already paid or cancelled, or the payment was held
+  for review) gets the same to-do. The client sees the payment on the invoice and any surplus on the account credit
+  page. A provider refund of such a payment takes the credit back, up to what is left, once per refund id (one
+  credit line, even when nothing was left; staff see a zero line, the client does not); the rest goes to "Gateway
+  payments to review", as do a closed attempt the provider reports as partly refunded and a late payment whose
+  attempt no longer matches the invoice currency. "Check now" also works on expired and failed attempts. The
+  customer's return looks a closed attempt up only within the late window, and a session the provider reports as
+  expired, failed or cancelled is not swept again.
+- Payment tests (no behaviour change): the gaps and duplicates listed in `docs/testing/integration-test-matrix.md`
+  are closed. New tests cover hosted payments on part-paid invoices, the invoice lock against a second checkout (a
+  real concurrent PostgreSQL session), cancel on the sandbox hosted page, Stripe failing or timing out on session
+  create, unsupported currencies and minimum amounts for Stripe and eSewa, a dispute or chargeback that arrives before
+  its payment, and the `REDIRECT` capability rule. Per-driver duplicates are folded into datasets over every hosted
+  driver. Found: the sandbox card driver's `initiate()` accepts a currency it does not list (#155); Billing refuses
+  that currency before the driver is called.
 
 ### Nepal payments
 
@@ -362,6 +751,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Partly paid invoices show a "Paid" row between the total and the balance; refunds and credit notes state their
   amount; the text part drops links that the HTML drops. Staff-written ticket replies are not marked automatic.
 - Email wording uses "Log in" and "Forgot your password?" throughout.
+- The template editor shows "New default available" when a release changes the wording of a template you edited,
+  with your text and the new default side by side and "Use new default", which keeps your text as the previous text.
+- A new client login's invitation opens its own page to choose a password. The link works once, for the configured
+  number of days; the email says how long and until when. Sending a new invitation (client page → login actions →
+  "Send a new invitation", shown with an "Invited" or "Invitation expired" badge) or removing the login revokes the
+  old link. Expired, used and unknown links get a clear message. Staff invitations state their expiry the same way.
+  An invitation only ever activates a never-used login: its link stops working once the login changes its email
+  address, gets a password another way (for example "Forgot your password?"), turns on two-factor authentication,
+  signs in, or loses access to the account, and such a login can't be invited again ("Send a password reset" instead).
+  Accepting never signs in past two-factor authentication. A client merge moves open invitations with their logins.
 
 ### Currencies
 
@@ -449,6 +848,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- Security review 2026-10-19 fixes: the inbound email webhook secret is encrypted at rest, never sent to the browser,
+  masked in the audit log and behind a sensitive permission; stored server credentials are never sent to a host
+  other than the one they were saved for, and the server form warns before an address change removes them;
+  registration, password reset and client hosting-password changes are throttled; a failed password reset shows
+  the same message whether or not the address has an account; webhook deliveries are pinned through the kernel
+  outbound guard. Two tests now guard every future change: one fails when a route behind a sensitive permission
+  lacks step-up, the other when a credential-like setting is not a secret.
 - Password-reset and verification links no longer take their host from the request. Outside `local`, every generated
   URL, including queued mail, uses `APP_URL`, and production rejects requests for foreign hosts with 400.
 
@@ -471,10 +877,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Demo seeders refuse to run in production, also one by one with `db:seed --class` (they create demo accounts
   with a known password); production reference data comes from the install path in #47.
 
+### Payments — Stripe
+
+- Not yet verified against a live Stripe account: tested with recorded Stripe API fixtures and, once ADR 0016 S3
+  lands, the Stripe simulator. The live sandbox smoke run (`docs/devops/install.md` go-live checklist) is required
+  before a host takes real card payments.
+- Stripe gateway as an extension module (`app/Modules/PaymentsStripe`, spec `docs/product/payments-stripe.md`):
+  invoices are paid on Stripe Checkout and settled only from a server-side retrieve of the session and its
+  PaymentIntent, matched on amount, currency and reference. REST calls through Laravel's HTTP client with a pinned
+  `Stripe-Version` and an idempotency key on every POST; no SDK.
+- Signed webhooks (constant-time `Stripe-Signature` check, 5-minute tolerance, mode check) trigger a retrieve and
+  never trust the posted body: payments, Dashboard refunds (`refund.created`/`refund.updated`) and disputes
+  (`charge.dispute.created`, recorded as chargebacks). Duplicates and races with the return route and the poller
+  record one transaction.
+- Full and partial refunds through the Refunds API; exact amounts for zero-decimal currencies; test mode refused
+  in production; connection test; Stripe's official wordmark; `php artisan payments:stripe-smoke` for a real
+  sandbox run.
+
 ### DevOps
 
+- Deployment, part 3 (D3): blue-green deploys on one host. `deploy/bin/deploy` checks and runs the migrations with
+  the new image, starts the idle colour beside the live one, switches Caddy with a graceful reload once it is
+  healthy, moves the single scheduler and drains the old workers (each finishes its current job), and keeps the old
+  web container for `deploy/bin/deploy rollback`. `php artisan deploy:check-migrations` enforces the new
+  expand-then-contract rule (`docs/architecture.md`): an `up()` that drops, renames or changes a column or table
+  fails unless tagged `@contract` or `@compatible`. It runs before every deploy and locally (`--since`), not in CI.
+  Caddy's config directory is mounted rather than the single Caddyfile, so a release that changes it takes effect
+  at the deploy's reload (a file mount kept the pre-`git pull` file).
+
 - Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
-  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools, the scheduler, a one-shot
+  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools and the automation worker
+  (`queue:work automation`, 3,660 s stop grace), the scheduler, a one-shot
   migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
   resource limits. Runbook: `docs/devops/production.md` (install, update, backup, restore, rollback, Traefik
   variant); settings: `deploy/.env.production.example`. `deploy/bin/smoke` and the manual "Deploy smoke" workflow
@@ -489,7 +922,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
   means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
-  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+  every proxy; only the `X-Forwarded-For`, `-Host` and `-Proto` headers are honoured (not `-Port`, which Caddy
+  passes through from clients).
 - Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
   rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
   skipped. Set it to `true` once an SSR entry exists.

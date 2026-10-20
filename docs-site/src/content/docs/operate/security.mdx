@@ -1,0 +1,26 @@
+---
+title: Security checklist
+description: Check these before you take real orders.
+---
+
+Go through this list before go-live, and again after a major change to the server.
+
+- **Production settings.** `APP_ENV=production` and `APP_DEBUG=false`. The `APP_KEY` was generated for this install
+  and is stored safely (see [Backups](../backups/)). When you rotate it, keep the old key in `APP_PREVIOUS_KEYS` so
+  stored secrets stay readable.
+- **No demo accounts.** The install was made with `app:install`, never with demo data. No `admin@example.com` or
+  other test accounts exist.
+- **HTTPS only.** `SESSION_SECURE_COOKIE=true`. The `Strict-Transport-Security` and `Content-Security-Policy` headers
+  are present on `/login` and on a page that does not exist.
+- **Proxy trusted.** Behind a load balancer or proxy, `TRUSTED_PROXIES` names it (the Docker install sets this for
+  you). Check that **Activity log** shows your own IP address after you sign in, not the proxy's.
+- **Encrypted sessions.** `SESSION_ENCRYPT=true` (the default in `.env.example`).
+- **Two-factor for staff.** **Require two-factor authentication for staff** is on under **Setup → Settings →
+  Security**, and every full administrator has set it up.
+- **Private addresses blocked.** If staff you do not fully trust can add servers, set
+  `OUTBOUND_ALLOW_PRIVATE_ADDRESSES=false`, so nobody can point the app at your internal network.
+- **Email piping secret.** If you use email piping, the inbound webhook secret is set and matches your mail relay.
+- **Mail works.** Security notices (email changes, two-factor resets) depend on it. Send yourself a password reset
+  to check.
+- **Scheduler and workers running.** The dashboard's **System health** panel shows no warnings.
+- **Least privilege.** Gateway keys and the WHM token have only the permissions their guides list.

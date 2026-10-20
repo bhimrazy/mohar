@@ -11,6 +11,7 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Modules\Platform\Models\StaffInvitation;
 use App\Support\Automation\Automation;
+use App\Support\Queues;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -70,13 +71,23 @@ test('staff can run one task now and force a re-run', function () {
     $this->post(route('admin.platform.automation.run'), ['task' => 'unknown.task'])->assertSessionHasErrors('task');
 });
 
-test('run now is queued and does not force re-runs unless asked', function () {
+test('run now is queued on the automation connection, once, and does not force re-runs unless asked', function () {
     Queue::fake();
     actingAsStaff(['core.automation.*']);
 
-    $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping'])->assertRedirect();
+    $this->post(route('admin.platform.automation.run'), ['task' => 'test.housekeeping'])
+        ->assertRedirect()
+        ->assertInertiaFlash('toast.type', 'success');
 
-    Queue::assertPushed(RunAutomationJob::class, fn (RunAutomationJob $job) => $job->task === 'test.housekeeping' && $job->force === false);
+    // While that run waits or runs, another request is not queued, and the page says so.
+    $this->post(route('admin.platform.automation.run'), ['force' => true])
+        ->assertRedirect(route('admin.platform.automation.index'))
+        ->assertInertiaFlash('toast', ['type' => 'info', 'message' => 'An automation run is already queued or running. Results appear in the run log.']);
+
+    Queue::assertCount(1);
+    Queue::assertPushed(RunAutomationJob::class, fn (RunAutomationJob $job) => $job->task === 'test.housekeeping' && $job->force === false
+        && $job->connection === Queues::AUTOMATION && $job->queue === Queues::AUTOMATION);
+    expect(ActivityLog::query()->where('event', 'automation.run')->count())->toBe(1);
 });
 
 test('automation:run refuses to overlap a run holding the shared lock', function () {

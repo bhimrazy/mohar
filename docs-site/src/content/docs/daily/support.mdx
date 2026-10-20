@@ -1,0 +1,58 @@
+---
+title: Support tickets
+description: Set up departments, answer tickets and receive tickets by email.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Clients open tickets from the client area, guests from the public support page, and anyone by email once email
+piping is set up.
+
+## Set up departments
+
+<Steps>
+
+1. Go to **Support → Departments** and add a department for each team, such as Sales, Technical Support and Billing.
+
+2. Give each one its own email address. Replies to clients are sent from it, and email to it opens a ticket in that
+   department.
+
+3. Choose which staff belong to each department. Staff see only their departments' tickets unless their role allows
+   all tickets.
+
+</Steps>
+
+## Answer tickets
+
+Go to **Support → Tickets**. The tabs filter by **Open**, **Awaiting reply**, **My tickets**, **Unassigned**,
+**Flagged** and **Closed**.
+
+<Screenshot name="tickets" alt="Tickets list with tabs, filters, and tickets showing requester, status, priority, assignee and last reply." />
+
+A staff reply sets the ticket to **Answered**; a client reply sets it to **Customer reply**. You can add private notes,
+assign the ticket, and use **Support → Canned replies** for answers you send often. Tickets left waiting on the
+client are closed automatically after the hours set in **Auto-close idle tickets after** under
+**Setup → Settings → Support**.
+
+## Receive tickets by email
+
+Email piping turns messages sent to a department address into tickets and replies. A mail relay posts each message
+to the app as JSON, signed with a secret you share with it.
+
+<Steps>
+
+1. Go to **Setup → Settings → Inbound email webhook** and set a secret of at least 32 characters. It is write-only:
+   to change it, enter a new one.
+
+2. Set up your mail relay to post each message for the department addresses to
+   `https://<your domain>/api/v1/inbound/email/generic`, with an HMAC-SHA256 signature of the request body, made
+   with the same secret, in the `X-Support-Signature` header.
+
+3. Send a test email to a department address, then check **Support → Email piping**. Every received message is listed
+   with what happened to it: a new ticket, a reply, or the reason it was held back.
+
+</Steps>
+
+Replies from addresses the app cannot match to the ticket's client are held for staff to review, not added to the
+ticket.

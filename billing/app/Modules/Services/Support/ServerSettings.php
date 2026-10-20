@@ -112,7 +112,7 @@ class ServerSettings
                 FieldType::Text, FieldType::SecretText => ['string', 'max:20000'],
                 default => ['string', 'max:2000'],
             },
-            ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=$#'] : []),
+            ...($field->key === self::CERTIFICATE_PIN ? ['regex:#^(sha256//)?[A-Za-z0-9+/]{43}=\z#'] : []),
         ];
     }
 
@@ -200,7 +200,8 @@ class ServerSettings
 
             $locked->update(['settings' => $settings ?: null]);
             $server->setRawAttributes($locked->getAttributes(), true);
-            $this->activity->log("Server {$locked->name} settings changed", $locked, properties: array_filter([
+            $this->activity->log('Server settings changed', $locked, properties: array_filter([
+                'server' => $locked->name,
                 'changes' => ["settings.{$key}" => $field->isSecret() ? 'rotated' : ['from' => $before, 'to' => $value]],
                 'reason' => $reason,
             ]));

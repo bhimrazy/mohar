@@ -72,6 +72,7 @@ export default defineConfig({
             'resources/js/wayfinder/**',
             // One-off design tooling (screenshots, reference email builds), not app code.
             'docs/design/email/tools/**',
+            'docs/design/home/mockups/**',
         ],
         options: {
             denyWarnings: true,
@@ -99,6 +100,7 @@ export default defineConfig({
             // Reference email HTML: Outlook conditional comments and inline styles must stay as written.
             'docs/design/email/directions/**',
             'docs/design/email/index.html',
+            'docs/design/home/mockups/**',
         ],
         sortTailwindcss: {
             functions: ['clsx', 'cn', 'cva'],

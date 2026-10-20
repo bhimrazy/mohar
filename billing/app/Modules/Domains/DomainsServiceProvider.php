@@ -23,6 +23,7 @@ use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
@@ -50,8 +51,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
 /**
- * Domains module. Registrar sync is scheduled hourly (`domains:sync`) rather than in the daily automation
- * pipeline because pending transfers and needs_review domains need sub-daily checks; it has no SYNC task.
+ * Domains module. Registrar sync is scheduled hourly (the SyncRegistrars job on the registrar queue, also runnable as
+ * `domains:sync`) rather than in the daily automation pipeline because pending transfers and needs_review domains
+ * need sub-daily checks; it has no SYNC task.
  */
 class DomainsServiceProvider extends ModuleServiceProvider
 {
@@ -76,7 +78,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
+        $schedule->job(new SyncRegistrars)->name('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
     }
 
     protected function bootModule(): void
@@ -221,7 +223,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'domains.tlds.manage' => 'Manage TLDs and pricing',
             'domains.registrars.manage' => 'Configure registrars',
             'domains.settings.manage' => 'Manage domain settings',
-        ]);
+        ], sensitive: ['domains.registrars.manage']);
 
         $this->app->make(SettingsRegistry::class)->section('domains', 'Domains', [
             new SettingDefinition('domains.default_auto_renew', 'Auto-renew new domains by default', 'boolean'),

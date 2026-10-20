@@ -150,3 +150,24 @@ test('a pinned request follows no redirects', function () {
 
     expect($guard->pin(Http::baseUrl('https://whm.example.com:2087'), $guard->resolve('whm.example.com', 2087))->getOptions()['allow_redirects'])->toBeFalse();
 });
+
+test('only local and testing reach loopback, whatever the install policy says elsewhere', function (string $environment, bool $allowed) {
+    config(['integrations.outbound.allow_loopback' => true]);
+    app()->detectEnvironment(fn () => $environment);
+
+    expect(guardResolving(['127.0.0.1'])->refusal('127.0.0.1'))->toBe($allowed ? null : 'loopback')
+        ->and(guardResolving(['::1'])->refusal('::1'))->toBe($allowed ? null : 'loopback');
+
+    if (! $allowed) {
+        expect(fn () => guardResolving(['127.0.0.1'])->resolve('panel.example.test', 2087))->toThrow(OutboundAddressRefused::class, 'loopback');
+    }
+})->with([
+    'local' => ['local', true],
+    'testing' => ['testing', true],
+    'production' => ['production', false],
+    'prod' => ['prod', false],
+    'Production' => ['Production', false],
+    'staging' => ['staging', false],
+    'live' => ['live', false],
+    'empty' => ['', false],
+]);

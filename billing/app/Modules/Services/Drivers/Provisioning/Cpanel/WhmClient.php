@@ -126,7 +126,7 @@ final class WhmClient
 
     public static function validPin(string $pin): bool
     {
-        return preg_match('#^[A-Za-z0-9+/]{43}=$#', $pin) === 1;
+        return preg_match('#^[A-Za-z0-9+/]{43}=\z#', $pin) === 1;
     }
 
     /**

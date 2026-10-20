@@ -8,9 +8,9 @@ use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Platform\Notifications\ClientInvitationNotification;
 use App\Modules\Platform\Notifications\SecurityNotice;
 use App\Support\Clients\ClientMergeRegistry;
-use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Notification;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -55,7 +55,7 @@ test('contact management requires core.contacts.manage', function () {
     $this->post(route('admin.platform.clients.contacts.store', $client), ['first_name' => 'A', 'last_name' => 'B', 'email' => 'a@example.com', 'email_preferences' => []])->assertForbidden();
 });
 
-test('a new email gets a login on the account and a set-password email', function () {
+test('a new email gets a login on the account and an invitation to set its password', function () {
     Notification::fake();
     actingAsStaff(['core.users.manage']);
     $client = Client::factory()->withOwner()->create();
@@ -67,7 +67,8 @@ test('a new email gets a login on the account and a set-password email', functio
     $pivot = $client->users()->whereKey($helper->id)->sole()->pivot;
     expect((bool) $pivot->is_owner)->toBeFalse()
         ->and(json_decode($pivot->permissions, true))->toBe(['billing', 'support']);
-    Notification::assertSentTo($helper, ResetPassword::class);
+    // Without the email templates, Platform's own invitation notification goes out.
+    Notification::assertSentTo($helper, ClientInvitationNotification::class, fn (ClientInvitationNotification $notification): bool => str_contains($notification->acceptUrl, '/account-invitation/'));
 });
 
 test('existing logins can be added but staff logins and duplicates cannot', function () {

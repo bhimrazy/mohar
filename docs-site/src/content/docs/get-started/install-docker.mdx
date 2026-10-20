@@ -1,0 +1,125 @@
+---
+title: Install with Docker Compose
+description: Install the app, its workers, PostgreSQL and object storage on one Docker host.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+This puts the whole stack on one Linux host. Caddy answers on ports 80 and 443 and gets a TLS certificate for your
+domain; PostgreSQL and object storage are reachable only from inside the stack.
+
+Before you start, check the [requirements](../requirements/#with-docker-compose-recommended). Run every command from
+the root of the release you are installing.
+
+<Steps>
+
+1. Create the settings file and make it readable only by you.
+
+    ```bash
+    cp deploy/.env.production.example deploy/.env && chmod 600 deploy/.env
+    ```
+
+2. Open `deploy/.env` and fill in:
+    - `APP_DOMAIN`, the name clients will use, for example `billing.example.com`;
+    - `APP_URL`, the same name with `https://` in front and no slash at the end;
+    - `DB_PASSWORD`, `OBJECTS_ACCESS_KEY` and `OBJECTS_SECRET_KEY`, each a long random value;
+    - the `MAIL_` settings for your SMTP account or mail service;
+    - `CADDY_GLOBAL_OPTIONS="email <your address>"`, with a real address (remove the `#` in front of the line).
+      Let's Encrypt refuses `example.com` addresses. With an email set, Caddy can also fall back to ZeroSSL.
+
+    To make a random value:
+
+    ```bash
+    openssl rand -base64 32
+    ```
+
+    Leave `DB_HOST`, `OBJECTS_ENDPOINT` and `TRUSTED_PROXIES` out. The compose file sets them.
+
+3. Build the application image on the host.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml build migrate
+    ```
+
+4. Generate the application key, once. Copy the printed value into `APP_KEY` in `deploy/.env`.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 migrate php artisan key:generate --show
+    ```
+
+    Also save the key in your password manager, away from your backups. It decrypts the gateway, registrar and server
+    credentials stored in the database. If you lose it, those credentials cannot be recovered.
+
+5. Start the database and object storage, then create the tables, the storage bucket and the first administrator.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml up -d --wait postgres rustfs
+    docker compose -f deploy/compose.prod.yaml run --rm migrate sh -c \
+      'php artisan migrate --force && php artisan objects:ensure-bucket && php artisan app:install'
+    ```
+
+    The last command asks for the administrator's name, email address and password. The password needs at least 12
+    characters, with upper- and lower-case letters, a number and a symbol.
+
+6. Start everything with the first deploy. It starts the app (as its *blue* copy), the web server, the workers and
+   the scheduler. Every later upgrade uses the same command (see [Upgrade](../../operate/upgrade/)).
+
+    ```bash
+    deploy/bin/deploy
+    ```
+
+7. Check the install. Open `https://<your domain>/up`; it should load without an error. Then confirm the app trusts
+   its proxy: the response headers should include `Strict-Transport-Security`.
+
+    ```bash
+    curl -sI https://billing.example.com/login | grep -i strict-transport-security
+    ```
+
+</Steps>
+
+<Aside>
+	`app:install` can also run without questions: `php artisan app:install --admin-email=you@example.com` prints a
+	one-time password once, and the first sign-in asks for a new one. Run it only in a terminal nobody else can read.
+</Aside>
+
+## What runs
+
+The app runs as two copies, *blue* and *green*, so an upgrade never interrupts the site. Each service of the app
+exists once per copy; only the live copy's workers and scheduler run. `deploy/bin/deploy status` shows which is live.
+
+| Service                                                                         | What it does                                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `caddy`                                                                         | HTTPS, redirects HTTP to HTTPS, forwards requests to the live copy |
+| `app-blue`, `app-green`                                                         | the web application                                             |
+| `worker-critical-…`, `worker-notifications-…`, `worker-default-…`               | background jobs: payments, provisioning, email, webhooks        |
+| `worker-automation-…`                                                           | runs **Run now** requests from **Setup → Automation**           |
+| `scheduler-…`                                                                   | runs scheduled work, including the daily automation run         |
+| `migrate`                                                                       | runs database changes before a new version starts, then exits   |
+| `postgres`, `rustfs`                                                            | the database and object storage                                 |
+
+Only Caddy publishes ports. PostgreSQL and object storage have no route to the internet. The PHP containers run as
+an unprivileged user on a read-only file system.
+
+To read the logs of a service of the live copy (here blue):
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile blue logs -f app-blue
+```
+
+Caddy's logs replace the one-time tokens in password-reset and invitation links with `REDACTED`, so logs can be shared
+for support without handing out working links.
+
+## If you change `deploy/.env` later
+
+The containers read it when they start. Deploy again after an edit: the other copy starts with the new settings
+and takes over without a gap.
+
+```bash
+deploy/bin/deploy
+```
+
+Like an upgrade, this waits for an automation run in progress, up to an hour (see [Upgrade](../../operate/upgrade/)).
+Caddy reads the domain, the ports and the `CADDY_` settings: after changing those, also restart it with
+`docker compose -f deploy/compose.prod.yaml up -d --force-recreate caddy`.
+
+Next: [Sign in for the first time](../first-sign-in/).

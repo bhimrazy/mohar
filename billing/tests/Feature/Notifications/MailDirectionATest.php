@@ -111,7 +111,7 @@ it('sends a new client login the invitation template instead of the password-res
         ->and(loggedRecipients('auth.login_added'))->toBe(['owner@example.test'])
         ->and(EmailMessage::query()->where('template_key', 'auth.access_granted')->exists())->toBeFalse();
     Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => $mail->hasTo('helper@example.test')
-        && substr_count((string) $mail->htmlBody, '/reset-password/') === 1 && str_contains($mail->plainText, 'Accept invitation: '));
+        && substr_count((string) $mail->htmlBody, '/account-invitation/') === 1 && str_contains($mail->plainText, 'Accept invitation: '));
     Notification::assertNotSentTo($login, ResetPassword::class);
     Notification::assertNothingSentTo($owner);
 });

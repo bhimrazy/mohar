@@ -6,10 +6,14 @@ use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
+use App\Modules\Core\Support\Settings;
 
+// The 730-day history takes tens of seconds to seed: seed it once per worker, each test reads it in a transaction.
 beforeEach(function () {
-    $this->seed(CoreSeeder::class);
-    $this->seed(BillingSeeder::class);
+    $this->useSeededDatabase('billing_history', function () {
+        $this->seed(CoreSeeder::class);
+        $this->seed(BillingSeeder::class);
+    });
 });
 
 it('seeds about 90 days of billing history in every demo currency', function () {
@@ -35,4 +39,13 @@ it('keeps seeded ledgers and numbering consistent', function () {
     $payments = Transaction::query()->with('invoice')->where('type', TransactionType::Payment)->get();
     expect($payments->pluck('occurred_at')->min()->lte(today()->subDays(80)))->toBeTrue()
         ->and($payments->every(fn (Transaction $payment) => $payment->occurred_at->gte($payment->invoice->issue_date->startOfDay())))->toBeTrue();
+});
+
+it('bills as the demo Nepal seller: VAT on Nepal invoices, no Indian GST', function () {
+    $issued = Invoice::query()->whereNotNull('number')->get();
+    $names = $issued->flatMap(fn (Invoice $invoice) => [$invoice->tax1_name, $invoice->tax2_name])->filter()->unique();
+
+    expect(app(Settings::class)->get('billing.tax.home_country'))->toBe('NP')
+        ->and($names->intersect(['CGST', 'SGST', 'IGST'])->all())->toBe([])
+        ->and($issued->where('currency', 'NPR')->contains('tax1_name', 'VAT'))->toBeTrue();
 });

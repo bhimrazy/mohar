@@ -6,6 +6,92 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar prerequisites (#164)
+
+- `Redactor`: a secret `name=value` pair inside another pair's value (`Rejected: api-key=…`) is masked; it was kept
+  whole. The search inside a value is bounded (2 levels, values up to 4 KB), so long provider text stays linear in
+  time and memory. Signatures unchanged. Compatible: more is masked, nothing that was masked is shown.
+- No other kernel change: `ReconcileStatus` and `Queues::REGISTRAR` are used as they are. The single dev queue worker
+  (`composer dev`) moved to Core and is built from the `Queues` constants.
+
+### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
+
+- Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes
+  nothing; `rules()` must not query the database), `ImportIdResolver::targetId(string $entity, string $sourceId)`,
+  the DTOs `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}` and the enums
+  `App\Enums\{ImportAction (@open), ImportSeverity}`, as `migration.md` §12 with two trailing defaulted fields,
+  `ImportOutcome::$changes` and `ImportContext::$actorId`. One vocabulary: `$entity` is the registry key and
+  `$sourceSystem` the kind of source (`csv`, `whmcs_api`).
+- Added the final registry `App\Support\Migration\ImportRegistry` (ADR 0012), bound in `AppServiceProvider`:
+  `register(key, class-string|Closure, replace: false, dependsOn: [])` with keys matching `[a-z0-9_]{1,50}`,
+  duplicates refused unless replaced (logged), `has()`, `get()` (checks the importer's `key()`), `keys()`, and
+  `ordered(array $keys = [])`, which checks only the requested chains.
+- Added `App\Support\Queues::IMPORTS` (`imports`), `IMPORT_JOB_TIMEOUT_SECONDS` (120), `DEFAULT_POOL_TIMEOUT_SECONDS`
+  (150) and `DEFAULT_POOL_MEMORY_MB` (256). The default pool works `default,imports`; no new connection (ADR 0014
+  amendment).
+- Arch rule: every `App\Modules\*\Import` namespace that exists uses no `event()` or `dispatch()` helper, event
+  dispatcher, `Event`, `Bus`, `Mail` or `Notification` facade, `SystemMailer`, `AuthMailer`, `App\Events` namespace
+  other than `Migration`, or driver contract or registry; a probe fixture proves the rule fails.
+- The run events (C4) are not in this PR; each lands with the code that dispatches it (ADR 0019).
+
+### Storefront (public site, PR feature/storefront-home)
+
+- Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
+  Orders; Core binds `NullShopperSession` (default currency, empty cart).
+- Added `App\Contracts\Support\PublicHelpDirectory` (`recentAnnouncements()`, `popularArticles()`,
+  `networkStatus()`), implemented by Support; Core binds `NullPublicHelpDirectory`. Spec K9, without the sitemap part.
+- Added `DomainPricing::catalog(string $currency, ?int $clientId = null)`: active TLDs with 1-year register, renew and
+  transfer prices, spotlight flag and badge (spec K4, without `category` and the `TldPricingChanged` event). Service
+  contract: `FakeDomains` is updated.
+- Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
+  `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
+- Added `App\Support\Seo\SitemapRegistry` (ADR 0012 shape: `register(key, Closure, replace: false)` with keys
+  `[a-z0-9_]{1,50}`, a duplicate key throws unless replaced, `has()`, `keys()`, `entries()`; a source that throws is
+  reported and left out), bound as a singleton. Orders, Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`. Declared here with the
+  other storefront kernel pieces; the publish flow that dispatches it is the stacked PR #99.
+- `PriceBook::storefront()` products also document the optional `is_taxable` key (Catalog sends it).
+- Interim gaps, each until its spec contract exists: K6 (`TaxDisplay`): Storefront derives the tax statement and
+  inclusive amounts from a probe line through `TaxCalculator`, and reads `orders.domains_taxable` and
+  `catalog.show_monthly_breakdown` through Core `Settings`. K7 (`GatewayDirectory::acceptanceMarks()`): Storefront
+  reads logos from `GatewayRegistry` drivers that implement `ProvidesLogo`. K5 (`ProductGroupUpdated`): a group that is
+  hidden or renamed can show in the header for up to `storefront.cache_seconds` (600 s).
+- `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
+  `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
+- Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
+  `core.company_*` and `billing.seller.*` through Core `Settings`.
+
+### Integration simulators, S1 (ADR 0016 §1, §3)
+
+- `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
+  such keys are counted ("(2 malformed keys)"), since one may be a pasted URL with credentials.
+- `Endpoints::configuredKeys()`: the keys set in `INTEGRATION_ENDPOINTS` whatever the environment (for the install
+  check and the dashboard health check; drivers may not call it, Arch rule). Compatible.
+- No other kernel change: the framework is the dev-only package `mohar/simulators` (`tools/simulators`, namespace
+  `Mohar\Simulators\`), which `App\` never references.
+
+### Integration simulators, S0 (ADR 0016 §3, ADR 0015 amendment 1)
+
+- Added `App\Support\Integrations\Endpoints` (singleton, bound in `AppServiceProvider`) and the DTO
+  `App\Data\Integrations\Endpoint` (`baseUrl`, `options`, `url(path)`; deliberately no "overridden" flag, so a
+  driver has nothing to branch on). Drivers of fixed-host providers
+  make one call, `Endpoints::for(key, default)`, which returns the URL together with its request options, so an
+  overridden URL never comes without its pinning. Overrides come only from the environment (`INTEGRATION_ENDPOINTS`, a
+  JSON object, and `INTEGRATION_CA_BUNDLE`) and are honoured only when the app runs as `local` or `testing`; every
+  other environment, including an empty or unknown one, fails closed and logs them once as critical, keys only. Only
+  https base URLs without credentials, query or fragment are used; malformed ones are logged once. An override is
+  shaped like the default (trailing `/` kept or dropped to match), and `url(path)` joins with one `/`, so the request
+  path is the same with and without it. Without one the base URL is the default and the options are `[]`. With one,
+  TLS verification stays on (scenario CA) and the destination is resolved and pinned through `OutboundAddressGuard`.
+  No driver uses it yet (S3, S5).
+- `OutboundAddressGuard` reaches loopback only in `local` and `testing`, whatever `integrations.outbound.allow_loopback`
+  says elsewhere, and gains `pinOptions(ResolvedAddress)`, the options `pin()` applies (compatible).
+- Arch rules: nothing in `app/`, `bootstrap/`, `config/` or `routes/` names `Mohar\Simulators` (any case, group
+  imports included), and no driver code mentions "simulat" or asks `Endpoints` whether an override is active
+  (`activeKeys`, `developmentEnvironment`, `configuredKeys`). Driver code is every file under a module's `Drivers/`
+  plus the module classes those files import (such as `PaymentsNepal\Support\ProviderHttp`); the three demo drivers
+  (`Services/.../LogDriver`, `Domains/.../LogRegistrar`, `Billing/.../SandboxCardDriver`) are exempt by full path.
+
 ### Integrations area (ADR 0009 §1, PR A)
 
 - Added `App\Enums\FieldType` and `App\Data\Integrations\SettingField`, the one settings-field schema. A secret is a

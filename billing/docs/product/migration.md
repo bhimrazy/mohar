@@ -5,6 +5,12 @@ Clean-room: based only on the public WHMCS developer docs (External API referenc
 We use no WHMCS source code, encoded files or licence internals, and no information about protections. The only data we read is data the
 operator owns, through the documented API, using credentials the operator creates.
 
+> **Amended by `client-import.md` (2026-10-20).** Client import builds the client slice of this pipeline first and adds a
+> CSV connector. It changes this spec in eight points, listed in `client-import.md` §2 (A1–A8): the `imports` queue
+> instead of `migration`, imported fields instead of notes for unmapped custom fields, paged `GetContacts`, marketing
+> consent with evidence, importers setting `email_changed_at`, the database "gap reader" as an owner decision, a
+> `source_kind` on runs, and `ImportOutcome::$changes`. Everything else here stands.
+
 ## 1. Purpose & scope
 
 An operator moves **their own** business data from **their own** WHMCS installation into our platform. Competitors offer the same
@@ -281,11 +287,19 @@ Commit → Delta schedule → Cutover checklist (each runbook step must be ticke
 
 ## 12. Cross-module contracts (shared-kernel proposal for the CTO)
 
+> **Superseded in shape by PR #160 (2026-10-20) and ADR 0019 (proposed).** The kernel as built:
+> `App\Contracts\Migration\{RecordImporter, ImportIdResolver}`, the final registry `App\Support\Migration\ImportRegistry`
+> (ADR 0012: `register(string $key, class-string|Closure $importer, bool $replace = false, array $dependsOn = [])`,
+> `has()`, `get()`, `keys()`, `ordered(array $keys = [])`), keys are entities matching `[a-z0-9_]` (`client`,
+> `user`, `invoice`), `RecordImporter::key()` reports its key, a dry run's `upsert()` writes nothing,
+> `ImportRecord::$entity` and `$sourceSystem` (`csv`, `whmcs_api`), and the run events land with the code that
+> dispatches them. The text below is the original proposal.
+
 The Migration module never imports another module's classes. It translates WHMCS data into **our vocabulary** (our enums, minor units, ISO
 dates), and each owning module writes its own tables through an importer it registers. Target modules know nothing about WHMCS, so a future
 Blesta or HostBill connector can reuse every importer. Importers live in `app/Modules/<Module>/Import/*Importer.php` and are registered in
 `bootModule()`, for example:
-`app(ImportRegistry::class)->register('billing.invoice', InvoiceImporter::class, dependsOn: ['core.client', 'services.service', 'domains.domain']);`
+`app(ImportRegistry::class)->register('invoice', InvoiceImporter::class, dependsOn: ['client', 'service', 'domain']);`
 The registry is implemented by Core (in memory, like `MergeFieldRegistry`). Each module's spec documents the attribute schema for its types.
 
 ```php

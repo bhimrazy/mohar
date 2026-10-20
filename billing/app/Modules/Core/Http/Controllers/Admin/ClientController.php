@@ -6,11 +6,14 @@ use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Http\Requests\ClientRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
+use App\Modules\Core\Models\ClientInvitation;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
@@ -55,7 +58,7 @@ class ClientController extends Controller
 
     public function store(ClientRequest $request): RedirectResponse
     {
-        $client = Client::query()->create($request->validated());
+        $client = Client::query()->forceCreate([...$request->validated(), 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff]);
         $this->activity->log('Client created', $client, $client->id, event: 'client.created');
         ClientRegistered::dispatch($client->id, null);
 
@@ -75,6 +78,8 @@ class ClientController extends Controller
         $user = $request->user();
         $can = fn (string $permission): bool => $user?->hasPermission($permission) ?? false;
 
+        $invitations = ClientInvitation::query()->where('client_id', $client->id)->get(['user_id', 'expires_at', 'accepted_at'])->keyBy('user_id');
+
         return Inertia::render('admin/clients/show', [
             'client' => new ClientResource($client->load('group')),
             'contacts' => $client->contacts()->orderBy('first_name')->orderBy('id')->get(['id', 'first_name', 'last_name', 'email', 'phone', 'email_preferences']),
@@ -86,6 +91,11 @@ class ClientController extends Controller
                     'is_owner' => (bool) $login->getRelation('pivot')->getAttribute('is_owner'),
                     'permissions' => json_decode((string) $login->getRelation('pivot')->getAttribute('permissions'), true) ?: [],
                     'last_login_at' => $login->last_login_at?->toIso8601String(),
+                    // An invitation not accepted yet: pending until it expires, then staff can send a new one.
+                    'invitation' => ($invitation = $invitations->get($login->id)) === null || $invitation->accepted_at !== null ? null : [
+                        'state' => $invitation->isExpired() ? 'expired' : 'pending',
+                        'expires_at' => $invitation->expires_at->toIso8601String(),
+                    ],
                 ]),
             'links' => $navigation->clientLinks($client->id, $user),
             // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.
@@ -130,8 +140,8 @@ class ClientController extends Controller
     {
         abort_if($client->merged_into_client_id !== null, 404);
 
-        $original = $client->only(array_keys($request->validated()));
-        $client->update($request->validated());
+        // Locked, so a client-area save cannot interleave; staff vouch for an address they enter (account import).
+        [$client, $original] = Client::updateDetails($client->id, $request->validated(), EmailSource::Staff);
         $changes = array_keys($client->getChanges());
         $diff = collect($changes)
             ->reject(fn (string $key): bool => $key === 'updated_at')

@@ -1,0 +1,49 @@
+---
+title: Tax
+description: Turn tax on, enter your seller details and add tax rules.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Tax is worked out when an invoice is created and stored on it. Changing a rule later only affects new invoices.
+
+## Settings
+
+<Steps>
+
+1. Go to **Setup → Settings → Billing**.
+
+2. Enter your seller details as they must appear on invoices: legal name, address, billing email and phone, and your
+   tax numbers (GSTIN and PAN in India, the VAT/PAN number in Nepal).
+
+3. Turn on **Enable tax**, then choose:
+    - **Prices are**: inclusive or exclusive of tax;
+    - **Tax calculation**: per invoice line or per invoice;
+    - **Seller tax country** and **Seller state**, which decide whether Indian GST is intra-state or inter-state;
+    - **Taxed item kinds**, for example services, domains and setup fees.
+
+</Steps>
+
+## Tax rules
+
+<Steps>
+
+1. Go to **Setup → Tax rules** and select **Add tax rule**.
+
+2. Give the rule a **Name** (printed on invoices), a **Rate (%)**, a **Level**, and the **Country** and **State** it
+   applies to. For India, **Supply** chooses intra-state or inter-state. Use **Effective from** for a rate that starts
+   on a future date.
+
+3. Save. The list shows every rule and where it applies.
+
+    <Screenshot name="tax-rules" alt="Tax rules page with the tax settings summary and rules for CGST, SGST, IGST, Nepal VAT and New York sales tax." />
+
+</Steps>
+
+<Aside title="Examples">
+	- **Nepal VAT:** one rule, level 1, country NP, 13%.
+	- **India GST:** CGST 9% (level 1) and SGST 9% (level 2) for intra-state supply, and IGST 18% (level 1) for
+	  inter-state supply, all with country IN.
+	Check current rates with your accountant before you go live.
+</Aside>

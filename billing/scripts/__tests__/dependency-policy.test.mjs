@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+    composeImages,
     composerDistProblems,
+    directPinProblems,
     digestBelongsToTag,
     dockerfileImages,
     isComposeFile,
@@ -229,6 +231,80 @@ describe('isDockerfile', () => {
     });
 });
 
+describe('composeImages', () => {
+    const pinned = `postgres:18.6-alpine@${POSTGRES_INDEX}`;
+
+    it('returns every image line, with own set only for the marked app image', () => {
+        const compose = [
+            `    image: ${pinned}`,
+            '    image: ${APP_IMAGE:-mohar-app:local} # own image',
+            '    image: ${APP_IMAGE_BLUE} # own image',
+            "    image: 'nginx:latest'",
+            '    image: ${OTHER_IMAGE:-x}',
+        ].join('\n');
+
+        expect(composeImages(compose)).toEqual([
+            { image: pinned, own: false },
+            { image: '${APP_IMAGE:-mohar-app:local}', own: true },
+            { image: '${APP_IMAGE_BLUE}', own: true },
+            { image: 'nginx:latest', own: false },
+            { image: '${OTHER_IMAGE:-x}', own: false },
+        ]);
+    });
+
+    it('never treats a third-party default or a plain image as own, even when marked', () => {
+        expect(
+            composeImages(
+                [
+                    '    image: ${APP_IMAGE:-nginx:latest} # own image',
+                    '    image: nginx:latest # own image',
+                    '    image: ${APP_IMAGE:-ghcr.io/x/y:1} # own image',
+                ].join('\n'),
+            ).map((entry) => entry.own),
+        ).toEqual([false, false, false]);
+    });
+
+    it('still finds an image line with CRLF endings or trailing text', () => {
+        expect(
+            composeImages(
+                'services:\r\n  a:\r\n    image: nginx:latest\r\n  b:\r\n    image: redis:7 trailing text\r\n',
+            ),
+        ).toEqual([
+            { image: 'nginx:latest', own: false },
+            { image: 'redis:7', own: false },
+        ]);
+    });
+});
+
+describe('directPinProblems', () => {
+    it('accepts exact versions and an exact npm: alias, and lists everything else', () => {
+        expect(
+            directPinProblems({
+                dependencies: {
+                    astro: '7.3.8',
+                    vite: 'npm:@voidzero-dev/vite-plus-core@0.3.3',
+                    pre: '1.0.0-rc.1',
+                },
+                devDependencies: {
+                    a: '^1.2.3',
+                    b: '~1.2.3',
+                    c: 'latest',
+                    d: '1.x',
+                    e: 'npm:x@^2.0.0',
+                    f: 'github:o/r',
+                },
+            }),
+        ).toEqual([
+            'a@^1.2.3',
+            'b@~1.2.3',
+            'c@latest',
+            'd@1.x',
+            'e@npm:x@^2.0.0',
+            'f@github:o/r',
+        ]);
+    });
+});
+
 describe('isComposeFile', () => {
     it('matches the production and load-test compose files, not docs or other YAML', () => {
         expect(
@@ -241,6 +317,10 @@ describe('isComposeFile', () => {
                 '.github/workflows/load-test.yml',
                 'docs/loadtest/compose.yaml',
             ].filter(isComposeFile),
-        ).toEqual(['deploy/compose.prod.yaml', 'deploy/compose.dev.yaml', 'loadtest/compose.loadtest.yaml']);
+        ).toEqual([
+            'deploy/compose.prod.yaml',
+            'deploy/compose.dev.yaml',
+            'loadtest/compose.loadtest.yaml',
+        ]);
     });
 });

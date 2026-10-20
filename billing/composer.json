@@ -7,7 +7,7 @@
         "laravel",
         "framework"
     ],
-    "license": "MIT",
+    "license": "proprietary",
     "require": {
         "php": "^8.4",
         "barryvdh/laravel-dompdf": "3.1.2",
@@ -28,6 +28,7 @@
         "laravel/pint": "1.32.1",
         "laravel/sail": "1.69.0",
         "mockery/mockery": "1.6.15",
+        "mohar/simulators": "^0.1",
         "nunomaduro/collision": "8.9.5",
         "pestphp/pest": "5.3.0",
         "pestphp/pest-plugin-drift": "5.0.0",
@@ -42,7 +43,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Tests\\": "tests/"
+            "Tests\\": "tests/",
+            "Mohar\\Simulators\\Tests\\": "tools/simulators/tests/"
         }
     },
     "scripts": {
@@ -98,9 +100,8 @@
         "test:pgsql": [
             "Composer\\Config::disableProcessTimeout",
             "@putenv XDEBUG_MODE=off",
-            "@php artisan config:clear --ansi",
-            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" artisan migrate:fresh --seed --force --no-interaction",
-            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" vendor/bin/pest --parallel"
+            "@php artisan config:clear --ansi @no_additional_args",
+            "DB_CONNECTION=pgsql DB_HOST=${DB_HOST:-127.0.0.1} DB_PORT=${DB_PORT:-5432} DB_DATABASE=${DB_DATABASE:-billing_test} DB_USERNAME=${DB_USERNAME:-billing} DB_PASSWORD=${DB_PASSWORD:-billing} \"$PHP_BINARY\" vendor/bin/pest --parallel --processes=${PEST_PROCESSES:-auto} --exclude-testsuite=Unit,Arch @additional_args"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -157,8 +158,17 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "scripts-descriptions": {
-        "ci": "Run every CI gate locally, including migrate:fresh --seed + tests on PostgreSQL (needs `docker compose up -d`).",
-        "test:pgsql": "migrate:fresh --seed + the test suite on PostgreSQL (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; database is created if missing).",
+        "ci": "Run every CI gate locally, including the test suite on PostgreSQL (needs `docker compose up -d`).",
+        "test:pgsql": "The test suite on PostgreSQL without the database-free Unit and Arch suites; each parallel worker migrates its own copy of the database (DB_HOST/DB_PORT/DB_DATABASE/DB_USERNAME/DB_PASSWORD override the compose defaults; the database must exist; PEST_PROCESSES sets the worker count).",
         "deps:check": "Lockfiles in sync, composer/npm audits, and the ≥7-day dependency cooldown for changes since develop (needs network)."
-    }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "tools/simulators",
+            "options": {
+                "symlink": true
+            }
+        }
+    ]
 }
