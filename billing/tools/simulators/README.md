@@ -27,7 +27,7 @@ Lifetimes:
 - `simulate:clean` reaps detached scenarios, scenarios whose owner is gone, and leftovers. It never touches a scenario another live process owns.
 - Tests stop only the scenarios they started.
 
-Pids are signalled only while `/proc/<pid>/environ` shows they belong to the scenario, so a pid reused after a reboot is never hit.
+A scenario whose process exits at start fails at once: the error carries the tail of its logs, and the scenario directory is kept. Pids are signalled only while `/proc/<pid>/environ` shows they belong to the scenario, so a pid reused after a reboot is never hit.
 
 The package needs Linux: `setsid`, `/proc` and ext-posix.
 
@@ -63,15 +63,62 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Add a cPanel server with host `127.0.0.1`, the scenario's port and a token. Set `OUTBOUND_ALLOW_LOOPBACK=true` (development only). Run Test connection, then "Trust this certificate".
 - **Recording.** `simulate:record whm` makes read-only calls against a real WHM:
     - credentials come from `WHM_RECORD_HOST` and `WHM_RECORD_TOKEN`, and optionally `WHM_RECORD_PORT`, `WHM_RECORD_USER`, `WHM_RECORD_ACCOUNT` and `WHM_RECORD_CA_BUNDLE`;
-    - anonymisation is deny-by-default: a string is kept only under a known-safe key (WHM's reason, versions, statuses, flags, sizes, ACL names, dates) or when it is a size or a number; every other string becomes a placeholder of its kind (IPv4, IPv6, email, URL, host name, `example`);
+    - anonymisation is deny-by-default:
+        - a string is kept only under a known-safe key (WHM's reason, versions, statuses, flags, sizes, ACL names, dates);
+        - in WHM's free text (the reason), any email, URL, address or host name is replaced;
+        - every other string becomes a placeholder of its kind (IPv4, IPv6, email, URL, host name, `0` for a numeric string, `example`);
+        - a key that could be data (a domain, an address, anything with a dot, @ or space) is renamed `key1`, `key2`, …;
+    - each recording notes which login made it (`context.login`: root or reseller), so its replay uses the same;
     - everything is written to a private staging directory and scanned, and the files move to `whm/recordings/` (`source: live`) only when the whole run completes and passes, so a failed or leaking run saves nothing;
     - each recording keeps the shape of the answer taken before masking, so masking never hides a change of type.
 - **Drift.** `tests/Whm/WhmDriftTest.php` replays every live recording against the simulator with the same call, and checks the shape and the refusal kind. It is skipped while no live recording exists.
 - **Docs-sourced shapes.** Until a live recording exists, `tests/Fixtures/Cpanel` (written from the reference) is the `source: docs` set the conformance tests check.
 
+### `stripe`: Stripe in test mode, for the PaymentsStripe driver
+
+- **API (`/v1`).** `account`, `checkout/sessions` (create, retrieve, expire), `payment_intents`, `charges`, `refunds` (create, retrieve) and `disputes`, with `expand[]` along dotted paths.
+    - Every call needs `Bearer StripeSimulator::SECRET_KEY`.
+    - A `Stripe-Version` must be one the simulator knows.
+    - A POST with an `Idempotency-Key` replays its first answer, and the same key with other parameters gets `idempotency_error`.
+    - A request that fails parameter validation before it starts executing saves no idempotent result, as at Stripe, so the corrected retry with the same key runs. A refusal after it started (`charge_already_refunded`, `charge_disputed`) is saved and replayed.
+    - Parameters are checked as Stripe checks them: three-letter currencies, at most 50 metadata keys of up to 40 characters with values up to 500, and `expand[]` only on properties that hold a related object.
+    - Errors use Stripe's envelope (`resource_missing`, `charge_already_refunded`, `charge_disputed`, `amount_too_small`, `api_key_invalid`).
+    - A session past its `expires_at` expires on its own when next read, and emits `checkout.session.expired`.
+- **Hosted page.** `GET /c/pay/<session>` on the same TLS port, with three forms:
+    - **Pay** creates the PaymentIntent, charge and balance transaction (fee 2.9% + 30), completes the session, and redirects to `success_url`. It runs under the lock, so a double click charges once;
+    - **Decline** leaves the session open with `card_declined`;
+    - **Back** redirects to `cancel_url`.
+- **Webhooks.** Every change is an event (`checkout.session.completed` and `expired`, `payment_intent.succeeded` and `payment_failed`, `refund.created`, `charge.refunded`, `charge.dispute.created`). Each is queued for the URL set with the `webhook_url` action and signed `t=…,v1=…` with `WEBHOOK_SECRET` at delivery. The outbox gives replay, out of order, stale and wrong-secret variants.
+- **Control actions.** `webhook_url` and `dispute`.
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`stripe.api` and `stripe.checkout`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Turn on the Stripe gateway's test mode with the simulator's secret key and webhook secret.
+- **Redaction.** It is a `RedactsPayments` simulator.
+- **Drift.** `StripeRecording` is one scripted sequence: account; create, retrieve and expire a session; a missing session; an amount too small; a PaymentIntent paid with the test card (on the simulator, a session paid on its hosted page); retrieve it; a partial refund, a retrieve, the rest, and a refund too many.
+    - Steps refer to earlier answers (`{create_session.id}`) and use relative times (`+2100`).
+    - What is not drift is normalised: ids (prefix kept), times, secrets, account and customer values, and key order.
+    - A recording **stores** only the paths the driver reads (`DRIVER_PATHS`, applied by `project()`), with their values normalised, so it holds no account or customer data to begin with. The secret scan stays as a backstop.
+    - Drift is checked on those paths, and an extra live field is not drift. On error steps, a different `error.type` or `error.code` is drift.
+    - `simulate:record stripe` runs it against Stripe's test mode with `STRIPE_RECORD_KEY` (a restricted test key; live keys are refused).
+    - `tests/Stripe/StripeDriftTest.php` replays the sequence against the simulator for every live recording. A file that does not parse fails it.
+    - Recording is deferred (CTO decision, #113): it needs a long-lived restricted test key as a GitHub or Codespaces secret from the owner, so the live check is skipped until then. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
+
+## The end-to-end scenario
+
+`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against both simulators:
+
+- it creates a throwaway database `billing_e2e_<random>` on PostgreSQL (`--connection=pgsql`, the default) or as a temporary SQLite file (`--connection=sqlite`);
+- it runs the scenario within a time budget (`--budget`, 360 s by default, at least 60);
+- it drops the database afterwards, unless `--keep`, which keeps the last test's state (choose it with `--filter`);
+- if the run is interrupted (Ctrl-C, SIGTERM), a detached guard stops the scenario and drops the database. `scripts/pg.sh --prune` also drops idle `billing_e2e_*` databases.
+
+The harness (`tests/Simulators/SimulatorHarness.php`) refuses any database but `billing_e2e_*` or SQLite in memory. It judges the connection Laravel really opens, so a `DB_URL` cannot point it elsewhere.
+
+The app runs in process, the simulators run as real TLS processes, and the customer's browser is an HTTP client that trusts the scenario CA. Webhooks are posted to the app with the bytes and signature the simulator made, draining Stripe's outbox as Stripe would. The server, product and gateway rows are fixtures; the rest goes through the app's routes.
+
+The main CI job never runs `tests/Simulators`. The opt-in `E2E simulators` job does: on manual dispatch, on pushes to `main` and on PRs labelled `e2e`, with its own PostgreSQL. It is not a required check.
+
 ## Recordings and the secret scan
 
-`simulate:scan` checks every `*/recordings/*.json` file in this package for:
+`simulate:scan` checks every `*/recordings/*.json` file in this package, keys as well as values, for:
 
 - credentials: WHM, Basic or Bearer authorization values, cPanel tokens and `cpsess` session paths, Stripe keys, private keys, JWTs, AWS keys, and unmasked values under sensitive keys;
 - personal data: emails and host names outside the example and test domains, and public IPv4 or IPv6 addresses.
@@ -102,7 +149,9 @@ The fixture in `tests/Fixtures/EchoSimulator.php` is the smallest working exampl
 
 ## Callbacks and redirects
 
-- **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale` or `wrong_secret` variant.
+- **Server-to-server callbacks** (webhooks, inbound mail) go through the outbox: `$scenario->outbox()->enqueue(url, body, headers)`, then `deliver()` with an optional `stale`, `wrong_secret` or `unsigned` variant.
+    - Only a 2xx answer completes a delivery. Any other answer is retried, as Stripe retries for up to three days: on a compressed backoff (`CallbackDispatcher::BACKOFF_SECONDS`, 0, 1, 2, 4 and 8 s), up to `MAX_ATTEMPTS`. A scenario can set its own schedule with `retryPolicy()`.
+    - `drain()` delivers until nothing retryable is left, and `exhausted()` lists the deliveries that used every attempt.
 - **Browser redirects** carry the provider's signed answer in the return URL's query (Khalti and eSewa returns, S5). They are not outbox deliveries. A `HasControlActions` action (for example `pay`) changes the state and returns `['redirect' => <return_url with its signed query>]`. The test or the E2E runner then follows that URL into the app as the browser would, and tampered or unsigned variants are separate actions. S5 adds these actions; the framework needs nothing more.
 
 ## Limits

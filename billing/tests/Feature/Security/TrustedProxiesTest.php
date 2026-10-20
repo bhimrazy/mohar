@@ -81,7 +81,7 @@ test('an on-forge.com host does not make every proxy trusted when none is config
 test('a configured proxy range may set the client IP and scheme, and HTTPS then sends HSTS', function () {
     config(['trustedproxy.proxies' => '10.0.0.0/8, 172.18.0.0/16']);
 
-    $response = forwardedRequest('172.18.0.3', headers: ['X-Forwarded-Host' => appHost(), 'X-Forwarded-Port' => '443']);
+    $response = forwardedRequest('172.18.0.3', headers: ['X-Forwarded-Host' => appHost()]);
 
     expect($response->json())->toMatchArray(['ip' => '203.0.113.7', 'secure' => true, 'host' => appHost()])
         ->and(parse_url($response->json('link'), PHP_URL_HOST))->toBe(appHost());

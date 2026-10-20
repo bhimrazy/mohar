@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Start a fourth queue worker for Admin → Automation → Run now** (#82):
+  `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
+  (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
+  `default` queue to their own `automation` connection: the backend of `QUEUE_CONNECTION` (`database`, `redis`,
+  `beanstalkd` or `sqs`; `database` for any other driver), the `automation` queue, and a `retry_after` of 3,900 s. A run
+  longer than 240 s was handed to a second worker, which failed it while the first worker was still running it.
+  Without the new worker, Run now requests wait in the queue; the scheduled daily run is not affected. On SQS, create
+  an `automation` queue with a visibility timeout of at least 3,900 s. Jobs already waiting on `default` from an
+  earlier Run now still run there. Start the worker with the `automation` connection argument: a job taken by a
+  worker on another connection (`queue:work --queue=automation`) fails without running and names the right command.
+  The `app:install` hint prints the four workers and the 200 s timeout that `install.md` documents for the first pool
+  (it printed 85 s).
 - **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
   by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
   encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new
@@ -38,6 +50,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   who bring existing accounts in. Fetches run on the `provisioning` queue.
   A further migration adds `server_account_imports.connection_user` (nullable): lists fetched before it are matched
   without the owner check until fetched again.
+  A second migration adds `server_account_imports.selections`, `reviewed`, the last import's counts and stop reason, and the append-only `server_account_import_report_lines` table. Ticking and
+  importing need a recent password; imports run on the `provisioning` queue.
+  A Core migration adds `email_changed_at` to `clients` (nullable), set whenever the address changes.
+  An email match is no longer proposed when the client changed email in the last 30 days, or when the client has an
+  owner login and none with the client's email is verified (clients from sign-up or checkout until they verify).
+  Clients without an owner login, as staff create them, are proposed as before. Staff can still choose a flagged
+  client for an account; the review imports it only then. Match again to apply this to a list fetched earlier.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -119,6 +138,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
   including root and reseller logins. `simulate:record whm` records a real server's read-only answers for
   comparison, and `simulate:scan` checks recordings for credentials and personal data before they are committed.
+- Developers get a `stripe` simulator (`php artisan simulate:start stripe`), Stripe in test mode: Checkout with a
+  hosted page (pay, a declined card, back), PaymentIntents, charges, refunds, disputes raised from its control plane,
+  idempotency keys and the API version header, and signed webhooks for the app's endpoint. With the printed
+  `INTEGRATION_ENDPOINTS` and the gateway's test keys set to the simulator's, the real Stripe gateway takes payments,
+  settles them from webhooks and lookups, refunds and records disputes against it.
+- Developers and CI get `php artisan simulate:e2e`, the hosting lifecycle end to end against the `whm` and `stripe`
+  simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
+  provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
+  and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
+  409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
+- The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
+  (`stripe.api`, `stripe.checkout`). Without an override nothing changes.
 
 - Laravel 13 app on the official React starter kit (Inertia 3, React 19, TypeScript, Tailwind 4, shadcn/ui),
   Fortify auth (2FA, passkeys), Wayfinder, Pest 5, Larastan level 7, Laravel Boost AI guidelines & skills.
@@ -129,6 +161,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `DomainPricing`, `MergeFieldRegistry`), DTOs and 37 domain events.
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
+- CI back from about 14.5 to about 10 minutes (579–622 s per job): the PostgreSQL step went from 550 s to
+  212–309 s (no pre-suite migrate and seed, direct container connection, savepoints released inside the test
+  transaction, 4 workers, the database-free Unit and Arch suites on SQLite only, the demo billing history seeded once
+  per worker with `useSeededDatabase()`), and Pint and tsc reuse cached results. The job warns past 12 of its 15
+  minutes. `composer test:pgsql` no longer migrates or seeds the base database and skips Unit and Arch;
+  `PEST_PROCESSES` sets its worker count (docs/devops/ci.md, ADR 0006 amended).
 
 ### Themes & brand
 
@@ -162,6 +200,45 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
   asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
+- Import accounts, step 2: staff tick accounts (nothing is ticked by default; "Select all proposed" ticks the proposed
+  ones and opens the review) and review them, a page at a time, with the price-book amount, totals per cycle and a list
+  of accounts left out with the reason. Confirming imports exactly the reviewed rows: the matched client is pinned when
+  the review is shown, and the import is refused if any account, client, product, date or price changed since. The
+  import runs on the queue in chunks; the page shows its progress, then each account imported (with a link to its
+  service) or left out (with the reason). Each account becomes a service, active or suspended as on the server, with
+  no invoice, welcome email, module command or password, keeps its day of the month for billing, is recorded in the
+  activity log, and dispatches `ServiceImported`. Choosing a client or product per account follows in the next step.
+- Import accounts, choices: staff choose the client (a picker that lists the most recently added active clients
+  before anything is typed; it needs the permission to view clients), product, billing cycle and next due date per
+  account, and the cycle and due date for every ticked account at once from the review. Review rows link back to change
+  them and say when a client group discount explains a lower price; the date field shows the renewal date in the app's
+  format. "Select all proposed" leaves out, and the page flags, accounts whose matched client changed email in the last
+  30 days. "Fetch again" keeps choices for accounts still on the server. A choice reaches an import only through a new
+  review.
+- Import accounts, stopped and failed runs: an import that stops partway keeps the ticks and choices of the accounts
+  it did not reach, says once why it stopped ("The background job took too long.") and offers "Review the remaining N",
+  which goes through a new review. The last import's report lists accounts not imported first, a page at a time
+  behind "Show details", marks unreached accounts "Not reached", and stays on the page after "Fetch again" until the
+  next import starts. A failed fetch no longer hides the last list: the error shows above it with a link to the server
+  page to test the connection. The ticked count refreshes when an import finishes. The bulk cycle says how many ticked
+  accounts it leaves out for lack of a price and can return them to each account's default. The choice dialog saves
+  only the fields staff change: clearing the client or product (or picking "As matched") returns the account to its
+  match, clearing the cycle or date returns it to its default, and a flagged match becomes a choice only through "Use
+  this client". The client picker, on every page that uses it, shows a loading state, opens on click or typing rather
+  than on focus, and works from the keyboard (arrow keys, Enter, Escape). The review's billing column wraps on phones.
+- Import accounts, flagged clients: a matched client who changed email in the last 30 days, or who signed up and has
+  not verified the email, is shown on the row with the date but not proposed, and "Select all proposed" leaves it out.
+  The review checks again against the client it matches at that moment, shows the flag and keeps the account out unless
+  staff chose that client themselves. A chosen due date that has passed by the review keeps the account out until a new
+  date is chosen. "Set the cycle and due date" for ticked accounts accepts only the cycle and due date. Choices carried
+  by "Fetch again" are dropped for an account re-created under the same username (another creation time on the server).
+- Import accounts, continuing: going on after a stop keeps one report for both runs, the stop banner separates failed
+  accounts from those not reached, paging the report keeps its details open ("Hide details"), and cycles read "no
+  semi-annual price" in sentences.
+- Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
+  server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
+  after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts
+  apart instead of proposing them, until the list is fetched again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
@@ -242,6 +319,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Platform admin
 
+- Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
+  page says "An automation run is already queued or running." During the scheduled run it says "An automation run
+  is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
+  ("Automation run skipped"). Runs of any length finish on one worker (#82).
+- `php artisan automation:release-locks` releases the automation locks a killed worker left behind (otherwise Run
+  now is refused for about 65 minutes after the interrupted request). It asks for confirmation, `--force` skips it,
+  and the release is recorded in the activity log.
 - Staff: invite by email (7-day link, resend/cancel) or create with a temporary password (forced change on first
   sign-in); edit, assign role, deactivate (sessions revoked, next request 401), reset 2FA; last sign-in time/IP.
 - Staff 2FA enforcement (`security.staff_2fa_required`, default on) before any admin route.
@@ -580,6 +664,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
+  (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools and the automation worker
+  (`queue:work automation`, 3,660 s stop grace), the scheduler, a one-shot
+  migrate, PostgreSQL and RustFS on an internal network. Hardened PHP containers, json-file log rotation and
+  resource limits. Runbook: `docs/devops/production.md` (install, update, backup, restore, rollback, Traefik
+  variant); settings: `deploy/.env.production.example`. `deploy/bin/smoke` and the manual "Deploy smoke" workflow
+  (`workflow_dispatch` or the `deploy-smoke` PR label, never automatic) install the stack on a GitHub runner and
+  check `/up`, sign-in and a queued job through Caddy.
+
 - Deployment, part 1 (D1): one container image for web, workers, scheduler and migrations
   (`deploy/Dockerfile`, `docs/devops/container-image.md`). FrankenPHP 1.13 in classic mode on Debian trixie,
   a slim runtime stage without the PHP build toolchain (420 MB unpacked, 162 MB compressed, down from 1.2 GB),
@@ -588,7 +681,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
   means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
-  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+  every proxy; only the `X-Forwarded-For`, `-Host` and `-Proto` headers are honoured (not `-Port`, which Caddy
+  passes through from clients).
 - Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
   rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
   skipped. Set it to `true` once an SSR entry exists.

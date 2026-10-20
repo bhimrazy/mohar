@@ -10,6 +10,7 @@ use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\GatewayCallbackHandler;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
@@ -250,6 +251,22 @@ test('a dispute is recorded as a chargeback and flags the invoice for staff', fu
     expect(Transaction::query()->where('type', TransactionType::Chargeback)->sole())->gateway_txn_id->toBe('du_1MoharDispute0001')
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
     Event::assertDispatchedTimes(PaymentReversed::class, 1);
+});
+
+test('a dispute that arrives before its payment is booked is refused for a retry, then booked as a chargeback (#124)', function () {
+    [$invoice] = paidStripeAttempt();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response(stripeFixture('dispute'))]);
+    $dispute = stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0007');
+
+    postStripeWebhook($dispute)->assertStatus(409)->assertJson(['result' => GatewayCallbackHandler::PAYMENT_NOT_BOOKED]);
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(0)
+        ->and(GatewayLog::query()->where('direction', 'callback')->latest('id')->first()->result)->toBe('payment not booked yet; retry expected');
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'payment recorded']);
+    postStripeWebhook($dispute)->assertOk()->assertJson(['result' => 'chargeback recorded']);
+
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
 });
 
 test('a dispute of a payment made by another integration on the account is acknowledged, not retried', function () {

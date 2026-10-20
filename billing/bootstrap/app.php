@@ -24,10 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->trustHosts();
 
         // Proxies come from config('trustedproxy.proxies') (TRUSTED_PROXIES), read per request so a cached config
-        // works; passing `at:` here would read the environment before .env is loaded. Only the headers Caddy and
-        // Traefik send are honoured, and only from those addresses.
+        // works; passing `at:` here would read the environment before .env is loaded. Only the three headers the edge
+        // proxy itself sets are honoured, and only from those addresses. X-Forwarded-Port is not: Caddy passes a
+        // client's own copy through unchanged, and the port follows from the trusted scheme (443 for https).
         $middleware->trustProxies(headers: Request::HEADER_X_FORWARDED_FOR | Request::HEADER_X_FORWARDED_HOST
-            | Request::HEADER_X_FORWARDED_PORT | Request::HEADER_X_FORWARDED_PROTO);
+            | Request::HEADER_X_FORWARDED_PROTO);
 
         $middleware->alias([
             'staff' => EnsureStaff::class,

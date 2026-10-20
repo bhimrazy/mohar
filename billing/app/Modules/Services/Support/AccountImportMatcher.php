@@ -27,8 +27,9 @@ use stdClass;
  * - linked: a live service on this server already holds the username; it is never imported again.
  * - reseller: owned by another panel user than the one the connection signs in as (a reseller's customer under a root
  *   connection, or the reseller's own account under a reseller connection); listed apart.
- * - proposed: exactly one open client has the account's contact email, and exactly one product of the driver uses the
- *   account's package on this server (its group, or no group when the server is the driver's default).
+ * - proposed: exactly one open client has the account's contact email, that client is not flagged (clientFlags(): a
+ *   recent email change, or a sign-up whose email no owner login verified), and exactly one product of the driver uses
+ *   the account's package on this server (its group, or no group when the server is the driver's default).
  * - unmatched: anything else; the note says why.
  */
 class AccountImportMatcher
@@ -40,6 +41,13 @@ class AccountImportMatcher
     public const UNMATCHED = 'unmatched';
 
     public const RESELLER = 'reseller';
+
+    /** A client whose email changed this recently is never proposed or ticked in bulk. */
+    public const EMAIL_CHANGE_DAYS = 30;
+
+    public const FLAG_EMAIL_CHANGED = 'email_changed';
+
+    public const FLAG_UNVERIFIED = 'unverified';
 
     public function __construct(private Catalog $catalog, private ProvisioningDriverRegistry $drivers) {}
 
@@ -58,10 +66,11 @@ class AccountImportMatcher
         $clients = $this->clientsByEmail(array_values(array_unique(array_filter(array_map(fn (array $account): ?string => $account['email'] ?? null, $accounts)))));
         $field = $this->packageField($server->driver);
         $offered = $this->productsByPackage($server, $field);
+        $flags = $this->clientFlags(array_merge(...array_values(array_filter($clients, fn (array $ids): bool => count($ids) === 1))));
         $packages = $field === null ? [] : collect($this->catalog->priceBook()?->productsForDriver($server->driver) ?? [])
             ->mapWithKeys(fn (ProductSummary $product): array => [$product->id => $product->driverConfig[$field] ?? null])->all();
 
-        $rows = array_map(function (array $account) use ($services, $clients, $offered, $field, $packages, $connectionUser): array {
+        $rows = array_map(function (array $account) use ($services, $clients, $flags, $offered, $field, $packages, $connectionUser): array {
             $service = $services->get($account['username']);
 
             if ($service !== null) {
@@ -75,16 +84,19 @@ class AccountImportMatcher
             $matchedProducts = $offered[(string) $plan] ?? [];
             $owner = $account['owner'] ?? null;
             // An owner WHM does not report (or reports invalidly) is unknown, so it is never taken as the connection's.
-            $otherOwner = $connectionUser !== null && $owner !== $connectionUser;
+            // Fail closed: with no recorded connection user (a list read before it was stored) no owner is taken as ours.
+            $otherOwner = $connectionUser === null || $owner !== $connectionUser;
             $notes = array_filter([
-                $otherOwner && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
-                $otherOwner && $owner !== null ? ($connectionUser === 'root'
+                $connectionUser === null ? self::text('This list does not record the WHM user it was read with: fetch it again to match owners.') : null,
+                $otherOwner && $connectionUser !== null && $owner === null ? self::text('WHM reports no valid owner for this account, so it is listed apart.') : null,
+                $otherOwner && $connectionUser !== null && $owner !== null ? ($connectionUser === 'root'
                     ? self::text('Owned by the reseller :owner.', ['owner' => $owner])
                     : self::text('Owned by :owner, not by :user, whose accounts this connection imports.', ['owner' => $owner, 'user' => $connectionUser])) : null,
                 match (true) {
                     $email === null => self::text('The server reports no valid contact email.'),
                     $matchedClients === [] => self::text('No client has the email :email.', ['email' => $email]),
                     count($matchedClients) > 1 => self::text(':count clients share this email.', ['count' => count($matchedClients)]),
+                    ! $otherOwner && isset($flags[$matchedClients[0]]) => self::text('Not proposed: choose this client yourself if the match is right.'),
                     default => null,
                 },
                 match (true) {
@@ -102,7 +114,8 @@ class AccountImportMatcher
             return [...$account,
                 'category' => match (true) {
                     $otherOwner => self::RESELLER,
-                    $clientId !== null && $productId !== null => self::PROPOSED,
+                    // A flagged client is shown as the match but never proposed: staff choose it themselves.
+                    $clientId !== null && $productId !== null && ! isset($flags[$clientId]) => self::PROPOSED,
                     default => self::UNMATCHED,
                 },
                 'client_id' => $clientId,
@@ -126,30 +139,98 @@ class AccountImportMatcher
     }
 
     /**
-     * Match the accounts and store them, with the counts, on a fetched import.
+     * Match the accounts and store them, with the counts, on a fetched import. Under the server lock, before the list
+     * becomes ready: the list it replaces (a fetch; Match again replaces none) hands over its import report and the
+     * staff choices for accounts that are still the same account (same creation time on the server, else the same
+     * domain), then is deleted. A fetch or match superseded while it ran (its row deleted or no longer running) stores
+     * nothing and deletes nothing.
      *
      * @param  list<array<string, mixed>>  $accounts  validated RemoteAccount fields
-     * @return int the number of accounts stored
+     * @return int|null the number of accounts stored, null when superseded
      */
-    public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): int
+    public function store(ServerAccountImport $import, array $accounts, ?string $connectionUser): ?int
     {
         $matched = $this->classify($import->server, $accounts, $connectionUser, $import->fetched_at);
         $counts = array_count_values(array_column($matched['rows'], 'category'));
 
-        $import->update([
-            'status' => ServerAccountImport::READY,
-            'accounts' => $matched['rows'],
-            'account_count' => count($matched['rows']),
-            'proposed_count' => $counts[self::PROPOSED] ?? 0,
-            'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
-            'reseller_count' => $counts[self::RESELLER] ?? 0,
-            'linked_count' => $counts[self::LINKED] ?? 0,
-            'missing' => $matched['missing'],
-            'fetched_at' => $import->fetched_at ?? now(),
-            'connection_user' => $connectionUser,
-        ]);
+        $stored = DB::transaction(function () use ($import, $matched, $counts, $connectionUser): bool {
+            Server::query()->whereKey($import->server_id)->lockForUpdate()->first();
 
-        return count($matched['rows']);
+            if (! in_array(ServerAccountImport::query()->whereKey($import->id)->value('status'), [ServerAccountImport::FETCHING, ServerAccountImport::MATCHING], true)) {
+                return false;
+            }
+            $previous = ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)
+                ->where('status', ServerAccountImport::READY)->latest('id')->first();
+            $before = collect($previous->accounts ?? $import->accounts ?? [])->keyBy('username');
+            $now = collect($matched['rows'])->keyBy('username');
+            $selections = array_filter($import->selections ?? [], fn (string $username): bool => $now->has($username) && $before->has($username)
+                && self::fingerprint($before->get($username)) === self::fingerprint($now->get($username)), ARRAY_FILTER_USE_KEY);
+
+            if ($previous !== null && $previous->imported_count + $previous->not_imported_count > 0) {
+                DB::table('server_account_import_report_lines')->where('server_account_import_id', $previous->id)->update(['server_account_import_id' => $import->id]);
+                $import->fill($previous->only(['imported_count', 'not_imported_count', 'stop_reason']));
+            }
+
+            $import->update([
+                'status' => ServerAccountImport::READY,
+                'accounts' => $matched['rows'],
+                'account_count' => count($matched['rows']),
+                'proposed_count' => $counts[self::PROPOSED] ?? 0,
+                'unmatched_count' => $counts[self::UNMATCHED] ?? 0,
+                'reseller_count' => $counts[self::RESELLER] ?? 0,
+                'linked_count' => $counts[self::LINKED] ?? 0,
+                'missing' => $matched['missing'],
+                'fetched_at' => $import->fetched_at ?? now(),
+                'connection_user' => $connectionUser,
+                'selections' => $selections ?: null,
+            ]);
+            ServerAccountImport::query()->where('server_id', $import->server_id)->where('id', '<', $import->id)->delete();
+
+            return true;
+        });
+
+        return $stored ? count($matched['rows']) : null;
+    }
+
+    /**
+     * Why an email match to each of these clients is not proposed nor ticked in bulk, by client id (clients without a
+     * flag are left out). Either the client changed email in the last EMAIL_CHANGE_DAYS days, or the client signed up
+     * themselves and no owner login has verified the client's email. Sign-up and checkout always create an owner
+     * login with the client; clients staff created or imported have none until staff give them one, so they are not
+     * flagged for it.
+     *
+     * @param  array<int>  $clientIds
+     * @return array<int, array{kind: string, at: string|null}>
+     */
+    public function clientFlags(array $clientIds): array
+    {
+        $flags = [];
+        $since = CarbonImmutable::now()->subDays(self::EMAIL_CHANGE_DAYS);
+
+        foreach (array_chunk(array_values(array_unique($clientIds)), 500) as $chunk) {
+            $owners = DB::table('client_user')->join('users', 'users.id', '=', 'client_user.user_id')
+                ->whereIn('client_user.client_id', $chunk)->where('client_user.is_owner', true)
+                ->get(['client_user.client_id', 'users.email', 'users.email_verified_at'])
+                ->groupBy(fn (stdClass $login): int => (int) $login->client_id);
+
+            foreach (Client::query()->toBase()->whereIn('id', $chunk)->get(['id', 'email', 'email_changed_at', 'created_at']) as $client) {
+                $changed = $client->email_changed_at === null ? null : CarbonImmutable::parse((string) $client->email_changed_at);
+                $logins = $owners->get((int) $client->id, collect());
+                $verified = $logins->contains(fn (stdClass $login): bool => $login->email_verified_at !== null && mb_strtolower((string) $login->email) === mb_strtolower((string) $client->email));
+
+                $flag = match (true) {
+                    $changed !== null && $changed->greaterThanOrEqualTo($since) => ['kind' => self::FLAG_EMAIL_CHANGED, 'at' => $changed->toIso8601String()],
+                    $logins->isNotEmpty() && ! $verified => ['kind' => self::FLAG_UNVERIFIED, 'at' => $client->created_at === null ? null : CarbonImmutable::parse((string) $client->created_at)->toIso8601String()],
+                    default => null,
+                };
+
+                if ($flag !== null) {
+                    $flags[(int) $client->id] = $flag;
+                }
+            }
+        }
+
+        return $flags;
     }
 
     /**
@@ -165,6 +246,8 @@ class AccountImportMatcher
         }
 
         unset($row);
+        // A list read before the connection user was recorded: owners cannot be compared, so nothing is proposed
+        // (classify() treats a null connection user as unknown).
         $this->store($import, $accounts, $import->connection_user);
     }
 
@@ -203,6 +286,17 @@ class AccountImportMatcher
         $text = __($key, $replace);
 
         return is_string($text) ? $text : $key;
+    }
+
+    /**
+     * What tells one account from a later one re-created under the same username: its creation time on the server,
+     * else its domain.
+     *
+     * @param  array<string, mixed>  $account
+     */
+    private static function fingerprint(array $account): string
+    {
+        return (string) ($account['created_at'] ?? $account['domain'] ?? '');
     }
 
     /**
