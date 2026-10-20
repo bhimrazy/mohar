@@ -125,8 +125,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
 - Price cards show the cycle price, "Renews at" and any setup fee; with `catalog.show_monthly_breakdown` on they lead
   with the per-month price and "Billed …". Each currency states tax for its own market from Billing's tax rules
-  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR; "Tax added at checkout
-  where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
+  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR whatever the rules are
+  named, by `storefront.tax_families`; "Tax added at checkout where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
   default, and adds tax only to taxed products (and to domains while domains are taxed).
 - Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
   with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,

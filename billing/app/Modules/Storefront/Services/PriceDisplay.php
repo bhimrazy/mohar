@@ -27,7 +27,12 @@ class PriceDisplay
     public function forCurrency(string $currency, array $content): array
     {
         [$taxes, $total] = $this->taxes($currency);
-        $label = implode(' + ', array_map(fn (array $tax): string => $this->percent($tax['rate']).' '.$tax['name'], $taxes));
+        // Customers know the market's tax by its family name (GST, whether Billing applies IGST or CGST + SGST); a
+        // market without one in storefront.tax_families shows Billing's rule names.
+        $family = config('storefront.tax_families.'.config('storefront.tax_markets.'.strtoupper($currency)));
+        $label = is_string($family) && $family !== ''
+            ? $this->percent(array_sum(array_column($taxes, 'rate'))).' '.$family
+            : implode(' + ', array_map(fn (array $tax): string => $this->percent($tax['rate']).' '.$tax['name'], $taxes));
         $billingInclusive = $taxes !== [] && $total === self::BASE;
         $wantsInclusive = in_array($currency, $content['prices']['tax_inclusive'], true);
         $inclusive = $taxes !== [] && ($billingInclusive || $wantsInclusive);
