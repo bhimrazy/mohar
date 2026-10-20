@@ -228,12 +228,17 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'tone' => 'warning',
         ], null, 30);
 
-        $dashboard->todo('client', 'domains.np_documents', fn (?User $user, Client $client): array => [
-            'label' => 'Documents needed for your .np domain',
-            'count' => NpRegistration::query()->where('stage', 'awaiting_documents')->whereHas('domain', fn ($query) => $query->where('client_id', $client->id))->count(),
-            'href' => route('client.domains.index'),
-            'tone' => 'warning',
-        ], null, 31);
+        $dashboard->todo('client', 'domains.np_documents', function (?User $user, Client $client): array {
+            $domains = NpRegistration::query()->open()->where('stage', 'awaiting_documents')
+                ->whereHas('domain', fn ($query) => $query->where('client_id', $client->id))->limit(2)->pluck('domain_id');
+
+            return [
+                'label' => 'Documents needed for your .np domain',
+                'count' => NpRegistration::query()->open()->where('stage', 'awaiting_documents')->whereHas('domain', fn ($query) => $query->where('client_id', $client->id))->count(),
+                'href' => $domains->count() === 1 ? route('client.domains.show', $domains->first()) : route('client.domains.index'),
+                'tone' => 'warning',
+            ];
+        }, null, 31);
 
         $dashboard->card('client', 'domains.expiring', fn (?User $user, Client $client): array => [
             'label' => 'Domains expiring soon',

@@ -293,6 +293,14 @@ resolves an interrupted submission without opening a second request. Not yet bui
 (`client_reminder_days`, these need an email template) and nameserver/contact changes after approval (staff make
 them in the portal). The request letter is a text the client copies onto letterhead, filled in with the domain and nameservers._
 
+_Closed and abandoned requests (CTO decision, 2026-10-20): a request whose domain is cancelled, transferred away,
+marked fraud or deleted is closed. No step can be recorded on it, it leaves the to-dos and takes no uploads, and its
+documents are deleted 30 days later (`domains.np_document_retention_days`). A request that has had no client upload
+and no staff step for 90 days before submission is closed the same way: the domain is cancelled and staff get a task
+to refund a paid order. Dates and business days use the company calendar (`system.timezone`). Known limits: image
+metadata (EXIF, such as phone GPS) is kept as uploaded, and a hard delete of a domain record (none exists today)
+would leave its encrypted files on disk._
+
 | Stage                | Who                                                                                                                                                                 | Exit                                                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `awaiting_documents` | Client uploads ID / company certificate + letter (letter template provided, pre-filled with name, purpose, NS)                                                      | All required docs present → `documents_review`                                                                                                                                                     |

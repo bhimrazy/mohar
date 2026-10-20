@@ -23,7 +23,9 @@ class NpRegistrationResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $staff = (bool) $request->user()?->is_staff;
+        $user = $request->user();
+        $staff = (bool) $user?->is_staff;
+        $canOpen = $user !== null && $staff && $user->hasPermission('domains.np.review');
         $workflow = app(NpWorkflow::class);
 
         return [
@@ -42,7 +44,7 @@ class NpRegistrationResource extends JsonResource
                 'uploaded_at' => $document->created_at?->toIso8601String(),
                 'current' => $document->delete_after === null,
                 'delete_after' => $document->delete_after?->toDateString(),
-                'url' => $staff ? URL::temporarySignedRoute('admin.domains.np.document', now()->addMinutes(15), ['domain' => $this->domain_id, 'document' => $document->id]) : null,
+                'url' => $canOpen ? URL::temporarySignedRoute('admin.domains.np.document', now()->addMinutes(15), ['domain' => $this->domain_id, 'document' => $document->id]) : null,
             ])->values()->all(),
             'handling_fee_note' => $workflow->option('handling_fee_note'),
             ...$staff ? [

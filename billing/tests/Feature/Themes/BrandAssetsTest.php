@@ -38,7 +38,10 @@ it('uploads a logo to the objects disk and serves it publicly with cache headers
             ->and($redirect->headers->getCookies())->toBe([]);
     }
 
-    $this->get(route('login'))->assertInertia(fn (Assert $page) => $page->where('brand.logoLight', fn (string $url) => str_contains($url, '/branding/logo-light')));
+    $this->get(route('login'))->assertInertia(fn (Assert $page) => $page
+        ->where('brand.logoLight', fn (string $url) => str_contains($url, '/branding/logo-light'))
+        ->where('brand.hasUploadedLogo', true)
+        ->where('brand.hasUploadedMark', false));
 });
 
 it('replaces and removes brand assets', function () {

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Models;
 
+use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Enums\NpStage;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -89,13 +90,24 @@ class NpRegistration extends Model
     }
 
     /**
+     * Requests of a live domain: not deleted, not cancelled, transferred away or fraud.
+     *
+     * @param  Builder<self>  $query
+     */
+    public function scopeOpen(Builder $query): void
+    {
+        $query->whereHas('domain', fn (Builder $domain) => $domain->withoutTrashed()
+            ->whereIn('status', array_map(fn (DomainStatus $status): string => $status->value, DomainStatus::nonTerminal())));
+    }
+
+    /**
      * Requests with a step waiting for staff: documents to review, a portal submission or a status to confirm.
      *
      * @param  Builder<self>  $query
      */
     public function scopeWaitingForStaff(Builder $query): void
     {
-        $query->where(fn (Builder $query) => $query
+        $query->open()->where(fn (Builder $query) => $query
             ->whereIn('stage', [NpStage::DocumentsReview->value, NpStage::ReadyToSubmit->value])
             ->orWhere(fn (Builder $query) => $query->where('stage', NpStage::Approved->value)->whereNull('review_confirmed_at')));
     }
@@ -108,7 +120,7 @@ class NpRegistration extends Model
      */
     public function scopeOverdue(Builder $query, CarbonImmutable $submittedBefore, CarbonImmutable $rejectedBefore): void
     {
-        $query->where(fn (Builder $query) => $query
+        $query->open()->where(fn (Builder $query) => $query
             ->where(fn (Builder $query) => $query->where('stage', NpStage::Submitted->value)->where('submitted_at', '<=', $submittedBefore))
             ->orWhere(fn (Builder $query) => $query->whereNotNull('rejected_at')->where('rejected_at', '<=', $rejectedBefore)));
     }
