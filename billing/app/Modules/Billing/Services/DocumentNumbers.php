@@ -33,11 +33,18 @@ class DocumentNumbers
         $increment = max(1, $this->settings->int('number_increment', 1));
 
         $number = DB::transaction(function () use ($sequence, $period, $increment): int {
-            BillingSequence::query()->insertOrIgnore([
-                'sequence' => $sequence, 'period' => $period, 'next_number' => 1, 'created_at' => now(), 'updated_at' => now(),
-            ]);
+            $sequenceRow = fn () => BillingSequence::query()->where('sequence', $sequence)->where('period', $period)->lockForUpdate();
+            // The row exists after the first number of a sequence and period, so lock it first and create it only
+            // when missing (a concurrent creator wins quietly; both then lock the same row).
+            $row = $sequenceRow()->first();
 
-            $row = BillingSequence::query()->where('sequence', $sequence)->where('period', $period)->lockForUpdate()->firstOrFail();
+            if ($row === null) {
+                BillingSequence::query()->insertOrIgnore([
+                    'sequence' => $sequence, 'period' => $period, 'next_number' => 1, 'created_at' => now(), 'updated_at' => now(),
+                ]);
+                $row = $sequenceRow()->firstOrFail();
+            }
+
             $number = $row->next_number;
             $row->update(['next_number' => $number + $increment]);
 

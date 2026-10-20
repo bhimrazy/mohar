@@ -8,6 +8,8 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Services\Tax\TaxRates;
+use App\Modules\Core\Models\Client;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Computes line amounts, tax and totals of a draft invoice from its items and the client's tax context.
@@ -17,14 +19,19 @@ class InvoiceCalculator
 {
     public function __construct(private TaxEngine $tax) {}
 
-    public function recalculate(Invoice $invoice): void
+    /**
+     * @param  Client|null  $client  the invoice's client when the caller has just read it (saves a query)
+     * @param  Collection<int, InvoiceItem>|null  $items  the invoice's open lines in line order when the caller has just
+     *                                                    created them in this transaction (saves a query)
+     */
+    public function recalculate(Invoice $invoice, ?Client $client = null, ?Collection $items = null): void
     {
         if ($invoice->exists && $invoice->getOriginal('status') !== InvoiceStatus::Draft) {
             throw ImmutableInvoiceException::make();
         }
 
-        $items = $invoice->items()->whereNull('cancelled_at')->get();
-        $rates = $this->tax->ratesForClient($invoice->client()->firstOrFail());
+        $items ??= $invoice->items()->whereNull('cancelled_at')->get();
+        $rates = $this->tax->ratesForClient($client !== null && $client->id === $invoice->client_id ? $client : $invoice->client()->firstOrFail());
 
         $result = $this->tax->compute(array_values($items->map(fn (InvoiceItem $item): array => [
             'amount' => $item->unit_amount * $item->quantity,

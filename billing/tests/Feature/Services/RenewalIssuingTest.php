@@ -11,6 +11,7 @@ use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Models\ServiceInvoice;
 use App\Support\Money;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 
 require_once __DIR__.'/../Billing/helpers.php';
@@ -61,6 +62,9 @@ function renewalSnapshot(Service $service): array
             ->map(fn (WebhookDelivery $delivery): string => $delivery->event_type)->values()->all(),
     ];
 }
+
+/** Queries for an automation run that renews one service: the run's own bookkeeping plus the renewal (measured 2026-10-20). */
+const RENEWAL_QUERY_BUDGET = 44; // 52 before the renewal query work
 
 beforeEach(function () {
     $this->travelTo('2026-11-01 08:00:00');
@@ -139,4 +143,20 @@ test('a renewal run writes the same invoice, lines, link, credit, email and webh
         'emails' => ['invoice.created → full@example.test (queued)'],
         'webhooks' => ['invoice.created', 'invoice.paid'],
     ]);
+});
+
+test('one renewal stays within its query budget', function () {
+    WebhookEndpoint::query()->delete();
+    $service = Service::factory()->dueOn('2026-11-15')->for(billingClient())->create(['recurring_amount' => 1_299]);
+    $this->artisan('automation:run', ['--date' => '2026-10-31', '--only' => 'services.renewals'])->assertSuccessful(); // warm: settings, templates
+    issueInvoice(billingClient(), [1_000]); // the invoice sequence has its row, as on every day after the first
+    $queries = 0;
+    DB::listen(function () use (&$queries): void {
+        $queries++;
+    });
+
+    $this->artisan('automation:run', ['--date' => '2026-11-01', '--only' => 'services.renewals'])->assertSuccessful();
+
+    expect(ServiceInvoice::query()->where('service_id', $service->id)->count())->toBe(1)
+        ->and($queries)->toBeLessThanOrEqual(RENEWAL_QUERY_BUDGET);
 });
