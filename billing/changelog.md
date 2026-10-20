@@ -11,9 +11,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **`.np` manual registrar** (`np_manual`). Run `php artisan migrate`: it adds the `np_registrations` and
   `np_documents` tables. The new permission `domains.np.review` covers reviewing registrant documents and recording
   registry steps. `domains.*` grants it; grant it explicitly to other staff who handle `.np` requests. Registrant
-  documents are stored encrypted on the `objects` disk and deleted 30 days after approval or rejection
-  (`domains.np_document_retention_days`). Two new automation tasks run this: "Flag overdue .np status checks" and
-  "Delete old .np documents".
+  documents are stored encrypted on the `objects` disk and deleted 30 days after approval, rejection or the
+  domain's cancellation or deletion. A request with no client upload and no staff step for 90 days before submission
+  is closed: its domain is cancelled, staff get a task to refund a paid order, and its documents follow 30 days
+  later (`domains.np_document_retention_days`). Two new automation tasks run this: "Flag overdue .np status checks"
+  and "Delete old .np documents", which also closes abandoned requests.
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
   `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
