@@ -6,6 +6,20 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client import, PR A0 (client-import spec §16 C1, C2, C4)
+
+- Added the import contracts `App\Contracts\Migration\{RecordImporter, ImportRegistry, ImportIdResolver}`, the DTOs
+  `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}` and the enums
+  `App\Enums\{ImportAction, ImportSeverity}`, as `migration.md` §12 with two trailing defaulted fields:
+  `ImportOutcome::$changes` (the field names an update changes) and `ImportContext::$actorId`. `RecordImporter::rules()`
+  must not query the database. Core binds `ImportRegistry` to an in-memory registry whose `ordered()` sorts types by
+  their dependencies and throws on a cycle or an unregistered dependency.
+- Added `App\Support\Queues::IMPORTS` (`imports`) and `IMPORTS_TIMEOUT_SECONDS` (150). The default pool works it after
+  `default`; no new connection (ADR 0014 amendment).
+- Added the events `App\Events\Migration\{MigrationRunCompleted, MigrationRunUndone, MigrationRunPaused}`.
+- Arch rule: classes in `App\Modules\*\Import` use no `Event`, `Mail` or `Notification` facade, no `App\Events`
+  namespace other than `Migration`, and no driver contract or registry.
+
 ### Integration simulators, S1 (ADR 0016 §1, §3)
 
 - `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;

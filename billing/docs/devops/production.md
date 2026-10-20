@@ -14,7 +14,7 @@ then an update restarts the app in place, with a gap of a few seconds.
 | `app`                  | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
 | `worker-critical`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
 | `worker-notifications` | the app image   | `queue:work --queue=notifications,webhooks` (60 s job timeout)           | 0.5 / 384 MB         | 70 s       |
-| `worker-default`       | the app image   | `queue:work --queue=default` (60 s job timeout)                          | 0.5 / 384 MB         | 70 s       |
+| `worker-default`       | the app image   | `queue:work --queue=default,imports --timeout=150` (imports: 120 s cap)  | 0.5 / 384 MB         | 160 s      |
 | `worker-automation`    | the app image   | `queue:work automation --queue=automation --tries=1 --timeout=3600`      | 0.5 / 384 MB         | 3,660 s    |
 | `scheduler`            | the app image   | `schedule:work` (exactly one)                                            | 0.5 / 512 MB         | 3,660 s    |
 | `migrate`              | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |

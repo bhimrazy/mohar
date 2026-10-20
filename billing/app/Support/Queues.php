@@ -24,6 +24,16 @@ final class Queues
 
     public const WEBHOOKS = 'webhooks';
 
+    /**
+     * Client imports (staging, checking and applying uploaded files). Worked after `default` by the same pool, so a
+     * 50,000-row import never delays other work; each job stays under IMPORTS_TIMEOUT_SECONDS, below the connection's
+     * 240 s retry_after, so it needs no connection of its own.
+     */
+    public const IMPORTS = 'imports';
+
+    /** Worker --timeout of the default pool: an import job's cap (120 s) plus slack to stop it. */
+    public const IMPORTS_TIMEOUT_SECONDS = 150;
+
     /** Worker --timeout of the provider pool: the provisioning job cap (180 s) plus the 20 s lock slack. */
     public const PROVIDER_POOL_TIMEOUT_SECONDS = 200;
 
@@ -75,7 +85,7 @@ final class Queues
         return [
             'php artisan queue:work --queue='.implode(',', [self::PAYMENTS, self::PROVISIONING, self::REGISTRAR]).' --tries=3 --timeout='.self::PROVIDER_POOL_TIMEOUT_SECONDS,
             'php artisan queue:work --queue='.implode(',', [self::NOTIFICATIONS, self::WEBHOOKS]).' --tries=3',
-            'php artisan queue:work --queue='.self::DEFAULT.' --tries=3',
+            'php artisan queue:work --queue='.self::DEFAULT.','.self::IMPORTS.' --tries=3 --timeout='.self::IMPORTS_TIMEOUT_SECONDS,
             'php artisan queue:work '.self::AUTOMATION.' --queue='.self::AUTOMATION.' --tries=1 --timeout='.self::AUTOMATION_TIMEOUT_SECONDS,
         ];
     }

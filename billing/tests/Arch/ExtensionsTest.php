@@ -34,4 +34,15 @@ arch('concrete driver registries are final')
     ->expect('App\Support\Services\ProvisioningDriverRegistry')
     ->toBeFinal();
 
+// Record importers write quietly (client-import spec §9, AC 2): no domain event other than the run's own, no mail or
+// notification, and no driver that could reach a provider.
+arch('record importers send nothing and call no driver')
+    ->expect(array_map(fn (string $module): string => 'App\\Modules\\'.basename($module).'\\Import', glob(dirname(__DIR__, 2).'/app/Modules/*', GLOB_ONLYDIR) ?: []))
+    ->not->toUse([
+        'Illuminate\Support\Facades\Event', 'Illuminate\Support\Facades\Mail', 'Illuminate\Support\Facades\Notification',
+        'App\Contracts\Integrations\IntegrationDriver', 'App\Contracts\Services\Provisioning', 'App\Contracts\Billing\GatewayDriver',
+        'App\Contracts\Billing\HostedPaymentDriver', 'App\Support\Services\ProvisioningDriverRegistry',
+        ...array_map(fn (string $area): string => 'App\\Events\\'.basename($area), array_filter(glob(dirname(__DIR__, 2).'/app/Events/*', GLOB_ONLYDIR) ?: [], fn (string $area): bool => basename($area) !== 'Migration')),
+    ]);
+
 afterAll(fn () => releaseArchCache());

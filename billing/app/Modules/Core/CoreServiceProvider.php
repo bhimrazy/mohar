@@ -7,6 +7,7 @@ use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Currencies\CurrencyDirectory;
+use App\Contracts\Migration\ImportRegistry;
 use App\Contracts\Notifications\EmailTemplates;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Notifications\SystemMailer;
@@ -27,6 +28,7 @@ use App\Modules\Core\Support\CoreDashboard;
 use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
+use App\Modules\Core\Support\InMemoryImportRegistry;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
@@ -65,6 +67,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
+        $this->app->singleton(ImportRegistry::class, InMemoryImportRegistry::class);
         $this->app->scoped(CurrencyDirectory::class, CachedCurrencyDirectory::class);
 
         // Fallback bindings for optional modules; the owning module re-binds the real implementation.
