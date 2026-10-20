@@ -13,7 +13,9 @@ use Mohar\Simulators\Kernel\StateStore;
  *
  * - Every request needs `Authorization: Bearer <the scenario's secret key>`.
  * - A `Stripe-Version` must be one the simulator knows.
- * - A POST with an `Idempotency-Key` replays its first answer, and a different body for the same key is refused.
+ * - A POST with an `Idempotency-Key` replays its first answer, and a different body for the same key is refused. As
+ *   at Stripe, a request that failed validation (400) saves no result, so a corrected retry with the key runs.
+ * - A Checkout Session past its `expires_at` expires on its own (read lazily), with its `checkout.session.expired`.
  *
  * Errors use Stripe's `{"error": {type, code, message, param}}` envelope, in our own words.
  */
@@ -65,7 +67,10 @@ final class StripeApi
             }
 
             $response = $handler($request->input(), $parameters);
-            $this->state->put('idempotency', $key, ['fingerprint' => $fingerprint, 'status' => $response->status, 'body' => $response->body]);
+
+            if ($response->status !== 400) {
+                $this->state->put('idempotency', $key, ['fingerprint' => $fingerprint, 'status' => $response->status, 'body' => $response->body]);
+            }
 
             return $response;
         });
@@ -134,7 +139,7 @@ final class StripeApi
      */
     public function expireSession(array $input, array $parameters): Response
     {
-        $session = $this->state->get('sessions', $parameters['id']);
+        $session = $this->session($parameters['id']);
 
         if (! is_array($session)) {
             return $this->missing('checkout.session', $parameters['id']);
@@ -167,6 +172,10 @@ final class StripeApi
 
         $left = $charge['amount'] - $charge['amount_refunded'];
         $amount = isset($input['amount']) ? (int) $input['amount'] : $left;
+
+        if ($charge['disputed'] ?? false) {
+            return $this->error(400, 'invalid_request_error', "Charge {$charge['id']} has been disputed and cannot be refunded; respond to the dispute instead.", code: 'charge_disputed');
+        }
 
         if ($left <= 0) {
             return $this->error(400, 'invalid_request_error', "Charge {$charge['id']} has already been refunded.", code: 'charge_already_refunded');
@@ -205,7 +214,7 @@ final class StripeApi
      */
     public function retrieve(string $type, string $id, array $input): Response
     {
-        $object = $this->find($id);
+        $object = $type === 'checkout.session' ? $this->session($id) : $this->find($id);
 
         if ($object === null || $object['object'] !== $type) {
             return $this->missing($type, $id);
@@ -247,6 +256,31 @@ final class StripeApi
         if (is_string($url) && $url !== '') {
             $this->scenario->outbox()->enqueue($url, (string) json_encode($event, JSON_UNESCAPED_SLASHES), ['Content-Type' => 'application/json; charset=utf-8']);
         }
+    }
+
+    /**
+     * A Checkout Session as it is now: an open one past its `expires_at` is expired first (with its event), as Stripe
+     * expires sessions on its own.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function session(string $id): ?array
+    {
+        return $this->state->transaction(function () use ($id): ?array {
+            $session = $this->state->get('sessions', $id);
+
+            if (! is_array($session)) {
+                return null;
+            }
+
+            if ($session['status'] === 'open' && $session['expires_at'] <= time()) {
+                $session = [...$session, 'status' => 'expired', 'url' => null];
+                $this->state->put('sessions', $id, $session);
+                $this->emit('checkout.session.expired', $session);
+            }
+
+            return $session;
+        });
     }
 
     /**
