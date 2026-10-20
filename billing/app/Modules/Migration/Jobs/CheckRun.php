@@ -33,7 +33,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 120;
+    public int $timeout = Queues::IMPORT_JOB_TIMEOUT_SECONDS;
 
     /** @var list<int> */
     public array $backoff = [10, 60];

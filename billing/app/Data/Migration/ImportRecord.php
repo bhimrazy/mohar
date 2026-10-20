@@ -3,7 +3,8 @@
 namespace App\Data\Migration;
 
 /**
- * One source record in our vocabulary (our field names, enums, minor units and ISO dates).
+ * One source record in our vocabulary (our field names, enums, minor units and ISO dates). $entity is the importer's
+ * registry key ("client"); $sourceSystem the kind of source ("csv", "whmcs_api").
  */
 final readonly class ImportRecord
 {
@@ -14,7 +15,7 @@ final readonly class ImportRecord
      * @param  list<array{path: string, name: string, mime: string, size: int, sha256: string}>  $files  staged on the objects disk
      */
     public function __construct(
-        public string $type,
+        public string $entity,
         public string $sourceSystem,
         public string $sourceId,
         public array $attributes,

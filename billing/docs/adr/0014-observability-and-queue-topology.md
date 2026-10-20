@@ -111,8 +111,10 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
   when a worker on another connection takes it.
 
 - **`imports` (amended 2026-10-20, client-import spec C2)** carries client-import jobs (staging, checking, applying).
-  The `default` pool works it after `default` (`--queue=default,imports --timeout=150`), so an import of 50,000 rows
-  never delays other work. Each import job caps itself at 120 s, below the default connection's 240 s `retry_after`,
+  The `default` pool works it after `default` (`--queue=default,imports --timeout=150 --memory=256`), so an import of
+  50,000 rows delays `default` work by at most one import job (`Queues::IMPORT_JOB_TIMEOUT_SECONDS`, 120 s). The
+  `default` queue carries order provisioning and, until they move to `registrar`, the domain registration jobs: their
+  worst-case wait behind imports is one import job. Each import job caps itself at 120 s, below the default connection's 240 s `retry_after`,
   so the queue needs no connection of its own; a job that could run longer must be split into chunks instead. The
   spec proposed a separate `retry_after`; the CTO accepted the default connection instead (2026-10-20, #160): the
   120 s job timeout, the pool's `--timeout=150` and the 160 s stop grace keep each import job below 240 s.

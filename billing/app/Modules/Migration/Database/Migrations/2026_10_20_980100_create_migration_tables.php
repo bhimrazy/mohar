@@ -16,7 +16,7 @@ return new class extends Migration
     {
         Schema::create('migration_sources', function (Blueprint $table): void {
             $table->id();
-            $table->string('driver', 16);
+            $table->string('source_system', 16);
             $table->string('name', 100);
             $table->foreignId('created_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->timestamps();
@@ -25,8 +25,8 @@ return new class extends Migration
         Schema::create('migration_runs', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('migration_source_id')->constrained('migration_sources')->restrictOnDelete();
-            $table->string('source_kind', 16);
-            $table->string('entity', 16);
+            $table->string('source_system', 16);
+            $table->string('entity', 50);
             $table->string('status', 16)->index();
             // Bumped by every new check, so a check still queued from an earlier mapping stops.
             $table->unsignedInteger('generation')->default(0);
@@ -84,17 +84,17 @@ return new class extends Migration
         Schema::create('migration_id_map', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('migration_source_id')->constrained('migration_sources')->restrictOnDelete();
-            $table->string('source_type', 32);
+            // The importer's registry key ("client"), as ImportRecord::$entity.
+            $table->string('entity', 50);
             $table->string('source_id', 191);
-            $table->string('target_type', 32);
             $table->unsignedBigInteger('target_id');
             $table->char('checksum', 64);
             $table->foreignId('first_run_id')->nullable()->index()->constrained('migration_runs')->nullOnDelete();
             $table->foreignId('last_run_id')->nullable()->index()->constrained('migration_runs')->nullOnDelete();
             $table->timestamp('synced_at');
             $table->timestamps();
-            $table->unique(['migration_source_id', 'source_type', 'source_id']);
-            $table->index(['target_type', 'target_id']);
+            $table->unique(['migration_source_id', 'entity', 'source_id']);
+            $table->index(['entity', 'target_id']);
         });
     }
 
