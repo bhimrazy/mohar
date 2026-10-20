@@ -15,6 +15,13 @@ jobs, setup work and pointless runs.
 | Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main` |
 | Manual                                        | `workflow_dispatch`                                                                         |
 
+The **E2E simulators (hosting lifecycle)** job (ADR 0016 §4) is opt-in.
+
+- **When it runs:** on `workflow_dispatch`, on pushes to `main`, and on PRs labelled `e2e` (the `labeled` event for `e2e`, and later pushes while the label stays).
+- **When it never runs:** on ordinary PR events, `ci`-labelled ones included, or on docs-only changes without the label.
+- **What it does:** `php artisan simulate:e2e --connection=pgsql` on its own PostgreSQL service, with `timeout-minutes: 10`.
+- **Cost:** setup (about 45 s) plus the scenario (25–40 s), about **2 billable minutes** a run.
+
 ## One job
 
 Every job pays its own runner start, checkout, PHP/Node setup, dependency install (~25 s) and, for the
@@ -118,6 +125,7 @@ time. It cannot share a pre-seeded database because it changes the registry and 
 | One job after PR #91                      | 1    | measured 579–622 s (runs 39279853998, 39383275452; PostgreSQL step 212–309 s, SQLite 132–194 s) | **10 min**    |
 | After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                          | **1 min**     |
 | Draft PR / feature-branch push            | 0    | —                                                                                               | **0**         |
+| E2E simulators, when opted in (`e2e`)     | +1   | ≈ 45 s setup + 25–40 s scenario (`simulate:e2e`, local runs 22–34 s)                            | **+2 min**    |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
 (job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the
@@ -126,6 +134,7 @@ first levers. Trade-off: feedback arrives after ~2 min instead of ~1 min, and th
 ## Required checks
 
 Mark `CI (policy, lint, types, static, tests, build)` as the required status check on `develop` and `main`.
+`E2E simulators (hosting lifecycle)` is never required: it is opt-in. ADR 0016 CTO decision 5 counts its 10 consecutive green runs before anyone reconsiders that.
 There is no workflow-level `paths-ignore`, so every PR — including docs- or image-only ones — reports the
 check (green via the in-job fast path) and branch protection never waits for a check that was not created.
 
