@@ -46,12 +46,17 @@ case "$sub" in
                     if [ "$a" = "${FAKE_FAIL_UP:-}" ]; then echo "fake: $a is unhealthy" >&2; exit 1; fi
                     grep -qx "$a" "$dir/running" || echo "$a" >> "$dir/running"
                     check
+                    # Started, but `up --wait` reports it unhealthy: the container keeps running.
+                    if [ "$a" = "${FAKE_UNHEALTHY_UP:-}" ]; then echo "fake: $a started but is unhealthy" >&2; exit 1; fi
                     ;;
             esac
         done
         ;;
     stop)
-        for a in "${rest[@]}"; do grep -vx -- "$a" "$dir/running" > "$dir/running.tmp"; mv "$dir/running.tmp" "$dir/running"; done
+        for a in "${rest[@]}"; do
+            if [ "$a" = "${FAKE_FAIL_STOP:-}" ]; then echo "fake: stopping $a failed" >&2; exit 1; fi
+            grep -vx -- "$a" "$dir/running" > "$dir/running.tmp"; mv "$dir/running.tmp" "$dir/running"
+        done
         ;;
     ps)
         case " ${rest[*]} " in *" caddy "*) grep -qx caddy "$dir/running" && echo caddy-id ;; esac
@@ -184,4 +189,29 @@ test('a reload whose new upstream never shows in Caddy\'s config restores the pr
     expect(d3Upstream($dir))->toBe('app-blue')
         ->and(file_get_contents("{$dir}/state/deploy.env"))->toBe($state)
         ->and(d3Running($dir))->toContain('scheduler-blue', 'worker-automation-blue')->not->toContain('scheduler-green');
+});
+
+// Re-check at 1a65bc6c: the recovery path in move_workers. When the new scheduler started but is unhealthy and
+// stopping it fails, `stop ... || true` carries on and starts the old scheduler beside it.
+test('the recovery from an unhealthy new scheduler never starts the old one while the new one may still run', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0); // blue
+    expect(d3Deploy($dir, ['--image', 'img:2']))->toBe(0); // green
+
+    expect(d3Deploy($dir, ['--image', 'img:3'], ['FAKE_UNHEALTHY_UP' => 'scheduler-blue', 'FAKE_FAIL_STOP' => 'scheduler-blue']))->not->toBe(0);
+
+    expect(@file_get_contents("{$dir}/violations"))->toBeFalse();
+});
+
+test('the recovery from an unhealthy new scheduler that stops cleanly runs the old one again', function () {
+    $this->sandbox = $dir = d3Sandbox();
+    expect(d3Deploy($dir, ['--image', 'img:1']))->toBe(0); // blue
+    expect(d3Deploy($dir, ['--image', 'img:2']))->toBe(0); // green
+
+    expect(d3Deploy($dir, ['--image', 'img:3'], ['FAKE_UNHEALTHY_UP' => 'scheduler-blue']))->not->toBe(0);
+
+    $running = d3Running($dir);
+    expect(array_values(array_filter($running, fn (string $s) => str_starts_with($s, 'scheduler-'))))->toBe(['scheduler-green'])
+        ->and(array_values(array_filter($running, fn (string $s) => str_starts_with($s, 'worker-automation-'))))->toBe(['worker-automation-green'])
+        ->and(@file_get_contents("{$dir}/violations"))->toBeFalse();
 });
