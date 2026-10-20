@@ -1,0 +1,308 @@
+# Production stack on one Docker host (billing/docs/devops/production.md).
+#
+#   cp deploy/.env.production.example deploy/.env && chmod 600 deploy/.env    # then fill it in
+#   docker compose -f deploy/compose.prod.yaml build                            # or set APP_IMAGE to a pushed image
+#   docker compose -f deploy/compose.prod.yaml up -d --wait
+#
+# Compose reads deploy/.env for the ${...} values below, and the PHP services read the same file (env_file).
+# One image runs web, workers, scheduler and migrations (deploy/Dockerfile, docs/devops/container-image.md).
+# Only Caddy publishes ports. PostgreSQL and RustFS sit on an internal network with no route out; the PHP
+# services, the app included, also join `egress` for gateways, registrars, panels and mail.
+#
+# Third-party images are <name>:<tag>@sha256:<digest> and at least 7 days old (ADR 0007, `composer deps:check`).
+# The postgres image must equal the one in billing/compose.yaml and .github/workflows/ci.yml (CI asserts it).
+name: mohar
+
+x-logging: &logging
+    driver: json-file
+    options:
+        max-size: 10m
+        max-file: '5'
+
+x-php: &php
+    # Our own image, not a third-party dependency: built from deploy/Dockerfile, or a tag you pushed.
+    image: ${APP_IMAGE:-mohar-app:local} # own image
+    build:
+        context: ..
+        dockerfile: deploy/Dockerfile
+        target: prod
+    # deploy/.env by default; the smoke test (deploy/bin/smoke) points this at its own generated file.
+    env_file:
+        - ${APP_ENV_FILE:-.env}
+    environment:
+        DB_CONNECTION: pgsql
+        DB_HOST: postgres
+        DB_PORT: '5432'
+        OBJECTS_DRIVER: s3
+        OBJECTS_ENDPOINT: http://rustfs:9000
+        # Only Caddy, on the edge network, may set the client IP and scheme.
+        TRUSTED_PROXIES: ${EDGE_SUBNET:-172.30.10.0/24}
+    read_only: true
+    tmpfs:
+        - /tmp
+        - /app/bootstrap/cache:uid=10001,gid=10001
+        - /data:uid=10001,gid=10001
+        - /config:uid=10001,gid=10001
+    volumes:
+        - storage:/app/storage
+    cap_drop:
+        - ALL
+    security_opt:
+        - no-new-privileges:true
+    init: true
+    restart: unless-stopped
+    logging: *logging
+    networks:
+        - backend
+        - egress
+    depends_on:
+        migrate:
+            condition: service_completed_successfully
+
+x-worker: &worker
+    <<: *php
+    # The image's HEALTHCHECK probes the web server, which workers do not run. Instead: is a queue:work process
+    # alive? PID 1 is skipped, because with `init: true` it is docker-init, whose own command line carries the
+    # command for as long as the container exists; the [:] keeps the check from matching itself. A disabled check
+    # would make `docker compose up --wait` fail on Compose 2.38.
+    healthcheck: &process-alive
+        test:
+            - CMD-SHELL
+            - 'for p in /proc/[0-9]*; do [ "$${p##*/}" != 1 ] && grep -qsa "queue[:]work" "$$p/cmdline" && exit 0; done; exit 1'
+        interval: 30s
+        timeout: 5s
+        retries: 3
+        start_period: 30s
+
+services:
+    caddy:
+        image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
+        ports:
+            - '${HTTP_PORT:-80}:80'
+            - '${HTTPS_PORT:-443}:443'
+            - '${HTTPS_PORT:-443}:443/udp'
+        environment:
+            APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
+            CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
+            CADDY_TLS: ${CADDY_TLS:-}
+        volumes:
+            - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            # Certificates and ACME account keys: must persist, or every restart requests new certificates.
+            - caddy-data:/data
+            - caddy-config:/config
+        read_only: true
+        tmpfs:
+            - /tmp
+        cap_drop:
+            - ALL
+        cap_add:
+            - NET_BIND_SERVICE
+        security_opt:
+            - no-new-privileges:true
+        restart: unless-stopped
+        logging: *logging
+        networks:
+            - edge
+        depends_on:
+            app:
+                condition: service_healthy
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 128M
+
+    app:
+        <<: *php
+        # edge for Caddy, egress for outbound calls made during requests (gateways at checkout).
+        networks:
+            - edge
+            - backend
+            - egress
+        stop_grace_period: 30s
+        deploy:
+            resources:
+                limits:
+                    cpus: '1.0'
+                    memory: 512M
+
+    # ADR 0014 pools: the commands of App\Support\Queues::workerCommands() (install.md §6), plus --max-time=3600 so
+    # each pool restarts hourly. --timeout is at least the provisioning cap (180 s + 20 s lock slack) and stays below
+    # the queue's retry_after (240 s); stop_grace_period lets a running job finish before the container is killed.
+    worker-critical:
+        <<: *worker
+        command:
+            - php
+            - artisan
+            - queue:work
+            - --queue=payments,provisioning,registrar
+            - --tries=3
+            - --timeout=200
+            - --max-time=3600
+        stop_grace_period: 210s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 384M
+
+    worker-notifications:
+        <<: *worker
+        command:
+            [
+                'php',
+                'artisan',
+                'queue:work',
+                '--queue=notifications,webhooks',
+                '--tries=3',
+                '--max-time=3600',
+            ]
+        stop_grace_period: 70s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 384M
+
+    worker-default:
+        <<: *worker
+        command:
+            [
+                'php',
+                'artisan',
+                'queue:work',
+                '--queue=default',
+                '--tries=3',
+                '--max-time=3600',
+            ]
+        stop_grace_period: 70s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 384M
+
+    # "Run now" from Admin -> Automation, on its own `automation` connection (retry_after 3,900 s, above the job's
+    # 3,600 s timeout). The connection argument matters: `--queue=automation` alone would read these jobs with the
+    # default connection's 240 s retry_after. One worker is enough. The stop grace waits for a run in progress.
+    worker-automation:
+        <<: *worker
+        command: ['php', 'artisan', 'queue:work', 'automation', '--queue=automation', '--tries=1', '--timeout=3600']
+        stop_grace_period: 3660s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 384M
+
+    # Exactly one scheduler: it runs the minute heartbeat and the daily automation pipeline. That pipeline runs
+    # inline in a schedule:run child (546 s for 50,000 clients in load testing), and schedule:work waits for it on
+    # SIGTERM: the stop grace matches worker-automation's, so an update waits for a run in progress instead of
+    # killing it (an idle scheduler still stops in well under a second). Three PHP processes share the memory limit,
+    # the last one allowed up to memory_limit (256M), hence 512M.
+    scheduler:
+        <<: *worker
+        command: ['php', 'artisan', 'schedule:work']
+        healthcheck:
+            <<: *process-alive
+            test:
+                - CMD-SHELL
+                - 'for p in /proc/[0-9]*; do [ "$${p##*/}" != 1 ] && grep -qsa "schedule[:]work" "$$p/cmdline" && exit 0; done; exit 1'
+        stop_grace_period: 3660s
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 512M
+
+    # One-shot, before anything else starts: migrations, the bucket, reference data (all idempotent). On the
+    # first install create the administrator first (production.md); afterwards every deploy runs this unchanged.
+    migrate:
+        <<: *worker
+        command:
+            - sh
+            - -c
+            - php artisan migrate --force --no-interaction && php artisan objects:ensure-bucket --no-interaction && php artisan app:install --no-interaction
+        restart: 'no'
+        # A one-shot: nothing to probe while it runs.
+        healthcheck:
+            test: ['CMD', 'true']
+        depends_on:
+            postgres:
+                condition: service_healthy
+            rustfs:
+                condition: service_healthy
+        deploy:
+            resources:
+                limits:
+                    cpus: '1.0'
+                    memory: 512M
+
+    postgres:
+        image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+        environment:
+            POSTGRES_DB: ${DB_DATABASE:-billing}
+            POSTGRES_USER: ${DB_USERNAME:-billing}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+        volumes:
+            # PostgreSQL 18+ keeps data under /var/lib/postgresql/<major>/docker; mount the parent.
+            - postgres-data:/var/lib/postgresql
+        shm_size: 256m
+        # A fast shutdown with a large checkpoint can take longer than Docker's default 10 s.
+        stop_grace_period: 60s
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        restart: unless-stopped
+        logging: *logging
+        networks:
+            - backend
+        deploy:
+            resources:
+                limits:
+                    cpus: '1.0'
+                    memory: 1G
+
+    rustfs:
+        image: rustfs/rustfs:1.0.0@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff
+        environment:
+            RUSTFS_ACCESS_KEY: ${OBJECTS_ACCESS_KEY:?set OBJECTS_ACCESS_KEY in deploy/.env}
+            RUSTFS_SECRET_KEY: ${OBJECTS_SECRET_KEY:?set OBJECTS_SECRET_KEY in deploy/.env}
+            RUSTFS_CONSOLE_ENABLE: 'false'
+        volumes:
+            - rustfs-data:/data
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -fsS http://localhost:9000/health || exit 1']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
+        logging: *logging
+        networks:
+            - backend
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 512M
+
+networks:
+    # Caddy and the web container; a fixed range so TRUSTED_PROXIES can name it.
+    edge:
+        ipam:
+            config:
+                - subnet: ${EDGE_SUBNET:-172.30.10.0/24}
+    # Databases and object storage: no route to the internet.
+    backend:
+        internal: true
+    # Outbound traffic for the PHP services (gateways, registrars, panels, mail).
+    egress: {}
+
+volumes:
+    storage:
+    postgres-data:
+    rustfs-data:
+    caddy-data:
+    caddy-config:

@@ -3,6 +3,9 @@
 How to install the billing app on a new server, from an empty database to a signed-in administrator, and how to
 upgrade it later. For a development machine with demo data, use [local-setup.md](local-setup.md) instead.
 
+This page installs the app on the host itself (PHP, a web server, systemd or Supervisor). To run everything in
+containers on one Docker host, behind Caddy, follow [production.md](production.md) instead.
+
 The install is a CLI step, `php artisan app:install`. A web installer is not part of v1.
 
 ## What you need
@@ -27,7 +30,7 @@ data in the `postgres-data` and `rustfs-data` volumes. Set strong values for `DB
 volume is created. The compose file also creates an empty `billing_test` database for the test suite, which
 production does not use. The file is written for local infrastructure: it also turns on the RustFS web console
 (`RUSTFS_CONSOLE_ENABLE`, port 9001 on `127.0.0.1`). In production set that to `'false'` or keep the port off any
-public interface. There is no application image yet, so the app itself runs on the host (step 2).
+public interface. With this option the app itself runs on the host (step 2); the all-container stack is in [production.md](production.md).
 
 **Bare metal or managed services.** Create a PostgreSQL database and a user that owns it, and a private bucket
 with an access key limited to that bucket. Put the connection details in `.env` (step 3).
@@ -159,20 +162,56 @@ Cron, as the user that runs PHP:
 The scheduler writes a heartbeat every minute and runs the daily automation pipeline at `core.automation_time`
 (03:00 server time by default). The admin dashboard flags automation that has not run for 26 hours.
 
-Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
+Queue workers, kept running by systemd or Supervisor. `app:install` prints the same four commands; the queue names
+are in `App\Support\Queues` (ADR 0014):
 
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
 php artisan queue:work --queue=default --tries=3
+php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
 
-The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
+The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md) (queue topology accepted). The first pool
 calls gateways, control panels and registrars. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
 or after the driver's declared command timeout up to `services.module.max_job_timeout_seconds` (180 s); the pool's
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
 the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+
+The fourth worker runs **Run now** from Admin → Automation. A run can last longer than the pools' `retry_after` (a
+billing day for 50,000 clients took 546 s in load testing), and a worker hands a reserved job to a second worker once
+`retry_after` has passed, even while the first is still running it. So these jobs use their own `automation`
+connection: the same backend as `QUEUE_CONNECTION` (`database`, `redis`, `beanstalkd` or `sqs`; `database` for any
+other driver), the `automation` queue, and a `retry_after` of 3,900 s, above the job's 3,600 s timeout. The values
+are set in `App\Support\Queues`, not in `.env`. On SQS, create an `automation` queue with a visibility timeout of
+at least 3,900 s.
+
+- Start it with the connection argument, `queue:work automation`. `queue:work --queue=automation` alone reads the
+  same jobs through the default connection and its 240 s `retry_after`, which hands a long run to a second worker.
+  When such a worker takes a job first, the job fails without running, and the failed job names the right command.
+  Never add `automation` to another worker's `--queue` list.
+- One automation worker is enough: while one run waits or runs, another **Run now** is not queued, and the page
+  says so. The scheduled daily run does not use the queue; it runs in the scheduler process. **Run now** during the
+  scheduled run is refused with "An automation run is in progress"; a request queued just before it starts is
+  skipped and recorded in the activity log ("Automation run skipped").
+- Without this worker, **Run now** requests wait in the queue until a worker starts.
+- Give the worker a stop timeout above 3,600 s (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose
+  `stop_grace_period`), so a deploy waits for a run in progress instead of killing it.
+
+A worker stopped mid-run (killed, out of memory, or a stop timeout that ran out) ends the run part-way and cannot
+release its locks:
+
+- **Run now** is refused until about 65 minutes (3,900 s) after the interrupted run was requested: "An automation
+  run is in progress" for the first hour, then "already queued or running". When the worker is back, the interrupted job is recorded as a failed job once its `retry_after` has
+  passed; it does not run again.
+- A scheduled daily run that starts within an hour of the interrupted run's start finds the run lock (3,600 s)
+  still held and does not run that day; the dashboard flags it after 26 hours. Press **Run now** once the locks are
+  free.
+- To run sooner, first check that no worker is running an automation job (the automation worker's log shows no
+  `RunAutomationJob` in progress) and that the scheduled run is not running, then run
+  `php artisan automation:release-locks` and press **Run now**. Tasks that already succeeded that day are skipped.
+  Releasing the locks while a run is in progress would let a second run start alongside it.
 
 A minimal systemd unit for one pool:
 

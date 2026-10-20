@@ -28,6 +28,7 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Spinner } from '@/components/ui/spinner';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerController';
@@ -55,6 +56,14 @@ type AccountRow = {
     note: string | null;
     service: LinkedService | null;
     differences: string[];
+    include: boolean;
+};
+
+type ReportLine = {
+    username: string;
+    imported: boolean;
+    message: string;
+    service_id: number | null;
 };
 
 type MissingRow = {
@@ -68,7 +77,7 @@ type Props = {
     server: { id: number; name: string; hostname: string };
     supported: boolean;
     import: {
-        status: 'fetching' | 'matching' | 'ready' | 'failed';
+        status: 'fetching' | 'matching' | 'importing' | 'ready' | 'failed';
         error: string | null;
         account_count: number;
         requested_by: string | null;
@@ -76,11 +85,19 @@ type Props = {
         fetched_at: string | null;
         expires_at: string;
         running: boolean;
+        progress: { done: number; total: number } | null;
+        report: {
+            imported: number;
+            not_imported: number;
+            stop_reason: string | null;
+            lines: ReportLine[];
+        } | null;
     } | null;
     counts: Record<Tab, number> | null;
     rows: LaravelPaginated<AccountRow | MissingRow>;
     filters: { tab: Tab; search: string };
     createProductUrl: string | null;
+    included: number;
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -151,7 +168,20 @@ function ServiceLink({ service }: { service: LinkedService }) {
 
 const accountColumns = (
     createProductUrl: string | null,
+    toggle: (row: AccountRow) => void,
 ): DataTableColumn<AccountRow>[] => [
+    {
+        key: 'include',
+        header: <span className="sr-only">Import</span>,
+        cell: (row) =>
+            row.category !== 'linked' && (
+                <Checkbox
+                    checked={row.include}
+                    onCheckedChange={() => toggle(row)}
+                    aria-label={`Import ${row.username}`}
+                />
+            ),
+    },
     {
         key: 'account',
         header: 'Account',
@@ -285,8 +315,19 @@ export default function ServerImport({
     rows,
     filters,
     createProductUrl,
+    included,
 }: Props) {
-    const { errors } = usePage().props as { errors: Record<string, string> };
+    const page = usePage();
+    const { errors } = page.props as { errors: Record<string, string> };
+    const report = fetched?.report ?? null;
+    const select = (
+        data: Record<string, string | boolean | string[]>,
+        onSuccess?: () => void,
+    ) =>
+        router.put(ServerImportController.select(server.id).url, data, {
+            preserveScroll: true,
+            onSuccess,
+        });
     const { apply } = useQueryParams();
     const running = fetched?.running ?? false;
     const matching = fetched?.status === 'matching';
@@ -359,15 +400,56 @@ export default function ServerImport({
                                 </Button>
                             )}
                             {fetchButton}
+                            {ready && counts.proposed > 0 && (
+                                <Button
+                                    variant="outline"
+                                    title="Tick every proposed account, then check each one on the review page."
+                                    onClick={() =>
+                                        select({ proposed: true }, () =>
+                                            router.visit(
+                                                ServerImportController.review(
+                                                    server.id,
+                                                ).url,
+                                            ),
+                                        )
+                                    }
+                                >
+                                    Select all proposed
+                                </Button>
+                            )}
+                            {ready && (
+                                <Button
+                                    asChild={included > 0}
+                                    disabled={included === 0}
+                                    title={
+                                        included === 0
+                                            ? 'Tick the accounts to import first.'
+                                            : undefined
+                                    }
+                                >
+                                    {included > 0 ? (
+                                        <Link
+                                            href={ServerImportController.review(
+                                                server.id,
+                                            )}
+                                        >
+                                            Review import ({included})
+                                        </Link>
+                                    ) : (
+                                        'Review import'
+                                    )}
+                                </Button>
+                            )}
                         </>
                     }
                 />
 
                 <p className="-mt-2 text-sm text-muted-foreground">
-                    This page changes nothing. Importing comes next: you tick
-                    the accounts to bring in, review them, and confirm. Each
-                    becomes a service for its client, with no invoice, email or
-                    change on the server.
+                    Tick the accounts to bring in, then review and confirm.
+                    Matches come from the contact email the server reports,
+                    which the account holder can change, so check each one. Each
+                    account becomes a service for its client, with no invoice,
+                    email or change on the server.
                 </p>
 
                 {!supported && (
@@ -384,6 +466,66 @@ export default function ServerImport({
                     </Alert>
                 )}
 
+                {report && !running && (
+                    <Alert
+                        variant={report.stop_reason ? 'destructive' : 'default'}
+                    >
+                        <AlertTitle>
+                            Last import: {report.imported} of{' '}
+                            {plural(
+                                report.imported + report.not_imported,
+                                'account',
+                            )}{' '}
+                            imported
+                        </AlertTitle>
+                        <AlertDescription>
+                            {report.stop_reason && (
+                                <p className="font-medium">
+                                    The import stopped: {report.stop_reason}
+                                </p>
+                            )}
+                            <ul className="grid gap-1">
+                                {report.lines.map((line) => (
+                                    <li key={line.username}>
+                                        <span className="font-mono">
+                                            {line.username}
+                                        </span>
+                                        {' — '}
+                                        {line.imported && line.service_id ? (
+                                            <>
+                                                {line.message}{' '}
+                                                <Link
+                                                    href={ServiceController.show(
+                                                        line.service_id,
+                                                    )}
+                                                    className="text-primary hover:underline"
+                                                >
+                                                    View service
+                                                </Link>
+                                            </>
+                                        ) : (
+                                            <span className="text-destructive">
+                                                Not imported: {line.message}
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                                {report.imported + report.not_imported >
+                                    report.lines.length && (
+                                    <li>
+                                        …and{' '}
+                                        {report.imported +
+                                            report.not_imported -
+                                            report.lines.length}{' '}
+                                        more; see the Already linked tab and the
+                                        activity log.
+                                    </li>
+                                )}
+                            </ul>
+                        </AlertDescription>
+                    </Alert>
+                )}
+
                 {errors.import && (
                     <Alert variant="destructive">
                         <AlertDescription>{errors.import}</AlertDescription>
@@ -394,12 +536,17 @@ export default function ServerImport({
                     <Alert>
                         <Spinner />
                         <AlertTitle>
-                            {matching ? 'Matching' : 'Reading'} the accounts on{' '}
-                            {server.name}
+                            {fetched?.status === 'importing'
+                                ? 'Importing'
+                                : matching
+                                  ? 'Matching'
+                                  : 'Reading'}{' '}
+                            the accounts on {server.name}
                         </AlertTitle>
                         <AlertDescription>
-                            Large servers take a minute or two. This page
-                            updates when the list is ready.
+                            {fetched?.progress
+                                ? `${fetched.progress.done} of ${plural(fetched.progress.total, 'account')} done. This page updates as it goes.`
+                                : 'Large servers take a minute or two. This page updates when the list is ready.'}
                         </AlertDescription>
                     </Alert>
                 )}
@@ -552,7 +699,14 @@ export default function ServerImport({
                         ) : (
                             <DataTable
                                 caption="Accounts on the server"
-                                columns={accountColumns(createProductUrl)}
+                                columns={accountColumns(
+                                    createProductUrl,
+                                    (row) =>
+                                        select({
+                                            usernames: [row.username],
+                                            include: !row.include,
+                                        }),
+                                )}
                                 rows={rows.data as AccountRow[]}
                                 getRowKey={(row) => row.username}
                                 empty={

@@ -59,7 +59,7 @@ php artisan wayfinder:generate --with-form
 vendor/bin/pint --dirty --format agent && $H vendor/bin/phpstan analyse --memory-limit=1G
 npx tsc --noEmit && npx vp check && npm test && $H npm run build && $H php artisan test --compact
 git push origin feature/<slug>
-gh pr ready <n>                                                 # drafts run CI only with the `ci` label
+gh pr ready <n>     # only once no review is "Changes requested" at this head; drafts run CI only with the `ci` label
 gh pr checks <n> --watch
 gh pr comment <n> -b "CTO sign-off: <reviews passed, gates, test count>"
 for s in $(gh pr list --base feature/<slug> --json number --jq '.[].number'); do gh pr edit $s --base develop; done

@@ -241,3 +241,36 @@ export function isDockerfile(path) {
         )
     );
 }
+
+/**
+ * The `image:` values of a compose or workflow file, for the pinning and cooldown checks. Every `image:` line is
+ * returned, whatever follows the value (CRLF line ends too), so nothing escapes the check by its formatting.
+ * `own` marks the app's own image (built from deploy/Dockerfile or pushed by us), which is not a third-party
+ * dependency: only a value that is wholly `${VAR}` or `${VAR:-mohar-app:<tag>}` and carries a `# own image` comment
+ * counts, so a third-party image can be hidden neither behind a variable nor in its default.
+ *
+ * @param {string} text
+ * @returns {{image: string, own: boolean}[]}
+ */
+export function composeImages(text) {
+    const images = [];
+    for (const line of text.split(/\r?\n/)) {
+        const entry = line.match(/^\s*image:\s*(.*)$/);
+        if (!entry) {
+            continue;
+        }
+        const rest = entry[1].trim();
+        const value = rest.match(/^(['"]?)([^\s'"#]+)\1/);
+        const image = value ? value[2] : rest;
+        const comment = value ? rest.slice(value[0].length).trim() : '';
+        images.push({
+            image,
+            own:
+                /^\$\{[A-Z0-9_]+(:-mohar-app:[A-Za-z0-9._-]+)?\}$/.test(
+                    image,
+                ) && /^#\s*own image\b/.test(comment),
+        });
+    }
+
+    return images;
+}

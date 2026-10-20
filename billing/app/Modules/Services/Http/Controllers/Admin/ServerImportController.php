@@ -6,17 +6,20 @@ use App\Contracts\Services\Provisioning\ListsAccounts;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Models\Client;
 use App\Modules\Services\Actions\FetchAccountsForImport;
+use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Support\AccountImportMatcher;
+use App\Modules\Services\Support\AccountImportPlan;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -31,7 +34,7 @@ class ServerImportController extends Controller
 
     private const PER_PAGE = 50;
 
-    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher): Response
+    public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher, AccountImportPlan $plan): Response
     {
         $this->authorize('services.servers.import');
 
@@ -61,6 +64,14 @@ class ServerImportController extends Controller
                 'fetched_at' => $import->fetched_at?->toIso8601String(),
                 'expires_at' => $import->expires_at->toIso8601String(),
                 'running' => $import->isRunning(),
+                'progress' => $import->status === ServerAccountImport::IMPORTING ? ['done' => $import->imported_count + $import->not_imported_count, 'total' => count($import->reviewed['rows'] ?? [])] : null,
+                // The last import's counts, why it stopped (if it did), and its first lines; the rest are in the activity log.
+                'report' => $import->status === ServerAccountImport::IMPORTING || $import->imported_count + $import->not_imported_count === 0 ? null : [
+                    'imported' => $import->imported_count,
+                    'not_imported' => $import->not_imported_count,
+                    'stop_reason' => $import->stop_reason,
+                    'lines' => $import->reportLines(self::PER_PAGE),
+                ],
             ],
             'counts' => $ready ? [
                 'all' => $import->account_count,
@@ -73,6 +84,7 @@ class ServerImportController extends Controller
             'rows' => $rows,
             'filters' => ['tab' => $tab, 'search' => $search],
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
+            'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
         ]);
     }
 
@@ -103,6 +115,89 @@ class ServerImportController extends Controller
     }
 
     /**
+     * Tick or untick accounts, or tick every proposed account at once. Only usernames in the fetched list; the client,
+     * product and billing come from the match in this step (choosing them per account follows in the next one).
+     */
+    public function select(Request $request, Server $server, ImportServerAccounts $importer): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $this->ready($server);
+        $data = $request->validate([
+            'proposed' => ['sometimes', 'accepted'],
+            'usernames' => ['required_without:proposed', 'array', 'max:500'],
+            'usernames.*' => ['string', 'max:255'],
+            'include' => ['sometimes', 'boolean'],
+            'client_id' => ['prohibited'],
+            'product_id' => ['prohibited'],
+            'cycle' => ['prohibited'],
+            'next_due_date' => ['prohibited'],
+        ], ['prohibited' => __('Choosing a client, product or billing per account is not available yet: only matched accounts can be imported.')]);
+
+        $importer->tick($server, isset($data['proposed']) ? null : $data['usernames'], (bool) ($data['include'] ?? true));
+
+        return back();
+    }
+
+    /**
+     * Every ticked account as it would be imported (a page at a time, the ones left out first), with totals per
+     * currency and cycle. Showing it records the importable rows, each with its matched client, and their digest,
+     * which apply must send.
+     */
+    public function review(Request $request, Server $server, AccountImportPlan $plan): Response
+    {
+        $this->authorize('services.servers.import');
+
+        $review = $plan->review($server, $this->ready($server), $request->user()?->id);
+        $rows = collect($review['rows'])->sortBy(fn (array $row): int => $row['decision']['problems'] === [] ? 1 : 0)->values();
+        [$ready, $excluded] = $rows->partition(fn (array $row): bool => $row['decision']['problems'] === []);
+        $totals = $ready->groupBy(fn (array $row): string => $row['decision']['client']['currency'].':'.$row['decision']['cycle'])
+            ->map(fn ($group, string $key): array => ['currency' => explode(':', $key)[0], 'cycle' => explode(':', $key)[1], 'amount' => (int) $group->sum('decision.amount'), 'accounts' => $group->count()])
+            ->values();
+        $page = max(1, $request->integer('page', 1));
+
+        return Inertia::render('admin/services/servers/import-review', [
+            'server' => ['id' => $server->id, 'name' => $server->name, 'hostname' => $server->hostname],
+            'rows' => $rows->slice(($page - 1) * self::PER_PAGE, self::PER_PAGE)->values(),
+            'page' => ['current' => $page, 'last' => max(1, (int) ceil($rows->count() / self::PER_PAGE))],
+            'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
+            'totals' => $totals,
+            'digest' => $review['digest'],
+        ]);
+    }
+
+    /**
+     * Start the import of exactly the reviewed accounts on the queue (ImportServerAccounts::start()); the page shows its
+     * progress, then the report.
+     */
+    public function apply(Request $request, Server $server, ImportServerAccounts $importer): RedirectResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $digest = (string) $request->validate(['digest' => ['required', 'string', 'size:64']], ['digest.required' => __('Review the import before confirming it.')])['digest'];
+        $count = $importer->start($server, $digest, $request->user());
+        Inertia::flash('toast', ['type' => 'info', 'message' => __('Importing :count accounts from :server. This page shows the progress.', ['count' => $count, 'server' => $server->name])]);
+
+        return to_route('admin.services.servers.import.show', $server);
+    }
+
+    /**
+     * The server's fetched list, with its accounts.
+     *
+     * @throws ValidationException when there is none to work from
+     */
+    private function ready(Server $server): ServerAccountImport
+    {
+        $import = FetchAccountsForImport::latest($server, withAccounts: true);
+
+        if ($import?->status !== ServerAccountImport::READY) {
+            throw ValidationException::withMessages(['import' => __('Fetch the accounts on :server again: the list is missing or expired.', ['server' => $server->name])]);
+        }
+
+        return $import;
+    }
+
+    /**
      * One page of the stored accounts, with that page re-checked against today: a live service that now holds the
      * username, and the current names of the matched client (if still open) and product (if it still provisions here).
      *
@@ -120,6 +215,13 @@ class ServerImportController extends Controller
             // Older services may hold a username in another case; the panel's names are lowercase (as the match compares).
             ->whereRaw('lower(username) in ('.implode(', ', array_fill(0, max(1, count($slice)), '?')).')', array_column($slice, 'username') ?: [''])
             ->get(['id', 'client_id', 'product_id', 'product_name', 'domain', 'username', 'status'])->keyBy(fn (Service $service): string => strtolower((string) $service->username));
+        $choices = $import->selections ?? [];
+        $slice = array_map(fn (array $row): array => [...$row,
+            'client_id' => $choices[$row['username']]['client_id'] ?? $row['client_id'],
+            'product_id' => $choices[$row['username']]['product_id'] ?? $row['product_id'],
+            'chosen' => array_intersect_key($choices[$row['username']] ?? [], array_flip(['cycle', 'next_due_date'])),
+            'include' => (bool) ($choices[$row['username']]['include'] ?? false),
+        ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
             ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
         $products = $matcher->serverProducts($server);

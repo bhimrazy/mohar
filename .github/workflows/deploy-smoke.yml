@@ -1,0 +1,44 @@
+# Manual smoke test of the production compose stack (deploy/compose.prod.yaml) on a GitHub-hosted runner:
+# build the image, install on fresh PostgreSQL and RustFS, then check /up, sign-in and a queued job through Caddy
+# with an internal test certificate (deploy/bin/smoke). Never part of the normal CI job and never automatic.
+#
+# Runs only when started by hand, never on a push or on new commits to a labelled PR:
+# - Actions -> Deploy smoke -> Run workflow (available once this file is on the default branch), or
+# - adding the `deploy-smoke` label to a pull request (remove and re-add it to run again).
+name: Deploy smoke
+
+on:
+    workflow_dispatch:
+    pull_request:
+        types: [labeled]
+
+permissions:
+    contents: read
+
+concurrency:
+    # Any label added to the PR starts this workflow (GitHub cannot filter `labeled` by name); only `deploy-smoke`
+    # runs the job, and every other label gets a group of its own, so labelling a PR never cancels a smoke run.
+    group: deploy-smoke-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' && github.event.label.name != 'deploy-smoke') && github.run_id || 'run' }}
+    cancel-in-progress: true
+
+jobs:
+    smoke:
+        name: Production stack smoke test
+        # A `labeled` event runs only when the label added is `deploy-smoke`.
+        if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'deploy-smoke'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Tool versions
+              run: |
+                  docker version --format 'Docker Engine {{.Server.Version}}'
+                  docker compose version
+                  docker buildx version
+
+            - name: Build, install and check the stack
+              run: deploy/bin/smoke

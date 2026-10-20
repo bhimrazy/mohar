@@ -48,6 +48,9 @@ assumptions about that topology without writing them down:
       under `app/Modules/*/Jobs`.
     - Work that may take longer than a pool allows, such as the automation "Run now" button, gets its own queue
       with its own `retry_after`. Alternatively, it is run by the scheduler process from a "requested" flag.
+    - **Chosen in #122 (2026-10-20): its own connection.** "Run now" runs on the `automation` connection and queue
+      (`App\Support\Queues`, ADR 0014), with `retry_after` 3,900 s above the job's 3,600 s timeout. The
+      "requested" flag option is not used.
 4. **One shared lock store is a deployment requirement.**
     - The `app:install` pre-flight and the health check fail when `cache.default` resolves to `array` or `null`.
     - The `file` driver is accepted only for a single-host, single-container install, and the pre-flight warns.
