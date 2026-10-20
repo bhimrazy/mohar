@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     composeImages,
     composerDistProblems,
+    directPinProblems,
     digestBelongsToTag,
     dockerfileImages,
     isDockerfile,
@@ -270,6 +271,35 @@ describe('composeImages', () => {
         ).toEqual([
             { image: 'nginx:latest', own: false },
             { image: 'redis:7', own: false },
+        ]);
+    });
+});
+
+describe('directPinProblems', () => {
+    it('accepts exact versions and an exact npm: alias, and lists everything else', () => {
+        expect(
+            directPinProblems({
+                dependencies: {
+                    astro: '7.3.8',
+                    vite: 'npm:@voidzero-dev/vite-plus-core@0.3.3',
+                    pre: '1.0.0-rc.1',
+                },
+                devDependencies: {
+                    a: '^1.2.3',
+                    b: '~1.2.3',
+                    c: 'latest',
+                    d: '1.x',
+                    e: 'npm:x@^2.0.0',
+                    f: 'github:o/r',
+                },
+            }),
+        ).toEqual([
+            'a@^1.2.3',
+            'b@~1.2.3',
+            'c@latest',
+            'd@1.x',
+            'e@npm:x@^2.0.0',
+            'f@github:o/r',
         ]);
     });
 });
