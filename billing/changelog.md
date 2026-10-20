@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Chargebacks and provider refunds take back account credit (#172).** A dispute or a provider-side refund of a
+  payment that went to account credit (an overpayment, or a payment of an invoice that was already paid or
+  cancelled) left that credit spendable: the chargeback was booked at 0 and the refund only logged "refund needs staff
+  review". Now the part the payment could not return is taken back from the credit that payment placed, once per
+  dispute or refund id, and the chargeback carries the full disputed amount. The take-back never touches credit from
+  anywhere else. If the client already spent the credit, the balance goes negative and a new dashboard to-do,
+  "Clients owing account credit" (`billing.credit.manage`), links to Billing → Account credit filtered to negative
+  balances (new "Show" filter). Webhook results now read "chargeback recorded; credit taken back" or "refund
+  recorded; credit taken back" when credit was taken. No migration. Refunds of flagged late payments (#152) work as
+  before. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments were
+  disputed or refunded at the provider.
+
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
   after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit

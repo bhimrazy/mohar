@@ -420,11 +420,16 @@ class GatewayCallbackHandler
                     ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::Reversal, __('Credit reversed (chargeback :dispute)', ['dispute' => $event->txnId]))
                     : 0;
 
-                if ($taken > 0 && $first !== null) {
+                $payload = $event->raw;
+
+                if ($taken > 0) {
                     $first->update(['amount_out' => $first->amount_out + $taken]);
+                    $payload['credit_taken_back'] = $taken;
                 }
 
-                $payload = array_filter([...$event->raw, 'credit_taken_back' => $taken ?: null, 'unallocated' => ($remaining - $taken) ?: null], fn (mixed $value): bool => $value !== null);
+                if ($remaining > $taken) {
+                    $payload['unallocated'] = $remaining - $taken;
+                }
 
                 return $this->outcome($gatewayKey, 200, $taken > 0 ? 'chargeback recorded; credit taken back' : 'chargeback recorded', $payload, $parents[0]->invoice_id);
             });
