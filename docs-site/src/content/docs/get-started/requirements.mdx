@@ -11,8 +11,8 @@ Everything runs in containers on one Linux host: the app, its workers and schedu
 a web server that gets the TLS certificate for you.
 
 - A Linux host with Docker Engine and the Docker Compose v2 plugin.
-- At least 2 vCPU and 6 GB of memory; 8 GB is recommended. 4 GB is not enough: the containers together can use more
-  than that, and the host would stop them.
+- At least 2 vCPU and 8 GB of memory. Less is not enough: during an upgrade the old and the new version of the app
+  run side by side, the containers together can then use almost 6 GB, and the host would stop them.
 - A domain name for the app, such as `billing.example.com`, with DNS `A` (and `AAAA` for IPv6) records pointing at
   the host.
 - Ports 80 and 443 open to the internet (TCP), and 443 over UDP for HTTP/3.

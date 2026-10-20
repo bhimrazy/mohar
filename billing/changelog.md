@@ -55,6 +55,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     **Do not vouch for an address a client chose** (a sign-up, or one changed in the client area): that lets an email
     match to it be proposed, and re-opens the gap this closes.
 
+- **PostgreSQL: the `pg_trgm` extension and 12 search indexes.** Four migrations run `create extension if not exists
+pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
+  (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
+  (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
+  and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
+  needs a superuser to run `create extension pg_trgm` first. Some managed services also need `pg_trgm` allow-listed
+  before it can be created (Azure Database for PostgreSQL: the `azure.extensions` server parameter). If creating the
+  extension fails, `migrate` stops at the first trigram migration with the database error; allow the extension and run
+  `migrate` again, which is safe to repeat. On 20,000 clients the builds took 2.4 s and the indexes use about 10 MB.
+  SQLite is unchanged.
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -195,6 +205,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
   in the first HTML response, plus `Organization` and `WebSite` JSON-LD on the home page. `/sitemap.xml` lists the
   home page, store, domain prices, public knowledge-base articles and live announcements.
+
+### Performance
+
+Measured on the load-test data at 20,000 clients (143,247 invoices), PostgreSQL 18 capped at 2 CPUs, one request at
+a time: medians of three runs before and three after, on the same database, on a shared host (load 4 to 7).
+
+- **Admin dashboard:** first paint with an empty cache 5.7 s → 0.75 s, the deferred widgets 6.0 s → 0.42 s, with the
+  60-second cache warm 400 ms → 283 ms; peak memory 125 MB → 39 MB (the deferred request failed at PHP's 128 MB
+  default). Receivables, monthly recurring revenue, tax collected and weekly sign-ups are summed in SQL, one row per
+  currency, instead of reading every open or recently paid invoice and every service into PHP. The figures are
+  unchanged: the full dashboard payload is identical byte for byte in UTC and in Asia/Kathmandu. MRR is cached for
+  60 seconds, as the Billing figures already were.
+- **Search on PostgreSQL:** admin global search 226 ms → 47 ms, invoice list search 220 ms → 113 ms, the client
+  picker 70 ms → 28 ms; the services and clients list searches spend less time in the database (70 → 50 ms and
+  42 → 27 ms). Contains searches use trigram indexes instead of reading the whole table (#48).
+- Tests now fail if a dashboard query reads unbounded rows of invoices, services, clients, tickets or transactions,
+  if the admin invoice, client, service and ticket lists or the client invoice and service lists query per row, or
+  if a searched column has no usable index on PostgreSQL.
 
 ### Platform foundation
 
@@ -765,6 +793,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   sandbox run.
 
 ### DevOps
+
+- Deployment, part 3 (D3): blue-green deploys on one host. `deploy/bin/deploy` checks and runs the migrations with
+  the new image, starts the idle colour beside the live one, switches Caddy with a graceful reload once it is
+  healthy, moves the single scheduler and drains the old workers (each finishes its current job), and keeps the old
+  web container for `deploy/bin/deploy rollback`. `php artisan deploy:check-migrations` enforces the new
+  expand-then-contract rule (`docs/architecture.md`): an `up()` that drops, renames or changes a column or table
+  fails unless tagged `@contract` or `@compatible`. It runs before every deploy and locally (`--since`), not in CI.
+  Caddy's config directory is mounted rather than the single Caddyfile, so a release that changes it takes effect
+  at the deploy's reload (a file mount kept the pre-`git pull` file).
 
 - Deployment, part 2 (D2): `deploy/compose.prod.yaml` runs the whole stack on one Docker host behind Caddy
   (automatic TLS, the only published ports): the app, the three ADR 0014 worker pools and the automation worker
