@@ -255,9 +255,24 @@ final class Redactor
         $value = (string) preg_replace(self::URL_CREDENTIAL_PATTERN, '$1'.self::MASK, $value);
         $value = (string) preg_replace(self::ENCODED_URL_CREDENTIAL_PATTERN, '$1'.self::MASK, $value);
 
+        return $this->maskPairs($value, $sensitiveKeys);
+    }
+
+    /**
+     * Mask the value of every secret `name=value` or `name: value` pair. The value of any other pair is searched
+     * again, so a pair behind a label ("Rejected: api-key=…") is not hidden inside the label's value.
+     *
+     * @param  list<string>  $sensitiveKeys
+     */
+    private function maskPairs(string $value, array $sensitiveKeys): string
+    {
         return (string) preg_replace_callback(
             '/(?<![A-Za-z0-9_.\-\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63})(\s*[=:]\s*)(?!\/\/)((?:(?:Bearer|Basic|Digest|Token|whm)\s+)?(?:"[^"]*"|[^\s&;,"]+))/i',
-            fn (array $match): string => $this->isSensitiveKey(rtrim($match[1], '[]'), $sensitiveKeys) ? $match[1].$match[2].self::MASK : $match[0],
+            fn (array $match): string => match (true) {
+                $this->isSensitiveKey(rtrim($match[1], '[]'), $sensitiveKeys) => $match[1].$match[2].self::MASK,
+                preg_match('/[=:]/', $match[3]) === 1 => $match[1].$match[2].$this->maskPairs($match[3], $sensitiveKeys),
+                default => $match[0],
+            },
             $value,
         );
     }
