@@ -98,6 +98,11 @@ class FetchAccountsForImport
         // The encrypted account list can be megabytes: it is read only when asked for.
         $columns = array_values(array_diff((new ServerAccountImport)->getFillable(), $withAccounts ? [] : ['accounts']));
 
+        // A Match again whose job never ran: the list it left is still the last good one, so it becomes usable again.
+        ServerAccountImport::query()->where('server_id', $server->id)->where('status', ServerAccountImport::MATCHING)
+            ->where('updated_at', '<=', now()->subMinutes(ServerAccountImport::STALE_MINUTES))
+            ->update(['status' => ServerAccountImport::READY]);
+
         return ServerAccountImport::query()
             ->select(['id', 'created_at', 'updated_at', ...$columns])
             ->with('requester:id,name')

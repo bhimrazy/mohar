@@ -7,9 +7,12 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 
+// The 730-day history takes tens of seconds to seed: seed it once per worker, each test reads it in a transaction.
 beforeEach(function () {
-    $this->seed(CoreSeeder::class);
-    $this->seed(BillingSeeder::class);
+    $this->useSeededDatabase('billing_history', function () {
+        $this->seed(CoreSeeder::class);
+        $this->seed(BillingSeeder::class);
+    });
 });
 
 it('seeds about 90 days of billing history in every demo currency', function () {

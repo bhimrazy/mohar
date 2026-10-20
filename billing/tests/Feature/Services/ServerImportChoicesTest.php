@@ -70,3 +70,14 @@ test('the client picker lists active clients, the most recently added first befo
         ->and(collect($listed)->pluck('id')->all())->toBe([$newest->id, $this->anna->id])
         ->and($this->getJson(route('admin.services.servers.import.clients', [$this->server, 'q' => 'alpha-books']))->json('0.id'))->toBe($this->anna->id);
 });
+
+test('choosing a client needs the permission to view clients, and choices are checked', function () {
+    $this->kit->priceBook->addProduct(30, 'Elsewhere', driver: 'cpanel', serverGroupId: 999, driverConfig: ['package' => 'root_basic']);
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['bravo'], 'product_id' => 30, 'next_due_date' => '2026-10-01'])
+        ->assertSessionHasErrors(['product_id', 'next_due_date']);
+
+    actingAsStaff(['services.servers.import']);
+    confirmPassword();
+    $this->getJson(route('admin.services.servers.import.clients', $this->server))->assertForbidden();
+    $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['bravo'], 'client_id' => $this->anna->id])->assertSessionHasErrors('client_id');
+});
