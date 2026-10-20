@@ -5,6 +5,7 @@ namespace App\Modules\Services\Http\Controllers\Client;
 use App\Contracts\Services\Provisioning\ChangesPassword;
 use App\Http\Controllers\Controller;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Services\Enums\CancellationType;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Resources\ServiceResource;
@@ -67,10 +68,25 @@ class ServiceController extends Controller
             'cancellationTypes' => array_map(fn (CancellationType $type): array => ['value' => $type->value, 'label' => $type->label()], CancellationType::cases()),
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, CarbonImmutable::today())),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
+            'nameservers' => $model->domain === null ? [] : $this->nameservers($model),
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,
             ],
         ]);
+    }
+
+    /**
+     * The nameservers a domain must point to for this service: its server's, else the default nameservers setting
+     * (a client who registered the domain elsewhere, such as a .np name at the registry, sets these there).
+     *
+     * @return list<string>
+     */
+    private function nameservers(Service $service): array
+    {
+        $fallback = app(Settings::class)->get('domains.default_nameservers', []);
+        $list = $service->server?->nameservers ?: (is_string($fallback) ? preg_split('/[\s,]+/', $fallback) : (array) $fallback);
+
+        return array_values(array_filter(array_map(fn (mixed $host): string => strtolower(trim((string) $host)), $list ?: [])));
     }
 }

@@ -51,6 +51,8 @@ type Props = {
     cancellationTypes: SelectOption[];
     changeOptions?: ChangeOptions;
     creditOnDowngrade: boolean;
+    /** Nameservers the service's domain should use: the server's, else the default setting. */
+    nameservers: string[];
     can: { cancel: boolean; changePassword: boolean };
 };
 
@@ -62,6 +64,7 @@ export default function ClientServiceShow({
     cancellationTypes,
     changeOptions,
     creditOnDowngrade,
+    nameservers,
     can,
 }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
@@ -184,22 +187,22 @@ export default function ClientServiceShow({
                                             </span>
                                         ),
                                     },
-                                    {
-                                        label: 'Nameservers',
-                                        value: service.server?.nameservers
-                                            .length ? (
-                                            <ul className="font-mono text-xs">
-                                                {service.server.nameservers.map(
-                                                    (ns) => (
-                                                        <li key={ns}>{ns}</li>
-                                                    ),
-                                                )}
-                                            </ul>
-                                        ) : null,
-                                    },
                                 ]}
                             />
                         </SectionCard>
+
+                        {nameservers.length > 0 && (
+                            <SectionCard
+                                title="Nameservers"
+                                description="Set these at your registry if your domain is registered elsewhere, such as a .np domain."
+                            >
+                                <ul className="grid gap-1 font-mono text-sm">
+                                    {nameservers.map((host) => (
+                                        <li key={host}>{host}</li>
+                                    ))}
+                                </ul>
+                            </SectionCard>
+                        )}
 
                         {live && (
                             <SectionCard
