@@ -9,7 +9,8 @@
 #
 # Traffic never moves to a colour that is not healthy, and a failed switch is reverted. Old workers get SIGTERM
 # and finish their current job before they exit (their stop grace covers the longest job), so no job runs twice;
-# exactly one scheduler runs at any time. Migrations must be expand-only (docs/architecture.md): the old colour
+# exactly one scheduler and one automation worker run at any time. Moving those two waits, after traffic has
+# switched, for an automation run in progress (daily or Run now) to finish: up to an hour. Migrations must be expand-only (docs/architecture.md): the old colour
 # keeps serving against the new schema until the switch, and after it for a rollback.
 #
 # Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
@@ -100,13 +101,19 @@ probe() {
     return 1
 }
 
-# Move the scheduler and workers to a colour: stop the old scheduler first (exactly one runs), start the new
-# workers and scheduler, then drain the old workers.
+# Move the workers to a colour. The three pools may run in both colours for a moment (a job is only ever reserved
+# by one worker), so the new pools start first. The scheduler and the automation worker run once: the old ones are
+# stopped first, which waits (up to their 3,660 s stop grace) for an automation run in progress to finish, then the
+# new ones start. Last, the old pools drain: each finishes its current job, then exits.
 move_workers() {
     local to="$1" from="$2"
-    [ -n "$from" ] && "${compose[@]}" --profile "$from" stop "scheduler-$from"
     # shellcheck disable=SC2046
-    "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps $(workers "$to") "scheduler-$to"
+    "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps $(workers "$to")
+    if [ -n "$from" ]; then
+        say "stopping the $from scheduler and automation worker (waits for an automation run in progress, up to an hour)"
+        "${compose[@]}" --profile "$from" stop "scheduler-$from" "worker-automation-$from"
+    fi
+    "${compose[@]}" --profile "$to" up -d --wait --wait-timeout 120 --no-deps "worker-automation-$to" "scheduler-$to"
     if [ -n "$from" ]; then
         say "draining $from workers (each finishes its current job)"
         # shellcheck disable=SC2046
