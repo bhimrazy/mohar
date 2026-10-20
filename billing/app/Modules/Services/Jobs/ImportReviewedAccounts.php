@@ -5,6 +5,7 @@ namespace App\Modules\Services\Jobs;
 use App\Models\User;
 use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Models\ServerAccountImport;
+use App\Modules\Services\Support\AccountImportMatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Throwable;
@@ -43,14 +44,13 @@ class ImportReviewedAccounts implements ShouldQueue
 
         $staff = $this->staffId === null ? null : User::query()->find($this->staffId);
         $stop = match (true) {
-            ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => __('The reviewed accounts changed after the import was confirmed; nothing more was imported. Review them again.'),
-            $staff === null || ! $staff->is_active || ! $staff->hasPermission('services.servers.import') => __('The staff member who confirmed the import can no longer import accounts; nothing more was imported.'),
+            ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => AccountImportMatcher::text('The reviewed accounts changed after the import was confirmed; nothing more was imported. Review them again.'),
+            $staff === null || ! $staff->is_active || ! $staff->hasPermission('services.servers.import') => AccountImportMatcher::text('The staff member who confirmed the import can no longer import accounts; nothing more was imported.'),
             default => null,
         };
 
         if ($stop !== null) {
-            $import->update(['report' => [...($import->report ?? []), ['username' => '', 'imported' => false, 'message' => $stop, 'service_id' => null]]]);
-            $importer->finish($import->server, $import, $staff);
+            $importer->stop($import->server, $import, $staff, $stop);
 
             return;
         }

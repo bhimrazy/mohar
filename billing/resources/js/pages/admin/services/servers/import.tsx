@@ -86,7 +86,12 @@ type Props = {
         expires_at: string;
         running: boolean;
         progress: { done: number; total: number } | null;
-        report: ReportLine[] | null;
+        report: {
+            imported: number;
+            not_imported: number;
+            stop_reason: string | null;
+            lines: ReportLine[];
+        } | null;
     } | null;
     counts: Record<Tab, number> | null;
     rows: LaravelPaginated<AccountRow | MissingRow>;
@@ -461,16 +466,26 @@ export default function ServerImport({
                     </Alert>
                 )}
 
-                {report && report.length > 0 && !running && (
-                    <Alert>
+                {report && !running && (
+                    <Alert
+                        variant={report.stop_reason ? 'destructive' : 'default'}
+                    >
                         <AlertTitle>
-                            Last import:{' '}
-                            {report.filter((line) => line.imported).length} of{' '}
-                            {plural(report.length, 'account')} imported
+                            Last import: {report.imported} of{' '}
+                            {plural(
+                                report.imported + report.not_imported,
+                                'account',
+                            )}{' '}
+                            imported
                         </AlertTitle>
                         <AlertDescription>
+                            {report.stop_reason && (
+                                <p className="font-medium">
+                                    The import stopped: {report.stop_reason}
+                                </p>
+                            )}
                             <ul className="grid gap-1">
-                                {report.slice(0, 50).map((line) => (
+                                {report.lines.map((line) => (
                                     <li key={line.username}>
                                         <span className="font-mono">
                                             {line.username}
@@ -495,10 +510,15 @@ export default function ServerImport({
                                         )}
                                     </li>
                                 ))}
-                                {report.length > 50 && (
+                                {report.imported + report.not_imported >
+                                    report.lines.length && (
                                     <li>
-                                        …and {report.length - 50} more; see the
-                                        Already linked tab and the activity log.
+                                        …and{' '}
+                                        {report.imported +
+                                            report.not_imported -
+                                            report.lines.length}{' '}
+                                        more; see the Already linked tab and the
+                                        activity log.
                                     </li>
                                 )}
                             </ul>

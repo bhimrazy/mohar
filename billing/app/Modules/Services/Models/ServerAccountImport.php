@@ -6,8 +6,10 @@ use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * One fetch of a server's accounts for Import accounts (cPanel spec §10), kept for HOURS hours.
@@ -27,7 +29,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $connection_user the panel user the fetch signed in as
  * @property array<string, array{include?: bool, client_id?: int, product_id?: int, cycle?: string, next_due_date?: string}>|null $selections staff choices by username
  * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null}|null $reviewed what the review page showed
- * @property list<array{username: string, imported: bool, message: string, service_id: int|null}>|null $report the queued import's result
+ * @property int $imported_count accounts the last import created
+ * @property int $not_imported_count reviewed accounts the last import left out, or did not reach when it stopped
+ * @property string|null $stop_reason why the last import stopped early
+ * @property-read list<array{username: string, imported: bool, message: string, service_id: int|null}> $report the last
+ *                                                                                                   import's lines
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at
  * @property CarbonImmutable $expires_at
@@ -37,7 +43,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property-read User|null $requester
  */
 #[Hidden(['accounts'])]
-#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'connection_user', 'selections', 'reviewed', 'report', 'error', 'fetched_at', 'expires_at'])]
+#[Fillable(['server_id', 'requested_by', 'status', 'accounts', 'account_count', 'proposed_count', 'unmatched_count', 'reseller_count', 'linked_count', 'missing', 'connection_user', 'selections', 'reviewed', 'imported_count', 'not_imported_count', 'stop_reason', 'error', 'fetched_at', 'expires_at'])]
 class ServerAccountImport extends Model
 {
     public const FETCHING = 'fetching';
@@ -70,7 +76,8 @@ class ServerAccountImport extends Model
             'missing' => 'array',
             'selections' => 'array',
             'reviewed' => 'array',
-            'report' => 'array',
+            'imported_count' => 'integer',
+            'not_imported_count' => 'integer',
             'fetched_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];
@@ -90,6 +97,28 @@ class ServerAccountImport extends Model
     public function requester(): BelongsTo
     {
         return $this->belongsTo(User::class, 'requested_by');
+    }
+
+    /**
+     * The last import's lines, in order (server_account_import_report_lines); read only when asked for.
+     *
+     * @return Attribute<list<array{username: string, imported: bool, message: string, service_id: int|null}>, never>
+     */
+    protected function report(): Attribute
+    {
+        return Attribute::get(fn (): array => $this->reportLines());
+    }
+
+    /**
+     * @return list<array{username: string, imported: bool, message: string, service_id: int|null}>
+     */
+    public function reportLines(?int $limit = null): array
+    {
+        return array_values(DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)->orderBy('id')
+            ->when($limit !== null, fn ($query) => $query->limit((int) $limit))
+            ->get(['username', 'imported', 'message', 'service_id'])
+            ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id])
+            ->all());
     }
 
     public function isRunning(): bool
