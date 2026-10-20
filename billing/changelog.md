@@ -18,7 +18,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   scheduler process no longer calls registrars itself. The provider pool (`queue:work
 --queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
   there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
-  go first in the next run. `php artisan domains:sync` still runs a sync in the shell.
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
+  queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
+  ones, so local runs process registrar jobs too.
 - **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
   off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
   checked with the registrar (never re-sent) and listed in the sync report. No schema change.
@@ -471,6 +473,8 @@ a time: medians of three runs before and three after, on the same database, on a
   the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
   driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
 - Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+  The registrar gateway also masks the account's configured credentials by value in its log and in the error text
+  that reaches the domain's last error, the activity log and `RegistrarActionFailed`.
 
 ### Orders
 
