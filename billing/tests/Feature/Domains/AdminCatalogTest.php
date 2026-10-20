@@ -99,6 +99,7 @@ test('the pricing grid clears a base term and validates amounts', function () {
 
 test('registrar settings are saved encrypted and blank secrets are kept', function () {
     actingAsStaff(['domains.registrars.manage']);
+    confirmPassword();
 
     $this->put(route('admin.domains.registrars.update', 'log'), ['is_active' => true, 'test_mode' => true, 'settings' => ['api_key' => 'secret-1', 'simulate' => 'none']])->assertRedirect();
     $this->put(route('admin.domains.registrars.update', 'log'), ['is_active' => false, 'test_mode' => true, 'settings' => ['api_key' => '', 'simulate' => 'error']])->assertRedirect();
@@ -117,12 +118,31 @@ test('registrar settings are saved encrypted and blank secrets are kept', functi
 
 test('the connection test reports the driver result', function () {
     actingAsStaff(['domains.registrars.manage']);
+    confirmPassword();
     RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['api_key' => 'invalid']]);
 
     $this->post(route('admin.domains.registrars.test', 'log'))
         ->assertRedirect()
         ->assertSessionHas('inertia.flash_data.toast.type', 'error');
     $this->post(route('admin.domains.registrars.test', 'missing'))->assertNotFound();
+});
+
+test('security review L4: registrar credentials need the exact permission and a recent password, and never reach old input', function () {
+    actingAsStaff(['domains.registrars.manage']);
+    $this->put(route('admin.domains.registrars.update', 'log'), ['is_active' => true, 'test_mode' => true, 'settings' => ['api_key' => 'secret-1']])->assertSessionHasErrors('password_confirmation');
+    $this->post(route('admin.domains.registrars.test', 'log'))->assertSessionHasErrors('password_confirmation');
+
+    confirmPassword();
+    actingAsStaff(['domains.*']);
+    $this->put(route('admin.domains.registrars.update', 'log'), ['is_active' => true, 'test_mode' => true, 'settings' => ['api_key' => 'secret-1']])->assertForbidden();
+    expect(RegistrarAccount::query()->exists())->toBeFalse();
+
+    actingAsStaff(['domains.registrars.manage']);
+    $this->put(route('admin.domains.registrars.update', 'log'), ['test_mode' => true, 'settings' => ['api_key' => 'secret-flash', 'simulate' => 'error', 'extra' => 'undeclared']])
+        ->assertSessionHasErrors('is_active')
+        ->assertSessionHasInput('settings.simulate', 'error')
+        ->assertSessionMissing('_old_input.settings.api_key')
+        ->assertSessionMissing('_old_input.settings.extra');
 });
 
 test('registrar configuration needs its permission', function () {

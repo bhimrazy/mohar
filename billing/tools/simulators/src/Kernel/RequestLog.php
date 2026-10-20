@@ -28,7 +28,10 @@ final class RequestLog
             'at' => microtime(true),
         ];
 
-        $this->state->pdo()->prepare('INSERT INTO log (operation, entry) VALUES (?, ?)')->execute([$operation, json_encode($entry, JSON_UNESCAPED_SLASHES)]);
+        // Login-session secrets live in values, not keys: cPanel's /cpsess<digits> path and session= query values.
+        $encoded = (string) preg_replace(['#cpsess\d{6,}#', '#([?&]session=)[^&"\s]+#'], ['cpsess[redacted]', '$1[redacted]'], (string) json_encode($entry, JSON_UNESCAPED_SLASHES));
+
+        $this->state->pdo()->prepare('INSERT INTO log (operation, entry) VALUES (?, ?)')->execute([$operation, $encoded]);
     }
 
     /**

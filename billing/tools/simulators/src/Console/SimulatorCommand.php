@@ -22,4 +22,18 @@ abstract class SimulatorCommand extends Command
     }
 
     abstract protected function perform(): int;
+
+    /**
+     * A required string argument; the console definition guarantees presence, so anything else is a programming error.
+     */
+    protected function stringArgument(string $name): string
+    {
+        $value = $this->argument($name);
+
+        if (! is_string($value) || $value === '') {
+            throw new \InvalidArgumentException("The {$name} argument must be a non-empty string.");
+        }
+
+        return $value;
+    }
 }

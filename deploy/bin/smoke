@@ -9,7 +9,7 @@
 #
 # Checks: migrations, bucket and first administrator on empty PostgreSQL and RustFS; every service up; /up through
 # Caddy over HTTPS with HSTS (so the proxy is trusted); HTTP redirects to HTTPS; sign-in; a queued job processed
-# by the default worker pool; the app container runs as UID 10001 on a read-only root filesystem; PHP stream TLS
+# by the automation worker (its own queue connection); the app container runs as UID 10001 on a read-only root filesystem; PHP stream TLS
 # verifies public certificates; compiled views stay out of the shared storage volume.
 set -euo pipefail
 
@@ -100,7 +100,7 @@ start=$(date +%s)
 "${compose[@]}" up -d --wait --wait-timeout 180 || fail "stack did not become healthy"
 pass "stack healthy in $(( $(date +%s) - start ))s (migrate re-run on the installed database)"
 running="$("${compose[@]}" ps --status running --services | sort | tr '\n' ' ')"
-for service in app caddy postgres rustfs scheduler worker-critical worker-default worker-notifications; do
+for service in app caddy postgres rustfs scheduler worker-automation worker-critical worker-default worker-notifications; do
     grep -qw "$service" <<< "$running" || fail "service $service is not running (running: $running)"
 done
 pass "running: $running"
@@ -137,19 +137,19 @@ login_page='/login$'
 { [[ "$after" =~ $ok_pattern ]] && ! [[ "$after" =~ $login_page ]]; } || fail "signed-in request to /admin: $after"
 pass "POST /login = ${login}; /admin then answers ${after} (the one-time password asks for confirmation and 2FA next)"
 
-step "queued job through the default worker pool"
+step "queued job through the automation worker"
 "${compose[@]}" exec -T app php artisan tinker --execute \
     'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); echo "queued\n";' >/dev/null
 done_line=""
 for _ in $(seq 60); do
-    done_line="$("${compose[@]}" logs --no-color worker-default 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
+    done_line="$("${compose[@]}" logs --no-color worker-automation 2>/dev/null | grep -E 'RunAutomationJob .*(DONE|FAIL)' | tail -1 || true)"
     [ -n "$done_line" ] && break
     sleep 2
 done
 [[ "$done_line" =~ DONE ]] || fail "RunAutomationJob was not processed: ${done_line:-no worker output}"
 failed_jobs="$("${compose[@]}" exec -T app php artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
 [ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
-pass "RunAutomationJob processed by worker-default (${done_line##* }); failed_jobs = 0"
+pass "RunAutomationJob processed by worker-automation on its own connection (${done_line##* }); failed_jobs = 0"
 
 step "container hardening"
 uid="$("${compose[@]}" exec -T app id -u)"

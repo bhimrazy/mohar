@@ -15,7 +15,7 @@ use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
 
 /**
- * Security review of #87 (Import accounts, step 1), adopted; the page cases moved to the page PR. Account data fetched from WHM is untrusted input: it is
+ * Security review of #87 (Import accounts, step 1), adopted. Account data fetched from WHM is untrusted input: it is
  * validated, encrypted, short-lived, scoped to its server, and can never attach an account to a client on its own.
  */
 beforeEach(function () {
@@ -79,6 +79,7 @@ test('services.servers.import is sensitive: no module or group wildcard grants i
         actingAsStaff($permissions);
         confirmPassword();
         $this->post(route('admin.services.servers.import.fetch', $server))->assertForbidden();
+        $this->get(route('admin.services.servers.import.show', $server))->assertForbidden();
     }
 
     expect(ServerAccountImport::query()->count())->toBe(0);
@@ -121,6 +122,7 @@ test('the stored list is encrypted, hidden from serialisation, scoped to its ser
         ->and(ServerAccountImport::query()->sole()->toArray())->not->toHaveKey('accounts');
 
     ServerAccountImport::query()->create(['server_id' => $other->id, 'status' => 'ready', 'accounts' => [], 'expires_at' => now()->subMinute()]);
+    $this->get(route('admin.services.servers.import.show', $other))->assertOk()->assertInertia(fn ($page) => $page->where('import', null));
     $this->artisan('automation:run', ['--date' => now()->toDateString(), '--only' => 'services.import-prune', '--force' => true])->assertSuccessful();
 
     expect(ServerAccountImport::query()->pluck('server_id')->all())->toBe([$server->id]);
@@ -145,6 +147,20 @@ test('usernames and contact emails WHM reports are validated before they are sto
         expect($account['username'])->toMatch('/^[a-z0-9][a-z0-9_.-]{0,31}$/')
             ->and($account['email'] === null || filter_var($account['email'], FILTER_VALIDATE_EMAIL) !== false)->toBeTrue();
     }
+});
+
+test('account values are passed to the page as plain text and cannot break out of the page data', function () {
+    $server = secImportServer();
+    secFakeAccounts([secWhmRow('alpha', ['suspended' => 1, 'suspendreason' => '</script><img src=x onerror=alert(1)>'])]);
+    actingAsStaff();
+    confirmPassword();
+
+    $this->post(route('admin.services.servers.import.fetch', $server))->assertRedirect();
+
+    $rows = collect($this->get(route('admin.services.servers.import.show', $server))->inertiaProps('rows.data'))->keyBy('username');
+    expect($rows['alpha']['suspend_reason'])->toBe('</script><img src=x onerror=alert(1)>');
+    $this->withoutVite()->get(route('admin.services.servers.import.show', $server))->assertOk()
+        ->assertDontSee('</script><img src=x', false);
 });
 
 test('a contact email that matches a client only proposes; a closed client is never proposed, and nothing is created', function () {
@@ -198,7 +214,7 @@ test('on a reseller connection, the reseller\'s own accounts are classified and 
 
 // 4. Failed fetch messages
 
-test('a failed fetch masks the credentials, raw and encoded, in the stored error and in what is reported', function (Closure $answer) {
+test('a failed fetch masks the credentials, raw and encoded, in the stored error, on the page and in what is reported', function (Closure $answer) {
     $server = secImportServer();
     Exceptions::fake();
     Whm::fake(['listaccts' => $answer()]);
@@ -212,6 +228,7 @@ test('a failed fetch masks the credentials, raw and encoded, in the stored error
         ->and($import->error)->toStartWith('The accounts on Shared 1 could not be read:')
         ->not->toContain(Whm::TOKEN)->not->toContain(rtrim(base64_encode(Whm::TOKEN), '='))->not->toContain(rawurlencode(Whm::TOKEN));
 
+    $this->get(route('admin.services.servers.import.show', $server))->assertDontSee(Whm::TOKEN, false);
     expect(Exceptions::reported())->not->toBeEmpty();
 
     foreach (Exceptions::reported() as $reported) {

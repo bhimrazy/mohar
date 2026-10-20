@@ -35,7 +35,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
         Route::post('remind', 'remind')->name('remind');
         Route::post('payments', 'recordPayment')->middleware('password.recent')->name('payments.store');
         Route::post('mark-paid', 'markPaid')->middleware('password.recent')->name('mark-paid');
-        Route::post('capture', 'capture')->name('capture');
+        Route::post('capture', 'capture')->middleware('password.recent')->name('capture');
         Route::post('cancel-lines', 'cancelLines')->name('cancel-lines');
         Route::post('credit', 'applyCredit')->middleware('password.recent')->name('credit.apply');
         Route::delete('credit', 'removeCredit')->middleware('password.recent')->name('credit.remove');
@@ -58,6 +58,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('gateways', [GatewayController::class, 'index'])->name('gateways.index');
     Route::get('gateways/{gateway}/edit', [GatewayController::class, 'edit'])->name('gateways.edit')->where('gateway', '[a-z_]+');
     Route::put('gateways/{gateway}', [GatewayController::class, 'update'])->middleware('password.recent')->name('gateways.update')->where('gateway', '[a-z_]+');
+    // Test connection and the status check below change no data staff entered, so they need no step-up (sensitive-route test).
     Route::post('gateways/{gateway}/test', [GatewayController::class, 'test'])->middleware('throttle:10,1')->name('gateways.test')->where('gateway', '[a-z_]+');
 
     Route::get('tax-rules', [TaxRuleController::class, 'index'])->name('tax-rules.index');

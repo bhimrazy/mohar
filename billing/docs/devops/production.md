@@ -13,16 +13,22 @@ then an update restarts the app in place, with a gap of a few seconds.
 | `caddy`                | `caddy`         | edge proxy: TLS, HTTP→HTTPS, forwards to `app:8080`                      | 0.5 / 128 MB         | default    |
 | `app`                  | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
 | `worker-critical`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
-| `worker-notifications` | the app image   | `queue:work --queue=notifications,webhooks --timeout=90`                 | 0.5 / 384 MB         | 100 s      |
-| `worker-default`       | the app image   | `queue:work --queue=default --timeout=90`                                | 0.5 / 384 MB         | 100 s      |
+| `worker-notifications` | the app image   | `queue:work --queue=notifications,webhooks` (60 s job timeout)           | 0.5 / 384 MB         | 70 s       |
+| `worker-default`       | the app image   | `queue:work --queue=default` (60 s job timeout)                          | 0.5 / 384 MB         | 70 s       |
+| `worker-automation`    | the app image   | `queue:work automation --queue=automation --tries=1 --timeout=3600`      | 0.5 / 384 MB         | 3,660 s    |
 | `scheduler`            | the app image   | `schedule:work` (exactly one)                                            | 0.5 / 256 MB         | 60 s       |
 | `migrate`              | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |
 | `postgres`             | `postgres`      | PostgreSQL 18                                                            | 1.0 / 1 GB           | default    |
 | `rustfs`               | `rustfs/rustfs` | S3-compatible object storage (console off)                               | 0.5 / 512 MB         | default    |
 
-The worker pools are the ones ADR 0014 defines. Workers restart every hour (`--max-time=3600`), and a stop waits up
-to the grace period so a running job finishes; the critical pool's `--timeout` covers the provisioning cap
-(180 s + 20 s lock slack) and stays below the queue's `retry_after` (240 s). The limits fit a 2 vCPU / 4 GB host
+The workers run the four commands of `App\Support\Queues::workerCommands()`, which `app:install` prints and
+[install.md §6](install.md#6-scheduler-and-queue-workers) explains: the three ADR 0014 pools (with `--tries=3`) and
+the automation worker. The three pools also restart every hour (`--max-time=3600`). A stop waits up to the grace
+period so a running job finishes; the critical pool's `--timeout` covers the provisioning cap (180 s + 20 s lock
+slack) and stays below the queue's `retry_after` (240 s). `worker-automation` runs **Run now** from Admin →
+Automation on its own `automation` connection (`retry_after` 3,900 s, above the job's 3,600 s timeout); start it with
+the connection argument as shown, run only one, and never add `automation` to another worker's `--queue`. Its stop
+grace of 3,660 s lets an update wait for a run in progress instead of killing it. The limits fit a 2 vCPU / 4 GB host
 with headroom; raise them in `compose.prod.yaml` on larger hosts.
 
 **Networks.** Only Caddy publishes ports (80, 443 and 443/udp for HTTP/3). `edge` connects Caddy and the app on a
@@ -105,7 +111,7 @@ GitHub runner (Actions → Deploy smoke, or the `deploy-smoke` label on a pull r
 
 Containers read `deploy/.env` when they start, and the entrypoint caches the configuration then. After editing it,
 recreate the PHP services: `docker compose -f deploy/compose.prod.yaml up -d --force-recreate app worker-critical
-worker-notifications worker-default scheduler`.
+worker-notifications worker-default worker-automation scheduler`.
 
 ## Updating
 
@@ -178,14 +184,14 @@ Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to co
 
 ## Troubleshooting
 
-| Symptom                                   | Look at                                                                                                                                       |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up` stops at `migrate`                   | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means step 4 of the first install was skipped  |
-| 502 from Caddy                            | `docker compose ... ps`: the app must be `healthy`; `logs app` shows why it is not                                                            |
-| No HSTS, or the activity log shows one IP | the app does not trust the proxy: `EDGE_SUBNET` must be the edge network's range (`docker network inspect mohar_edge`)                        |
-| Certificate errors                        | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates |
-| Jobs not processed                        | `logs worker-default` (or the pool that carries the queue); the dashboard's automation summary shows the scheduler heartbeat                  |
-| `Read-only file system` errors            | something writes outside `storage/`, `/tmp` or `bootstrap/cache`: report it as a bug                                                          |
+| Symptom                                   | Look at                                                                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `up` stops at `migrate`                   | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means step 4 of the first install was skipped                     |
+| 502 from Caddy                            | `docker compose ... ps`: the app must be `healthy`; `logs app` shows why it is not                                                                               |
+| No HSTS, or the activity log shows one IP | the app does not trust the proxy: `EDGE_SUBNET` must be the edge network's range (`docker network inspect mohar_edge`)                                           |
+| Certificate errors                        | DNS for `APP_DOMAIN` and ports 80/443 from the internet; `logs caddy`. Keep the `caddy-data` volume, or every start requests new certificates                    |
+| Jobs not processed                        | `logs worker-default` (or the pool that carries the queue; **Run now** is `worker-automation`); the dashboard's automation summary shows the scheduler heartbeat |
+| `Read-only file system` errors            | something writes outside `storage/`, `/tmp` or `bootstrap/cache`: report it as a bug                                                                             |
 
 ## Traefik instead of Caddy
 
