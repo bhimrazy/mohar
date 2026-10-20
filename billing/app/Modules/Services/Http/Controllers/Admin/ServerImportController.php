@@ -16,6 +16,7 @@ use App\Modules\Services\Support\AccountImportMatcher;
 use App\Modules\Services\Support\AccountImportPlan;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -35,6 +36,9 @@ class ServerImportController extends Controller
     public const TABS = ['all', AccountImportMatcher::PROPOSED, AccountImportMatcher::UNMATCHED, AccountImportMatcher::RESELLER, AccountImportMatcher::LINKED, 'missing'];
 
     private const PER_PAGE = 50;
+
+    /** A client email changed within this many days is flagged, and never ticked by "Select all proposed". */
+    private const EMAIL_CHANGE_DAYS = 30;
 
     public function show(Request $request, Server $server, ProvisioningDriverRegistry $drivers, AccountImportMatcher $matcher, AccountImportPlan $plan): Response
     {
@@ -82,6 +86,8 @@ class ServerImportController extends Controller
             'filters' => ['tab' => $tab, 'search' => $search],
             'createProductUrl' => Route::has('admin.catalog.products.create') ? route('admin.catalog.products.create') : null,
             'included' => count(array_filter($import === null ? [] : ($import->selections ?? []), fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
+            'productOptions' => $ready ? $plan->productOptions($server) : [],
+            'cycles' => self::cycles(),
         ]);
     }
 
@@ -123,7 +129,8 @@ class ServerImportController extends Controller
         $import = $this->ready($server);
         $data = $request->validate([
             'proposed' => ['sometimes', 'accepted'],
-            'usernames' => ['required_without:proposed', 'array', 'max:500'],
+            'ticked' => ['sometimes', 'accepted'],
+            'usernames' => ['required_without_all:proposed,ticked', 'array', 'max:500'],
             'usernames.*' => ['string', 'max:32'],
             'include' => ['sometimes', 'boolean'],
             'client_id' => ['sometimes', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
@@ -137,9 +144,24 @@ class ServerImportController extends Controller
         ]);
 
         $accounts = collect($import->accounts ?? [])->keyBy('username');
-        $usernames = isset($data['proposed'])
-            ? $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all()
-            : array_values(array_intersect(array_unique($data['usernames']), $accounts->keys()->all()));
+        $usernames = match (true) {
+            isset($data['proposed']) => $accounts->where('category', AccountImportMatcher::PROPOSED)->keys()->all(),
+            // "Set cycle and due date" on the review: every ticked account.
+            isset($data['ticked']) => array_keys(array_filter($import->selections ?? [], fn (array $choice): bool => (bool) ($choice['include'] ?? false))),
+            default => array_values(array_intersect(array_unique($data['usernames']), $accounts->keys()->all())),
+        };
+
+        if (isset($data['proposed'])) {
+            // A client whose email changed lately may have taken an account's contact address: never ticked in bulk.
+            $recent = Client::query()->whereKey($accounts->whereIn('username', $usernames)->pluck('client_id')->filter()->all())
+                ->where('email_changed_at', '>=', now()->subDays(self::EMAIL_CHANGE_DAYS))->pluck('id')->all();
+            $flagged = $accounts->whereIn('username', $usernames)->whereIn('client_id', $recent)->keys()->all();
+            $usernames = array_values(array_diff($usernames, $flagged));
+
+            if ($flagged !== []) {
+                Inertia::flash('toast', ['type' => 'info', 'message' => __(':count proposed accounts were not ticked: their client changed email in the last :days days. Check them one by one.', ['count' => count($flagged), 'days' => self::EMAIL_CHANGE_DAYS])]);
+            }
+        }
         $choice = isset($data['proposed']) ? ['include' => true] : array_intersect_key($data, array_flip(['include', 'client_id', 'product_id', 'cycle', 'next_due_date']));
         $selections = $import->selections ?? [];
 
@@ -150,6 +172,26 @@ class ServerImportController extends Controller
         $import->update(['selections' => $selections]);
 
         return back();
+    }
+
+    /**
+     * Active clients for the client picker: the most recently added first before anything is typed, then matches by
+     * name, company or email.
+     */
+    public function clients(Request $request, Server $server): JsonResponse
+    {
+        $this->authorize('services.servers.import');
+
+        $term = mb_substr(trim($request->string('q')->toString()), 0, 100);
+
+        return response()->json(Client::query()
+            ->where('status', 'active')
+            ->when($term !== '', fn ($query) => $query->search($term)->orderBy('first_name')->orderBy('last_name'), fn ($query) => $query->latest('id'))
+            ->orderBy('id')
+            ->limit(20)
+            ->get(['id', 'first_name', 'last_name', 'company_name', 'email', 'currency'])
+            ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency])
+            ->values());
     }
 
     /**
@@ -243,7 +285,7 @@ class ServerImportController extends Controller
             'include' => (bool) ($choices[$row['username']]['include'] ?? false),
         ], $slice);
         $clients = Client::query()->whereKey(array_filter(array_column($slice, 'client_id')))->where('status', '!=', 'closed')
-            ->get(['id', 'first_name', 'last_name', 'company_name'])->keyBy('id');
+            ->get(['id', 'first_name', 'last_name', 'company_name', 'email_changed_at'])->keyBy('id');
         $products = $matcher->serverProducts($server);
 
         $fresh = array_map(function (array $row) use ($live, $clients, $products): array {
@@ -255,6 +297,7 @@ class ServerImportController extends Controller
                 $service !== null && $row['category'] !== AccountImportMatcher::LINKED ? __('A service took this account after the list was fetched.') : null,
                 $service === null && $row['category'] === AccountImportMatcher::LINKED ? __('The service that held this account is no longer live. Match again.') : null,
                 $row['client_id'] !== null && $client === null ? __('The matched client was closed or removed since. Match again.') : null,
+                $client?->email_changed_at?->greaterThanOrEqualTo(now()->subDays(self::EMAIL_CHANGE_DAYS)) ? __('This client changed email on :date: check the match before ticking.', ['date' => $client->email_changed_at->toDateString()]) : null,
                 $row['product_id'] !== null && $product === null ? __('The matched product no longer provisions on this server. Match again.') : null,
             ]);
 

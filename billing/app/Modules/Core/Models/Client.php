@@ -24,6 +24,7 @@ use Illuminate\Support\Str;
  * @property string $last_name
  * @property string|null $company_name
  * @property string $email
+ * @property CarbonImmutable|null $email_changed_at when the email address last changed
  * @property string|null $phone
  * @property string|null $address_1
  * @property string|null $address_2
@@ -61,7 +62,19 @@ class Client extends Model
 
     protected function casts(): array
     {
-        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime'];
+        return ['tax_exempt' => 'boolean', 'closed_at' => 'immutable_datetime', 'email_changed_at' => 'immutable_datetime'];
+    }
+
+    /**
+     * Changing the email address records when (account import flags an address changed recently).
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $client): void {
+            if ($client->exists && $client->isDirty('email')) {
+                $client->email_changed_at = CarbonImmutable::now();
+            }
+        });
     }
 
     /**

@@ -65,6 +65,8 @@ class AccountImportPlan
             // The account's renewal day, kept for short months (a 31st renews on the 30th in November, then the 31st).
             $anchor = isset($choice['next_due_date']) || ($row['created_at'] ?? null) === null ? $due?->day : CarbonImmutable::parse($row['created_at'])->day;
             $amount = $client !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client) : null;
+            // A client group's discount is why one package can show two prices; the list price says so on the review.
+            $listAmount = $client?->client_group_id !== null && $product !== null && $cycle !== null ? $this->price($product, $cycle, $client, list: true) : null;
 
             $problems = array_values(array_filter([
                 $row['category'] === AccountImportMatcher::LINKED ? AccountImportMatcher::text('A live service on this server already holds this account.') : null,
@@ -82,6 +84,7 @@ class AccountImportPlan
                 'next_due_date' => $due?->toDateString(),
                 'anchor_day' => $anchor,
                 'amount' => $amount,
+                'list_amount' => $listAmount !== $amount ? $listAmount : null,
                 'problems' => $problems,
             ]];
         }, $fresh);
@@ -156,14 +159,15 @@ class AccountImportPlan
     }
 
     /**
-     * The recurring price, asked once per product, cycle, currency and client group (prices differ only by those).
+     * The recurring price, asked once per product, cycle, currency and client group (prices differ only by those); with
+     * $list, the price before any group discount.
      */
-    private function price(ProductSummary $product, BillingCycle $cycle, Client $client): ?int
+    private function price(ProductSummary $product, BillingCycle $cycle, Client $client, bool $list = false): ?int
     {
-        $key = "{$product->id}:{$cycle->value}:{$client->currency}:{$client->client_group_id}";
+        $key = "{$product->id}:{$cycle->value}:{$client->currency}:".($list ? 'list' : $client->client_group_id);
 
         if (! array_key_exists($key, $this->prices)) {
-            $this->prices[$key] = $this->catalog->priceBook()?->quote(new ProductSelection($product->id, $cycle, $client->currency, clientId: $client->id))?->recurring;
+            $this->prices[$key] = $this->catalog->priceBook()?->quote(new ProductSelection($product->id, $cycle, $client->currency, clientId: $list ? null : $client->id))?->recurring;
         }
 
         return $this->prices[$key];
