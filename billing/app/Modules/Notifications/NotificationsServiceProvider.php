@@ -33,7 +33,6 @@ use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 
@@ -64,9 +63,6 @@ class NotificationsServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        // Email and webhook jobs run on their own queues; the dev runner (composer dev) must consume them too.
-        DevCommands::artisan('queue:listen --queue=notifications,webhooks --timeout=0', 'mail-queue');
-
         // Framework and module notifications (password reset fallback, security notices, invitations) get the
         // company sender name and the support Reply-To too; templated mail sets its own per category.
         Event::listen(MessageSending::class, [BrandOutgoingMail::class, 'handle']);

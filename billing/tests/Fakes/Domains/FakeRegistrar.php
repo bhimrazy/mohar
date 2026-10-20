@@ -25,13 +25,18 @@ use Throwable;
 class FakeRegistrar implements Registrar
 {
     /** @var list<string> every capability except `reconcile`, which tests opt into (it replaces the info check) */
-    public array $capabilities = ['availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock', 'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync'];
+    public array $capabilities = [];
 
     /** @var list<array{command: string, domain: string|null}> */
     public array $calls = [];
 
     /** @var array<string, mixed> command => result object, Throwable, or Closure returning either (runs during the call) */
     public array $results = [];
+
+    public function __construct()
+    {
+        $this->capabilities = array_values(array_diff(Registrar::CAPABILITIES, ['reconcile']));
+    }
 
     public static function install(string $key = 'fake'): self
     {

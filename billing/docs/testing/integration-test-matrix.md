@@ -588,10 +588,10 @@ Tests: `tests/Feature/Domains/` (`RC` = `ReconcileTest.php`, `CT` = `RegistrarCo
 | RG-01 | Settings typed; credential-like keys are secrets with no default             | —      | CT  | CT        |
 | RG-02 | Calls outside the capabilities throw `CapabilityNotSupported`                | —      | CT  | CT        |
 | RG-03 | Every call answers with one documented outcome (result or registrar error)   | —      | CT  | CT        |
-| RG-04 | Credentials in requests and error text never reach the command log (C5)      | —      | CT  | CT        |
+| RG-04 | Credentials never reach the command log, last_error, activity log or events  | —      | CT  | CT        |
 | RG-05 | Unknown register/transfer outcome parks the domain, never re-sent            | XO     | n/a | n/a       |
-| RG-06 | Lost submission resolved by `findSubmission` (executed, in progress, absent) | RC     | CT  | CT        |
-| RG-07 | Lost renewal applied only when the registrar shows it ran                    | RC, XO | CT  | NP        |
+| RG-06 | Lost submission resolved by `findSubmission` (executed, in progress, absent) | RC     | —   | NP        |
+| RG-07 | Lost renewal applied only when the registrar shows it ran                    | RC, XO | —   | NP        |
 | RG-08 | A submission a killed worker left `pending` is swept and verified (#12)      | RC     | n/a | NP        |
 | RG-09 | Registrar ids (`remote`) kept for later calls; malformed ones dropped        | RC     | n/a | n/a       |
 | RG-10 | Live sandbox run                                                             | n/a    | n/a | n/a       |

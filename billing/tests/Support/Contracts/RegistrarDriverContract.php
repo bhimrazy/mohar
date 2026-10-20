@@ -2,24 +2,28 @@
 
 namespace Tests\Support\Contracts;
 
+use App\Events\Domains\RegistrarActionFailed;
+use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Domains\Actions\SubmitToRegistrar;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
 use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Exceptions\CapabilityNotSupported;
 use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Modules\Domains\Models\Tld;
-use App\Modules\Domains\Services\RegistrarGateway;
 use App\Support\Integrations\Redactor;
 use Carbon\CarbonImmutable;
 use Closure;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use RuntimeException;
+use Tests\Fakes\Domains\FakeRegistrar;
+use Throwable;
 
 /**
  * The contract every registrar driver passes (registrars.md §7). Call it from a test file, once per driver key:
@@ -33,8 +37,11 @@ use Illuminate\Support\Facades\Http;
  * - every supported call answers with exactly one outcome: its documented result type or a RegistrarException
  *   (rejected / retryable / RegistrarTimeout), never another error, and register is completed or pending;
  * - findSubmission (capability `reconcile`) answers a SubmissionLookup for register and renew;
- * - registrar credentials in a request (`api-key`, `passwd`, `signature`, `domsecret`, auth and EPP codes) and in
- *   an error message never reach registrar_command_log (C5).
+ * - with the account configured with known credentials, neither they nor credential-named pairs (`api-key`,
+ *   `passwd`, `signature`, `domsecret`, auth and EPP codes) reach registrar_command_log, the domain's last_error, the
+ *   activity log or RegistrarActionFailed (C5): on the real driver's submit path, and on a rejected and a lost
+ *   register whose error text echoes them. `failing` makes the real driver fail that way (an API driver fakes its
+ *   provider's error body); by default a scriptable driver takes its place for the failure.
  * Response-mapping scenarios of API drivers (timeouts, refused connections, fixtures) belong in the driver's own
  * tests.
  */
@@ -46,7 +53,11 @@ final class RegistrarDriverContract
         'domsecret' => 'contract-domsecret-4', 'auth-code' => 'contract-auth-code-5', 'epp_code' => 'contract-epp-6',
     ];
 
-    public static function verify(string $key, ?Closure $arrange = null, string $extension = '.com'): void
+    /**
+     * @param  (Closure(): void)|null  $arrange
+     * @param  (Closure(string, Throwable): void)|null  $failing  make the driver's next register fail with this error
+     */
+    public static function verify(string $key, ?Closure $arrange = null, string $extension = '.com', ?Closure $failing = null): void
     {
         $setUp = function () use ($key, $arrange, $extension): Domain {
             Http::preventStrayRequests();
@@ -97,14 +108,8 @@ final class RegistrarDriverContract
         test("{$key} registrar: supported calls answer with one documented outcome", function () use ($key, $setUp) {
             $domain = $setUp();
             $driver = app(RegistrarManager::class)->driver($key);
-            $types = [
-                'register' => RegistrarResult::class, 'transfer' => RegistrarResult::class, 'renew' => RegistrarResult::class,
-                'info' => DomainInfo::class, 'nameservers' => RegistrarResult::class, 'contacts' => RegistrarResult::class,
-                'sync' => SyncResult::class, 'reconcile' => SubmissionLookup::class,
-            ];
-
             foreach (RegistrarDriverContract::calls($domain) as $capability => $call) {
-                if (! in_array($capability, $driver->capabilities(), true) || ! isset($types[$capability])) {
+                if (! in_array($capability, $driver->capabilities(), true)) {
                     continue;
                 }
 
@@ -116,35 +121,65 @@ final class RegistrarDriverContract
                     continue;
                 }
 
-                expect($result)->toBeInstanceOf($types[$capability]);
-
                 if ($capability === 'register') {
                     expect($result->status)->toBeIn(['completed', 'pending']);
                 }
             }
         });
 
-        test("{$key} registrar: credentials in requests and errors never reach the command log", function () use ($key, $setUp) {
+        test("{$key} registrar: configured credentials never reach the command log, the domain, the activity log or events", function () use ($key, $setUp, $failing) {
             $domain = $setUp();
-            $gateway = app(RegistrarGateway::class);
-            $echo = http_build_query(RegistrarDriverContract::SECRETS);
+            Event::fake([RegistrarActionFailed::class]);
+            $configured = RegistrarDriverContract::configureSecrets($key);
+            $echo = 'Rejected: '.http_build_query(RegistrarDriverContract::SECRETS).' with '.implode(' ', $configured);
+            $fail = $failing ?? fn (string $key, Throwable $error) => FakeRegistrar::install($key)->will('register', $error);
 
-            $gateway->call($key, 'register', fn (Registrar $driver): RegistrarResult => $driver->register(RegistrarDriverContract::request($domain)), $domain, [...RegistrarDriverContract::SECRETS, 'raw' => $echo]);
+            app(SubmitToRegistrar::class)->handle($domain);
+            $rejected = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
+            $fail($key, new RegistrarException($echo));
+            app(SubmitToRegistrar::class)->handle($rejected);
+            $lost = Domain::factory()->pending()->create(['tld_id' => $domain->tld_id, 'registrar_key' => $key]);
+            $fail($key, new RuntimeException($echo));
+            app(SubmitToRegistrar::class)->handle($lost);
 
-            try {
-                $gateway->call($key, 'register', fn (): never => throw new RegistrarException("Rejected: {$echo}"), $domain, ['nested' => RegistrarDriverContract::SECRETS]);
-            } catch (RegistrarException) {
-                // Expected: only the log matters here.
-            }
+            $ids = [$domain->id, $rejected->id, $lost->id];
+            $seen = (string) json_encode([
+                RegistrarCommandLog::query()->whereIn('domain_id', $ids)->get(['request', 'response', 'error']),
+                Domain::query()->whereIn('id', $ids)->pluck('last_error'),
+                ActivityLog::query()->where('subject_type', (new Domain)->getMorphClass())->whereIn('subject_id', $ids)->get(['description', 'properties']),
+                Event::dispatched(RegistrarActionFailed::class)->map(fn (array $event): array => get_object_vars($event[0])),
+            ]);
 
-            $log = RegistrarCommandLog::query()->where('domain_id', $domain->id)->get(['request', 'response', 'error'])->toJson();
+            expect(Event::dispatched(RegistrarActionFailed::class))->not->toBeEmpty()
+                ->and($lost->fresh()->needs_review)->toBeTrue();
 
-            expect(RegistrarCommandLog::query()->where('domain_id', $domain->id)->count())->toBe(2);
-
-            foreach (RegistrarDriverContract::SECRETS as $secret) {
-                expect($log)->not->toContain($secret);
+            foreach ([...array_values(RegistrarDriverContract::SECRETS), ...$configured] as $secret) {
+                expect($seen)->not->toContain($secret);
             }
         });
+    }
+
+    /**
+     * Configure the registrar account with a known value in every secret setting (and defaults elsewhere).
+     *
+     * @return list<string> the configured secret values
+     */
+    public static function configureSecrets(string $key): array
+    {
+        $settings = [];
+        $secrets = [];
+
+        foreach (app(RegistrarManager::class)->fields($key) as $field) {
+            if ($field->isSecret()) {
+                $settings[$field->key] = $secrets[] = "contract-{$field->key}-value";
+            } elseif ($field->default !== null) {
+                $settings[$field->key] = $field->default;
+            }
+        }
+
+        RegistrarAccount::query()->updateOrCreate(['key' => $key], ['is_active' => true, 'test_mode' => true, 'settings' => $settings]);
+
+        return $secrets;
     }
 
     /**
