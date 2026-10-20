@@ -2,6 +2,7 @@
 
 use App\Events\Billing\InvoicePaid;
 use App\Events\Billing\PaymentReversed;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
@@ -10,14 +11,18 @@ use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Billing\Services\CreditLedgerService;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\WebhookSignature;
+use App\Support\Dashboard\Dashboard;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Sleep;
+use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
@@ -283,4 +288,111 @@ test('webhook bodies over 256 KB are refused before any signature work', functio
     expect(GatewayLog::query()->latest('id')->first()->result)->toBe('payload too large')
         ->and(Transaction::query()->count())->toBe(0)
         ->and(stripeRetrieves())->toBe(0);
+});
+
+/**
+ * Issue #130 (matrix PG-19 / M-01): Stripe confirms a payment for an attempt we already closed.
+ *
+ * @param  array<string, mixed>  $session  Checkout Session fields to override
+ * @return array{0: Invoice, 1: PaymentAttempt}
+ */
+function closedStripeAttempt(AttemptStatus $closedAs = AttemptStatus::Expired, array $session = []): array
+{
+    [$invoice, $attempt] = paidStripeAttempt(session: $session);
+    $attempt->update(['status' => $closedAs, 'expires_at' => now()->subMinute()]);
+
+    return [$invoice, $attempt->fresh()];
+}
+
+function lateActivity(): ActivityLog
+{
+    return ActivityLog::query()->where('event', 'billing.payment.late')->sole();
+}
+
+test('a payment Stripe confirms for a closed attempt is booked on the still unpaid invoice and flagged for staff', function (AttemptStatus $closedAs) {
+    Event::fake([InvoicePaid::class]);
+    [$invoice, $attempt] = closedStripeAttempt($closedAs);
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->sole())->amount_in->toBe(2_500)->gateway_txn_id->toBe(STRIPE_INTENT)
+        ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull()
+        ->review_reason->toBe('Paid at the provider after the attempt was '.$closedAs->value)
+        ->and(lateActivity())->description->toBe(SettlePaymentAttempt::LATE_NOTE)->client_id->toBe($invoice->client_id)
+        ->and(lateActivity()->properties)->toMatchArray(['closed_as' => $closedAs->value, 'booked' => true, 'applied' => 2_500, 'credited' => 0])
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'])->toBe(1);
+    Event::assertDispatchedTimes(InvoicePaid::class, 1);
+})->with([
+    'expired' => [AttemptStatus::Expired],
+    'cancelled or replaced' => [AttemptStatus::Failed],
+]);
+
+test('a late Stripe payment on an invoice another payment already settled becomes account credit the client can see', function () {
+    [$invoice, $attempt] = closedStripeAttempt();
+    payInvoice($invoice, 2_500, 'bank-ref-1');
+
+    postStripeWebhook(stripeEvent('checkout.session.completed', STRIPE_SESSION))->assertOk()->assertJson(['result' => 'late payment recorded']);
+
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    expect($payment)->amount_in->toBe(2_500)->currency->toBe('USD')
+        ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->amount_paid->toBe(2_500)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(2_500)
+        ->and(lateActivity()->properties)->toMatchArray(['applied' => 0, 'credited' => 2_500]);
+
+    $this->get(route('client.credit.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('balance', 2_500)
+        ->where('transactions.data', fn ($rows) => collect($rows)->contains('id', $payment->id)));
+});
+
+test('a late Stripe payment larger than what is left on the invoice pays the balance and credits the rest', function () {
+    [$invoice] = closedStripeAttempt();
+    payInvoice($invoice, 1_000, 'bank-ref-2');
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+
+    expect($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(1_000)
+        ->and(lateActivity()->properties)->toMatchArray(['applied' => 1_500, 'credited' => 1_000]);
+});
+
+test('replayed webhooks, the return route and the sweep book a late Stripe payment once', function () {
+    [$invoice, $attempt] = closedStripeAttempt();
+
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'duplicate']);
+    postStripeWebhook(stripeEvent('checkout.session.completed', STRIPE_SESSION, eventId: 'evt_1MoharEvent0002'))->assertOk()->assertJson(['result' => 'duplicate']);
+    $this->get(route('billing.gateways.return', [StripeDriver::KEY, 'ref' => $attempt->reference]));
+    $this->travel(2)->hours();
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->where('gateway', StripeDriver::KEY)->count())->toBe(1)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
+});
+
+test('a forged or unsigned webhook for a closed attempt books nothing and retrieves nothing', function (Closure $deliver) {
+    [$invoice, $attempt] = closedStripeAttempt();
+    $before = stripeRetrieves();
+
+    $deliver(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertForbidden();
+
+    expect(stripeRetrieves())->toBe($before)
+        ->and(Transaction::query()->count())->toBe(0)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->lookup_count->toBe($attempt->lookup_count)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+})->with([
+    'wrong secret' => [fn (array $event) => postStripeWebhook($event, secret: 'whsec_SomebodyElsesSecret000000')],
+    'unsigned' => [fn (array $event) => postStripeWebhook($event, header: '')],
+]);
+
+test('a closed attempt whose session Stripe reports as not paid stays closed and books nothing', function () {
+    [$invoice, $attempt] = closedStripeAttempt(session: ['status' => 'expired', 'payment_status' => 'unpaid']);
+
+    postStripeWebhook(stripeEvent('checkout.session.expired', STRIPE_SESSION))->assertOk()->assertJson(['result' => 'attempt expired']);
+
+    expect(Transaction::query()->count())->toBe(0)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->late_payment_at->toBeNull()->lookup_count->toBe($attempt->lookup_count + 1)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(0);
 });

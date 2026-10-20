@@ -19,8 +19,11 @@ use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Models\Gateway;
+use App\Modules\Billing\Models\GatewayLog;
+use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Support\Billing\AbstractGatewayDriver;
@@ -311,3 +314,80 @@ test('every hosted driver honours the contract', function (string $key) {
         expect(json_encode($first->raw))->not->toContain($secret);
     }
 })->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe']);
+
+/**
+ * A fake-wallet attempt for a fresh NPR invoice that we closed, which the provider now reports as paid (#130).
+ *
+ * @return array{0: Invoice, 1: PaymentAttempt}
+ */
+function lateWalletAttempt(int $amount = 50_000): array
+{
+    Currency::query()->where('code', 'NPR')->exists() || Currency::factory()->npr()->create();
+    [, $client] = actingAsClient(Client::factory()->create(['currency' => 'NPR', 'country' => 'NP']));
+    $invoice = issueInvoice($client, [$amount]);
+    test()->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'fake_wallet']);
+    $attempt = PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole();
+    $attempt->update(['status' => AttemptStatus::Expired]);
+    FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult(LookupResult::SUCCEEDED, 'wallet-late-1', $amount, 'NPR');
+
+    return [$invoice, $attempt->fresh()];
+}
+
+test('a late payment whose attempt no longer matches the invoice currency is not booked and goes to staff review', function () {
+    [$invoice, $attempt] = lateWalletAttempt();
+    // No rule converts a payment taken for one currency onto an invoice in another.
+    $attempt->update(['document_currency' => 'USD']);
+
+    $this->artisan('billing:reconcile-payments');
+
+    expect(Transaction::query()->count())->toBe(0)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Ambiguous)->late_payment_at->not->toBeNull()
+        ->review_reason->toBe("Invoice currency NPR differs from the attempt's USD")
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->sole()->properties)->toMatchArray(['booked' => false, 'credited' => 0])
+        ->and(GatewayLog::query()->where('result', 'late payment held for review')->exists())->toBeTrue();
+
+    $this->travel(31)->minutes();
+    $todos = collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()));
+    expect($todos->firstWhere('key', 'billing.payment_review')['count'])->toBe(1)
+        ->and($todos->firstWhere('key', 'billing.late_payments'))->toBeNull();
+});
+
+test('staff can check a closed attempt, see its late payment and mark it checked, which clears the to-do', function () {
+    [$invoice, $attempt] = lateWalletAttempt();
+    $other = PaymentAttempt::query()->create(['reference' => 'other-attempt-ref-0001', 'gateway' => 'fake_wallet', 'client_id' => $invoice->client_id, 'invoice_id' => $invoice->id,
+        'amount' => 100, 'currency' => 'NPR', 'document_amount' => 100, 'document_currency' => 'NPR', 'status' => AttemptStatus::Expired]);
+    billingStaff();
+    confirmPassword();
+
+    $this->post(route('admin.billing.payment-attempts.check', $attempt))->assertRedirect();
+
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late')->sole()->actor_type)->toBe('staff');
+    $this->get(route('admin.billing.payment-attempts.index', ['late' => 1]))->assertInertia(fn (Assert $page) => $page
+        ->component('admin/billing/payment-attempts/index')
+        ->has('attempts.data', 1)
+        ->where('attempts.data.0.reference', $attempt->reference)
+        ->where('attempts.data.0.late_checked_at', null)
+        ->where('attempts.data.0.review_reason', 'Paid at the provider after the attempt was expired'));
+
+    $this->post(route('admin.billing.payment-attempts.late-checked', $other))->assertNotFound();
+    $this->post(route('admin.billing.payment-attempts.late-checked', $attempt))->assertRedirect();
+    $this->post(route('admin.billing.payment-attempts.late-checked', $attempt))->assertRedirect();
+
+    expect($attempt->fresh()->late_checked_at)->not->toBeNull()
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late_checked')->count())->toBe(1)
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments'))->toBeNull();
+});
+
+test('marking a late payment checked needs the payments permission', function () {
+    [, $attempt] = lateWalletAttempt();
+    $this->artisan('billing:reconcile-payments');
+
+    // The recent-password step-up on this route is covered by the sensitive-route scan.
+    actingAsStaff(['billing.invoices.view']);
+    confirmPassword();
+    $this->post(route('admin.billing.payment-attempts.late-checked', $attempt))->assertForbidden();
+
+    expect($attempt->fresh())->late_payment_at->not->toBeNull()->late_checked_at->toBeNull();
+});
