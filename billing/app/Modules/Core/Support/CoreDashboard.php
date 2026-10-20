@@ -83,7 +83,8 @@ class CoreDashboard
     }
 
     /**
-     * New clients per week for the last 12 weeks, in the company's calendar (bucketed in PHP over one column).
+     * New clients per week for the last 12 weeks, in the company's calendar (counted per local day in SQL, then
+     * bucketed into weeks).
      *
      * @return array<string, mixed>
      */
@@ -97,13 +98,18 @@ class CoreDashboard
             $weeks[$start->addWeeks($week)->toDateString()] = 0;
         }
 
-        Client::query()->where('created_at', '>=', $calendar->startOfDayUtc($start))->pluck('created_at')->each(function (mixed $createdAt) use (&$weeks, $calendar): void {
-            $key = CarbonImmutable::parse((string) $calendar->localDate($createdAt))->startOfWeek()->toDateString();
+        Client::query()->toBase()
+            ->where('created_at', '>=', $calendar->startOfDayUtc($start))
+            ->selectRaw($calendar->sqlLocalDate('created_at').' as day, count(*) as total', [$calendar->sqlZoneArgument()])
+            ->groupByRaw('1')
+            ->get()
+            ->each(function (object $row) use (&$weeks): void {
+                $key = CarbonImmutable::parse(substr((string) $row->day, 0, 10))->startOfWeek()->toDateString();
 
-            if (array_key_exists($key, $weeks)) {
-                $weeks[$key]++;
-            }
-        });
+                if (array_key_exists($key, $weeks)) {
+                    $weeks[$key] += (int) $row->total;
+                }
+            });
 
         return [
             'title' => 'New clients',

@@ -6,6 +6,33 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Storefront (public site, PR feature/storefront-home)
+
+- Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
+  Orders; Core binds `NullShopperSession` (default currency, empty cart).
+- Added `App\Contracts\Support\PublicHelpDirectory` (`recentAnnouncements()`, `popularArticles()`,
+  `networkStatus()`), implemented by Support; Core binds `NullPublicHelpDirectory`. Spec K9, without the sitemap part.
+- Added `DomainPricing::catalog(string $currency, ?int $clientId = null)`: active TLDs with 1-year register, renew and
+  transfer prices, spotlight flag and badge (spec K4, without `category` and the `TldPricingChanged` event). Service
+  contract: `FakeDomains` is updated.
+- Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
+  `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
+- Added `App\Support\Seo\SitemapRegistry` (ADR 0012 shape: `register(key, Closure, replace: false)` with keys
+  `[a-z0-9_]{1,50}`, a duplicate key throws unless replaced, `has()`, `keys()`, `entries()`; a source that throws is
+  reported and left out), bound as a singleton. Orders, Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`. Declared here with the
+  other storefront kernel pieces; the publish flow that dispatches it is the stacked PR #99.
+- `PriceBook::storefront()` products also document the optional `is_taxable` key (Catalog sends it).
+- Interim gaps, each until its spec contract exists: K6 (`TaxDisplay`): Storefront derives the tax statement and
+  inclusive amounts from a probe line through `TaxCalculator`, and reads `orders.domains_taxable` and
+  `catalog.show_monthly_breakdown` through Core `Settings`. K7 (`GatewayDirectory::acceptanceMarks()`): Storefront
+  reads logos from `GatewayRegistry` drivers that implement `ProvidesLogo`. K5 (`ProductGroupUpdated`): a group that is
+  hidden or renamed can show in the header for up to `storefront.cache_seconds` (600 s).
+- `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
+  `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
+- Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
+  `core.company_*` and `billing.seller.*` through Core `Settings`.
+
 ### Integration simulators, S1 (ADR 0016 §1, §3)
 
 - `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
