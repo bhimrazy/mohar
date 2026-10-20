@@ -139,16 +139,27 @@ in-memory data; `scripts/pg.sh --stop` stops it; `scripts/pg.sh --prune <active 
   append-only audit log, client-area scoping through `ClientContext`). Payments settle only through
   server-side `lookup()`.
 
-## CI paused: local merge gate (owner, 2026-10-20 afternoon)
+## Repository visibility and CI (owner, 2026-10-20)
 
-The owner decided not to use GitHub Actions for now ("just use this machine and work here instead"); the repository
-stays private. Every merge into `develop` is gated by `scripts/merge-gate.sh <pr>`. It runs the same steps as
-`.github/workflows/ci.yml` (policy, pint, phpstan, tsc, vp check, npm test, build, and the full suite on SQLite and on
-PostgreSQL) against the PR merged into `develop`. Then the CTO pushes an empty `[skip ci]` commit naming the gate
-result, marks the PR ready and merges at that head, so no workflow starts. Smoke, load and E2E workflows run only on
-an explicit owner decision. Engineers still verify locally before handing back and always run `tests/Arch`.
+The owner switches the repository between public and private as needed; it is the owner's call each time. GitHub has
+no per-branch visibility: while public, every branch, PR, issue, review file and the full history are visible. `main`
+stays a landing page (readme and `LICENSE`, all rights reserved); work stays on `develop`. Forks made while it is public
+stay public after it goes private, and going private drops stars and watchers.
 
-## CI minutes budget (owner, 2026-10-20)
+- **Before each switch to public**, the CTO re-runs the secret scan over every remote branch and over issue and PR text
+  (live key prefixes, private-key headers, committed `.env` or key files) and confirms the workflows still use only
+  GitHub-hosted runners, no `pull_request_target` and no repository secrets. Open security findings in
+  `docs/reviews/` become readable; accepted while no host runs Mohar in production, revisited before the first one does.
+- **While public:** GitHub-hosted Actions minutes are free, so the minutes budget below is suspended. Drafts still
+  carry no `ci` label; the CTO adds it before merging, and smoke and E2E runs need no special budget decision.
+- **While private: CI paused, local merge gate.** Every merge into `develop` is gated by `scripts/merge-gate.sh <pr>`. It
+  runs the same steps as `.github/workflows/ci.yml` (policy, pint, phpstan, tsc, vp check, npm test, build, and the
+  full suite on SQLite and on PostgreSQL) against the PR merged into `develop`. Then the CTO pushes an empty
+  `[skip ci]` commit naming the gate result, marks the PR ready and merges at that head, so no workflow starts. Smoke,
+  load and E2E workflows run only on an explicit owner decision. Engineers still verify locally before handing back
+  and always run `tests/Arch`.
+
+## CI minutes budget (owner, 2026-10-20; applies while private)
 
 GitHub Actions on this private repository is capped at 3,000 minutes a month; on 2026-10-20 it reached 90% with 12 days
 left (about 200 runs in two days). CI is a budget:

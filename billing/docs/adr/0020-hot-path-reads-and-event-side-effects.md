@@ -62,4 +62,4 @@ three causes that come from the architecture, not from one module:
     - the renewal batch path and its budget test;
     - the `Dashboard` and `GlobalSearch` parameters.
 
-  The first and third touch the money path and get the full gate set.
+    The first and third touch the money path and get the full gate set.

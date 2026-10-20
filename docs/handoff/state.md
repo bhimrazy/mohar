@@ -20,8 +20,9 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 ## Review round 3 (2026-10-20 afternoon): `docs/reviews/2026-10-20-{ceo-round-3,cto-round-3,security,architecture}.md`
 
 - Score **53/100** by the CEO rubric (from 46): install 60, integrations 44, migration 25, proof 65.
-- Owner decisions today: **Nepal is the main market**; GitHub Actions paused (local merge gate); repository stays
-  private (licence would be all rights reserved if it ever goes public); all 12 client-importer recommendations
+- Owner decisions today: **Nepal is the main market**; the repository is switched between public and private as
+  needed, with CI on GitHub while public and the local merge gate while private; licence all rights reserved, `main`
+  kept as a readme-and-licence landing page; all 12 client-importer recommendations
   accepted; 4-vCPU codespace kept.
 - Security: no blockers. High #172 (chargeback and overpayment refunds leave credit spendable) is being fixed.
 - Architecture: kernel growth is small, but agreed orderings were skipped. ADR 0020 (hot-path reads) is Proposed. The
@@ -36,7 +37,8 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Repository
 
-- GitHub `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
+- GitHub `bhimrazy/whmcs` (visibility switched by the owner as needed; see operating-model.md, "Repository visibility
+  and CI"). `develop` = integration, `main` = landing page (readme and licence); release not yet cut.
 - App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
