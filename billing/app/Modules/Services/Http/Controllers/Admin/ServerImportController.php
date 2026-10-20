@@ -134,7 +134,7 @@ class ServerImportController extends Controller
             'proposed' => ['sometimes', 'accepted'],
             'ticked' => ['sometimes', 'accepted'],
             'usernames' => ['required_without_all:proposed,ticked', 'array', 'max:500'],
-            'usernames.*' => ['string', 'max:32'],
+            'usernames.*' => ['string', 'max:255'],
             'include' => ['sometimes', 'boolean'],
             'client_id' => [$request->user()?->hasPermission('core.clients.view') ? 'sometimes' : 'prohibited', 'integer', Rule::exists('clients', 'id')->where('status', 'active')],
             'product_id' => ['sometimes', 'integer', Rule::in(array_column($plan->productOptions($server), 'id'))],

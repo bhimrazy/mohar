@@ -27,7 +27,7 @@ return new class extends Migration
         Schema::create('server_account_import_report_lines', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('server_account_import_id')->constrained('server_account_imports')->cascadeOnDelete();
-            $table->string('username', 32);
+            $table->string('username', 255); // as services.username: any ListsAccounts driver, not only cPanel's 32
             $table->boolean('imported');
             $table->foreignId('service_id')->nullable()->index()->constrained('services')->nullOnDelete();
             $table->string('message', 255);
