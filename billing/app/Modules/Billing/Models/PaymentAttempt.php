@@ -7,6 +7,7 @@ use App\Modules\Billing\Enums\AttemptStatus;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -35,17 +36,46 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $transaction_id
  * @property array<string, mixed>|null $raw
  * @property CarbonImmutable|null $late_payment_at
+ * @property string|null $check_reason
  * @property CarbonImmutable|null $late_checked_at
+ * @property CarbonImmutable|null $lookups_closed_at
  * @property CarbonImmutable|null $created_at
  * @property-read Invoice|null $invoice
  */
 #[Fillable([
     'reference', 'gateway', 'client_id', 'invoice_id', 'payment_batch_id', 'amount', 'currency', 'document_amount',
     'document_currency', 'fx_rate', 'provider_ref', 'provider_txn_id', 'status', 'review_reason', 'expires_at',
-    'last_lookup_at', 'lookup_count', 'transaction_id', 'raw', 'late_payment_at', 'late_checked_at',
+    'last_lookup_at', 'lookup_count', 'transaction_id', 'raw', 'late_payment_at', 'check_reason',
+    'late_checked_at', 'lookups_closed_at',
 ])]
 class PaymentAttempt extends Model
 {
+    /** Booked after the attempt closed (#130). */
+    public const CHECK_LATE = 'late';
+
+    /** Booked on time, but all or part of it went to account credit because the invoice was already paid. */
+    public const CHECK_CREDIT = 'credit';
+
+    /** Refunded at the provider for more than the account credit left from it. */
+    public const CHECK_REFUND = 'refund';
+
+    /** Staff can mark checked: shown on the "Late payments to check" or "Gateway payments to review" to-do. */
+    public function needsCheck(): bool
+    {
+        return $this->check_reason !== null && $this->late_checked_at === null && $this->status === AttemptStatus::Succeeded;
+    }
+
+    /**
+     * Unchecked rows of the given check reasons (the to-do counts).
+     *
+     * @param  list<string>  $reasons
+     * @return Builder<self>
+     */
+    public static function toCheck(array $reasons): Builder
+    {
+        return self::query()->whereIn('check_reason', $reasons)->whereNull('late_checked_at')->where('status', AttemptStatus::Succeeded);
+    }
+
     protected $attributes = ['status' => 'pending', 'lookup_count' => 0];
 
     protected function casts(): array
@@ -59,6 +89,7 @@ class PaymentAttempt extends Model
             'last_lookup_at' => 'datetime',
             'late_payment_at' => 'datetime',
             'late_checked_at' => 'datetime',
+            'lookups_closed_at' => 'datetime',
             'lookup_count' => 'integer',
             'raw' => 'array',
         ];

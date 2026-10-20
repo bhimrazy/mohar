@@ -20,13 +20,19 @@ use Illuminate\Support\Facades\DB;
  * attempt (status, currency, amount, provider txn id unused) before recording it idempotently. Shared by the
  * return route, the reconciliation poller, webhooks and the admin check.
  *
- * A success the provider confirms for an attempt we already closed (expired, cancelled, replaced) is booked too,
+ * A success the provider confirms for an attempt we already closed (expired, failed or cancelled) is booked too,
  * after the same lookup and guards: on the invoice up to its balance, the rest (or all of it, when the invoice is
- * no longer payable) as account credit. Every late case is audited and raises a staff to-do (#130).
+ * no longer payable) as account credit. Every late case is audited and raises a staff to-do (#130), and so does
+ * any hosted payment that goes to credit because the invoice was already paid.
  */
 class SettlePaymentAttempt
 {
     public const LATE_NOTE = 'Late payment received after the attempt closed: check and refund if needed';
+
+    public const CREDIT_NOTE = 'Payment went to account credit because the invoice was already paid: check and refund if needed';
+
+    /** The provider's answer to the last lookup this instance made (null when it made none). */
+    public ?LookupResult $lastResult = null;
 
     public function __construct(
         private GatewayManager $gateways,
@@ -41,6 +47,8 @@ class SettlePaymentAttempt
      */
     public function handle(PaymentAttempt $attempt, bool $interactive = false): AttemptStatus
     {
+        $this->lastResult = null;
+
         if ($attempt->status === AttemptStatus::Succeeded) {
             return $attempt->status;
         }
@@ -51,7 +59,7 @@ class SettlePaymentAttempt
             return $attempt->status;
         }
 
-        $result = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef($interactive));
+        $result = $this->lastResult = $driver->lookup($this->gateways->config($attempt->gateway), $attempt->toRef($interactive));
         $raw = GatewayLogger::redact($result->raw);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
@@ -71,10 +79,13 @@ class SettlePaymentAttempt
             }
 
             if ($attempt->status->isClosed()) {
-                // Only a confirmed success changes a closed attempt; anything else leaves it as it was.
-                if ($result->status === LookupResult::SUCCEEDED) {
-                    $this->late($attempt, $result);
-                }
+                match ($result->status) {
+                    LookupResult::SUCCEEDED => $this->late($attempt, $result),
+                    // Paid after it closed, then partly refunded before we saw it: the provider kept the rest.
+                    LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Paid after the attempt closed and partly refunded at the provider'),
+                    // Anything else leaves it closed; a session the provider says can never be paid is not swept again.
+                    default => $this->closeLookups($attempt, $result),
+                };
 
                 $attempt->save();
 
@@ -91,10 +102,21 @@ class SettlePaymentAttempt
                 default => $this->stillPending($attempt, $result->status),
             };
 
+            $this->closeLookups($attempt, $result);
             $attempt->save();
 
             return $attempt->status;
         });
+    }
+
+    /**
+     * Expired, failed or cancelled at the provider: that session can never be paid, so the late sweep skips it.
+     */
+    private function closeLookups(PaymentAttempt $attempt, LookupResult $result): void
+    {
+        if (in_array($result->status, [LookupResult::EXPIRED, LookupResult::FAILED, LookupResult::CANCELLED], true)) {
+            $attempt->lookups_closed_at ??= now();
+        }
     }
 
     /**
@@ -106,11 +128,13 @@ class SettlePaymentAttempt
         $closedAs = $attempt->status;
         $attempt->late_payment_at = now();
         $transaction = $this->succeed($attempt, $result);
-        $credited = $transaction === null ? 0 : (int) CreditLedgerEntry::query()
-            ->where('transaction_id', $transaction->id)->where('amount', '>', 0)->sum('amount');
+        $credited = $transaction === null ? 0 : $this->credited($transaction);
 
         if ($transaction !== null) {
-            $attempt->review_reason = 'Paid at the provider after the attempt was '.$closedAs->value;
+            $attempt->check_reason = PaymentAttempt::CHECK_LATE;
+            $attempt->review_reason = $closedAs === AttemptStatus::Expired
+                ? 'Paid at the provider after the attempt expired'
+                : 'Paid at the provider after the attempt failed or was cancelled';
         }
 
         $details = [
@@ -129,6 +153,11 @@ class SettlePaymentAttempt
 
         $this->activity->log(self::LATE_NOTE, $transaction ?? $attempt, $attempt->client_id, $details, 'billing.payment.late');
         $this->log->log($attempt->gateway, 'callback', $transaction !== null ? 'late payment recorded' : 'late payment held for review', $details, $attempt->invoice_id);
+    }
+
+    private function credited(Transaction $transaction): int
+    {
+        return (int) CreditLedgerEntry::query()->where('transaction_id', $transaction->id)->where('amount', '>', 0)->sum('amount');
     }
 
     private function succeed(PaymentAttempt $attempt, LookupResult $result): ?Transaction
@@ -178,6 +207,18 @@ class SettlePaymentAttempt
         $attempt->provider_txn_id = $result->providerTxnId;
         $attempt->status = AttemptStatus::Succeeded;
         $attempt->review_reason = null;
+
+        // On time, but the invoice was already paid (e.g. by a late payment first): the customer paid twice.
+        if ($attempt->late_payment_at === null && ($credited = $this->credited($transaction)) > 0) {
+            $attempt->check_reason = PaymentAttempt::CHECK_CREDIT;
+            $this->activity->log(self::CREDIT_NOTE, $transaction, $attempt->client_id, [
+                'reference' => $attempt->reference,
+                'gateway' => $attempt->gateway,
+                'provider_txn_id' => $result->providerTxnId,
+                'applied' => $transaction->amount_in - $credited,
+                'credited' => $credited,
+            ], 'billing.payment.credited');
+        }
 
         return $transaction;
     }

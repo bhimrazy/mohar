@@ -13,16 +13,21 @@ use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Models\Client;
+use App\Support\Money;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Authoritative gateway callbacks (§6): verify signature → resolve invoice → idempotency → amount/currency
@@ -53,6 +58,7 @@ class GatewayCallbackHandler
         private RecordChargeback $chargeback,
         private GatewayAmounts $amounts,
         private SettlePaymentAttempt $settle,
+        private CreditLedgerService $credit,
     ) {}
 
     /**
@@ -264,12 +270,77 @@ class GatewayCallbackHandler
             $txnId = null;
         }
 
+        if ($remaining > 0 && ($flagged = $this->flaggedAttempt($parents)) !== null) {
+            return $this->takeBackCredit($gatewayKey, $event, $flagged, $parents, $remaining);
+        }
+
         if ($remaining > 0) {
             // E.g. a refund of money that went to account credit: acknowledge (no retries) and leave it to staff.
             return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $parents[0]->invoice_id);
         }
 
         return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
+    }
+
+    /**
+     * The hosted attempt behind one of these payments, when it was flagged for staff (late, or paid twice): its
+     * money went to account credit, so a refund at the provider takes that credit back (#130).
+     *
+     * @param  list<Transaction>  $parents
+     */
+    private function flaggedAttempt(array $parents): ?PaymentAttempt
+    {
+        return PaymentAttempt::query()
+            ->whereIn('transaction_id', array_map(fn (Transaction $parent): int => $parent->id, $parents))
+            ->whereNotNull('check_reason')
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Debit the refunded amount the payments could not absorb from the client's credit, up to what is left there.
+     * Anything the credit can't cover goes to staff ("Gateway payments to review"), so the client never keeps both
+     * the refund and the credit. Once per provider refund id (the ledger line names it).
+     *
+     * @param  list<Transaction>  $parents
+     * @return Outcome
+     */
+    private function takeBackCredit(string $gatewayKey, CallbackEvent $event, PaymentAttempt $attempt, array $parents, int $remaining): array
+    {
+        $payment = collect($parents)->firstWhere('id', $attempt->transaction_id) ?? $parents[0];
+        $description = mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $event->txnId]), 0, 255);
+
+        [$taken, $uncovered, $duplicate] = DB::transaction(function () use ($payment, $attempt, $description, $remaining): array {
+            Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
+
+            if (CreditLedgerEntry::query()->where('transaction_id', $payment->id)->where('description', $description)->exists()) {
+                return [0, 0, true];
+            }
+
+            $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
+
+            if ($taken > 0) {
+                $this->credit->post($payment->client_id, Money::of($taken, $payment->currency)->negate(), CreditReason::CreditRemoved, $payment->invoice_id, $payment->id, $description);
+            }
+
+            if ($remaining > $taken) {
+                $attempt->update([
+                    'check_reason' => PaymentAttempt::CHECK_REFUND,
+                    'late_checked_at' => null,
+                    'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
+                ]);
+            }
+
+            return [$taken, $remaining - $taken, false];
+        });
+
+        $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $uncovered];
+
+        return match (true) {
+            $duplicate => $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $payment->invoice_id),
+            $uncovered > 0 => $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $payment->invoice_id),
+            default => $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $payment->invoice_id),
+        };
     }
 
     /**

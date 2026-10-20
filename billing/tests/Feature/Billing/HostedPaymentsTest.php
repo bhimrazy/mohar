@@ -30,6 +30,8 @@ use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
 use Carbon\CarbonInterval;
+use Illuminate\Console\Scheduling\Event as ScheduledEvent;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -369,7 +371,8 @@ test('staff can check a closed attempt, see its late payment and mark it checked
         ->has('attempts.data', 1)
         ->where('attempts.data.0.reference', $attempt->reference)
         ->where('attempts.data.0.late_checked_at', null)
-        ->where('attempts.data.0.review_reason', 'Paid at the provider after the attempt was expired'));
+        ->where('attempts.data.0.needs_check', true)
+        ->where('attempts.data.0.review_reason', 'Paid at the provider after the attempt expired'));
 
     $this->post(route('admin.billing.payment-attempts.late-checked', $other))->assertNotFound();
     $this->post(route('admin.billing.payment-attempts.late-checked', $attempt))->assertRedirect();
@@ -390,4 +393,58 @@ test('marking a late payment checked needs the payments permission', function ()
     $this->post(route('admin.billing.payment-attempts.late-checked', $attempt))->assertForbidden();
 
     expect($attempt->fresh())->late_payment_at->not->toBeNull()->late_checked_at->toBeNull();
+});
+
+/**
+ * Closed fake-wallet attempts with no invoice (the sweep only needs their lookups).
+ *
+ * @return list<PaymentAttempt>
+ */
+function closedWalletAttempts(int $count): array
+{
+    $client = Client::factory()->create(['currency' => 'NPR']);
+
+    return array_map(fn (): PaymentAttempt => PaymentAttempt::query()->create(['reference' => PaymentAttempt::newReference(), 'gateway' => 'fake_wallet',
+        'client_id' => $client->id, 'amount' => 50_000, 'currency' => 'NPR', 'document_amount' => 50_000, 'document_currency' => 'NPR',
+        'status' => AttemptStatus::Expired, 'expires_at' => now()->subHour()]), range(1, $count));
+}
+
+test('the hourly late sweep stops at its per-run cap', function () {
+    billingSettings(['gateways.late_lookups_per_run' => 2]);
+    $attempts = closedWalletAttempts(3);
+
+    $this->artisan('billing:reconcile-payments', ['--only' => 'late'])->assertSuccessful();
+
+    expect(array_map(fn (PaymentAttempt $attempt): int => $attempt->fresh()->lookup_count, $attempts))->toBe([1, 1, 0]);
+});
+
+test('the late sweep leaves a gateway alone for the run after its first error answer', function () {
+    [$first, $second] = closedWalletAttempts(2);
+    FakeNprWalletDriver::$provider[$first->reference] = new LookupResult(LookupResult::PENDING, raw: ['error' => 'provider down'], retryable: true);
+
+    $this->artisan('billing:reconcile-payments', ['--only' => 'late'])->assertSuccessful();
+
+    expect($first->fresh()->lookup_count)->toBe(1)->and($second->fresh()->lookup_count)->toBe(0);
+});
+
+test('a closed attempt the provider reports as expired or cancelled is not swept again', function (string $status) {
+    [$attempt] = closedWalletAttempts(1);
+    FakeNprWalletDriver::$provider[$attempt->reference] = new LookupResult($status);
+
+    $this->artisan('billing:reconcile-payments', ['--only' => 'late']);
+    $this->travel(2)->hours();
+    $this->artisan('billing:reconcile-payments', ['--only' => 'late']);
+
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Expired)->lookup_count->toBe(1)->lookups_closed_at->not->toBeNull();
+})->with([LookupResult::EXPIRED, LookupResult::CANCELLED]);
+
+test('open and late reconciliation are scheduled separately, each on its own lock', function () {
+    $events = collect(app(Schedule::class)->events())->filter(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, 'billing:reconcile-payments'));
+    $open = $events->first(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, '--only=open'));
+    $late = $events->first(fn (ScheduledEvent $event): bool => str_contains((string) $event->command, '--only=late'));
+
+    expect($events)->toHaveCount(2)
+        ->and($open)->expression->toBe('*/5 * * * *')->withoutOverlapping->toBeTrue()
+        ->and($late)->expression->toBe('0 * * * *')->withoutOverlapping->toBeTrue()
+        ->and($open->mutexName())->not->toBe($late->mutexName());
 });

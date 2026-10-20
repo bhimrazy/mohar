@@ -4,6 +4,7 @@ use App\Events\Billing\InvoicePaid;
 use App\Events\Billing\PaymentReversed;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
+use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Gateway;
@@ -19,6 +20,7 @@ use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Modules\PaymentsStripe\Support\WebhookSignature;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Money;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -326,7 +328,7 @@ function lateActivity(): ActivityLog
     return ActivityLog::query()->where('event', 'billing.payment.late')->sole();
 }
 
-test('a payment Stripe confirms for a closed attempt is booked on the still unpaid invoice and flagged for staff', function (AttemptStatus $closedAs) {
+test('a payment Stripe confirms for a closed attempt is booked on the still unpaid invoice and flagged for staff', function (AttemptStatus $closedAs, string $reason) {
     Event::fake([InvoicePaid::class]);
     [$invoice, $attempt] = closedStripeAttempt($closedAs);
 
@@ -335,14 +337,14 @@ test('a payment Stripe confirms for a closed attempt is booked on the still unpa
     expect(Transaction::query()->where('gateway', StripeDriver::KEY)->sole())->amount_in->toBe(2_500)->gateway_txn_id->toBe(STRIPE_INTENT)
         ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
         ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull()
-        ->review_reason->toBe('Paid at the provider after the attempt was '.$closedAs->value)
+        ->review_reason->toBe($reason)
         ->and(lateActivity())->description->toBe(SettlePaymentAttempt::LATE_NOTE)->client_id->toBe($invoice->client_id)
         ->and(lateActivity()->properties)->toMatchArray(['closed_as' => $closedAs->value, 'booked' => true, 'applied' => 2_500, 'credited' => 0])
         ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'])->toBe(1);
     Event::assertDispatchedTimes(InvoicePaid::class, 1);
 })->with([
-    'expired' => [AttemptStatus::Expired],
-    'cancelled or replaced' => [AttemptStatus::Failed],
+    'expired' => [AttemptStatus::Expired, 'Paid at the provider after the attempt expired'],
+    'failed or cancelled' => [AttemptStatus::Failed, 'Paid at the provider after the attempt failed or was cancelled'],
 ]);
 
 test('a late Stripe payment on an invoice another payment already settled becomes account credit the client can see', function () {
@@ -412,4 +414,27 @@ test('a closed attempt whose session Stripe reports as not paid stays closed and
         ->and($attempt->fresh())->status->toBe(AttemptStatus::Expired)->late_payment_at->toBeNull()->lookup_count->toBe($attempt->lookup_count + 1)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(0);
+});
+
+test('a Stripe refund of a late payment that went to credit takes the credit back once, and staff review what credit cannot cover', function () {
+    [$invoice] = closedStripeAttempt();
+    payInvoice($invoice, 2_500, 'bank-ref-3');
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund'))]);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0007'))->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0008'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $credit = app(CreditLedgerService::class);
+    expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(1_500);
+
+    // The client spent most of the rest; a second refund of 1,000 finds 500 to take back.
+    $credit->post($invoice->client_id, Money::of(-1_000, 'USD'), CreditReason::AppliedToInvoice);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0002*' => Http::response(stripeFixture('refund', ['id' => 're_3MoharRefund0002']))]);
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0002', eventId: 'evt_1MoharEvent0009'))->assertOk()->assertJson(['result' => 'refund needs staff review']);
+
+    $this->travel(31)->minutes();
+    expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(0)
+        ->and(PaymentAttempt::query()->sole())->check_reason->toBe(PaymentAttempt::CHECK_REFUND)->late_checked_at->toBeNull()
+        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review')['count'])->toBe(1);
 });

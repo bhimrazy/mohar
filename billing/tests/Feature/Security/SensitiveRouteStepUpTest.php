@@ -30,7 +30,7 @@ use PHPUnit\Framework\AssertionFailedError;
 /** Non-GET admin routes that check a sensitive permission but may run without step-up, and why. */
 const STEP_UP_EXEMPT = [
     'admin.billing.gateways.test' => 'Test connection sends no stored data anywhere it was not saved for, and changes nothing.',
-    'admin.billing.payment-attempts.check' => 'Asks the gateway for the status of an attempt; changes nothing staff did not already authorise.',
+    'admin.billing.payment-attempts.check' => 'Asks the gateway for the status of an attempt and books only a payment the gateway confirms, also for a closed attempt (a late payment, #130); it moves no money staff did not already receive.',
 ];
 
 /** Routes the scan cannot reach even with empty bound models, and why (none today; the scan fails on a new one). */

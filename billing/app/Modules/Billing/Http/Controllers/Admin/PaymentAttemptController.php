@@ -32,7 +32,7 @@ class PaymentAttemptController extends Controller
                 ->with('invoice:id,number,proforma_number')
                 ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
                 ->when($filters['gateway'] ?? null, fn ($query, $gateway) => $query->where('gateway', $gateway))
-                ->when((bool) ($filters['late'] ?? false), fn ($query) => $query->whereNotNull('late_payment_at'))
+                ->when((bool) ($filters['late'] ?? false), fn ($query) => $query->where(fn ($query) => $query->whereNotNull('late_payment_at')->orWhereNotNull('check_reason')))
                 ->orderByDesc('id')
                 ->paginate(25)
                 ->withQueryString()
@@ -53,6 +53,8 @@ class PaymentAttemptController extends Controller
                     'created_at' => $attempt->created_at?->toIso8601String(),
                     'late_payment_at' => $attempt->late_payment_at?->toIso8601String(),
                     'late_checked_at' => $attempt->late_checked_at?->toIso8601String(),
+                    'check_reason' => $attempt->check_reason,
+                    'needs_check' => $attempt->needsCheck(),
                 ]),
             'filters' => (object) array_filter($filters),
             'statuses' => array_map(fn (AttemptStatus $status): array => ['value' => $status->value, 'label' => ucfirst($status->value)], AttemptStatus::cases()),
@@ -70,19 +72,21 @@ class PaymentAttemptController extends Controller
     }
 
     /**
-     * Staff checked a late payment (refunded it at the provider, or kept it as credit): clear its to-do.
+     * Staff checked a flagged payment (refunded it at the provider, or kept it as credit): clear its to-do. A
+     * conditional update, so a double click writes one audit entry.
      */
     public function lateChecked(PaymentAttempt $attempt, ActivityLogger $activity): RedirectResponse
     {
         $this->authorize('billing.payments.manage');
-        abort_if($attempt->late_payment_at === null, 404);
+        abort_unless($attempt->check_reason !== null && $attempt->status === AttemptStatus::Succeeded, 404);
 
-        if ($attempt->late_checked_at === null) {
-            $attempt->update(['late_checked_at' => now()]);
-            $activity->log('Late payment checked', $attempt, $attempt->client_id, ['reference' => $attempt->reference, 'gateway' => $attempt->gateway], 'billing.payment.late_checked');
+        $updated = PaymentAttempt::toCheck([$attempt->check_reason])->whereKey($attempt->id)->update(['late_checked_at' => now()]);
+
+        if ($updated === 1) {
+            $activity->log('Flagged gateway payment checked', $attempt, $attempt->client_id, ['reference' => $attempt->reference, 'gateway' => $attempt->gateway, 'check_reason' => $attempt->check_reason], 'billing.payment.late_checked');
         }
 
-        Inertia::flash('toast', ['type' => 'success', 'message' => __('Late payment :reference marked as checked.', ['reference' => $attempt->reference])]);
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Payment :reference marked as checked.', ['reference' => $attempt->reference])]);
 
         return back();
     }

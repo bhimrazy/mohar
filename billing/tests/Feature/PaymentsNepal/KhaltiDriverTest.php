@@ -398,17 +398,18 @@ test('the payer mobile number from the return is masked to its last three digits
 });
 
 /**
- * Issue #130 (matrix PG-19 / M-01): Khalti reported the payment as expired, so the attempt closed; later its lookup
- * answers $later. An hour on, both the return route and the sweep look it up again.
+ * Issue #130 (matrix PG-19 / M-01): Khalti didn't know the pidx (HTTP 404) through the TTL plus grace, so the attempt
+ * expired; later its lookup answers $later. An hour on, both the return route and the sweep look it up again.
  *
  * @return array{0: Invoice, 1: PaymentAttempt}
  */
 function expiredKhalti(string $later = 'Completed'): array
 {
     [, $invoice, $attempt] = startKhalti();
-    Http::fake([KHALTI_LOOKUP => Http::sequence()->push(khaltiLookup('Expired', transactionId: null), 400)
+    Http::fake([KHALTI_LOOKUP => Http::sequence()->push(['detail' => 'Not found.', 'error_key' => 'validation_error'], 404)
         ->whenEmpty(Http::response(khaltiLookup($later, transactionId: $later === 'Completed' ? 'TXN-1' : null), $later === 'Completed' ? 200 : 400))]);
 
+    test()->travel(60 + 121)->minutes();
     test()->artisan('billing:reconcile-payments');
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Expired);
     test()->travel(61)->minutes();

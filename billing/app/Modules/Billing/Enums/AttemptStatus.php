@@ -21,7 +21,7 @@ enum AttemptStatus: string
     }
 
     /**
-     * Closed without a payment (expired, cancelled at the provider, replaced). The provider may still report a
+     * Closed without a payment (expired, or failed or cancelled at the provider). The provider may still report a
      * success for it later, which is booked as a late payment.
      */
     public function isClosed(): bool

@@ -37,6 +37,8 @@ type Attempt = {
     created_at: string | null;
     late_payment_at: string | null;
     late_checked_at: string | null;
+    check_reason: string | null;
+    needs_check: boolean;
 };
 
 type Props = {
@@ -46,6 +48,23 @@ type Props = {
 };
 
 const LATE_OPTIONS: SelectOption[] = [{ value: '1', label: 'Late payments' }];
+
+/** Why staff should check a booked payment (`check_reason`). */
+const CHECK_LABELS: Record<string, string> = {
+    late: 'Late payment',
+    credit: 'Paid twice',
+    refund: 'Refund over credit',
+};
+
+function flagLabel(attempt: Attempt): string | null {
+    const label = attempt.check_reason
+        ? (CHECK_LABELS[attempt.check_reason] ?? 'To check')
+        : attempt.late_payment_at
+          ? CHECK_LABELS.late
+          : null;
+
+    return label && attempt.late_checked_at ? `${label}, checked` : label;
+}
 
 /** Closed attempts can still be looked up: a late success at the gateway is booked. */
 const CHECKABLE = ['pending', 'ambiguous', 'expired', 'failed'];
@@ -100,18 +119,14 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
                             status={TONES[attempt.status] ?? attempt.status}
                             label={humanize(attempt.status)}
                         />
-                        {attempt.late_payment_at && (
+                        {flagLabel(attempt) && (
                             <StatusBadge
                                 status={
                                     attempt.late_checked_at
                                         ? 'resolved'
                                         : 'review'
                                 }
-                                label={
-                                    attempt.late_checked_at
-                                        ? 'Late, checked'
-                                        : 'Late payment'
-                                }
+                                label={flagLabel(attempt) ?? ''}
                             />
                         )}
                     </div>
@@ -149,7 +164,7 @@ export default function PaymentAttempts({ attempts, statuses }: Props) {
             align: 'right',
             cell: (attempt) => (
                 <div className="flex justify-end gap-1">
-                    {attempt.late_payment_at && !attempt.late_checked_at && (
+                    {attempt.needs_check && (
                         <Button
                             variant="outline"
                             size="sm"
