@@ -108,3 +108,9 @@ test('without files, --pending or --since it says what to pass', function () {
         ->expectsOutputToContain('Pass migration files, --pending or --since=<git ref>.')
         ->assertFailed();
 });
+
+test('a path that does not exist fails instead of passing as an empty migration', function () {
+    $this->artisan('deploy:check-migrations', ['paths' => [$this->dir.'/2026_10_20_000000_missing.php']])
+        ->expectsOutputToContain('is not a readable file')
+        ->assertFailed();
+});

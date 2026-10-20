@@ -12,9 +12,8 @@ use Illuminate\Support\Facades\Process;
  * The expand-then-contract rule (docs/architecture.md, "Migrations during blue-green deploys"): a release's
  * migrations may only add, because the previous release keeps running against the same schema until the switch.
  * This flags an up() that drops, renames or changes a column or table. Two tags, with the reason next to them, turn
- * a finding into a report: @contract for the contract step (removing what no released code uses any more) and
- *
- * @compatible for an in-place change the previous release still works with (widening a column, say).
+ * a finding into a report: the contract tag for the contract step (removing what no released code uses any more),
+ * and the compatible tag for an in-place change the previous release still works with (widening a column, say).
  */
 #[Signature('deploy:check-migrations
     {paths?* : Migration files to check}
@@ -51,7 +50,13 @@ class CheckMigrationsCommand extends Command
         $failures = 0;
 
         foreach ($files as $file) {
-            $source = (string) @file_get_contents($file);
+            if (! is_file($file) || ! is_readable($file)) {
+                $this->components->error("{$file} is not a readable file.");
+
+                return self::FAILURE;
+            }
+
+            $source = (string) file_get_contents($file);
             $problems = $this->problems($this->upBody($source));
             $name = basename($file);
 
@@ -110,7 +115,8 @@ class CheckMigrationsCommand extends Command
         $since = (string) $this->option('since');
 
         if ($since !== '') {
-            $result = Process::path(base_path())->run(['git', 'diff', '--name-only', '--diff-filter=AMR', $since, '--', '.']);
+            // --relative: paths relative to the app directory (billing/), not to the repository root.
+            $result = Process::path(base_path())->run(['git', 'diff', '--name-only', '--relative', '--diff-filter=AMR', $since, '--', '.']);
 
             if ($result->failed()) {
                 $this->components->error("git diff against {$since} failed: ".trim($result->errorOutput()));
