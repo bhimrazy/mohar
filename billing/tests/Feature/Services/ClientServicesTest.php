@@ -143,3 +143,13 @@ test('client dashboard cards count active and soon-renewing services', function 
 
     expect($cards['services.active']['value'])->toBe(2)->and($cards['services.renewing']['value'])->toBe(1);
 });
+
+test('a service with a domain shows the nameservers to set at the registry: its server\'s, else the default', function () {
+    $onServer = Service::factory()->onServer()->create(['client_id' => $this->client->id, 'domain' => 'asha.com.np']);
+    $onServer->server->forceFill(['nameservers' => ['ns1.host.test', 'ns2.host.test']])->save();
+    $withoutServer = Service::factory()->create(['client_id' => $this->client->id, 'domain' => 'bikash.com.np']);
+    app(Settings::class)->set('domains.default_nameservers', "ns1.fallback.test\nns2.fallback.test");
+
+    $this->get(route('client.services.show', $onServer->id))->assertInertia(fn (Assert $page) => $page->where('nameservers', ['ns1.host.test', 'ns2.host.test']));
+    $this->get(route('client.services.show', $withoutServer->id))->assertInertia(fn (Assert $page) => $page->where('nameservers', ['ns1.fallback.test', 'ns2.fallback.test']));
+});
