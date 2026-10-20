@@ -107,7 +107,7 @@ it('prices plan cards per month with the billed total and renewal for the select
 it('states tax per currency for its own market and shows tax-inclusive prices only where the host turned it on', function (): void {
     app(Settings::class)->set('billing.tax.enabled', true);
     TaxRule::factory()->create(['name' => 'VAT', 'country' => 'NP', 'rate' => '13.000']);
-    TaxRule::factory()->create(['name' => 'GST', 'country' => 'IN', 'rate' => '18.000']);
+    TaxRule::factory()->create(['name' => 'IGST', 'country' => 'IN', 'rate' => '18.000']);
     Currency::factory()->inr()->create();
     $this->get('/')->assertInertia(fn (Assert $page) => $page->where('site.tax_note', 'Tax added at checkout where applicable'));
     $this->withSession([CartManager::SESSION_CURRENCY => 'INR'])->get('/')->assertInertia(fn (Assert $page) => $page->where('site.tax_note', '+18% GST at checkout'));
