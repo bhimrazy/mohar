@@ -7,7 +7,7 @@
 # Compose reads deploy/.env for the ${...} values below, and the PHP services read the same file (env_file).
 # One image runs web, workers, scheduler and migrations (deploy/Dockerfile, docs/devops/container-image.md).
 # Only Caddy publishes ports. PostgreSQL and RustFS sit on an internal network with no route out; the PHP
-# services also join `egress` for gateways, registrars, panels and mail.
+# services, the app included, also join `egress` for gateways, registrars, panels and mail.
 #
 # Third-party images are <name>:<tag>@sha256:<digest> and at least 7 days old (ADR 0007, `composer deps:check`).
 # The postgres image must equal the one in billing/compose.yaml and .github/workflows/ci.yml (CI asserts it).
@@ -61,11 +61,14 @@ x-php: &php
 
 x-worker: &worker
     <<: *php
-    # The image's HEALTHCHECK probes the web server, which workers do not run. Each worker instead checks that
-    # its own command is still running (the [:] keeps the check from matching itself). A disabled health check
+    # The image's HEALTHCHECK probes the web server, which workers do not run. Instead: is a queue:work process
+    # alive? PID 1 is skipped, because with `init: true` it is docker-init, whose own command line carries the
+    # command for as long as the container exists; the [:] keeps the check from matching itself. A disabled check
     # would make `docker compose up --wait` fail on Compose 2.38.
     healthcheck: &process-alive
-        test: ['CMD-SHELL', 'grep -qsa "queue[:]work" /proc/[0-9]*/cmdline']
+        test:
+            - CMD-SHELL
+            - 'for p in /proc/[0-9]*; do [ "$${p##*/}" != 1 ] && grep -qsa "queue[:]work" "$$p/cmdline" && exit 0; done; exit 1'
         interval: 30s
         timeout: 5s
         retries: 3
@@ -111,9 +114,11 @@ services:
 
     app:
         <<: *php
+        # edge for Caddy, egress for outbound calls made during requests (gateways at checkout).
         networks:
             - edge
             - backend
+            - egress
         stop_grace_period: 30s
         deploy:
             resources:
@@ -190,19 +195,25 @@ services:
                     cpus: '0.5'
                     memory: 384M
 
-    # Exactly one scheduler: it runs the minute heartbeat and the daily automation pipeline.
+    # Exactly one scheduler: it runs the minute heartbeat and the daily automation pipeline. That pipeline runs
+    # inline in a schedule:run child (546 s for 50,000 clients in load testing), and schedule:work waits for it on
+    # SIGTERM: the stop grace matches worker-automation's, so an update waits for a run in progress instead of
+    # killing it (an idle scheduler still stops in well under a second). Three PHP processes share the memory limit,
+    # the last one allowed up to memory_limit (256M), hence 512M.
     scheduler:
         <<: *worker
         command: ['php', 'artisan', 'schedule:work']
         healthcheck:
             <<: *process-alive
-            test: ['CMD-SHELL', 'grep -qsa "schedule[:]work" /proc/[0-9]*/cmdline']
-        stop_grace_period: 60s
+            test:
+                - CMD-SHELL
+                - 'for p in /proc/[0-9]*; do [ "$${p##*/}" != 1 ] && grep -qsa "schedule[:]work" "$$p/cmdline" && exit 0; done; exit 1'
+        stop_grace_period: 3660s
         deploy:
             resources:
                 limits:
                     cpus: '0.5'
-                    memory: 256M
+                    memory: 512M
 
     # One-shot, before anything else starts: migrations, the bucket, reference data (all idempotent). On the
     # first install create the administrator first (production.md); afterwards every deploy runs this unchanged.
@@ -237,6 +248,8 @@ services:
             # PostgreSQL 18+ keeps data under /var/lib/postgresql/<major>/docker; mount the parent.
             - postgres-data:/var/lib/postgresql
         shm_size: 256m
+        # A fast shutdown with a large checkpoint can take longer than Docker's default 10 s.
+        stop_grace_period: 60s
         healthcheck:
             test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
             interval: 5s

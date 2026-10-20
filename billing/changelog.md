@@ -626,7 +626,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `FROM` and `COPY --from=` images in `deploy/`, and Dependabot watches `/deploy`.
 - `TRUSTED_PROXIES` (`config/trustedproxy.php`): reverse proxies allowed to set the client IP and scheme. Unset
   means none, now also on `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework used to trust
-  every proxy; only the `X-Forwarded-For`, `-Host`, `-Port` and `-Proto` headers are honoured.
+  every proxy; only the `X-Forwarded-For`, `-Host` and `-Proto` headers are honoured (not `-Port`, which Caddy
+  passes through from clients).
 - Inertia SSR is off by default (`INERTIA_SSR_ENABLED`). There is no SSR bundle, so production pages already
   rendered client-side; the per-request bundle lookup and, with Vite running, the dev-server SSR attempt are
   skipped. Set it to `true` once an SSR entry exists.
