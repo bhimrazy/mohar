@@ -20,11 +20,13 @@ scheduler has run for a minute.
 
 | Symptom                                         | Where to look                                                                                                                                   |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `up` stops at `migrate`                         | `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means the install step was skipped               |
-| 502 error from the site                         | `docker compose -f deploy/compose.prod.yaml ps`: `app` must be `healthy`. `logs app` says why it is not                                          |
+| `deploy` stops at the migration check           | a database change in the new release would break the live version (it drops, renames or changes something in one step). Split it across two releases |
+| `deploy` stops at the migrations                | its output, or `docker compose -f deploy/compose.prod.yaml logs migrate`. "No full administrator was created" means the install step was skipped |
+| `deploy` says the new copy is unhealthy         | the printed logs of `app-<colour>`. Traffic stayed on the live copy: fix the cause and deploy again                                             |
+| 502 error from the site                         | `deploy/bin/deploy status`: the live `app-<colour>` must be `healthy`. `docker compose -f deploy/compose.prod.yaml --profile <colour> logs app-<colour>` says why |
 | Certificate errors                              | DNS for your domain must point at the host, ports 80 and 443 must be open, and `CADDY_GLOBAL_OPTIONS` must hold a real email. Check `logs caddy` |
 | No HSTS header, or one IP address for everyone  | the app does not trust the proxy: `EDGE_SUBNET` in `deploy/.env` must match the edge network's range                                            |
-| Jobs are not processed                          | `logs worker-default`, or the worker for that queue. **Run now** in Automation uses `worker-automation`                                         |
+| Jobs are not processed                          | `logs worker-default-<colour>` (with `--profile <colour>`), or the worker for that queue. **Run now** in Automation uses `worker-automation-<colour>` |
 
 ### An automation run was stopped part-way
 
@@ -32,11 +34,12 @@ A host reboot, running out of memory, or a stop that ran out of time can end an 
 remaining tasks did not run, and **Run now** says another run is in progress while the stopped run's locks remain.
 
 1. Check **Setup → Automation** that no run is in progress.
-2. Clear the scheduler's lock and the automation locks:
+2. Clear the scheduler's lock and the automation locks, with the live copy's scheduler (`deploy/bin/deploy status`
+   shows whether it is blue or green):
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan schedule:clear-cache
-    docker compose -f deploy/compose.prod.yaml exec -T scheduler php artisan automation:release-locks --force
+    docker compose -f deploy/compose.prod.yaml --profile blue exec -T scheduler-blue php artisan schedule:clear-cache
+    docker compose -f deploy/compose.prod.yaml --profile blue exec -T scheduler-blue php artisan automation:release-locks --force
     ```
 
 3. Select **Run now**. Tasks that already succeeded that day are skipped.
@@ -48,7 +51,7 @@ releases anything.
 
 | Symptom                                           | Cause and fix                                                                                                      |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Automation says the scheduler has never run       | the cron entry is missing or runs as another user (without Docker), or the `scheduler` service is stopped (Docker) |
+| Automation says the scheduler has never run       | the cron entry is missing or runs as another user (without Docker), or the live `scheduler-<colour>` service is stopped (Docker) |
 | Emails are not sent                               | check the `MAIL_` settings and **Setup → Email log**; a queue worker must be running                               |
 | Links in emails point to the wrong address        | `APP_URL` is wrong. Fix it, then run `php artisan optimize` (or recreate the containers)                           |
 | A payment shows as pending                        | the app checks pending payments with the gateway every few minutes. See **Billing → Payment attempts** and **Setup → Gateway log** |
