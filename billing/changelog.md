@@ -40,6 +40,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   without the owner check until fetched again.
   A second migration adds `server_account_imports.selections`, `reviewed` and `report` (nullable). Ticking and
   importing need a recent password; imports run on the `provisioning` queue.
+  A Core migration adds `email_changed_at` to `clients` and `users` (nullable), set whenever the address changes.
 - **Loopback is reached only in development and tests.** Outbound connections to `127.0.0.0/8` and `::1` are refused
   unless `APP_ENV` is `local` or `testing`, even with `OUTBOUND_ALLOW_LOOPBACK=true`. A server or endpoint that must be
   reached from the billing host should use the panel's own public or private address, not 127.0.0.1.
@@ -178,6 +179,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   service) or left out (with the reason). Each account becomes a service, active or suspended as on the server, with
   no invoice, welcome email, module command or password, keeps its day of the month for billing, is recorded in the
   activity log, and dispatches `ServiceImported`. Choosing a client or product per account follows in the next step.
+- Import accounts, choices: staff choose the client (a picker that lists the most recently added active clients
+  before anything is typed; it needs the permission to view clients), product, billing cycle and next due date per
+  account, and the cycle and due date for every ticked account at once from the review. Review rows link back to change
+  them and say when a client group discount explains a lower price; the date field shows the renewal date in the app's
+  format. "Select all proposed" leaves out, and the page flags, accounts whose matched client changed email in the last
+  30 days. "Fetch again" keeps choices for accounts still on the server. A choice reaches an import only through a new
+  review.
 - Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
   server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
   after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts

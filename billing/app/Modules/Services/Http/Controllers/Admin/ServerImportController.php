@@ -198,6 +198,7 @@ class ServerImportController extends Controller
             'counts' => ['ready' => $ready->count(), 'excluded' => $excluded->count(), 'clients' => $ready->pluck('decision.client.id')->unique()->count()],
             'totals' => $totals,
             'digest' => $review['digest'],
+            'cycles' => self::cycles(),
         ]);
     }
 
