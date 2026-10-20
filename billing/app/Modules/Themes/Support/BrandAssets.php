@@ -44,6 +44,8 @@ class BrandAssets implements BrandProvider
             accent: $this->accent('primary'),
             accentForeground: $this->accent('primary-foreground'),
             emailMark: in_array(self::mime((string) $this->path('mark')), ['image/png', 'image/jpeg'], true) ? $this->url('mark') : null,
+            hasUploadedLogo: $this->path('logo-light') !== null,
+            hasUploadedMark: $this->path('mark') !== null,
         );
     }
 
