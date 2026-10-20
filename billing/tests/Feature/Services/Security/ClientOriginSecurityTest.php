@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use App\Modules\Core\Enums\ClientOrigin;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ClientContext;
@@ -120,4 +121,65 @@ test('[S153-4] merging keeps each client\'s origin: a sign-up merged into a staf
 
     expect($signup->refresh()->origin)->toBe(ClientOrigin::SignUp)
         ->and($staff->refresh()->origin)->toBe(ClientOrigin::Staff);
+});
+
+/*
+ * Re-check at 592644cb: the email_source rule ("who vouched for the current email").
+ */
+
+test('[S153-5] staff changing the email of a client whose address staff already vouched for keeps it staff\'s', function () {
+    $client = Client::factory()->create(['email' => 'old@example.com', 'currency' => 'USD']);
+    expect($client->email_source)->toBe(EmailSource::Staff);
+
+    actingAsStaff(['core.clients.*']);
+    $this->put(route('admin.clients.update', $client), [
+        'first_name' => $client->first_name, 'last_name' => $client->last_name, 'email' => 'checked@example.com',
+        'currency' => 'USD', 'status' => 'active', 'tax_exempt' => false,
+    ])->assertSessionHasNoErrors();
+
+    // ClientController::update assigns Staff, but the value equals the original, so isDirty('email_source') is false
+    // and the saving hook overwrites it with Client.
+    expect($client->refresh()->email_source)->toBe(EmailSource::Staff);
+});
+
+test('[S153-6] a client-area save that loaded the client before a staff edit still records the address as the client\'s', function () {
+    $client = Client::factory()->create(['email' => 'mallory@own.example', 'currency' => 'USD']);
+    $client->forceFill(['email_source' => EmailSource::Client])->save();
+
+    // The client-area request has loaded the client (email_source client) ...
+    $stale = Client::query()->findOrFail($client->id);
+
+    // ... when a staff edit of the email commits (email_source staff) ...
+    actingAsStaff(['core.clients.*']);
+    $this->put(route('admin.clients.update', $client), [
+        'first_name' => $client->first_name, 'last_name' => $client->last_name, 'email' => 'staff-typed@example.com',
+        'currency' => 'USD', 'status' => 'active', 'tax_exempt' => false,
+    ])->assertSessionHasNoErrors();
+
+    // ... and then saves, exactly as AccountController::update does.
+    $stale->fill(['email' => 'anna@alpha-books.com']);
+    if ($stale->isDirty('email')) {
+        $stale->email_source = EmailSource::Client;
+    }
+    $stale->save();
+
+    // email_source equals the stale original, so the UPDATE omits it: the client's address reads as staff-vouched.
+    expect($client->refresh()->email)->toBe('anna@alpha-books.com')
+        ->and($client->email_source)->toBe(EmailSource::Client);
+});
+
+test('[S153-7] moving a login to the WHM contact address does not count as verifying it', function () {
+    $client = Client::factory()->create(['email' => 'mallory@own.example', 'currency' => 'USD']);
+    $login = User::factory()->create(['email' => 'mallory@own.example']);
+    $client->users()->attach($login, ['is_owner' => false, 'permissions' => json_encode(['profile'])]);
+    s153ClientSetsEmail($client, $login);
+
+    $this->actingAs($login)->patch(route('profile.update'), ['name' => 'Mallory', 'email' => 'anna@alpha-books.com'])->assertSessionHasNoErrors();
+    expect($login->refresh()->email_verified_at)->toBeNull();
+    auth()->logout();
+
+    CarbonImmutable::setTestNow('2026-11-25 10:00:00');
+    $import = s153ProposeAll($this->server);
+
+    expect($import->selections['alpha']['include'] ?? false)->toBeFalse();
 });
