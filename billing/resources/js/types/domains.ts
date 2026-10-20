@@ -129,3 +129,50 @@ export function expiryHint(daysLeft: number | null): string | null {
 
     return `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
 }
+
+/** A .np registration request (App\Modules\Domains\Http\Resources\NpRegistrationResource). Staff-only fields are optional. */
+export type NpRequest = {
+    stage:
+        | 'awaiting_documents'
+        | 'documents_review'
+        | 'ready_to_submit'
+        | 'submitted'
+        | 'approved';
+    applicant_type: 'individual' | 'organisation' | null;
+    missing: string[];
+    returned_reasons: string | null;
+    rejected: boolean;
+    rejection_note: string | null;
+    rejection_code: number | null;
+    documents: {
+        id: number;
+        kind: string;
+        name: string;
+        size: number;
+        uploaded_at: string | null;
+        current: boolean;
+        delete_after: string | null;
+        url: string | null;
+    }[];
+    handling_fee_note: string | null;
+    stage_changed_at?: string;
+    submitted_at?: string | null;
+    approved_at?: string | null;
+    registry_expires_on?: string | null;
+    review_due_on?: string | null;
+    review_pending?: boolean;
+    overdue?: boolean;
+    hostmaster_email?: string | null;
+};
+
+export const NP_DOCUMENTS: Record<string, string> = {
+    identity: 'Citizenship, passport, driving licence or voter card',
+    registration_certificate:
+        'Company registration, PAN or trademark certificate',
+    request_letter: 'Request letter on letterhead, stamped and signed',
+};
+
+export const NP_REQUIRED: Record<'individual' | 'organisation', string[]> = {
+    individual: ['identity'],
+    organisation: ['registration_certificate', 'request_letter'],
+};

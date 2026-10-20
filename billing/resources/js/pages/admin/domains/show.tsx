@@ -45,7 +45,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { formatDate } from '@/lib/date';
 import { expiryHint } from '@/types/domains';
-import type { Domain, DomainContacts } from '@/types/domains';
+import type { Domain, DomainContacts, NpRequest } from '@/types/domains';
+import { NpStaffPanel } from '@/components/domains/np-request';
 import { capabilityLabel } from '@/components/domains/capabilities';
 
 type CommandLogEntry = {
@@ -87,7 +88,13 @@ type Props = {
         user: string | null;
         created_at: string | null;
     }[];
-    can: { update: boolean; commands: boolean; delete: boolean };
+    can: {
+        update: boolean;
+        commands: boolean;
+        delete: boolean;
+        np_review: boolean;
+    };
+    np: NpRequest | null;
     registrar: { key: string; name: string; active: boolean } | null;
     billingAvailable: boolean;
 };
@@ -152,6 +159,7 @@ export default function DomainShow({
     can,
     registrar,
     billingAvailable,
+    np,
 }: Props) {
     const [dialog, setDialog] = useState<
         'status' | 'move' | 'renew' | 'submit' | 'delete' | 'invoice' | null
@@ -388,6 +396,13 @@ export default function DomainShow({
 
                 <div className="grid gap-4 lg:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+                        {np && (
+                            <NpStaffPanel
+                                domainId={domain.id}
+                                request={np}
+                                canReview={can.np_review}
+                            />
+                        )}
                         {can.update ? (
                             <DetailsForm
                                 domain={domain}

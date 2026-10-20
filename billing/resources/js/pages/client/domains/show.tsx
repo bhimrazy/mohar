@@ -22,7 +22,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { expiryHint } from '@/types/domains';
-import type { Domain, DomainContacts } from '@/types/domains';
+import type { Domain, DomainContacts, NpRequest } from '@/types/domains';
+import { NpClientPanel } from '@/components/domains/np-request';
 
 type Props = {
     domain: Domain;
@@ -32,6 +33,7 @@ type Props = {
     canResubmitTransfer: boolean;
     renewalTerms: { years: number; price: number }[];
     canRenewNow: boolean;
+    np: NpRequest | null;
 };
 
 const PENDING_COPY: Partial<Record<Domain['status'], string>> = {
@@ -105,9 +107,11 @@ export default function MyDomain({
     canResubmitTransfer,
     renewalTerms,
     canRenewNow,
+    np,
 }: Props) {
     const supports = (capability: string) => capabilities.includes(capability);
-    const notice = PENDING_COPY[domain.status];
+    const notice =
+        np && np.stage !== 'approved' ? undefined : PENDING_COPY[domain.status];
 
     return (
         <>
@@ -223,6 +227,15 @@ export default function MyDomain({
                     />
                 </div>
 
+                {np && np.stage !== 'approved' && (
+                    <NpClientPanel
+                        domainId={domain.id}
+                        domainName={domain.name_unicode}
+                        nameservers={domain.nameservers}
+                        request={np}
+                    />
+                )}
+
                 {canResubmitTransfer && <ResubmitTransfer domain={domain} />}
 
                 <div className="grid gap-4 lg:grid-cols-3">
@@ -231,6 +244,11 @@ export default function MyDomain({
                             action={DomainController.nameservers(domain.id)}
                             nameservers={domain.nameservers}
                             disabled={!canManage || !supports('nameservers')}
+                            description={
+                                np
+                                    ? 'The .np registry applies nameserver changes only through its portal. Open a support ticket and we make the change for you.'
+                                    : undefined
+                            }
                         />
                         {supports('contacts') && (
                             <ContactsForm

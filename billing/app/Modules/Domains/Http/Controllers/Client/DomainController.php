@@ -21,6 +21,7 @@ use App\Modules\Domains\Http\Requests\RenewNowRequest;
 use App\Modules\Domains\Http\Requests\ToggleRequest;
 use App\Modules\Domains\Http\Requests\TransferCodeRequest;
 use App\Modules\Domains\Http\Resources\DomainResource;
+use App\Modules\Domains\Http\Resources\NpRegistrationResource;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainContact;
 use App\Modules\Domains\Services\DomainPricingService;
@@ -60,7 +61,7 @@ class DomainController extends Controller
 
     public function show(int $domain, RegistrarManager $registrars, DomainPricingService $pricing): Response
     {
-        $model = $this->domain($domain)->load('contacts');
+        $model = $this->domain($domain)->load(['contacts', 'npRegistration.documents']);
         $client = $this->context->client();
         $contacts = [];
 
@@ -76,6 +77,7 @@ class DomainController extends Controller
             'canManage' => $model->status->allowsClientActions(),
             'canResubmitTransfer' => $model->type === 'transfer' && $model->status === DomainStatus::Pending && $model->provision_invoice_id !== null,
             'renewalTerms' => $pricing->renewalTerms($model, $model->currency, $client->client_group_id),
+            'np' => $model->npRegistration === null ? null : new NpRegistrationResource($model->npRegistration),
             'canRenewNow' => $model->status->allowsClientActions() && (bool) app(Settings::class)->get('domains.enable_renewal_orders', true)
                 && ! ($model->isFree() && $model->linked_service_status === 'active'),
         ]);
