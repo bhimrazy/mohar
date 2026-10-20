@@ -2,13 +2,12 @@
 
 use App\Enums\BillingCycle;
 use App\Models\User;
-use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Catalog\Models\Product;
+use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
@@ -40,27 +39,60 @@ afterEach(function () {
     $this->stopSimulators();
 });
 
+const E2E_OWNER = 'owner@example.test';
+
+const E2E_OWNER_PASSWORD = 'A-new-owner-password-1';
+
+const E2E_CUSTOMER = 'anna@example-shop.test';
+
+/**
+ * The templates of every email sent to $recipient so far.
+ *
+ * @return list<string>
+ */
+function mailsTo(string $recipient): array
+{
+    return EmailMessage::query()->where('recipient', $recipient)->pluck('template_key')->all();
+}
+
+/**
+ * The administrator signs in again and confirms the password, as the staff routes behind `password.recent` require.
+ */
+function asOwner(): void
+{
+    test()->actingAs(User::query()->where('email', E2E_OWNER)->sole());
+    test()->post(route('password.confirm.store'), ['password' => E2E_OWNER_PASSWORD])->assertSessionHasNoErrors();
+}
+
 function step(string $what): void
 {
     fwrite(STDERR, "  › {$what}\n");
 }
 
 /**
- * Install as an operator would, configure the WHM server (trusted through Test connection) and a product on a WHM
- * package, and turn on Stripe against its simulator. Returns the product.
+ * Install as an operator would and replace the one-time password through the password route; then configure the
+ * WHM server (trusted through Test connection and "Trust this certificate" on the staff routes), a product on a WHM
+ * package, and Stripe against its simulator. Returns the product.
+ *
+ * Fixtures, not staff routes: the server row, the product and the gateway row are created directly (factories and
+ * stripeGateway()); the trust flow, the password change, the step-up and the refund go through the routes.
  */
 function installAndConfigure(): Product
 {
     $test = test();
     step('app:install without demo data');
     $test->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
-    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => 'owner@example.test', '--admin-name' => 'Olga Owner']))->toBe(0);
-    $admin = User::query()->where('email', 'owner@example.test')->sole();
-    $admin->forceFill(['password' => 'A-new-owner-password-1'])->save(); // the first sign-in's required change
+    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => E2E_OWNER, '--admin-name' => 'Olga Owner']))->toBe(0);
+    preg_match('/one-time password\..*\R+  (\S{24})\R/', Artisan::output(), $oneTime);
+    $admin = User::query()->where('email', E2E_OWNER)->sole();
+
+    step('the administrator replaces the one-time password and confirms it for the sensitive staff routes');
+    $test->actingAs($admin);
+    $test->put(route('user-password.update'), ['current_password' => $oneTime[1] ?? '', 'password' => E2E_OWNER_PASSWORD, 'password_confirmation' => E2E_OWNER_PASSWORD])->assertSessionHasNoErrors();
+    expect($admin->refresh()->must_change_password)->toBeFalse();
+    $test->post(route('password.confirm.store'), ['password' => E2E_OWNER_PASSWORD])->assertSessionHasNoErrors();
 
     step('a cPanel server against the whm simulator, trusted through Test connection');
-    $test->actingAs($admin);
-    $test->withSession(['auth.password_confirmed_at' => time()]);
     $server = Server::factory()->create(['driver' => 'cpanel', 'name' => 'Simulated WHM', 'hostname' => '127.0.0.1', 'port' => $test->whm->apiPort(), 'username' => 'root', 'api_token' => WhmSimulator::ROOT_TOKEN]);
     $test->post(route('admin.services.servers.test', $server));
     $offered = app('session.store')->get('inertia.flash_data.connectionCheck.details.certificate_spki_sha256');
@@ -84,9 +116,10 @@ function registerAndOrder(Product $product): Invoice
 {
     $test = test();
     step('a customer registers, verifies the email address and orders');
-    $test->post(route('register.store'), ['name' => 'Anna Example', 'email' => 'anna@example-shop.test', 'password' => 'password', 'password_confirmation' => 'password'])->assertRedirect();
-    $customer = User::query()->where('email', 'anna@example-shop.test')->sole();
-    $test->get(URL::temporarySignedRoute('verification.verify', now()->addHour(), ['id' => $customer->id, 'hash' => sha1($customer->email)]));
+    $test->post(route('register.store'), ['name' => 'Anna Example', 'email' => E2E_CUSTOMER, 'password' => 'password', 'password_confirmation' => 'password'])->assertRedirect();
+    $customer = User::query()->where('email', E2E_CUSTOMER)->sole();
+    $test->get(URL::temporarySignedRoute('verification.verify', now()->addHour(), ['id' => $customer->id, 'hash' => sha1($customer->email)]))->assertRedirect();
+    expect($customer->refresh()->hasVerifiedEmail())->toBeTrue();
     $test->post(route('store.cart.products.store', $product), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'example-shop.com'])->assertSessionHasNoErrors();
     $test->post(route('store.checkout.store'), ['payment_gateway' => 'stripe', 'accept_tos' => true, 'idempotency_key' => 'e2e-'.uniqid()])->assertSessionHasNoErrors();
 
@@ -113,11 +146,11 @@ test('a customer orders, pays, is provisioned, suspended when overdue, unsuspend
     step('Stripe Checkout: hosted page, then webhooks (and a forged one) settle the invoice');
     $checkout = $this->checkoutUrl($this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'stripe']));
     $return = $this->payOnHostedPage($checkout);
-    expect($this->deliverStripeWebhooks('wrong_secret'))->each->toStartWith('refused')
+    expect($this->deliverStripeWebhooks('wrong_secret'))->not->toBeEmpty()->each->toStartWith('refused')
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid)
         ->and($this->deliverStripeWebhooks(replay: true))->toContain('payment recorded')
         ->and($this->deliverStripeWebhooks(replay: true))->each->toBe('duplicate');
-    $this->followIntoApp($return)->assertRedirect();
+    $this->get($return)->assertRedirect();
 
     step('the invoice is paid, the service is active and the account exists in WHM');
     $service = Service::query()->sole();
@@ -125,7 +158,8 @@ test('a customer orders, pays, is provisioned, suspended when overdue, unsuspend
         ->and(Transaction::query()->where('type', TransactionType::Payment)->count())->toBe(1)
         ->and($service->status)->toBe(ServiceStatus::Active)
         ->and($this->whmAccount((string) $service->username))->toMatchArray(['domain' => 'example-shop.com', 'plan' => 'root_basic', 'owner' => 'root', 'suspended' => 0])
-        ->and($this->whm->log()->count('createacct'))->toBe(1);
+        ->and($this->whm->log()->count('createacct'))->toBe(1)
+        ->and(mailsTo(E2E_CUSTOMER))->toContain('auth.email_verification', 'client.welcome', 'order.confirmation', 'invoice.created', 'invoice.payment_confirmation', 'service.welcome.shared_hosting');
 
     step('overdue (dates backdated in this throwaway database), then suspended in WHM');
     $due = CarbonImmutable::today()->subDays(8);
@@ -133,24 +167,29 @@ test('a customer orders, pays, is provisioned, suspended when overdue, unsuspend
     $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.renewals', '--force' => true])->assertSuccessful();
     $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.suspensions', '--force' => true])->assertSuccessful();
     expect($service->refresh()->status)->toBe(ServiceStatus::Suspended)
-        ->and($this->whmAccount((string) $service->username)['suspended'])->toBe(1);
+        ->and($this->whmAccount((string) $service->username)['suspended'])->toBe(1)
+        ->and(mailsTo(E2E_CUSTOMER))->toContain('service.suspended');
 
     step('the customer pays the renewal; the service and the WHM account are unsuspended');
     $renewal = Invoice::query()->where('id', '!=', $invoice->id)->latest('id')->firstOrFail();
     payWithStripe($renewal);
     expect($renewal->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and($service->refresh()->status)->toBe(ServiceStatus::Active)
-        ->and($this->whmAccount((string) $service->username)['suspended'])->toBe(0);
+        ->and($this->whmAccount((string) $service->username)['suspended'])->toBe(0)
+        ->and(mailsTo(E2E_CUSTOMER))->toContain('service.unsuspended');
 
     step('the customer cancels; the account is removed from WHM');
     $this->post(route('client.services.cancel', $service->id), ['type' => 'immediate', 'reason' => 'Moving the site elsewhere.'])->assertSessionHasNoErrors();
     $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.cancellations', '--force' => true])->assertSuccessful();
     expect($service->refresh()->status)->toBe(ServiceStatus::Cancelled)
-        ->and($this->whmAccount((string) $service->username))->toBeNull();
+        ->and($this->whmAccount((string) $service->username))->toBeNull()
+        // The only cancellation mail the product sends today (no template confirms the removal itself; raised in #115).
+        ->and(mailsTo(E2E_CUSTOMER))->toContain('service.cancellation_requested');
 
-    step('a staff refund at Stripe, then a dispute on the renewal payment');
+    step('staff refund 10.00 at Stripe from the admin, then the cardholder disputes the renewal payment');
     $first = Transaction::query()->where('type', TransactionType::Payment)->where('invoice_id', $invoice->id)->sole();
-    app(RefundTransaction::class)->handle($first, 1_000, RefundMode::Gateway);
+    asOwner();
+    $this->post(route('admin.billing.transactions.refund', $first), ['amount' => '10.00', 'mode' => 'gateway', 'reverse_effects' => false, 'description' => 'Goodwill refund'])->assertSessionHasNoErrors();
     expect($this->deliverStripeWebhooks())->toContain('duplicate')
         ->and(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1)
         ->and($this->stripe->log()->count('create_refund'))->toBe(1);

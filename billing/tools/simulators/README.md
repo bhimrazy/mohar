@@ -106,12 +106,15 @@ The control plane answers only requests that carry `X-Sim-Token`:
 `php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against both simulators:
 
 - it creates a throwaway database `billing_e2e_<random>` on PostgreSQL (`--connection=pgsql`, the default) or as a temporary SQLite file (`--connection=sqlite`);
-- it runs the scenario within a time budget (`--budget`, 360 s by default);
-- it drops the database afterwards, unless `--keep`.
+- it runs the scenario within a time budget (`--budget`, 360 s by default, at least 60);
+- it drops the database afterwards, unless `--keep`, which keeps the last test's state (choose it with `--filter`);
+- if the run is interrupted (Ctrl-C, SIGTERM), a detached guard stops the scenario and drops the database. `scripts/pg.sh --prune` also drops idle `billing_e2e_*` databases.
 
-The harness (`tests/Simulators/SimulatorHarness.php`) refuses any other database. It drains Stripe's outbox as Stripe would, retrying any non-2xx answer (at once, in tests) until nothing retryable is left. The app runs in process, the simulators run as real TLS processes, the customer's browser is an HTTP client that trusts the scenario CA, and webhooks are posted to the app with the bytes and signature the simulator made.
+The harness (`tests/Simulators/SimulatorHarness.php`) refuses any database but `billing_e2e_*` or SQLite in memory. It judges the connection Laravel really opens, so a `DB_URL` cannot point it elsewhere.
 
-The main CI job never runs `tests/Simulators`. The `E2E simulators` job does, on its own PostgreSQL service, with a 10-minute limit.
+The app runs in process, the simulators run as real TLS processes, and the customer's browser is an HTTP client that trusts the scenario CA. Webhooks are posted to the app with the bytes and signature the simulator made, draining Stripe's outbox as Stripe would. The server, product and gateway rows are fixtures; the rest goes through the app's routes.
+
+The main CI job never runs `tests/Simulators`. The opt-in `E2E simulators` job does: on manual dispatch, on pushes to `main` and on PRs labelled `e2e`, with its own PostgreSQL. It is not a required check.
 
 ## Recordings and the secret scan
 

@@ -5,6 +5,7 @@ namespace Tests\Simulators;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Mohar\Simulators\Kernel\Processes;
@@ -32,11 +33,7 @@ trait SimulatorHarness
 
     public function startSimulators(): void
     {
-        $database = (string) config('database.connections.'.config('database.default').'.database');
-
-        if ($database !== ':memory:' && preg_match('/^billing_e2e_[a-z0-9]+(\.sqlite)?$/', basename($database)) !== 1) {
-            throw new RuntimeException("The end-to-end scenario runs only on a throwaway database (billing_e2e_* or SQLite in memory), not {$database}.");
-        }
+        $this->refuseAnyDatabaseButAThrowawayOne();
 
         $this->whm = Processes::start(WhmSimulator::class);
         $this->stripe = Processes::start(StripeSimulator::class);
@@ -49,6 +46,28 @@ trait SimulatorHarness
         $this->stripe->simulator()->actions()['webhook_url'](['url' => route('billing.webhooks', StripeDriver::KEY)], $this->stripe);
         // Stripe's retry schedule without the waiting: a non-2xx answer is retried at once, up to six attempts.
         $this->stripe->outbox()->retryPolicy([0], 6);
+    }
+
+    /**
+     * Judged on the connection Laravel really opens (a DB_URL wins over DB_DATABASE), and on PostgreSQL on what the
+     * server says it is connected to: never the development, preview or shared test database.
+     */
+    private function refuseAnyDatabaseButAThrowawayOne(): void
+    {
+        // Resolved afresh from the configuration in force (runs before anything is migrated).
+        DB::purge();
+        $connection = DB::connection();
+        $name = (string) $connection->getDatabaseName();
+        $throwaway = fn (string $database): bool => preg_match('/^billing_e2e_[0-9a-f]{8}(\.sqlite)?$/', basename($database)) === 1;
+        $allowed = match ($connection->getDriverName()) {
+            'sqlite' => $name === ':memory:' || $throwaway($name),
+            'pgsql' => $throwaway($name) && $throwaway((string) $connection->selectOne('select current_database() as name')?->name),
+            default => false,
+        };
+
+        if (! $allowed) {
+            throw new RuntimeException("The end-to-end scenario runs only on a throwaway database (billing_e2e_* or SQLite in memory), not {$connection->getDriverName()}:{$name}.");
+        }
     }
 
     public function stopSimulators(): void
@@ -64,14 +83,6 @@ trait SimulatorHarness
     public function browser(Scenario $scenario): PendingRequest
     {
         return Http::withOptions(['verify' => $scenario->ca()->bundlePath(), 'allow_redirects' => false]);
-    }
-
-    /**
-     * Follow an absolute app URL (a redirect back from a simulator) inside the app.
-     */
-    public function followIntoApp(string $url): TestResponse
-    {
-        return $this->get($url);
     }
 
     /**

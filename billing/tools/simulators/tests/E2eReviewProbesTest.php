@@ -69,6 +69,16 @@ test('simulate:e2e interrupted with Ctrl-C still removes its throwaway database'
         // PostgreSQL: a billing_e2e_* database on the shared server that `pg.sh --prune` does not drop either). Fix:
         // $this->trap([SIGINT, SIGTERM, SIGHUP], ...) to drop it, and let simulate:clean (or pg.sh --prune) drop
         // billing_e2e_* databases nobody is connected to.
+        // Without pcntl (this codespace) the runner cannot trap the signal; its detached guard notices the runner is
+        // gone and drops the database within a few hundred milliseconds. With pcntl the trap does it before exiting.
+        $gone = microtime(true) + 5;
+
+        while ((clearstatcache() || is_file((string) $database)) && microtime(true) < $gone) {
+            usleep(100_000);
+        }
+
+        clearstatcache();
+
         expect(is_file((string) $database))->toBeFalse();
     } finally {
         if ($runner->isRunning()) {
