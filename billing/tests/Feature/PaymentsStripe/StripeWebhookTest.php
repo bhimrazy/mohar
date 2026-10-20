@@ -478,3 +478,23 @@ test('the database refuses a second ledger line for the same provider refund', f
 
     expect(CreditLedgerEntry::query()->where('client_id', $client->id)->count())->toBe(4);
 });
+
+test('a refund that finds no credit left keeps its zero guard line for staff only', function () {
+    [$invoice] = closedStripeAttempt();
+    payInvoice($invoice, 2_500, 'bank-ref-5');
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    $client = Client::query()->findOrFail($invoice->client_id);
+    app(CreditLedgerService::class)->post($client->id, Money::of(-2_500, 'USD'), CreditReason::AppliedToInvoice);
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund'))]);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0011'))->assertOk()->assertJson(['result' => 'refund needs staff review']);
+    $guard = CreditLedgerEntry::query()->where('external_ref', 're_3MoharRefund0001')->sole();
+    expect($guard->amount)->toBe(0);
+
+    $this->get(route('client.credit.index'))->assertInertia(fn (Assert $page) => $page
+        ->where('entries.data', fn ($rows) => collect($rows)->doesntContain('id', $guard->id) && collect($rows)->isNotEmpty()));
+
+    billingStaff();
+    $this->get(route('admin.billing.credit.index', ['client' => $client->id]))->assertInertia(fn (Assert $page) => $page
+        ->where('entries.data', fn ($rows) => collect($rows)->contains(fn ($row) => $row['id'] === $guard->id && str_contains($row['description'], 're_3MoharRefund0001'))));
+});

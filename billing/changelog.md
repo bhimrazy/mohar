@@ -446,7 +446,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
   A hosted payment that goes to credit because the invoice was already paid gets the same to-do. The client sees
   the payment on the invoice and any surplus on the account credit page. A provider refund of such a payment takes
-  the credit back, up to what is left, once per refund id (one credit line, even when nothing was left); the rest
+  the credit back, up to what is left, once per refund id (one credit line, even when nothing was left; staff see a zero line, the client does not); the rest
   goes to "Gateway payments to review", as do a closed attempt the
   provider reports as partly refunded and a late payment whose attempt no longer matches the invoice currency.
   "Check now" also works on expired and failed attempts. The customer's return looks a closed attempt up only
