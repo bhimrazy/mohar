@@ -64,13 +64,15 @@ test('a realistic live answer, normalised, passes; only a change on a path the d
     $missing = [...$fixture('error_resource_missing'), 'error' => [...$fixture('error_resource_missing')['error'], 'doc_url' => 'https://stripe.com/docs/error-codes/resource-missing', 'request_log_url' => 'https://dashboard.stripe.com/test/logs/req_x']];
 
     try {
-        $recorder->record('create_session', StripeRecording::normalise($live), 'live', [], ['step' => 'create_session', 'method' => 'POST', 'kind' => 'session']);
-        $recorder->record('retrieve_missing', StripeRecording::normalise($missing), 'live', [], ['step' => 'retrieve_missing', 'method' => 'GET', 'kind' => 'error']);
+        // As simulate:record stores them: only the paths the driver reads, normalised.
+        $recorder->record('create_session', StripeRecording::normalise(StripeRecording::project($live, 'session')), 'live', [], ['step' => 'create_session', 'method' => 'POST', 'kind' => 'session']);
+        $recorder->record('retrieve_missing', StripeRecording::normalise(StripeRecording::project($missing, 'error')), 'live', [], ['step' => 'retrieve_missing', 'method' => 'GET', 'kind' => 'error']);
         $saved = json_decode((string) file_get_contents($directory.'/create_session.json'), true);
 
         expect(stripeDrift(glob($directory.'/*.json') ?: []))->toBe(['create_session' => [], 'retrieve_missing' => []])
+            ->and($saved['response'])->not->toHaveKey('automatic_tax')
             ->and($saved['response']['id'])->toBe('cs_test_normalised')
-            ->and($saved['response']['created'])->toBe(0)
+            ->and($saved['shape']['expires_at'])->toBe('int')
             ->and(array_keys($saved['response']))->toBe(array_values(array_unique([...array_keys($saved['response'])])))
             ->and(StripeRecording::drift($saved, [...$saved['response'], 'livemode' => 'false']))->toBe(['livemode is string, recorded bool'])
             ->and(StripeRecording::drift($saved, array_diff_key($saved['response'], ['client_reference_id' => true])))->toBe(['missing client_reference_id'])

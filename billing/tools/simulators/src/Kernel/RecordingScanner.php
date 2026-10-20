@@ -111,6 +111,11 @@ final class RecordingScanner
                     $findings[] = "an unmasked value under \"{$key}\"";
                 }
 
+                // A provider's object type names look like host names (Stripe's `checkout.session`); they name no one.
+                if ($key === 'object') {
+                    continue;
+                }
+
                 // Version numbers look like addresses (WHM 11.124.0.12).
                 $this->personalData(is_string($key) && stripos($key, 'version') !== false ? (string) preg_replace('/\b\d{1,3}(\.\d{1,3}){3}\b/', '', $value) : $value, "under \"{$key}\"", $findings);
             }

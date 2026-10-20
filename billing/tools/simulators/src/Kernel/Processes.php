@@ -43,7 +43,8 @@ final class Processes
             ]);
             self::waitUntilReady($scenario);
         } catch (RuntimeException $exception) {
-            self::stop($scenario);
+            // The processes stop; the directory and its logs stay, so the error's "see the logs in" leads somewhere.
+            self::stop($scenario, keep: true);
 
             throw $exception;
         }
@@ -163,10 +164,34 @@ final class Processes
                 return;
             }
 
+            // A process that already exited will not become ready: fail now, with what it logged. Liveness only: while a
+            // process is still being exec'd, /proc may not show its environment yet.
+            if (array_filter($scenario->pids(), fn (int $pid): bool => ! posix_kill($pid, 0)) !== []) {
+                throw new RuntimeException("Simulator {$scenario->id()} did not become ready: a process exited at start (".self::logTail($scenario)."); see the logs in {$scenario->directory}.");
+            }
+
             usleep(100_000);
         }
 
-        throw new RuntimeException("Simulator {$scenario->id()} did not become ready; see the logs in {$scenario->directory}.");
+        throw new RuntimeException("Simulator {$scenario->id()} did not become ready in ".self::READY_SECONDS." s; see the logs in {$scenario->directory}.");
+    }
+
+    /**
+     * The last lines the scenario's processes logged, on one line, for an error message.
+     */
+    private static function logTail(Scenario $scenario): string
+    {
+        $lines = [];
+
+        foreach (['front.log', 'api.log', 'control.log'] as $log) {
+            $tail = array_slice(array_filter(array_map('trim', @file($scenario->directory.'/'.$log) ?: [])), -2);
+
+            if ($tail !== []) {
+                $lines[] = $log.': '.implode(' | ', $tail);
+            }
+        }
+
+        return mb_strimwidth($lines === [] ? 'nothing logged' : implode('; ', $lines), 0, 400, '...');
     }
 
     private static function autoloader(): string

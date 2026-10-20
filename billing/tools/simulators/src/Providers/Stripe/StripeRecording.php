@@ -16,19 +16,38 @@ use RuntimeException;
  *   replay never sends a recorded id or an expired absolute time.
  * - What is not drift is normalised before anything is stored or compared: ids (prefix kept), timestamps, secrets,
  *   account-specific values, and key order.
- * - A recording is compared only on the paths the driver reads (DRIVER_PATHS): a live answer carries many more fields
- *   than the simulator needs, and an extra field is never drift.
+ * - A recording stores and is compared on only the paths the driver reads (DRIVER_PATHS): a live answer carries many
+ *   more fields, among them account and customer data, and an extra field is never drift. On error steps the error type
+ *   and code are compared as values, since the driver branches on them.
  */
 final class StripeRecording
 {
-    /** Paths the PaymentsStripe driver reads, by kind of answer; a recording is compared on these (and below). */
+    /**
+     * The paths the PaymentsStripe driver reads, by kind of answer. A recording stores only these (`project()`), so it
+     * holds no account or customer data to begin with, and drift is checked on exactly these. An object at a listed path
+     * keeps only its own listed children, except the WHOLE ones (metadata the app itself sent).
+     */
     public const DRIVER_PATHS = [
-        'account' => ['id', 'object', 'business_profile'],
-        'session' => ['id', 'object', 'amount_total', 'client_reference_id', 'currency', 'expires_at', 'livemode', 'metadata', 'mode', 'payment_intent', 'payment_status', 'status', 'url'],
-        'intent' => ['id', 'object', 'amount', 'amount_received', 'currency', 'last_payment_error', 'latest_charge', 'livemode', 'metadata', 'status'],
-        'refund' => ['id', 'object', 'amount', 'currency', 'metadata', 'payment_intent', 'reason', 'status'],
-        'error' => ['error.code', 'error.message', 'error.type'],
+        'account' => ['id', 'object', 'business_profile', 'business_profile.name'],
+        'session' => [
+            'id', 'object', 'amount_total', 'client_reference_id', 'currency', 'expires_at', 'livemode', 'metadata', 'mode', 'payment_status', 'status', 'url',
+            'payment_intent', 'payment_intent.id', 'payment_intent.status', 'payment_intent.amount_received', 'payment_intent.currency', 'payment_intent.metadata',
+        ],
+        'intent' => [
+            'id', 'object', 'amount', 'amount_received', 'currency', 'livemode', 'metadata', 'status',
+            'last_payment_error', 'last_payment_error.code', 'last_payment_error.message',
+            'latest_charge', 'latest_charge.id', 'latest_charge.amount_refunded', 'latest_charge.refunded',
+            'latest_charge.balance_transaction', 'latest_charge.balance_transaction.currency', 'latest_charge.balance_transaction.fee',
+        ],
+        'refund' => ['id', 'object', 'amount', 'currency', 'metadata', 'reason', 'status', 'payment_intent', 'payment_intent.id', 'payment_intent.metadata'],
+        'error' => ['error', 'error.code', 'error.type'],
     ];
+
+    /** Listed paths kept whole: the metadata the app itself sends. */
+    private const WHOLE = ['metadata', 'payment_intent.metadata'];
+
+    /** On an error step the driver branches on these values, so a different one is drift. */
+    private const COMPARED_VALUES = ['error.code', 'error.type'];
 
     /** Keys whose integer values are moments in time. */
     private const TIME_KEYS = ['created', 'expires_at', 'available_on', 'arrival_date', 'canceled_at', 'completed_at'];
@@ -94,7 +113,7 @@ final class StripeRecording
         };
 
         foreach (self::run($send) as $step => [$answer, $context]) {
-            $recorder->record($step, self::normalise($answer), 'live', [$key], $context);
+            $recorder->record($step, self::normalise(self::project($answer, $context['kind'])), 'live', [$key], $context);
         }
     }
 
@@ -121,7 +140,7 @@ final class StripeRecording
             return (array) $response->json();
         };
 
-        return array_map(fn (array $pair): array => self::normalise($pair[0]), self::run($send));
+        return array_map(fn (array $pair): array => self::normalise(self::project($pair[0], $pair[1]['kind'])), self::run($send));
     }
 
     /**
@@ -135,24 +154,64 @@ final class StripeRecording
     public static function drift(array $recording, array $answer): array
     {
         $kind = (string) ($recording['context']['kind'] ?? 'session');
-        $read = self::DRIVER_PATHS[$kind] ?? [];
-        $differences = Recorder::againstRecording($recording, $answer);
+        $answer = self::normalise(self::project($answer, $kind));
+        $drift = array_values(array_filter(Recorder::againstRecording($recording, $answer), fn (string $difference): bool => ! str_starts_with($difference, 'extra ')));
 
-        return array_values(array_filter($differences, function (string $difference) use ($read): bool {
-            if (str_starts_with($difference, 'extra ')) {
-                return false;
-            }
+        if ($kind === 'error') {
+            foreach (self::COMPARED_VALUES as $path) {
+                [$group, $field] = explode('.', $path);
+                $recorded = $recording['response'][$group][$field] ?? null;
+                $actual = $answer[$group][$field] ?? null;
 
-            $path = (string) preg_replace('/^missing | is .*$/', '', $difference);
-
-            foreach ($read as $prefix) {
-                if ($path === $prefix || str_starts_with($path, $prefix.'.')) {
-                    return true;
+                if ($recorded !== $actual) {
+                    $drift[] = "{$path} is ".var_export($actual, true).', recorded '.var_export($recorded, true);
                 }
             }
+        }
 
-            return false;
-        }));
+        return $drift;
+    }
+
+    /**
+     * Only the paths the driver reads for this kind of answer (DRIVER_PATHS), as they came.
+     *
+     * @param  array<array-key, mixed>  $answer
+     * @return array<string, mixed>
+     */
+    public static function project(array $answer, string $kind): array
+    {
+        $paths = self::DRIVER_PATHS[$kind] ?? [];
+        usort($paths, fn (string $a, string $b): int => substr_count($a, '.') <=> substr_count($b, '.'));
+        $projected = [];
+
+        foreach ($paths as $path) {
+            $value = $answer;
+
+            foreach (explode('.', $path) as $segment) {
+                if (! is_array($value) || ! array_key_exists($segment, $value)) {
+                    continue 2;
+                }
+
+                $value = $value[$segment];
+            }
+
+            $target = &$projected;
+            $segments = explode('.', $path);
+            $last = array_pop($segments);
+
+            foreach ($segments as $segment) {
+                if (! is_array($target[$segment] ?? null)) {
+                    continue 2;
+                }
+
+                $target = &$target[$segment];
+            }
+
+            $target[$last] = is_array($value) && ! in_array($path, self::WHOLE, true) ? [] : $value;
+            unset($target);
+        }
+
+        return $projected;
     }
 
     /**
