@@ -110,3 +110,11 @@ test('the sweep still runs when registrar sync is switched off', function () {
     expect($result['synced'])->toBe(0)
         ->and($stale->fresh()->status)->toBe(DomainStatus::Active);
 });
+
+test('a sync run stops taking domains once its time budget is spent; they go first next run', function () {
+    $domain = Domain::factory()->create(['tld_id' => $this->com->id, 'registrar_key' => 'fake']);
+
+    expect(app(SyncDomains::class)->handle(budgetSeconds: 0)['synced'])->toBe(0)
+        ->and(app(SyncDomains::class)->handle()['synced'])->toBe(1)
+        ->and($domain->fresh()->last_synced_at)->not->toBeNull();
+});

@@ -7,6 +7,8 @@ use App\Events\Domains\DomainTransferStale;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Jobs\RegisterDomain;
+use App\Modules\Domains\Jobs\TransferDomain;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use Carbon\CarbonImmutable;
@@ -19,22 +21,24 @@ use Illuminate\Database\Eloquent\Builder;
  *
  * Before that it sweeps stale submission claims (issue #12, registrars.md C3): a worker killed mid-submission
  * leaves a paid domain `pending` with its claim, and no job ever comes back for it. Each one is flagged for
- * review with a staff task and verified with the registrar (never re-sent); it is listed in the report.
+ * review with a staff task, listed in the report, and handed back to its registrar job, which verifies the claim
+ * with the registrar and never re-sends.
  */
 class SyncDomains
 {
     public function __construct(
         private SyncDomain $sync,
-        private SubmitToRegistrar $submit,
         private ActivityLogger $activity,
         private Settings $settings,
     ) {}
 
     /**
+     * @param  int|null  $budgetSeconds  stop taking new domains after this long (the rest go first next run)
      * @return array{synced: int, changes: int, errors: int}
      */
-    public function handle(?CarbonImmutable $now = null): array
+    public function handle(?CarbonImmutable $now = null, ?int $budgetSeconds = null): array
     {
+        $started = hrtime(true);
         $now ??= CarbonImmutable::now();
         $notifyOnly = (bool) $this->settings->get('domains.sync_notify_only', false);
         // The sweep runs even with sync off: it only verifies interrupted submissions, and without it they stay unseen.
@@ -56,8 +60,14 @@ class SyncDomains
         $others = $this->due([DomainStatus::Active, DomainStatus::PendingRegistration], $now->subHours($syncHours))->limit($batch)->get();
 
         $changes = [];
+        $synced = 0;
 
         foreach ($transfers->concat($others) as $domain) {
+            if ($budgetSeconds !== null && (hrtime(true) - $started) / 1e9 >= $budgetSeconds) {
+                break;
+            }
+
+            $synced++;
             $result = $this->sync->handle($domain, $notifyOnly);
             array_push($changes, ...$result['changes']);
 
@@ -72,7 +82,7 @@ class SyncDomains
             DomainEvents::dispatch(new DomainSyncReport($changes, $errors, $notifyOnly));
         }
 
-        return ['synced' => $transfers->count() + $others->count(), 'changes' => count($changes), 'errors' => count($errors)];
+        return ['synced' => $synced, 'changes' => count($changes), 'errors' => count($errors)];
     }
 
     /**
@@ -109,8 +119,8 @@ class SyncDomains
         foreach ($stale as $domain) {
             $domain->forceFill(['needs_review' => true])->save();
             $this->activity->log("Staff task: the {$domain->type} of {$domain->name} stopped before the registrar answered", $domain, $domain->client_id);
-            $result = $this->submit->handle($domain);
-            $swept[] = ['domain_id' => $domain->id, 'domain' => $domain->name, 'error' => 'Submission interrupted: '.$result->message];
+            dispatch($domain->type === 'transfer' ? new TransferDomain($domain->id) : new RegisterDomain($domain->id));
+            $swept[] = ['domain_id' => $domain->id, 'domain' => $domain->name, 'error' => 'The submission was interrupted; it is being verified with the registrar.'];
         }
 
         return $swept;

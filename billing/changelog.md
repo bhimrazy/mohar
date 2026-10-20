@@ -12,6 +12,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` and the `reconcile`
   capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
   Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
+  hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
+  scheduler process no longer calls registrars itself. The provider pool (`queue:work
+--queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell.
 - **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
   off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
   checked with the registrar (never re-sent) and listed in the sync report. No schema change.
