@@ -460,7 +460,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     Staff to-dos list requests waiting for staff and those overdue at the registry: submitted past the SLA (4
     business days by default), or rejected and not resubmitted within 2 business days. Saturdays are not business
     days. Clients get a to-do while their documents are needed. Staff open documents through signed links that expire
-    after 15 minutes. Admin and client screens follow in the next PR.
+    after 15 minutes.
+
+- `.np` request screens. On the admin domain page, a ".np registration" card shows the steps, the documents (opened
+  through signed links), the checklist, and forms to approve or return documents, record the portal submission and
+  record the registry's answer, plus an Overdue badge. On the client domain page, the card shows where the request
+  stands, which documents are missing, an upload form, the reasons a step went back, a request letter to copy for
+  organisations, and the price note from the registrar settings.
 
 ### Orders
 

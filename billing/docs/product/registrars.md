@@ -291,7 +291,7 @@ _Built 2026-10-20 with its own `np_registrations` table (stage, applicant type, 
 refused (they can carry script and we have no sanitiser). The driver also declares `reconcile`, so the sync sweep
 resolves an interrupted submission without opening a second request. Not yet built: client document reminders
 (`client_reminder_days`, these need an email template) and nameserver/contact changes after approval (staff make
-them in the portal). The pre-filled request letter also waits, with the screens PR._
+them in the portal). The request letter is a text the client copies onto letterhead, filled in with the domain and nameservers._
 
 | Stage                | Who                                                                                                                                                                 | Exit                                                                                                                                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
