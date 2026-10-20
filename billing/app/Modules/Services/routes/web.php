@@ -17,6 +17,7 @@ Route::adminArea(function (): void {
 
         // Server credentials are sensitive: changing them needs a recent password confirmation.
         Route::resource('servers', ServerController::class)->only(['index', 'create', 'edit']);
+        Route::get('servers/{server}/import', [ServerImportController::class, 'show'])->name('servers.import.show');
         Route::middleware('password.recent')->group(function (): void {
             Route::resource('servers', ServerController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/test', [ServerController::class, 'test'])->middleware('throttle:6,1')->name('servers.test');
@@ -25,6 +26,7 @@ Route::adminArea(function (): void {
             // Group membership decides where new accounts are provisioned, so it is guarded like the servers.
             Route::resource('server-groups', ServerGroupController::class)->only(['store', 'update', 'destroy']);
             Route::post('servers/{server}/import/fetch', [ServerImportController::class, 'fetch'])->middleware('throttle:6,1')->name('servers.import.fetch');
+            Route::post('servers/{server}/import/match', [ServerImportController::class, 'rematch'])->middleware('throttle:6,1')->name('servers.import.rematch');
         });
         Route::resource('server-groups', ServerGroupController::class)->only(['create', 'edit']);
 
