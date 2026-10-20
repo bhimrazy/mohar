@@ -105,16 +105,6 @@ type Props = {
 
 const shell = 'mx-auto w-full max-w-6xl px-4 md:px-6';
 
-/** Cycle switch labels short enough for one row at 375px; the full name is the accessible label. */
-const SHORT_CYCLES: Record<string, string> = {
-    monthly: 'Monthly',
-    quarterly: '3 months',
-    semiannually: '6 months',
-    annually: 'Yearly',
-    biennially: '2 years',
-    triennially: '3 years',
-};
-
 /** Public home page, direction A "Storefront" (docs/design/home/home-page.md). */
 export default function Home(props: Props) {
     const { hero, sections, currency } = props;
@@ -466,7 +456,7 @@ function PlanGroup({
                                 aria-label={cycleLabel(value)}
                                 className="h-10 px-2.5 text-sm sm:px-3"
                             >
-                                {SHORT_CYCLES[value] ?? cycleLabel(value)}
+                                {cycleLabel(value)}
                             </ToggleGroupItem>
                         ))}
                     </ToggleGroup>
@@ -503,13 +493,11 @@ function MoreProducts({
     currency: string;
     taxNote: string | null;
 }) {
-    const { site } = usePage().props;
-
     return (
         <section className="border-y bg-muted/40 py-14">
             <div className={shell}>
                 <SectionHeading
-                    title={`More from ${site?.company.name ?? ''}`.trim()}
+                    title="More products"
                     description={<TaxNote note={taxNote} />}
                 />
                 <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

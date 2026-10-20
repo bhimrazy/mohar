@@ -140,17 +140,17 @@ it('shows eSewa and Khalti only to visitors paying in NPR, with their official l
             && collect($marks)->firstWhere('key', 'bank_transfer')['logo'] === null));
 });
 
-it('keeps incident details off the home page for guests while network status requires login', function (): void {
+it('keeps network status off the home page and menus for guests while it requires login', function (): void {
     Announcement::factory()->create(['is_published' => true, 'published_at' => now()->subDay()]);
 
     $this->get('/')->assertInertia(fn (Assert $page) => $page
         ->where('news.status', null)
         ->has('news.announcements', 1)
-        ->where('site.support', fn ($links) => collect($links)->firstWhere('label', 'Network status')['badge'] === null));
+        ->where('site.support', fn ($links) => ! collect($links)->contains('label', 'Network status')));
 });
 
 it('fills the footer from Settings → Company and shows the trust facts and call to action band', function (): void {
-    foreach (['core.company_email' => 'help@acme.test', 'core.support_hours' => 'Sunday–Friday, 9:00–18:00', 'core.whatsapp' => '+977 9800000000',
+    foreach (['core.company_email' => 'billing@acme.test', 'core.support_email' => 'help@acme.test', 'core.support_hours' => 'Sunday–Friday, 9:00–18:00', 'core.whatsapp' => '+977 9800000000',
         'core.registration_number' => '123456/78', 'core.social_facebook' => 'https://facebook.com/acme', 'billing.seller.vat_number' => '600000001'] as $key => $value) {
         app(Settings::class)->set($key, $value);
     }

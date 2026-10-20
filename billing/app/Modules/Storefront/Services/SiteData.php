@@ -90,10 +90,13 @@ class SiteData
                     ['Knowledge base', 'support.kb.index'],
                     ['Announcements', 'support.announcements.index'],
                 ]),
-                // Always listed; while network status needs login the link leads to sign-in and shows no count.
-                ...$this->links([['Network status', 'support.network.index']], $open),
+                // Listed when the visitor may see it (it can require login): never a link that only leads to sign-in.
+                ...($status === null ? [] : $this->links([['Network status', 'support.network.index']], $open)),
                 ...$this->links([['Open a ticket', 'support.tickets.create']]),
-                ...($company['email'] === null ? [] : [['label' => 'Contact us', 'url' => 'mailto:'.$company['email'], 'badge' => null]]),
+                // Questions go to the support address; without one, to a support ticket (never the billing address).
+                ...(is_string($support = $this->settings->get('core.support_email')) && $support !== ''
+                    ? [['label' => 'Contact us', 'url' => 'mailto:'.$support, 'badge' => null]]
+                    : $this->links([['Contact us', 'support.tickets.create']])),
             ],
             'company' => $company,
             'payments' => $this->paymentMarks($currency),
@@ -127,7 +130,7 @@ class SiteData
             'name' => app(BrandProvider::class)->brand()->name,
             'legal_name' => $text('billing.seller.legal_name'),
             'address' => $text('billing.seller.address'),
-            'email' => $text('billing.seller.email') ?? $text('core.company_email'),
+            'email' => $text('core.support_email') ?? $text('billing.seller.email') ?? $text('core.company_email'),
             'phone' => $text('billing.seller.phone'),
             'whatsapp' => $text('core.whatsapp'),
             'hours' => $text('core.support_hours'),

@@ -54,6 +54,13 @@ class BillingSeeder extends DemoSeeder
             'billing.tax.enabled' => true,
             'billing.tax.home_country' => 'IN',
             'billing.tax.home_state' => 'MH',
+            // The demo host's invoice seller details (also the public site footer).
+            'billing.seller.legal_name' => 'Himal Host Pvt. Ltd.',
+            'billing.seller.address' => 'Jhamsikhel Road, Lalitpur 44600, Bagmati, Nepal',
+            'billing.seller.email' => 'billing@himalhost.example',
+            'billing.seller.phone' => '+977 1-5900000',
+            'billing.seller.pan' => '600000001',
+            'billing.seller.vat_number' => '600000001',
         ]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'invoice', 'period' => ''], ['next_number' => 1041]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'quote', 'period' => ''], ['next_number' => 204]);

@@ -14,7 +14,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
   name, address, phone, PAN, VAT number, GSTIN) until the company profile exists. Settings → Company gains support
   hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
-  empty fields are not shown. The demo "Card (sandbox)" gateway is now named "Card" (its public name).
+  empty fields are not shown. A new support email (Settings → Company) is the website's contact address and "Contact
+  us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
+  now runs a fictional host ("Himal Host", with seller details, support hours, WhatsApp, PAN/VAT, registration
+  number and social links), and its card gateway is named "Card".
 - **Rotate the inbound email webhook secret (security review 2026-10-19).** `support.inbound_secret` was readable
   by every role with support settings access and stored in plaintext. It is now a write-only secret: a migration
   encrypts the stored value, it moves to its own section (Admin → Settings → Inbound email webhook) behind the new

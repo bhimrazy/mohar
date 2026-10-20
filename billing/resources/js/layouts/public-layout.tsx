@@ -98,17 +98,23 @@ function useSite(): Site | undefined {
 function SiteAnchor({
     href,
     className,
+    current = false,
     children,
 }: {
     href: string;
     className?: string;
+    current?: boolean;
     children: ReactNode;
 }) {
     const internal =
         href.startsWith('/') || href.startsWith(window.location.origin);
 
     return internal ? (
-        <Link href={href} className={className}>
+        <Link
+            href={href}
+            className={className}
+            aria-current={current ? 'page' : undefined}
+        >
             {children}
         </Link>
     ) : (
@@ -213,9 +219,47 @@ function HomeLink() {
     );
 }
 
+/**
+ * The product group the visitor is looking at: the group of the product being configured, or the group anchor on
+ * the store page.
+ */
+function useCurrentGroup(site: Site): number | null {
+    const { url, props } = usePage();
+    const product = (props as { product?: { group?: string } }).product;
+    const hash =
+        new URL(url, 'http://localhost').hash ||
+        (typeof window === 'undefined' ? '' : window.location.hash);
+
+    return (
+        site.products.groups.find(
+            (group) =>
+                (product?.group !== undefined &&
+                    product.group === group.name) ||
+                hash === `#${group.slug}`,
+        )?.id ?? null
+    );
+}
+
+/** Whether a menu link points at the page being shown (path only). */
+function useIsCurrent(): (href: string) => boolean {
+    const { url } = usePage();
+    const current = new URL(url, 'http://localhost');
+
+    return (href) => {
+        const target = new URL(href, current.origin);
+
+        return (
+            target.origin === current.origin &&
+            target.pathname === current.pathname &&
+            target.search === current.search
+        );
+    };
+}
+
 function DesktopNav({ site }: { site: Site }) {
     const { products } = site;
     const section = useSection();
+    const currentGroup = useCurrentGroup(site);
     const linkClass = cn(navigationMenuTriggerStyle(), 'bg-transparent px-3');
 
     return (
@@ -228,8 +272,21 @@ function DesktopNav({ site }: { site: Site }) {
                 {products.mode === 'links'
                     ? products.groups.map((group) => (
                           <NavigationMenuItem key={group.id}>
-                              <NavigationMenuLink asChild className={linkClass}>
-                                  <Link href={group.url}>{group.name}</Link>
+                              <NavigationMenuLink
+                                  asChild
+                                  className={linkClass}
+                                  active={currentGroup === group.id}
+                              >
+                                  <Link
+                                      href={group.url}
+                                      aria-current={
+                                          currentGroup === group.id
+                                              ? 'page'
+                                              : undefined
+                                      }
+                                  >
+                                      {group.name}
+                                  </Link>
                               </NavigationMenuLink>
                           </NavigationMenuItem>
                       ))
@@ -238,6 +295,11 @@ function DesktopNav({ site }: { site: Site }) {
                               <NavigationMenuTrigger
                                   className="bg-transparent px-3"
                                   data-active={section === 'products'}
+                                  aria-current={
+                                      section === 'products'
+                                          ? 'page'
+                                          : undefined
+                                  }
                               >
                                   {products.label}
                               </NavigationMenuTrigger>
@@ -317,6 +379,8 @@ function MenuOfLinks({
     links: SiteLink[];
     active: boolean;
 }) {
+    const isCurrent = useIsCurrent();
+
     if (links.length === 0) {
         return null;
     }
@@ -326,6 +390,7 @@ function MenuOfLinks({
             <NavigationMenuTrigger
                 className="bg-transparent px-3"
                 data-active={active}
+                aria-current={active ? 'page' : undefined}
             >
                 {label}
             </NavigationMenuTrigger>
@@ -337,6 +402,7 @@ function MenuOfLinks({
                                 <SiteAnchor
                                     href={link.url}
                                     className="flex-row items-center justify-between"
+                                    current={isCurrent(link.url)}
                                 >
                                     {link.label}
                                     {link.badge && (
@@ -429,7 +495,7 @@ function AccountLinks({
                 className={cn('h-10', className)}
             >
                 <Link href={account?.client_area_url ?? '/dashboard'}>
-                    Client area
+                    {auth.user.is_staff ? 'Admin' : 'Client area'}
                 </Link>
             </Button>
         );
@@ -453,7 +519,9 @@ function MobileNav({ site }: { site: Site }) {
     const section =
         'text-xs font-medium tracking-wide text-muted-foreground uppercase';
     const item =
-        'flex min-h-10 items-center justify-between gap-3 rounded-md px-2 text-sm hover:bg-muted';
+        'flex min-h-10 items-center justify-between gap-3 rounded-md px-2 text-sm hover:bg-muted aria-[current=page]:bg-muted aria-[current=page]:font-medium';
+    const currentGroup = useCurrentGroup(site);
+    const isCurrent = useIsCurrent();
 
     const [open, setOpen] = useState(false);
 
@@ -491,6 +559,11 @@ function MobileNav({ site }: { site: Site }) {
                                     key={group.id}
                                     href={group.url}
                                     className={item}
+                                    aria-current={
+                                        currentGroup === group.id
+                                            ? 'page'
+                                            : undefined
+                                    }
                                 >
                                     {group.name}
                                     {group.from && (
@@ -517,6 +590,7 @@ function MobileNav({ site }: { site: Site }) {
                                             key={link.label}
                                             href={link.url}
                                             className={item}
+                                            current={isCurrent(link.url)}
                                         >
                                             {link.label}
                                             {link.badge && (

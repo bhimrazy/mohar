@@ -62,7 +62,49 @@ export default function DomainPricing({
                     aria-label="Filter extensions"
                     className="max-w-xs"
                 />
-                <div className="overflow-x-auto rounded-xl border bg-card">
+                {/* Phones: one card per extension with labelled prices, so no column is cut off. */}
+                <ul className="divide-y rounded-xl border bg-card sm:hidden">
+                    {rows.map((row) => (
+                        <li key={row.tld} className="space-y-2 p-4">
+                            <p className="flex items-center gap-2 font-medium">
+                                {row.tld}
+                                {row.badge && (
+                                    <Badge
+                                        variant="secondary"
+                                        className="capitalize"
+                                    >
+                                        {row.badge}
+                                    </Badge>
+                                )}
+                            </p>
+                            <dl className="grid grid-cols-3 gap-2 text-sm">
+                                {(
+                                    ['register', 'renew', 'transfer'] as const
+                                ).map((action) => (
+                                    <div key={action}>
+                                        <dt className="text-xs text-muted-foreground capitalize">
+                                            {action}
+                                        </dt>
+                                        <dd>
+                                            <DomainAmount
+                                                amount={row[action]}
+                                                currency={currency}
+                                            />
+                                        </dd>
+                                    </div>
+                                ))}
+                            </dl>
+                        </li>
+                    ))}
+                    {rows.length === 0 && (
+                        <li className="p-6 text-center text-sm text-muted-foreground">
+                            {domains.length === 0
+                                ? `No domain extensions are sold in ${currency} yet.`
+                                : 'No extension matches that filter.'}
+                        </li>
+                    )}
+                </ul>
+                <div className="hidden overflow-x-auto rounded-xl border bg-card sm:block">
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -106,19 +148,10 @@ export default function DomainPricing({
                                             key={action}
                                             className="text-right"
                                         >
-                                            {row[action] === null ? (
-                                                <span className="text-muted-foreground">
-                                                    Not offered
-                                                </span>
-                                            ) : row[action] === 0 ? (
-                                                // A zero price is a free action (UK transfers are a tag change).
-                                                <span>Free</span>
-                                            ) : (
-                                                <Money
-                                                    amount={row[action]}
-                                                    currency={currency}
-                                                />
-                                            )}
+                                            <DomainAmount
+                                                amount={row[action]}
+                                                currency={currency}
+                                            />
                                         </TableCell>
                                     ))}
                                 </TableRow>
@@ -140,5 +173,24 @@ export default function DomainPricing({
                 </div>
             </div>
         </>
+    );
+}
+
+/** A one-year price: "Not offered" when the action is not sold, "Free" for a zero price (UK transfers are a tag change). */
+function DomainAmount({
+    amount,
+    currency,
+}: {
+    amount: number | null;
+    currency: string;
+}) {
+    if (amount === null) {
+        return <span className="text-muted-foreground">Not offered</span>;
+    }
+
+    return amount === 0 ? (
+        <span>Free</span>
+    ) : (
+        <Money amount={amount} currency={currency} />
     );
 }
