@@ -175,8 +175,11 @@ class ImportServerAccounts
      */
     private function report(ServerAccountImport $import, array $line): array
     {
-        DB::table('server_account_import_report_lines')->insert([...$line, 'server_account_import_id' => $import->id, 'message' => mb_substr($line['message'], 0, 255), 'created_at' => now()]);
-        $import->increment($line['imported'] ? 'imported_count' : 'not_imported_count');
+        // The line and its count commit together (a savepoint inside the row's own transaction).
+        DB::transaction(function () use ($import, $line): void {
+            DB::table('server_account_import_report_lines')->insert([...$line, 'server_account_import_id' => $import->id, 'message' => mb_substr($line['message'], 0, 255), 'created_at' => now()]);
+            $import->increment($line['imported'] ? 'imported_count' : 'not_imported_count');
+        });
 
         return $line;
     }
@@ -187,15 +190,26 @@ class ImportServerAccounts
      */
     public function stop(Server $server, ServerAccountImport $import, ?User $staff, string $reason): void
     {
-        $reached = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->pluck('username')->flip();
+        $reason = mb_substr($reason, 0, 255);
 
-        foreach (array_column($import->reviewed['rows'] ?? [], 'username') as $username) {
-            if (! $reached->has($username)) {
-                $this->report($import, ['username' => $username, 'imported' => false, 'message' => AccountImportMatcher::text('The import stopped: :reason', ['reason' => $reason]), 'service_id' => null]);
+        // One transaction: the reason first, then every account not reached in batches, then one count.
+        DB::transaction(function () use ($import, $reason): void {
+            $import->update(['stop_reason' => $reason]);
+            $reached = DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->pluck('username')->flip();
+            $missing = array_values(array_filter(array_column($import->reviewed['rows'] ?? [], 'username'), fn (string $username): bool => ! $reached->has($username)));
+            $message = mb_substr(AccountImportMatcher::text('The import stopped: :reason', ['reason' => $reason]), 0, 255);
+
+            foreach (array_chunk($missing, 1000) as $chunk) {
+                DB::table('server_account_import_report_lines')->insert(array_map(fn (string $username): array => [
+                    'server_account_import_id' => $import->id, 'username' => $username, 'imported' => false, 'service_id' => null, 'message' => $message, 'created_at' => now(),
+                ], $chunk));
             }
-        }
 
-        $import->update(['stop_reason' => $reason]);
+            if ($missing !== []) {
+                $import->increment('not_imported_count', count($missing));
+            }
+        });
+
         $this->finish($server, $import, $staff);
     }
 

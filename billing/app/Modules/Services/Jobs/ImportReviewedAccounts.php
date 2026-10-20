@@ -8,6 +8,7 @@ use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Support\AccountImportMatcher;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\TimeoutExceededException;
 use Throwable;
 
 /**
@@ -68,14 +69,16 @@ class ImportReviewedAccounts implements ShouldQueue
     }
 
     /**
-     * The worker died or timed out: the import ends here, with what was imported so far.
+     * The worker failed or timed out: the import stops here, says why, and reports every account it did not reach.
      */
     public function failed(?Throwable $exception): void
     {
         $import = ServerAccountImport::query()->with('server')->find($this->importId);
 
         if ($import !== null && $import->status === ServerAccountImport::IMPORTING) {
-            app(ImportServerAccounts::class)->finish($import->server, $import, $this->staffId === null ? null : User::query()->find($this->staffId));
+            app(ImportServerAccounts::class)->stop($import->server, $import, $this->staffId === null ? null : User::query()->find($this->staffId), $exception instanceof TimeoutExceededException
+                ? AccountImportMatcher::text('it ran out of time; nothing more was imported. Import the rest again.')
+                : AccountImportMatcher::text('it stopped unexpectedly; nothing more was imported. Import the rest again.'));
         }
     }
 }

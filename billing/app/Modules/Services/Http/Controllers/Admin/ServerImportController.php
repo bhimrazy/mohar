@@ -126,7 +126,7 @@ class ServerImportController extends Controller
         $data = $request->validate([
             'proposed' => ['sometimes', 'accepted'],
             'usernames' => ['required_without:proposed', 'array', 'max:500'],
-            'usernames.*' => ['string', 'max:32'],
+            'usernames.*' => ['string', 'max:255'],
             'include' => ['sometimes', 'boolean'],
             'client_id' => ['prohibited'],
             'product_id' => ['prohibited'],

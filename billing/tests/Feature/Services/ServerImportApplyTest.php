@@ -4,7 +4,9 @@ use App\Events\Services\ServiceImported;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Services\Actions\ImportServerAccounts;
 use App\Modules\Services\Enums\ServiceStatus;
+use App\Modules\Services\Jobs\ImportReviewedAccounts;
 use App\Modules\Services\Models\ModuleCommand;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
@@ -13,6 +15,7 @@ use App\Modules\Services\Models\Service;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Services\ServicesTestKit;
 use Tests\Support\Cpanel\Whm;
@@ -105,4 +108,46 @@ test('a confirmed account becomes a service as the server holds it, with no invo
     Mail::assertNothingSent();
     Event::assertDispatchedTimes(ServiceImported::class, 1);
     Event::assertDispatched(ServiceImported::class, fn (ServiceImported $event): bool => $event->serviceId === $alpha->id && $event->source === 'server_import');
+});
+
+/**
+ * A ready list of $count proposed accounts for one client, all ticked; returns the import after review and confirm.
+ *
+ * @param  list<string>|null  $usernames
+ */
+function confirmedImport(Server $server, int $clientId, int $count, ?array $usernames = null): ServerAccountImport
+{
+    $usernames ??= array_map(fn (int $i): string => "acct{$i}", range(1, $count));
+    $accounts = array_map(fn (string $username): array => ['username' => $username, 'domain' => "{$username}.test", 'plan' => 'root_basic', 'owner' => 'root', 'email' => 'anna@alpha-books.com', 'ip' => null,
+        'suspended' => false, 'suspend_reason' => null, 'created_at' => '2025-03-15T00:00:00+00:00', 'disk_used_mb' => 1, 'disk_limit_mb' => 10,
+        'category' => 'proposed', 'client_id' => $clientId, 'product_id' => 21, 'service_id' => null, 'note' => null, 'differences' => []], $usernames);
+    ServerAccountImport::query()->where('server_id', $server->id)->delete();
+    ServerAccountImport::query()->create(['server_id' => $server->id, 'status' => 'ready', 'accounts' => $accounts, 'account_count' => count($accounts), 'missing' => [],
+        'connection_user' => 'root', 'selections' => array_fill_keys($usernames, ['include' => true]), 'fetched_at' => now(), 'expires_at' => now()->addDay()]);
+    Queue::fake([ImportReviewedAccounts::class]);
+    applyReviewed($server);
+
+    return ServerAccountImport::query()->where('server_id', $server->id)->sole();
+}
+
+test('a chunk that fails stops the import with the reason, and every reviewed account is reported', function () {
+    $import = confirmedImport($this->server, $this->anna->id, 300);
+    (new ImportReviewedAccounts($import->id, auth()->id(), 0, $import->reviewed['digest']))->handle(app(ImportServerAccounts::class));
+    (new ImportReviewedAccounts($import->id, auth()->id(), 100, $import->reviewed['digest']))->failed(new RuntimeException('worker died'));
+
+    $import->refresh();
+    expect($import->status)->toBe('ready')
+        ->and($import->stop_reason)->toContain('stopped unexpectedly')
+        ->and([$import->imported_count, $import->not_imported_count])->toBe([100, 200])
+        ->and(collect($import->report)->pluck('username')->unique()->count())->toBe(300)
+        ->and(Service::query()->count())->toBe(100);
+});
+
+test('a username longer than 32 characters is reported on every database', function () {
+    $long = str_repeat('a', 40);
+    $import = confirmedImport($this->server, $this->anna->id, 1, [$long]);
+
+    app(ImportServerAccounts::class)->stop($this->server, $import, null, 'test');
+
+    expect($import->refresh()->report[0]['username'])->toBe($long);
 });
