@@ -1,2 +1,7 @@
 .worktrees/
 rea/
+
+# Production secrets for deploy/compose.prod.yaml (copy of deploy/.env.production.example)
+/deploy/.env
+/deploy/.env.*
+!/deploy/.env.production.example

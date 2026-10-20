@@ -110,6 +110,9 @@ release binary, check it against `actionlint_1.7.12_checksums.txt`, run it from 
 - `composer dev` also runs a second worker for the Notifications module's queues (`notifications` for
   email sends, `webhooks` for outbound webhook deliveries). Standalone:
   `php artisan queue:work --queue=notifications,webhooks`.
+- `composer dev` also runs a worker on the `automation` connection (registered by the Platform module) for
+  **Run now** on Admin → Automation. Standalone: `php artisan queue:work automation --queue=automation --tries=1`.
+  Those jobs run on their own connection because a run can outlast the pools' `retry_after` (`install.md` §6).
 - Production: run at least one worker that consumes `provisioning` (driver calls: create, suspend,
   terminate, change package/password), e.g. `php artisan queue:work --queue=provisioning,default`, and one
   that consumes `notifications,webhooks` (email and webhook jobs set their own tries and backoff; webhook
@@ -145,8 +148,9 @@ reach:
 TRUSTED_PROXIES=172.18.0.0/16
 ```
 
-Only requests that arrive from those addresses may set the client IP, scheme, host and port; the
-`X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS ELB headers are never trusted (`bootstrap/app.php`). The value
+Only requests that arrive from those addresses may set the client IP, scheme and host (`X-Forwarded-For`, `-Proto`,
+`-Host`); the port follows from the scheme. `X-Forwarded-Port`, `X-Forwarded-Prefix`, RFC 7239 `Forwarded` and AWS
+ELB headers are never trusted: Caddy passes a client's own `X-Forwarded-Port` through unchanged (`bootstrap/app.php`). The value
 is read per request, so it also works with a cached configuration. Unset means no proxy at all, including on
 `*.on-forge.com`, `*.on-vapor.com` and Laravel Cloud, where the framework would otherwise trust every proxy: set
 `TRUSTED_PROXIES` there too.

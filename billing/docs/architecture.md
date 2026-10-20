@@ -222,7 +222,10 @@ shadcn primitives from `@/components/ui/*`. Run `php artisan wayfinder:generate 
 authorized controller downloads or temporary URLs. Tests: `Storage::fake('objects')`.
 
 **Queues & scheduler** — provisioning/registrar/gateway/webhook calls run in queued jobs with `$tries` and
-backoff; automation registered in the provider's `schedule()` with `->withoutOverlapping()`.
+backoff; automation registered in the provider's `schedule()` with `->withoutOverlapping()`. Queue names come from
+`App\Support\Queues`. A job's `$timeout` stays below its connection's `retry_after`, or a second worker starts it
+while the first still runs it; work that can run longer gets its own connection with a larger `retry_after`, as
+`RunAutomationJob` does with `Queues::AUTOMATION`.
 
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:

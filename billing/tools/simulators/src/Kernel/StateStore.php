@@ -28,7 +28,7 @@ final class StateStore
             $this->pdo->exec('CREATE TABLE IF NOT EXISTS documents (namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (namespace, key))');
             $this->pdo->exec('CREATE TABLE IF NOT EXISTS log (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT, entry TEXT NOT NULL)');
             $this->pdo->exec('CREATE TABLE IF NOT EXISTS faults (id INTEGER PRIMARY KEY AUTOINCREMENT, operation TEXT NOT NULL, nth INTEGER, fault TEXT NOT NULL, used INTEGER NOT NULL DEFAULT 0)');
-            $this->pdo->exec('CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, delivery TEXT NOT NULL, deliver_after INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0)');
+            $this->pdo->exec('CREATE TABLE IF NOT EXISTS outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, delivery TEXT NOT NULL, deliver_after INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0)');
         }
 
         return $this->pdo;

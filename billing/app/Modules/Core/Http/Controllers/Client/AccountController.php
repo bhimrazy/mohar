@@ -4,8 +4,10 @@ namespace App\Modules\Core\Http\Controllers\Client;
 
 use App\Events\Core\ClientUpdated;
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Http\Requests\AccountDetailsRequest;
 use App\Modules\Core\Http\Resources\ClientResource;
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use Illuminate\Http\RedirectResponse;
@@ -26,8 +28,9 @@ class AccountController extends Controller
 
     public function update(AccountDetailsRequest $request, ClientContext $context, ActivityLogger $activity): RedirectResponse
     {
-        $client = $context->client();
-        $client->update($request->validated());
+        // Locked, so a staff edit cannot interleave; an address the client sets is theirs until a login on the client
+        // verifies it (account import).
+        [$client] = Client::updateDetails($context->client()->id, $request->validated(), EmailSource::Client);
         $activity->log('Client updated account details', $client, $client->id);
         ClientUpdated::dispatch($client->id);
 

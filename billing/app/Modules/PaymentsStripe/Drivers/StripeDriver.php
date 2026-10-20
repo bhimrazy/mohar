@@ -24,6 +24,7 @@ use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Modules\PaymentsStripe\Support\WebhookContext;
 use App\Modules\PaymentsStripe\Support\WebhookSignature;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\Integrations\Endpoints;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
@@ -626,7 +627,9 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
     }
 
     /**
-     * Checkout's url must be https on exactly checkout.stripe.com, with nothing a browser might parse differently.
+     * Checkout's url must be https on exactly the checkout host (checkout.stripe.com, or its `stripe.checkout`
+     * endpoint override in development) and the same port (none by default), with nothing a browser might parse
+     * differently.
      */
     private function isCheckoutUrl(string $url): bool
     {
@@ -635,9 +638,11 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         $parts = parse_url($url);
+        $checkout = parse_url(Endpoints::for('stripe.checkout', 'https://'.config('payments_stripe.checkout_host', 'checkout.stripe.com'))->baseUrl);
 
-        return $parts !== false && ($parts['scheme'] ?? null) === 'https' && ! isset($parts['user']) && ! isset($parts['pass']) && ! isset($parts['port'])
-            && strtolower((string) ($parts['host'] ?? '')) === strtolower((string) config('payments_stripe.checkout_host', 'checkout.stripe.com'));
+        return $parts !== false && is_array($checkout) && ($parts['scheme'] ?? null) === 'https' && ! isset($parts['user']) && ! isset($parts['pass'])
+            && ($parts['port'] ?? null) === ($checkout['port'] ?? null)
+            && strtolower((string) ($parts['host'] ?? '')) === strtolower((string) ($checkout['host'] ?? ''));
     }
 
     private static function isReference(string $value): bool

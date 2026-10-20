@@ -106,6 +106,17 @@ every item.
 - Third-party integrations show their official logo (from the provider's official brand or merchant
   resources), not a plain text badge. (2026-10-18)
 
+## Background jobs and reports
+
+- A background job that stops partway keeps the operator's remaining work, offers one action to continue it, and its
+  report stays reachable after the next run. (2026-10-20, #133 product review)
+- Reports never hide failures: failed and skipped items are listed first or behind their own filter, never only in
+  the activity log. (2026-10-20)
+- Stored messages are full sentences that still read correctly later; relative times ("just now") are rendered at
+  view time, never stored. (2026-10-20)
+- A destructive (red) tone marks only what failed, never successful lines. (2026-10-20)
+- Every date, including dates inside sentences, uses the app's date format. (2026-10-20)
+
 ## Simulators and test doubles
 
 - Simulators of third-party services never change or weaken product behaviour: no production footprint, no
