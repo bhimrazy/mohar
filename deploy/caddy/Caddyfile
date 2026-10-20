@@ -1,4 +1,5 @@
-# Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container.
+# Edge proxy for deploy/compose.prod.yaml: TLS, HTTP->HTTPS redirect and forwarding to the app container. Mounted as
+# /etc/caddy/conf/Caddyfile; the live upstream is /etc/caddy/live/upstream.caddy (written by deploy/bin/deploy).
 # Certificates are automatic for a public APP_DOMAIN: Let's Encrypt, plus ZeroSSL as a fallback only when an email is
 # set (CADDY_GLOBAL_OPTIONS="email ..."); `localhost` and *.internal names get a certificate from Caddy's internal
 # CA, which the deploy smoke test uses.
@@ -35,7 +36,7 @@
 	# and the upstream in the access log), then reloads Caddy gracefully. Caddy refuses to start without it.
 	# Caddy sets X-Forwarded-For, -Proto and -Host itself, ignoring a client's values; other X-Forwarded-* headers
 	# pass through, so the app trusts only those three, and only from this proxy's network (TRUSTED_PROXIES).
-	import live/upstream.caddy
+	import ../live/upstream.caddy
 
 	# Access log without secrets: one-time tokens travel in URLs (password reset, staff and account invitations,
 	# email verification paths; signed links' and guest tickets' query strings). Their path segment and every query

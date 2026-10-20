@@ -192,8 +192,11 @@ services:
             APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
             CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
             CADDY_TLS: ${CADDY_TLS:-}
+        # The config directory, not the single file, is mounted: git replaces a changed Caddyfile with a new file (a
+        # new inode), which a file bind mount would never show, so a reload after `git pull` would read the old one.
+        command: ['caddy', 'run', '--config', '/etc/caddy/conf/Caddyfile', '--adapter', 'caddyfile']
         volumes:
-            - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+            - ./caddy:/etc/caddy/conf:ro
             # The live colour's upstream, written by deploy/bin/deploy before each graceful reload.
             - ${DEPLOY_STATE_DIR:-./state}/live:/etc/caddy/live:ro
             # Certificates and ACME account keys: must persist, or every restart requests new certificates.

@@ -39,6 +39,8 @@ running() { "${compose[@]}" ps --status running --services | sort | tr '\n' ' ';
 
 cleanup() {
     [ -n "${loop_pid:-}" ] && kill "$loop_pid" 2>/dev/null || true
+    # Put back the Caddyfile the blue-green step changed, if it did not get to.
+    [ -f "$work/Caddyfile.orig" ] && mv "$work/Caddyfile.orig" deploy/caddy/Caddyfile
     if [ "$failed" = 1 ]; then
         step "diagnostics"
         "${compose[@]}" ps -a || true
@@ -227,11 +229,19 @@ assert_live() {
     pass "live: $live (Caddy config and access log); one scheduler and one automation worker; $old workers drained; app-$old kept for rollback"
 }
 
-step "blue-green deploy to green under load"
+step "blue-green deploy to green under load (with a Caddyfile changed the way git pull changes it)"
+# git replaces a changed file with a new one (a new inode); Caddy must read the new file on the deploy's reload.
+cp deploy/caddy/Caddyfile "$work/Caddyfile.orig"
+{ cat "$work/Caddyfile.orig"; printf '\n# smoke: changed before the deploy to green\n'; } > deploy/caddy/Caddyfile.new
+mv deploy/caddy/Caddyfile.new deploy/caddy/Caddyfile
 start_loop
 start=$(date +%s)
 deploy/bin/deploy --image "$image" || fail "blue-green deploy"
 stop_loop "deploy to green ($(( $(date +%s) - start ))s)"
+"${compose[@]}" exec -T caddy grep -q 'smoke: changed before the deploy to green' /etc/caddy/conf/Caddyfile \
+    || fail "Caddy still reads the Caddyfile from before the change"
+mv "$work/Caddyfile.orig" deploy/caddy/Caddyfile
+pass "Caddy reads the Caddyfile as changed in the checkout (directory mount)"
 assert_live green blue
 queued_job green
 
