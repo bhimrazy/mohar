@@ -24,7 +24,10 @@ class ImportReviewedAccounts implements ShouldQueue
 
     public bool $failOnTimeout = true;
 
-    public function __construct(public int $importId, public ?int $staffId, public int $offset = 0)
+    /**
+     * @param  string  $digest  the reviewed rows' digest the staff member confirmed; a chunk stops if they changed since
+     */
+    public function __construct(public int $importId, public ?int $staffId, public int $offset = 0, public string $digest = '')
     {
         $this->onQueue('provisioning');
         $this->timeout = (int) config('services.module.max_job_timeout_seconds', 180);
@@ -39,11 +42,24 @@ class ImportReviewedAccounts implements ShouldQueue
         }
 
         $staff = $this->staffId === null ? null : User::query()->find($this->staffId);
-        $chunk = array_slice(array_column($import->reviewed['rows'] ?? [], 'username'), $this->offset, ImportServerAccounts::CHUNK);
-        $import->update(['report' => [...($import->report ?? []), ...$importer->handle($import->server, $import, $staff, $chunk)]]);
+        $stop = match (true) {
+            ! hash_equals((string) ($import->reviewed['digest'] ?? ''), $this->digest) => __('The reviewed accounts changed after the import was confirmed; nothing more was imported. Review them again.'),
+            $staff === null || ! $staff->is_active || ! $staff->hasPermission('services.servers.import') => __('The staff member who confirmed the import can no longer import accounts; nothing more was imported.'),
+            default => null,
+        };
+
+        if ($stop !== null) {
+            $import->update(['report' => [...($import->report ?? []), ['username' => '', 'imported' => false, 'message' => $stop, 'service_id' => null]]]);
+            $importer->finish($import->server, $import, $staff);
+
+            return;
+        }
+
+        // Each row's report line is written with its service (ImportServerAccounts::handle()), so a failed chunk keeps them.
+        $importer->handle($import->server, $import, $staff, array_slice(array_column($import->reviewed['rows'] ?? [], 'username'), $this->offset, ImportServerAccounts::CHUNK));
 
         if ($this->offset + ImportServerAccounts::CHUNK < count($import->reviewed['rows'] ?? [])) {
-            self::dispatch($this->importId, $this->staffId, $this->offset + ImportServerAccounts::CHUNK);
+            self::dispatch($this->importId, $this->staffId, $this->offset + ImportServerAccounts::CHUNK, $this->digest);
 
             return;
         }
