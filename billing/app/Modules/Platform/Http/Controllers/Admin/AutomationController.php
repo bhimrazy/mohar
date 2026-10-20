@@ -3,6 +3,7 @@
 namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Core\Console\Commands\RunAutomation;
 use App\Modules\Core\Models\AutomationRun;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
@@ -81,6 +82,12 @@ class AutomationController extends Controller
 
         $force = (bool) ($data['force'] ?? false);
         $job = new RunAutomationJob($data['task'] ?? null, $force);
+
+        if (RunAutomation::inProgress()) {
+            Inertia::flash('toast', ['type' => 'info', 'message' => __('An automation run is in progress. Try again when it finishes; results appear in the run log.')]);
+
+            return to_route('admin.platform.automation.index');
+        }
 
         // The job's unique lock is taken here rather than by dispatch(), so the page can say that a run is already
         // waiting or running instead of reporting a run it skipped. The worker releases it when the job finishes.

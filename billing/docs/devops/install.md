@@ -184,12 +184,31 @@ other driver), the `automation` queue, and a `retry_after` of 3,900 s, above the
 are set in `App\Support\Queues`, not in `.env`. On SQS, create an `automation` queue with a visibility timeout of
 at least 3,900 s.
 
+- Start it with the connection argument, `queue:work automation`. `queue:work --queue=automation` alone reads the
+  same jobs through the default connection and its 240 s `retry_after`, which hands a long run to a second worker.
+  When such a worker takes a job first, the job fails without running, and the failed job names the right command.
+  Never add `automation` to another worker's `--queue` list.
 - One automation worker is enough: while one run waits or runs, another **Run now** is not queued, and the page
-  says so. The scheduled daily run does not use the queue; it runs in the scheduler process.
+  says so. The scheduled daily run does not use the queue; it runs in the scheduler process. **Run now** during the
+  scheduled run is refused with "An automation run is in progress"; a request queued just before it starts is
+  skipped and recorded in the activity log ("Automation run skipped").
 - Without this worker, **Run now** requests wait in the queue until a worker starts.
 - Give the worker a stop timeout above 3,600 s (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose
-  `stop_grace_period`). A worker stopped mid-run ends the run part-way: press **Run now** again, and the tasks that
-  already succeeded that day are skipped.
+  `stop_grace_period`), so a deploy waits for a run in progress instead of killing it.
+
+A worker stopped mid-run (killed, out of memory, or a stop timeout that ran out) ends the run part-way and cannot
+release its locks:
+
+- **Run now** is refused until about 65 minutes (3,900 s) after the interrupted run was requested: "An automation
+  run is in progress" for the first hour, then "already queued or running". When the worker is back, the interrupted job is recorded as a failed job once its `retry_after` has
+  passed; it does not run again.
+- A scheduled daily run that starts within an hour of the interrupted run's start finds the run lock (3,600 s)
+  still held and does not run that day; the dashboard flags it after 26 hours. Press **Run now** once the locks are
+  free.
+- To run sooner, first check that no worker is running an automation job (the automation worker's log shows no
+  `RunAutomationJob` in progress) and that the scheduled run is not running, then run
+  `php artisan automation:release-locks` and press **Run now**. Tasks that already succeeded that day are skipped.
+  Releasing the locks while a run is in progress would let a second run start alongside it.
 
 A minimal systemd unit for one pool:
 

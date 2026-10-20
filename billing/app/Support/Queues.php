@@ -24,6 +24,9 @@ final class Queues
 
     public const WEBHOOKS = 'webhooks';
 
+    /** Worker --timeout of the provider pool: the provisioning job cap (180 s) plus the 20 s lock slack. */
+    public const PROVIDER_POOL_TIMEOUT_SECONDS = 200;
+
     /** Connection and queue name for the automation "Run now" job. */
     public const AUTOMATION = 'automation';
 
@@ -34,8 +37,9 @@ final class Queues
     public const AUTOMATION_RETRY_AFTER_SECONDS = self::AUTOMATION_TIMEOUT_SECONDS + 300;
 
     /**
-     * Default drivers the automation connection keeps (sync for tests). Any other falls back to database: deferred and
-     * background would run an hour-long job in the web process, failover pushes to connections with their own retry_after.
+     * Default drivers the automation connection keeps. sync is kept for tests (the install pre-flight warns about it in
+     * production). Any other falls back to database: deferred runs the job in the web process after the response,
+     * background in a child process outside any worker, and failover pushes to connections with their own retry_after.
      */
     private const QUEUED_DRIVERS = ['database', 'redis', 'beanstalkd', 'sqs', 'sync'];
 
@@ -54,6 +58,10 @@ final class Queues
         }
 
         // On SQS the queue's visibility timeout plays the part of retry_after: set it on the queue itself.
+        if ($base['driver'] === 'sqs') {
+            return [...$base, 'queue' => self::AUTOMATION];
+        }
+
         return [...$base, 'queue' => self::AUTOMATION, 'retry_after' => self::AUTOMATION_RETRY_AFTER_SECONDS];
     }
 
@@ -65,7 +73,7 @@ final class Queues
     public static function workerCommands(): array
     {
         return [
-            'php artisan queue:work --queue='.implode(',', [self::PAYMENTS, self::PROVISIONING, self::REGISTRAR]).' --tries=3 --timeout=200',
+            'php artisan queue:work --queue='.implode(',', [self::PAYMENTS, self::PROVISIONING, self::REGISTRAR]).' --tries=3 --timeout='.self::PROVIDER_POOL_TIMEOUT_SECONDS,
             'php artisan queue:work --queue='.implode(',', [self::NOTIFICATIONS, self::WEBHOOKS]).' --tries=3',
             'php artisan queue:work --queue='.self::DEFAULT.' --tries=3',
             'php artisan queue:work '.self::AUTOMATION.' --queue='.self::AUTOMATION.' --tries=1 --timeout='.self::AUTOMATION_TIMEOUT_SECONDS,
