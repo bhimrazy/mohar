@@ -57,6 +57,33 @@ class FetchAccountsForImport
     }
 
     /**
+     * "Match again": re-match the server's ready list on the queue (AccountImportMatcher::rematch()), under the same
+     * server lock as a fetch, so the two never overlap. Audited.
+     *
+     * @throws ValidationException when there is no ready list, or a fetch or match is running
+     */
+    public function rematch(Server $server): void
+    {
+        $import = DB::transaction(function () use ($server): ServerAccountImport {
+            Server::query()->whereKey($server->id)->lockForUpdate()->first();
+            $import = self::latest($server);
+
+            if ($import?->status !== ServerAccountImport::READY) {
+                throw ValidationException::withMessages(['import' => $import?->isRunning()
+                    ? __('The accounts on :server are being read or matched already. This page updates when they are ready.', ['server' => $server->name])
+                    : __('Fetch the accounts on :server first.', ['server' => $server->name])]);
+            }
+
+            $import->update(['status' => ServerAccountImport::MATCHING]);
+
+            return $import;
+        });
+
+        $this->activity->log("Accounts on server {$server->name} matched again for import", $server);
+        FetchServerAccounts::dispatch($import->id, rematch: true);
+    }
+
+    /**
      * The server's list that has not expired, if any, without the account list unless $withAccounts. An expired list is deleted here, so client emails never outlive
      * it by more than a read (housekeeping deletes the rest daily).
      */

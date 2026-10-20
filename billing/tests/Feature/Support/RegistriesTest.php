@@ -48,7 +48,8 @@ test('every checked permission and setting is registered', function () {
     }
 
     $keys = collect(app(SettingsRegistry::class)->sections()['support']['settings'])->pluck('key');
-    expect($keys)->toContain('support.auto_close_hours', 'support.attachment_max_mb', 'support.inbound_secret', 'support.ticket_number_format');
+    expect($keys)->toContain('support.auto_close_hours', 'support.attachment_max_mb', 'support.ticket_number_format')
+        ->and(collect(app(SettingsRegistry::class)->sections()['support_inbound']['settings'])->pluck('key')->all())->toBe(['support.inbound_secret']);
 });
 
 test('merge fields resolve tickets and replies', function () {

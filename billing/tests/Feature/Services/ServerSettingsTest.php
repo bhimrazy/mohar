@@ -103,7 +103,7 @@ test('a blank secret keeps the stored value, and changes are audited with secret
 
     $this->put(route('admin.services.servers.update', $server), settingsServerPayload(['region' => 'us-2', 'reseller_secret' => 'Second-S3cret']));
 
-    $changes = ActivityLog::query()->where('description', 'Server Panel 1 settings changed')->orderBy('id')->pluck('properties')->map(fn ($properties) => $properties['changes'])->all();
+    $changes = ActivityLog::query()->where('description', 'Server settings changed')->orderBy('id')->pluck('properties')->map(fn ($properties) => $properties['changes'])->all();
     expect($changes)->toBe([
         ['settings.region' => ['from' => 'eu-1', 'to' => 'us-2']],
         ['settings.reseller_secret' => 'rotated'],
@@ -238,8 +238,8 @@ test('settings written outside the form are audited, secrets as rotated', functi
 
     expect($server->refresh()->settings)->toBe(['region' => 'us-2', 'reseller_secret' => 'Pinned-S3cret'])
         ->and(ActivityLog::query()->where('subject_id', $server->id)->orderBy('id')->pluck('properties')->all())->toBe([
-            ['changes' => ['settings.reseller_secret' => 'rotated'], 'reason' => 'Trusted after a connection test'],
-            ['changes' => ['settings.region' => ['from' => 'eu-1', 'to' => 'us-2']]],
+            ['server' => $server->name, 'changes' => ['settings.reseller_secret' => 'rotated'], 'reason' => 'Trusted after a connection test'],
+            ['server' => $server->name, 'changes' => ['settings.region' => ['from' => 'eu-1', 'to' => 'us-2']]],
         ])
         ->and(fn () => $settings->put($server, 'undeclared', 'x'))->toThrow(InvalidArgumentException::class);
 });

@@ -221,7 +221,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             'domains.tlds.manage' => 'Manage TLDs and pricing',
             'domains.registrars.manage' => 'Configure registrars',
             'domains.settings.manage' => 'Manage domain settings',
-        ]);
+        ], sensitive: ['domains.registrars.manage']);
 
         $this->app->make(SettingsRegistry::class)->section('domains', 'Domains', [
             new SettingDefinition('domains.default_auto_renew', 'Auto-renew new domains by default', 'boolean'),
