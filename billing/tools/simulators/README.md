@@ -80,7 +80,8 @@ The control plane answers only requests that carry `X-Sim-Token`:
     - Every call needs `Bearer StripeSimulator::SECRET_KEY`.
     - A `Stripe-Version` must be one the simulator knows.
     - A POST with an `Idempotency-Key` replays its first answer, and the same key with other parameters gets `idempotency_error`.
-    - A request that fails validation (400) saves no idempotent result, as at Stripe, so the corrected retry with the same key runs.
+    - A request that fails parameter validation before it starts executing saves no idempotent result, as at Stripe, so the corrected retry with the same key runs. A refusal after it started (`charge_already_refunded`, `charge_disputed`) is saved and replayed.
+    - Parameters are checked as Stripe checks them: three-letter currencies, at most 50 metadata keys of up to 40 characters with values up to 500, and `expand[]` only on properties that hold a related object.
     - Errors use Stripe's envelope (`resource_missing`, `charge_already_refunded`, `charge_disputed`, `amount_too_small`, `api_key_invalid`).
     - A session past its `expires_at` expires on its own when next read, and emits `checkout.session.expired`.
 - **Hosted page.** `GET /c/pay/<session>` on the same TLS port, with three forms:
@@ -91,7 +92,13 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Control actions.** `webhook_url` and `dispute`.
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`stripe.api` and `stripe.checkout`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Turn on the Stripe gateway's test mode with the simulator's secret key and webhook secret.
 - **Redaction.** It is a `RedactsPayments` simulator.
-- **Drift.** `tests/Stripe/StripeDriftTest.php` replays any `stripe/recordings/*.json` (`source: live`) and is skipped until one exists. A recording run needs a long-lived restricted test key from the owner, as a GitHub or Codespaces secret. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
+- **Drift.** `StripeRecording` is one scripted sequence: account; create, retrieve and expire a session; a missing session; an amount too small; a PaymentIntent paid with the test card (on the simulator, a session paid on its hosted page); retrieve it; a partial refund, a retrieve, the rest, and a refund too many.
+    - Steps refer to earlier answers (`{create_session.id}`) and use relative times (`+2100`).
+    - What is not drift is normalised: ids (prefix kept), times, secrets, account and customer values, and key order.
+    - A recording is compared only on the paths the driver reads (`DRIVER_PATHS`), so an extra live field is not drift.
+    - `simulate:record stripe` runs it against Stripe's test mode with `STRIPE_RECORD_KEY` (a restricted test key; live keys are refused).
+    - `tests/Stripe/StripeDriftTest.php` replays the sequence against the simulator for every live recording. A file that does not parse fails it.
+    - Recording is deferred (CTO decision, #113): it needs a long-lived restricted test key as a GitHub or Codespaces secret from the owner, so the live check is skipped until then. Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
 
 ## Recordings and the secret scan
 
