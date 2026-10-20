@@ -18,7 +18,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
   left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
   to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
-  balances only" filter) and "Disputes to review" (`billing.payments.manage`; Billing → Transactions,
+  balances only" filter) and "Disputes to review" (`billing.payments.manage` and `billing.transactions.view`; Billing → Transactions,
   "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
   recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
   `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
