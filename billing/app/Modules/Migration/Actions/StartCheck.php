@@ -5,6 +5,7 @@ namespace App\Modules\Migration\Actions;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Migration\Jobs\CheckRun;
 use App\Modules\Migration\Models\MigrationRun;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -36,14 +37,32 @@ class StartCheck
             throw ValidationException::withMessages(['groups' => trans_choice('Choose what to do with the client group that was not found.|Choose what to do with the :count client groups that were not found.', count($pending), ['count' => count($pending)])]);
         }
 
-        $run->forceFill([
-            'status' => MigrationRun::CHECKING,
-            'generation' => $run->generation + 1,
-            'mapping' => $mapping,
-            'options' => [...($run->options ?? []), ...$options],
-            'checked_count' => 0,
-            'heartbeat_at' => now(),
-        ])->save();
+        // Under a row lock, so two saves get two generations in order; saving the mapping a check is already running
+        // with starts nothing new.
+        $started = DB::transaction(function () use ($run, $mapping, $options): bool {
+            $locked = MigrationRun::query()->lockForUpdate()->findOrFail($run->id);
+            $merged = [...($locked->options ?? []), ...$options];
+
+            if ($locked->status === MigrationRun::CHECKING && $locked->mapping == $mapping && $locked->options == $merged) {
+                return false;
+            }
+
+            $locked->forceFill([
+                'status' => MigrationRun::CHECKING,
+                'generation' => $locked->generation + 1,
+                'mapping' => $mapping,
+                'options' => $merged,
+                'checked_count' => 0,
+                'heartbeat_at' => now(),
+            ])->save();
+            $run->setRawAttributes($locked->getAttributes(), true);
+
+            return true;
+        });
+
+        if (! $started) {
+            return;
+        }
 
         $this->audit->log('Client import mapping saved', $run, properties: ['file' => $run->file_name, 'columns' => array_count_values(array_filter($mapping['columns']))], event: 'migration.mapping_saved');
         dispatch(new CheckRun($run->id, $run->generation));

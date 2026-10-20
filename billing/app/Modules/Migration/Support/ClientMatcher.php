@@ -83,7 +83,9 @@ final class ClientMatcher
                 };
             }
 
-            $changes = $match instanceof Client && in_array($decision, ['update', 'unchanged'], true) ? $this->changes($row, $match, ($options['blank_cells'] ?? 'keep') === 'keep') : [];
+            // A match reached through a merge keeps the survivor's own email.
+            $merged = in_array('merged', array_column($problems, 'code'), true);
+            $changes = $match instanceof Client && in_array($decision, ['update', 'unchanged'], true) ? $this->changes($row, $match, ($options['blank_cells'] ?? 'keep') === 'keep', $merged ? ['email'] : []) : [];
             $results[] = [
                 'decision' => $decision === 'update' && $changes === [] ? 'unchanged' : $decision,
                 'match_client_id' => $match?->id,
@@ -159,13 +161,13 @@ final class ClientMatcher
                 return ['needs_decision', $possible];
             }
 
-            if ($row['client']['status'] === 'closed' && ($options['closed_clients'] ?? 'import') === 'skip') {
+            if (($row['client']['status'] ?? 'active') === 'closed' && ($options['closed_clients'] ?? 'import') === 'skip') {
                 $note('info', 'closed_skipped', __('Closed clients are skipped by the import options.'));
 
                 return ['skip', null];
             }
 
-            if ($row['client']['status'] === 'closed') {
+            if (($row['client']['status'] ?? 'active') === 'closed') {
                 $note('info', 'closed_created', __('Imported as a closed client, without a login.'));
             }
 
@@ -195,17 +197,22 @@ final class ClientMatcher
 
     /**
      * @param  array{client: array<string, mixed>, blank: list<string>}  $row
+     * @param  list<string>  $exclude  fields this match never changes
      * @return list<string>
      */
-    private function changes(array $row, Client $client, bool $keepBlank): array
+    private function changes(array $row, Client $client, bool $keepBlank, array $exclude): array
     {
-        $blank = in_array('client_group', $row['blank'], true) ? [...$row['blank'], 'client_group_id'] : $row['blank'];
+        // Only mapped cells: a filled one that differs, or (when blank cells clear) an empty one over a value.
+        $blank = $keepBlank ? [] : array_map(fn (string $target): string => $target === 'client_group' ? 'client_group_id' : $target, $row['blank']);
 
-        return array_values(array_filter(self::COMPARED, fn (string $field): bool => array_key_exists($field, $row['client'])
-            && ! ($keepBlank && in_array($field, $blank, true))
+        return array_values(array_filter(self::COMPARED, fn (string $field): bool => ! in_array($field, $exclude, true)
             // A re-run never reopens a client closed here.
             && ! ($field === 'status' && $client->status === 'closed')
-            && (string) $client->getAttribute($field) !== (string) $row['client'][$field]));
+            && match (true) {
+                array_key_exists($field, $row['client']) => (string) $client->getAttribute($field) !== (string) $row['client'][$field],
+                in_array($field, $blank, true) => ! in_array($client->getAttribute($field), [null, '', false], true),
+                default => false,
+            }));
     }
 
     /**
