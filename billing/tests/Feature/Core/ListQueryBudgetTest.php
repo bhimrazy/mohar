@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * The lists the load test visits must not query per row: a page of 12 rows costs what a page of 2 costs, within a
- * ceiling (measured on 2026-10-20 at 12–17 queries per page, including session, layout and navigation badges).
+ * ceiling (measured on 2026-10-20 at 5–14 queries per page, including session, layout and navigation badges).
  */
 const LIST_QUERY_CEILING = 24;
 
