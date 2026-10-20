@@ -1,19 +1,19 @@
 # Current state
 
-Last updated: 2026-10-20 06:55 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-20 10:30 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
 
 - `develop` contains wave 1 plus Billing follow-ups (#22), Nepal payments Khalti and eSewa (#26), product polish (#38),
   image optimisation (#40), CI fixes (#46, #56), database hardening (#53), the host-header security fix (#59),
-  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72), Stripe (#58), deployment D1 (#79), invitations and template defaults (#78), the periodic-review security fixes (#89), the WHM simulator and the cPanel driver against it (S2, #100), the cPanel import page (step 3a-2, #101), the storefront marketing spec (#104), the home page design (#105), ADR 0018 sign-in methods (#106) and the simulator command fix (#109).
+  Currencies (#43), the production install path (#57), Dashboard v2 (#41), kernel contracts PR A (#61), provisioning on the kernel PR B (#62), Notifications (#28), docs-only CI pushes (#66), kernel PR B2 with encrypted server settings (#65), the test-memory fix (#75), ADR 0016 simulators (#74), the deployment study (#76) the cPanel/WHM driver 1a (#69) and 1b (#73), and email direction A with the product-sweep fixes (#72), Stripe (#58), deployment D1 (#79), invitations and template defaults (#78), the periodic-review security fixes (#89), the WHM simulator and the cPanel driver against it (S2, #100), the cPanel import page (step 3a-2, #101), the storefront marketing spec (#104), the home page design (#105), ADR 0018 sign-in methods (#106), the simulator command fix (#109), the CI speed-up (#91), the import-page re-review fixes (#119), local DB options (#125), automation redelivery (#82 via #122: `automation` queue connection, unique jobs, `automation:release-locks`), the CI minutes budget (#131) and cPanel import step 3b-1 (#95: tick, review, confirm, queued import with a per-account report).
 - Progress toward "a product a host would switch to": 46/100 by evidence (CEO review round 2, 2026-10-20,
   `docs/reviews/2026-10-20-ceo.md`), the weighted sum of its rubric. Correction: the 55 reported on 2026-10-19 did not
   match its own table, which sums to 38; the like-for-like movement since is +8 (cPanel driver proven against the WHM
   simulator, the deploy smoke runs, the import page, a first load test). One number from now on: the weighted sum.
 - Load test (50k clients, #108): far off the p95 200 ms target. Admin dashboard p50 28.5 s, invoice search 3.8 s,
-  renewals 20/s; the billing day took 546 s, so #82 (automation job redelivered after 240 s) is a go-live bug.
+  renewals 20/s; the billing day took 546 s, #82 (automation job redelivered after 240 s) is fixed in #122; the response-time findings are still open.
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
   account created from an order, paid through Stripe, on a server the owner provides.
 
@@ -26,21 +26,24 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 
 ## Open pull requests
 
-| PR   | Workstream                                       | Status (2026-10-20 06:55 UTC)                                                        |
-| ---- | ------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| #80  | Deployment D2: production compose, smoke test    | Ready, CI green, smoke 11/11 on GitHub. Board and security review running.            |
-| #111 | Deployment D3: blue-green, migration check        | Draft. First blue-green smoke run next; then D4 (image workflow, cPanel cron mode).   |
-| #108 | Load test and sizing guide (stacked on #80)      | Draft. Small profile passed; larger profiles and the guide follow.                    |
-| #91  | CI speed-up                                      | Draft, CI green. Revision in progress (target under 10 minutes, timeout back to 15).  |
-| #94  | Storefront home page, direction A                | Draft, conflicts with develop. Product-review fixes in progress, then product re-check. |
-| #99  | Admin > Website (stacked on #94)                 | Draft. After #94.                                                                     |
-| #95  | cPanel import, step 3b (choose, review, import)  | Draft. 3b-1 (digest-bound, queued apply) in progress, then 3b-2; re-checks after.     |
-| #113 | Simulators S3: Stripe simulator                  | Draft, retargeted to develop after S2 merged. Architect and security review running.  |
-| #112 | Sign-in PR 0: kernel methods and step-up         | Draft, conflicts with develop. Architect and security review running.                |
+| PR   | Workstream                                       | Status (2026-10-20 10:30 UTC)                                                                  |
+| ---- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| #80  | Deployment D2: production compose, smoke test    | Board round 3: changes requested (scheduler stop grace, health checks, memory, two security items). Fixes in progress; then re-review and one smoke run. |
+| #111 | Deployment D3: blue-green, migration check       | Draft. Blue-green smoke passed; needs the `worker-automation` service from #80.                  |
+| #108 | Load test and sizing guide (stacked on #80)      | Draft. After #80.                                                                               |
+| #133 | cPanel import step 3b-2 (choices, polish)         | Draft, verified locally. Product review of the whole import flow running.                        |
+| #113 | Simulators S3: Stripe simulator                  | Draft. Round-2 fixes in (forged deliveries, Stripe recording script); re-check running.          |
+| #115 | Simulators S4: end-to-end (stacked on #113)      | Draft. e2e passes on PostgreSQL in 23 s. Merges after #113.                                      |
+| #94  | Storefront home page, direction A                | Draft. Product re-check of 9350ef84, CTO sign-off on the seeder changes.                         |
+| #99  | Admin > Website (stacked on #94)                 | Draft. After #94.                                                                               |
+| #112 | Sign-in PR 0                                     | Draft. To be cut to the #81 fix (social sign-in deferred behind registrars).                     |
+| #137 | Public docs site (Astro Starlight, `docs-site/`) | Draft. Built, 23 pages. Merges after #80. Not published (owner, 2026-10-20).                     |
+| #120 | Client import spec                               | Draft. Owner questions in the PR.                                                               |
+| #128 | Gateway expansion spec (connectIPS, Fonepay, …)  | Draft. Owner questions in the PR.                                                               |
+| #129 | Integration test matrix for payment gateways     | Ready. Docs fast path.                                                                          |
 
-Not in a PR yet: simulators S4 end-to-end (`feature/simulators-s4`), cPanel PR 2 (SSO, package select, server health).
-Kept: `fix/automation-redelivery` (#82 WIP, ADR 0017) and `feature/payments-stripe-saved-methods` (design revision 3, to
-be ported to develop in a small docs PR before the Stripe saved-cards work).
+Kept: `feature/payments-stripe-saved-methods` (design revision 3, to be ported to develop in a small docs PR before
+the Stripe saved-cards work).
 
 ## Design and research in progress
 
@@ -50,19 +53,25 @@ be ported to develop in a small docs PR before the Stripe saved-cards work).
 | Storefront marketing spec | `feature/storefront-marketing` | Product manager: competitor and conversion research, `docs/product/storefront-marketing.md`. Designer revises against it.                                                                                                                                                                                        |
 | Deployment                | `feature/deploy-options`       | Fable advisor studying runtimes (nginx+FPM, FrankenPHP, Octane), proxies (Traefik, Caddy), hosts (VPS, PaaS, Kamal/Coolify, cPanel shared) and the deploy-files layout; then the DevOps engineer builds dev/prod Dockerfiles, compose files and a manually dispatched image-build workflow; then a Fable review. |
 
-## Running now (2026-10-20 07:30 UTC; budget 4 agents: 2 code, 2 review)
+## Running now (2026-10-20 10:30 UTC; budget 4 agents: 2 code, 2 review; no launch while load > 6)
 
-- Code: storefront fixes (#94, then #99, then #82 on `fix/automation-redelivery`); #82 automation redelivery fix.
-- Review: post-merge re-review of #101 (it merged with unverified blockers); board review of #91.
-- Queue, in order: #95 re-review and security re-check (then its fixes, then 3b-2 PR); #80 board and security;
-  #113 architect and security; #112 cut to the #81 fix (owner deferred social sign-in); simulators S4; deployment
-  D3 (#111) and D4 (paused: CEO review calls them ahead of an unmerged D2); load-test profiles (#108); a client
-  importer spec (CSV, then WHMCS), which comes before cPanel PR 2 (owner, 2026-10-20); a performance workstream from
-  the load test.
-- Owner actions asked: enable "Allow auto-merge" and "Automatically delete head branches" and require the CI check
-  on `develop`; approve the GitHub branch cleanup (Fable audit: 54 delete, 6 archive as tags, 16 keep).
-- Periodic review round 2 done: `docs/reviews/2026-10-20-ceo.md` and `-cto.md`; security and architecture skipped
-  (each merged PR had its own). Schedule at 02:17 and 14:17.
+- Code: #80 review fixes, then the `worker-automation` port to D3 (#111); D4 (image workflow, cPanel cron mode) is
+  local only until D2 merges.
+- Review: #113 re-check; product review of the import flow on #133 (covers #95, merged without its own).
+- Queue, in order: merge #113 then #115 (E2E job stays out of required checks until 10 green runs); #80 re-review and
+  one smoke run, then #137; #133 fixes and merge; #130 late-payment booking (high, needs an engineer); matrix tests
+  M-01..M-15 (#129); client importer build after the spec (#120); performance workstream from the load test; #112
+  cut to the #81 fix; move the owner preview to PostgreSQL; lockfile and dependency audit.
+- Owner actions asked:
+  - eSewa happy-path payment in the UAT sandbox (CAPTCHA, cannot be automated);
+  - confirm a $0 Actions budget (3,000 min/month cap);
+  - approve the GitHub branch cleanup (Fable audit: 54 delete, 6 archive as tags, 16 keep);
+  - repository settings: "Allow auto-merge", "Automatically delete head branches", required CI check on `develop`;
+  - after-the-fact approval of the early unpinned tool runs and installs (10-17/18), listed in the security note;
+  - a long-lived restricted Stripe test key as a Codespaces or Actions secret, for Stripe drift recordings;
+  - answers in #120 (client import) and #128 (gateways).
+- Lesson (10-20): after the reboot two agents ran commands in the main checkout because their worktree was gone and an
+  unchained `cd` failed. Nothing was pushed; both were reverted. Briefs now require `cd <dir> && …`.
 
 ## Next (in order, from the Fable review and the parity roadmap)
 
@@ -92,7 +101,7 @@ is a switch blocker in the parity studies.
 
 ## Open issues worth knowing
 
-Go-live blockers: #25 (key rotation), #82 (automation job redelivery), the load-test performance findings. Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
+Go-live blockers: #25 (key rotation), #130 (late payment booking), the load-test performance findings. Import follow-ups: #134–#136. Data: #48–#52. Product sweep: #31–#37, #42. Integrations:
 #27 (Nepal follow-ups), #29 (PDF attachments), #30 (Support contract), #44 (credential reveal), #45 (historical
 rates), #55 (TLD race). Tests and CI: #21, #24, #54. Full list: `gh issue list`.
 
