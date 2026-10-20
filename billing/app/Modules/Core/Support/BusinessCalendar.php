@@ -62,4 +62,19 @@ final class BusinessCalendar
             default => sprintf('%s%d minutes', $sign, abs($minutes)),
         };
     }
+
+    /**
+     * SQL for the local date of a UTC timestamp column, with one `?` to bind to sqlZoneArgument().
+     *
+     * @param  literal-string  $column  a column name written in code
+     * @return literal-string
+     */
+    public function sqlLocalDate(string $column): string
+    {
+        return match (DB::getDriverName()) {
+            'pgsql' => "date(({$column} at time zone 'UTC') at time zone ?)",
+            'mysql', 'mariadb' => "date(convert_tz({$column}, '+00:00', ?))",
+            default => "date({$column}, ?)",
+        };
+    }
 }

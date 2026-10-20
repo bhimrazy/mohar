@@ -1,4 +1,4 @@
-import { Form } from '@inertiajs/react';
+import { Form, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { ArrowRightLeft, Globe, Plus, Search } from 'lucide-react';
 import { useState } from 'react';
@@ -36,8 +36,18 @@ type Props = {
     currency: string;
 };
 
-function DomainRow({ result, currency }: { result: Result; currency: string }) {
-    const [action, setAction] = useState<'register' | 'transfer'>('register');
+function DomainRow({
+    result,
+    currency,
+    transfer,
+}: {
+    result: Result;
+    currency: string;
+    transfer: boolean;
+}) {
+    const [action, setAction] = useState<'register' | 'transfer'>(
+        transfer && result.transfer !== null ? 'transfer' : 'register',
+    );
     const price = action === 'register' ? result.register : result.transfer;
 
     return (
@@ -171,19 +181,32 @@ function DomainRow({ result, currency }: { result: Result; currency: string }) {
 }
 
 export default function Domains({ search, results, currency }: Props) {
+    // "Transfer a domain" links here with ?transfer=1: transfer is preselected on each result.
+    const transfer =
+        new URL(usePage().url, 'http://localhost').searchParams.get(
+            'transfer',
+        ) === '1';
+
     return (
         <>
             <Head title="Domains" />
 
             <StorefrontHero
                 eyebrow="Domains"
-                title="Find the perfect domain"
+                title={
+                    transfer
+                        ? 'Transfer your domain to us'
+                        : 'Find the perfect domain'
+                }
                 description="Register a new name or transfer one you already own. Prices are per year."
             >
                 <Form
                     {...store.domains.form()}
                     className="mt-2 flex w-full max-w-xl flex-col gap-2 sm:flex-row"
                 >
+                    {transfer && (
+                        <input type="hidden" name="transfer" value="1" />
+                    )}
                     <Field
                         htmlFor="domain"
                         label={<span className="sr-only">Domain name</span>}
@@ -244,6 +267,7 @@ export default function Domains({ search, results, currency }: Props) {
                                     key={result.domain}
                                     result={result}
                                     currency={currency}
+                                    transfer={transfer}
                                 />
                             ))}
                         </ul>
