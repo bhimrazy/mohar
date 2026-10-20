@@ -3,6 +3,7 @@
 namespace App\Modules\Migration\Support;
 
 use Illuminate\Validation\ValidationException;
+use LengthException;
 
 /**
  * Reading CSV files: encoding and delimiter detection, the upload limits (client-import spec §5.1), and one row at a
@@ -14,8 +15,11 @@ final class CsvFile
 
     public const MAX_CELL_BYTES = 32 * 1024;
 
-    /** Longest line read at once (outside quotes); a longer one is refused, which bounds the memory one row can take. */
-    public const MAX_LINE_BYTES = 256 * 1024;
+    /**
+     * Longest record (one row, including line breaks inside quoted cells). The raw bytes are capped before the record
+     * is split into cells, so no row can take more memory than this allows.
+     */
+    public const MAX_RECORD_BYTES = 256 * 1024;
 
     public const BOM = "\xEF\xBB\xBF";
 
@@ -51,12 +55,22 @@ final class CsvFile
 
         $rows = 0;
 
-        while (($row = self::read($handle, $delimiter)) !== null) {
+        while (true) {
+            try {
+                $row = self::read($handle, $delimiter);
+            } catch (LengthException) {
+                self::refuse(__('Row :row is longer than 256 KB, the limit per row.', ['row' => number_format($rows + 1)]));
+            }
+
+            if ($row === null) {
+                break;
+            }
+
             if (++$rows > $maxRows) {
                 self::refuse(__('The file has more than :limit rows. Split it into smaller files.', ['limit' => number_format($maxRows)]));
             }
 
-            if (count($row) > $maxColumns || ! self::endsLine($handle)) {
+            if (count($row) > $maxColumns) {
                 self::refuse(__('Row :row has more cells than the :limit columns a file may have.', ['row' => number_format($rows), 'limit' => $maxColumns]));
             }
 
@@ -81,16 +95,21 @@ final class CsvFile
     }
 
     /**
-     * The next non-blank row, or null at the end.
+     * The next non-blank row, or null at the end. The raw record is read first, line by line while a quoted cell is
+     * open, and split into cells only when it fits MAX_RECORD_BYTES.
      *
      * @param  resource  $handle
      * @return list<string>|null
+     *
+     * @throws LengthException when the record is longer than MAX_RECORD_BYTES
      */
     public static function read($handle, string $delimiter): ?array
     {
-        while (($row = fgetcsv($handle, self::MAX_LINE_BYTES, $delimiter, '"', '')) !== false) {
-            if ($row !== [null]) {
-                return array_map(fn (?string $cell): string => (string) $cell, $row);
+        while (($record = self::record($handle)) !== null) {
+            $record = rtrim($record, "\r\n");
+
+            if ($record !== '') {
+                return str_getcsv($record, $delimiter, '"', '');
             }
         }
 
@@ -98,22 +117,28 @@ final class CsvFile
     }
 
     /**
-     * Whether the row just read ended at a line break (or the end of the file), not at MAX_LINE_BYTES.
+     * One raw record: physical lines joined while the quotes are unbalanced (a doubled quote counts twice, so the
+     * parity still holds), never more than MAX_RECORD_BYTES.
      *
      * @param  resource  $handle
      */
-    private static function endsLine($handle): bool
+    private static function record($handle): ?string
     {
-        $position = (int) ftell($handle);
+        $record = '';
 
-        if (feof($handle) || $position === 0) {
-            return true;
+        while (($line = fgets($handle, self::MAX_RECORD_BYTES + 2 - strlen($record))) !== false) {
+            $record .= $line;
+
+            if (strlen($record) > self::MAX_RECORD_BYTES) {
+                throw new LengthException('Record longer than '.self::MAX_RECORD_BYTES.' bytes.');
+            }
+
+            if ((str_ends_with($line, "\n") || feof($handle)) && substr_count($record, '"') % 2 === 0) {
+                return $record;
+            }
         }
 
-        fseek($handle, $position - 1);
-        $last = fread($handle, 1);
-
-        return $last === "\n" || $last === "\r";
+        return $record === '' ? null : $record;
     }
 
     private static function detectDelimiter(string $head): string
