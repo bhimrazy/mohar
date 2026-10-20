@@ -1,0 +1,37 @@
+---
+title: Sign in for the first time
+description: Sign in as the first administrator and turn on two-factor authentication.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+<Steps>
+
+1. Open your address followed by `/login`, for example `https://billing.example.com/login`.
+
+2. Sign in with the administrator email and password you chose during install. If the installer printed a one-time
+   password, you are asked to choose a new one now.
+
+3. Set up two-factor authentication with an authenticator app. Staff must do this before they can use the admin
+   area; you can change that rule later under **Setup → Settings → Security**.
+
+4. You land on the dashboard. Its **Needs attention** list and **System health** panel show what to fix first, such
+   as a scheduler that has not run yet.
+
+    <Screenshot name="dashboard" alt="The dashboard after sign-in, with totals, a list of items that need attention and the navigation on the left." />
+
+</Steps>
+
+## What to set up next
+
+Work through these in order. Each one is a short page.
+
+1. [Company and brand](../../setup/company-and-brand/)
+2. [Currencies](../../setup/currencies/)
+3. [Tax](../../setup/tax/)
+4. [Products](../../setup/products/)
+5. [Payment gateways](../../setup/payment-gateways/)
+6. [A cPanel/WHM server](../../setup/cpanel-server/)
+
+Before you take real orders, go through the [security checklist](../../operate/security/).
