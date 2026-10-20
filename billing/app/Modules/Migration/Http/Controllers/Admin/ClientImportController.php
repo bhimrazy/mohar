@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Migration\Actions\ApplyRun;
+use App\Modules\Migration\Actions\DecideRows;
 use App\Modules\Migration\Actions\StartCheck;
 use App\Modules\Migration\Actions\UploadClientFile;
 use App\Modules\Migration\Jobs\ApplyChunk;
@@ -18,6 +20,7 @@ use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Models\MigrationSource;
 use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\CsvFile;
+use App\Modules\Migration\Support\ErrorsCsv;
 use App\Support\Queues;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,6 +30,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Admin → Clients → Import clients (client-import spec §5, §14): upload a file, map its columns, and check every row.
@@ -37,6 +41,9 @@ class ClientImportController extends Controller
     private const PER_PAGE = 50;
 
     public const TABS = ['all', 'create', 'update', 'unchanged', 'skip', 'needs_decision', 'error'];
+
+    /** Tabs once the import ran: by outcome, the rows not imported on their own tab. */
+    public const OUTCOME_TABS = ['all', 'created', 'updated', 'unchanged', 'skipped', 'failed'];
 
     public function index(Settings $settings): Response
     {
@@ -147,6 +154,62 @@ class ClientImportController extends Controller
     }
 
     /**
+     * Staff choose what one row does (DecideRows): create, update the matched client, or skip.
+     */
+    public function decide(Request $request, MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $data = $request->validate(['row' => ['required', 'integer', 'min:1'], 'decision' => ['required', Rule::in(['create', 'update', 'skip'])]]);
+        $decide->one($run, (int) $data['row'], (string) $data['decision']);
+
+        return back();
+    }
+
+    /**
+     * Accept every safe proposal; the toast says how many flagged rows were left for staff.
+     */
+    public function accept(MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        ['accepted' => $accepted, 'left' => $left] = $decide->acceptProposed($run);
+        Inertia::flash('toast', ['type' => $left > 0 ? 'info' : 'success', 'message' => trim(trans_choice('{0} No proposal to accept.|{1} 1 proposed row accepted.|[2,*] :count proposed rows accepted.', $accepted, ['count' => number_format($accepted)])
+            .' '.trans_choice('{0}|{1} 1 row is left for you: its match is closed, shared by several clients or changed email recently.|[2,*] :count rows are left for you: their matches are closed, shared by several clients or changed email recently.', $left, ['count' => number_format($left)]))]);
+
+        return back();
+    }
+
+    public function skipUndecided(MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $count = $decide->skipUndecided($run);
+        Inertia::flash('toast', ['type' => 'success', 'message' => trans_choice('1 row will be skipped.|:count rows will be skipped.', $count, ['count' => number_format($count)])]);
+
+        return back();
+    }
+
+    /**
+     * The rows that were not imported, as CSV, generated now and never stored (ErrorsCsv).
+     */
+    public function errors(MigrationRun $run, ActivityLogger $audit): StreamedResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $audit->log('Client import errors downloaded', $run, properties: ['file' => $run->file_name], event: 'migration.errors_downloaded');
+
+        return response()->streamDownload(function () use ($run): void {
+            $out = fopen('php://output', 'wb');
+
+            if ($out !== false) {
+                ErrorsCsv::write($run, $out);
+                fclose($out);
+            }
+        }, pathinfo($run->file_name, PATHINFO_FILENAME).'-errors.csv', ['Content-Type' => 'text/csv; charset=UTF-8', 'Cache-Control' => 'no-store']);
+    }
+
+    /**
      * Continue a step that failed or stalled, from where it stopped.
      */
     public function resume(MigrationRun $run): RedirectResponse
@@ -204,17 +267,20 @@ class ClientImportController extends Controller
 
     private function check(Request $request, MigrationRun $run): Response
     {
-        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
+        $applied = $run->applied_at !== null;
+        $tabs = $applied ? self::OUTCOME_TABS : self::TABS;
+        $tab = in_array($tab = $request->string('tab')->toString(), $tabs, true) ? $tab : 'all';
         $search = trim(mb_substr($request->string('search')->toString(), 0, 255));
         $rows = $run->records()
-            ->when($tab === 'error', fn ($query) => $query->where('status', 'error'))
-            ->when(! in_array($tab, ['all', 'error'], true), fn ($query) => $query->where('decision', $tab))
+            ->when($applied && $tab !== 'all', fn ($query) => $query->where('outcome', $tab))
+            ->when(! $applied && $tab === 'error', fn ($query) => $query->where('status', 'error'))
+            ->when(! $applied && ! in_array($tab, ['all', 'error'], true), fn ($query) => $query->where('decision', $tab))
             ->when($search !== '', fn ($query) => ctype_digit(str_replace(',', '', $search))
                 ? $query->where('row_number', (int) str_replace(',', '', $search))
                 : $query->where('email_hash', MigrationRecord::emailHash($search)))
             ->with('matchedClient:id,first_name,last_name,company_name')
             ->orderBy('row_number')
-            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes'])
+            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'outcome', 'target_id'])
             ->withQueryString()
             ->through(fn (MigrationRecord $record): array => [
                 'row' => $record->row_number,
@@ -226,10 +292,14 @@ class ClientImportController extends Controller
                 'problems' => array_map(fn (array $problem): array => ['severity' => $problem['severity'], 'message' => $problem['message']], $record->problems ?? []),
                 'changes' => array_map(fn (string $field): string => ClientColumns::TARGETS[$field === 'client_group_id' ? 'client_group' : $field] ?? $field, $record->changes ?? []),
                 'match' => $record->matchedClient === null ? null : ['name' => $record->matchedClient->display_name, 'href' => route('admin.clients.show', $record->matchedClient)],
+                'choices' => $run->status === MigrationRun::READY ? DecideRows::choices($record) : [],
+                'outcome' => $record->outcome,
+                'client_href' => in_array($record->outcome, ['created', 'updated'], true) && $record->target_id !== null ? route('admin.clients.show', $record->target_id) : null,
             ]);
 
         return Inertia::render('admin/migration/check', [
             'run' => $this->summary($run),
+            'errorsUrl' => $run->error_count + $run->failed_count > 0 && $request->user()?->hasPermission('migration.runs.execute') ? route('admin.migration.imports.errors', $run) : null,
             'counts' => [
                 'all' => $run->row_count, 'create' => $run->create_count, 'update' => $run->update_count, 'unchanged' => $run->unchanged_count,
                 'skip' => $run->skip_count, 'needs_decision' => $run->decision_count, 'error' => $run->error_count, 'tax_exempt' => $run->tax_exempt_count,

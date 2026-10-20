@@ -67,6 +67,10 @@ type Props = {
     contacts: ClientContact[];
     users: ClientLogin[];
     links: { title: string; href: string; icon: string }[];
+    imported: {
+        at: string;
+        fields: { label: string; value: string; source: string }[];
+    } | null;
     /** Null unless the staff member may read the activity log. */
     activity:
         | {
@@ -107,6 +111,7 @@ export default function ClientShow({
     contacts,
     users,
     links,
+    imported,
     activity,
     areas,
     emailTypes,
@@ -523,6 +528,39 @@ export default function ClientShow({
                                 ]}
                             />
                         </SectionCard>
+                        {imported && (
+                            <SectionCard
+                                title="Imported fields"
+                                description={
+                                    <>
+                                        Imported{' '}
+                                        <DateTime value={imported.at} />.
+                                        Columns of the file kept as they were.
+                                    </>
+                                }
+                            >
+                                {imported.fields.length > 0 ? (
+                                    <DescriptionList
+                                        items={imported.fields.map((field) => ({
+                                            label: field.label,
+                                            value: (
+                                                <span className="flex flex-col break-words">
+                                                    <span>{field.value}</span>
+                                                    <span className="text-xs text-muted-foreground">
+                                                        From {field.source}
+                                                    </span>
+                                                </span>
+                                            ),
+                                        }))}
+                                    />
+                                ) : (
+                                    <p className="text-sm text-muted-foreground">
+                                        The import kept no extra columns for
+                                        this client.
+                                    </p>
+                                )}
+                            </SectionCard>
+                        )}
                         <SectionCard title="Account" className="lg:hidden">
                             <DescriptionList
                                 columns={1}

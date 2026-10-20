@@ -265,6 +265,14 @@ pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searc
   it never signed in. The id map records every row, so the same file again comes out unchanged. No email is sent, and
   no `ClientRegistered` or other client event fires; `MigrationRunCompleted` fires once. The page shows the progress
   and the counts by outcome.
+- **Review and report**: each checked row can be switched to the choices it allows (create, update the matched client,
+  or skip), and the counts and review digest follow. "Accept all proposed" creates the rows whose company name or tax
+  ID matched a client and leaves rows matched to a closed client, several clients or a recently changed email for
+  staff, saying how many. After the import the rows are listed by outcome (created, updated, unchanged, skipped, not
+  imported) with a link to each client. The rows with errors download as CSV (row, column, reason and the original
+  cells; formula-like cells prefixed with an apostrophe), generated on request and never stored; staff need
+  `migration.runs.execute`.
+- The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`).
 

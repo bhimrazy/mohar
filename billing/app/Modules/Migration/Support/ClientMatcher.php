@@ -201,7 +201,7 @@ final class ClientMatcher
      * @param  list<string>  $exclude  fields this match never changes
      * @return list<string>
      */
-    private function changes(array $row, Client $client, bool $keepBlank, array $exclude): array
+    public function changes(array $row, Client $client, bool $keepBlank, array $exclude = []): array
     {
         // Only mapped cells: a filled one that differs, or (when blank cells clear) an empty one over a value.
         $blank = $keepBlank ? [] : array_intersect(array_map(fn (string $target): string => $target === 'client_group' ? 'client_group_id' : $target, $row['blank']), ClientImporter::CLEARABLE);
