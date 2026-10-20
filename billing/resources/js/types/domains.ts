@@ -85,7 +85,8 @@ export type LookupResult = {
         | 'reserved'
         | 'invalid'
         | 'unknown'
-        | 'unsupported';
+        | 'unsupported'
+        | 'self_registered';
     in_system?: boolean;
     is_premium?: boolean;
     badge?: string | null;
@@ -96,6 +97,10 @@ export type LookupResult = {
     transferable?: boolean;
     epp_required?: boolean;
     order_url?: string | null;
+    /** The client registers this extension at the registry (e.g. .np); it is not sold here. */
+    self_registered?: boolean;
+    registration_url?: string | null;
+    existing_url?: string | null;
 };
 
 export type DomainSearch = {

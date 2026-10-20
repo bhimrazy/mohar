@@ -85,6 +85,20 @@ class DomainLookup
      */
     private function availability(string $sld, array $tlds): array
     {
+        // The client registers these at the registry: nothing to ask a registrar, and nothing to sell here.
+        $own = array_values(array_filter($tlds, fn (string $tld): bool => (bool) $this->pricing->tld($tld)?->registered_by_client));
+        $tlds = array_values(array_diff($tlds, $own));
+        $selfRegistered = array_map(fn (string $tld): AvailabilityResult => new AvailabilityResult($sld.$tld, 'self_registered'), $own);
+
+        return [...$this->registrarAvailability($sld, $tlds), ...$selfRegistered];
+    }
+
+    /**
+     * @param  list<string>  $tlds
+     * @return list<AvailabilityResult>
+     */
+    private function registrarAvailability(string $sld, array $tlds): array
+    {
         if ($tlds === []) {
             return [];
         }
@@ -234,6 +248,9 @@ class DomainLookup
             'transferable' => $status === 'registered' && $result->status !== 'in_system' && $transferPrice !== null,
             'epp_required' => $tld->epp_required ?? true,
             'order_url' => $this->orderUrl($result->domain, $available ? 'register' : 'transfer', $available || $transferPrice !== null),
+            'self_registered' => $result->status === 'self_registered',
+            'registration_url' => $result->status === 'self_registered' ? (string) $this->settings->get('domains.self_registration_url', '') ?: null : null,
+            'existing_url' => $result->status === 'self_registered' && Route::has('store.index') ? route('store.index', ['domain' => $result->domain]) : null,
         ];
     }
 

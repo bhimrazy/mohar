@@ -61,6 +61,10 @@ return [
     // Premium names (spec §4.1, COULD): not sold until premium pricing is implemented.
     'premium_enabled' => false,
 
+    // "How to register" link for extensions the client registers at the registry (.np): the registry's own guide
+    // (Mercantile Communications runs register.com.np, the .np registry listed by IANA).
+    'self_registration_url' => 'https://register.com.np/how-to-register-np-domain',
+
     // Route name of the Orders cart "add domain" action, used by the public search when present.
     'order_route' => 'store.cart.domains.add',
 ];

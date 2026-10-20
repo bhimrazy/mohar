@@ -56,7 +56,7 @@ class TldController extends Controller
 
     public function store(TldRequest $request): RedirectResponse
     {
-        $tld = Tld::query()->create([...$request->validated(), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
+        $tld = Tld::query()->create([...$this->attributes($request), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
         $this->activity->log("TLD {$tld->extension} created", $tld);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('TLD :tld created. Add its prices next.', ['tld' => $tld->extension])]);
 
@@ -77,7 +77,7 @@ class TldController extends Controller
 
     public function update(TldRequest $request, Tld $tld): RedirectResponse
     {
-        $tld->update([...$request->validated(), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
+        $tld->update([...$this->attributes($request), 'display_unicode' => DomainName::toUnicode(ltrim($request->string('extension')->toString(), '.'))]);
         $this->activity->log("TLD {$tld->extension} updated", $tld, null, ['changed' => array_keys($tld->getChanges())]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('TLD :tld updated.', ['tld' => $tld->extension])]);
 
@@ -107,5 +107,15 @@ class TldController extends Controller
             'badges' => Tld::BADGES,
             'canManage' => request()->user()?->hasPermission('domains.tlds.manage') ?? false,
         ];
+    }
+
+    /**
+     * Validated TLD attributes; an empty "registered by the client" keeps the extension's default (or the stored value).
+     *
+     * @return array<string, mixed>
+     */
+    private function attributes(TldRequest $request): array
+    {
+        return array_filter($request->validated(), fn (mixed $value, string $key): bool => $key !== 'registered_by_client' || $value !== null, ARRAY_FILTER_USE_BOTH);
     }
 }

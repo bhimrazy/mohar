@@ -19,7 +19,7 @@ class TldResource extends JsonResource
         return [
             ...$this->only([
                 'id', 'extension', 'display_unicode', 'registrar_key', 'auto_register', 'epp_required', 'min_years', 'max_years',
-                'allow_register', 'allow_transfer', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
+                'allow_register', 'allow_transfer', 'registered_by_client', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
                 'renew_window_days', 'addon_dns', 'addon_id_protection', 'addon_email_forwarding', 'is_spotlight', 'badge',
                 'sort_order', 'is_active',
             ]),
