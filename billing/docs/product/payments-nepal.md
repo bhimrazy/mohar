@@ -255,7 +255,8 @@ amount (minor), currency, fee, payerRef, raw (redacted), retryable}`.
   never echoes them back (it shows "••• set", and an empty submit keeps the old value).
 - Module-level tunables go in the `SettingsRegistry` billing section:
   `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookup_grace_minutes` (120),
-  `billing.gateways.http_timeout_seconds` (15), and `billing.gateways.ambiguous_alert_minutes` (30).
+  `billing.gateways.http_timeout_seconds` (15), `billing.gateways.ambiguous_alert_minutes` (30),
+  `billing.gateways.late_lookup_hours` (48) and `billing.gateways.late_lookups_per_run` (100).
 - **Packaging (an "extension"):** each extension is one class `Drivers/Gateways/Nepal/<Name>Driver.php` plus
   endpoint config in `Config/billing.php` → `gateways.<key>.{sandbox,live}` plus one line in
   `BillingServiceProvider` (`$manager->register(...)`) plus Http::fake fixtures and a contract-test dataset entry.
@@ -293,6 +294,10 @@ expires_at, last_lookup_at, lookup_count, raw (redacted json), timestamps`, with
    `last_lookup_at` older than the interval and `now < expires_at + grace`. It uses exponential backoff. Past the
    grace period it marks the attempt expired, unless the last status was AMBIGUOUS/Pending, which stays and gets a
    staff todo.
+   Closed attempts (expired, failed) are looked up again once an hour, on a schedule entry of their own, for
+   `billing.gateways.late_lookup_hours` (48, 0 = off, at most 168) after they started; a success found then is
+   booked as a late payment (billing.md §13). The customer's return looks a closed attempt up only inside that
+   window.
 
 ### 3.3 Status mapping summary
 

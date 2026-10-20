@@ -327,7 +327,18 @@ This is the onboarding path for hosts who bring accounts that already exist on W
     - **Linked:** a service here already has the username. Differences (domain, plan, suspended, IP) are shown, and staff
       may accept the domain, IP or status from the server per row. Products are never changed here.
     - **Proposed:** exactly one client has the contact email (case-insensitive), and exactly one `cpanel` product uses the
-      account's `plan` on this server or its group.
+      account's `plan` on this server or its group, and the client's address is trusted:
+        - someone vouches for it: `clients.email_source` is `staff` or `import`, or a login on that client (owner or
+          not) has verified that exact address; and
+        - it has not changed in the last 30 days (`clients.email_changed_at`), whoever changed it.
+
+        Otherwise the match is shown with a flag ("Email set by the client and not verified", or the change date) but
+        not proposed, "Select all proposed" leaves it out, and the review imports it only when staff choose that client
+        themselves. Every path that sets a client's email records who did: admin create and edit write `staff`, an
+        importer writes `import`, and sign-up, checkout and the client-area account form write `client` (the default for
+        a path that forgets). Every path that creates a client also records `clients.origin` (`signup`, `checkout`,
+        `staff`, `import`, `api`): social sign-in must write `signup`, and the WHMCS client importer `import`.
+
     - **Unmatched:** staff pick a client and product, Skip, or Ignore (remembered per server and username).
     - **Reseller-owned** (root connection, `owner` ≠ `root`): listed separately, unselected by default.
     - **Missing on server:** local pending, active or suspended services with no remote account. Flagged only.

@@ -15,6 +15,37 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
   off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
   checked with the registrar (never re-sent) and listed in the sync report. No schema change.
+- **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
+  attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
+  after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
+  (all of it when the invoice was already paid). A Stripe webhook for a closed attempt now answers
+  `late payment recorded` instead of `attempt expired`. Run `php artisan migrate` (adds four nullable columns and
+  two indexes to `payment_attempts`, and `gateway` and `external_ref` to `credit_ledger` with a unique index on the
+  pair). The scheduler now runs `billing:reconcile-payments --only=open` every five
+  minutes and `billing:reconcile-payments --only=late` hourly, each on its own lock; without `--only` the command
+  runs both. New settings: "Hosted payments: keep checking closed payments for late success" (48 hours, 0 to 168)
+  and "Hosted payments: late checks per hourly run" (100). Attempts that closed before the upgrade are not swept;
+  a webhook or "Check now" can still book them. **After upgrading, check Billing → Payment attempts with the
+  "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
+  can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
+  records and refund any duplicate.
+
+- **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
+  migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
+  (`staff`, `import`, `client`; default `client`), with CHECK constraints on PostgreSQL. It runs outside a transaction
+  and backfills in batches of 1,000 clients from the activity log:
+    - `origin` becomes `staff` where a staff member created the client (`client.created`), and `signup` otherwise;
+    - `email_source` becomes `staff` where the last entry that set the email was a staff member's (`client.created`, or
+      `client.updated` with `email` changed); a client-area account-details save counts as the client's.
+
+    Clients seeded or created before the activity log recorded event keys (2026-10-17) count as `signup` with a
+    `client` email. Account import does not propose their email matches until a login on the client verifies the
+    address; staff can still choose such a client for an account. To vouch for addresses your staff entered or checked
+    with the client, with an audit entry per client:
+    `php artisan tinker --execute 'foreach ([12, 15] as $id) { $c = App\Modules\Core\Models\Client::query()->findOrFail($id); $c->forceFill(["email_source" => "staff"])->save(); app(App\Modules\Core\Support\ActivityLogger::class)->log("Client email vouched for by staff", $c, $c->id, ["email" => $c->email], "client.email_vouched"); }'`.
+    **Do not vouch for an address a client chose** (a sign-up, or one changed in the client area): that lets an email
+    match to it be proposed, and re-opens the gap this closes.
+
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -318,6 +349,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Core
 
+- Each client records how it was created (sign-up, checkout, staff, import or API) and who set its current email
+  (staff, import or the client), both written by the path that does it and never by a form. Account import proposes an
+  email match only when staff or an importer set the address, or a login on that client (owner or not) has verified
+  it, and the address has not changed in the last 30 days. Otherwise the row shows "Email set by the client and not
+  verified" and staff choose the client themselves. Before, a client-area login could set the email of a
+  staff-created client, or a sign-up's owner could delete their login, and after 30 days the match was proposed.
+
 - Clients, client groups, contacts, multi-user client accounts (owner + per-area permissions), staff flag,
   roles with wildcard permissions, currencies, settings store, activity log.
 - Admin: client list/search/filter, create, view, edit. Client area: dashboard, account details, account switcher.
@@ -440,6 +478,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `billing.credit.manage|adjust`, `billing.quotes.*`, `billing.gateways.manage`, `billing.gateway_log.view`,
   `billing.tax.manage`, `billing.settings.manage`. Dashboard widgets, todos, badge, quick-create and a demo seeder
   (USD/INR/NPR).
+- Late gateway payments (#130): each one writes an activity entry ("Late payment received after the attempt
+  closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
+  checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
+  A hosted payment that goes to account credit (the invoice was already paid or cancelled, or the payment was held
+  for review) gets the same to-do. The client sees the payment on the invoice and any surplus on the account credit
+  page. A provider refund of such a payment takes the credit back, up to what is left, once per refund id (one
+  credit line, even when nothing was left; staff see a zero line, the client does not); the rest goes to "Gateway
+  payments to review", as do a closed attempt the provider reports as partly refunded and a late payment whose
+  attempt no longer matches the invoice currency. "Check now" also works on expired and failed attempts. The
+  customer's return looks a closed attempt up only within the late window, and a session the provider reports as
+  expired, failed or cancelled is not swept again.
 - Payment tests (no behaviour change): the gaps and duplicates listed in `docs/testing/integration-test-matrix.md`
   are closed. New tests cover hosted payments on part-paid invoices, the invoice lock against a second checkout (a
   real concurrent PostgreSQL session), cancel on the sandbox hosted page, Stripe failing or timing out on session

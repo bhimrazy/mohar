@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Services\Actions\ImportServerAccounts;
@@ -8,6 +9,7 @@ use App\Modules\Services\Jobs\ImportReviewedAccounts;
 use App\Modules\Services\Models\Server;
 use App\Modules\Services\Models\ServerAccountImport;
 use App\Modules\Services\Models\ServerGroup;
+use App\Modules\Services\Support\AccountImportMatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -51,9 +53,9 @@ test('Select all proposed leaves out a match whose client changed email in the l
         ->and($alpha['flag']['at'])->toStartWith('2026-10-16');
 });
 
-test('a client who signed up and has not verified the email is shown but not proposed, and is imported only when chosen', function () {
+test('a client who set their own email and has not verified it is shown but not proposed, and is imported only when chosen', function () {
     $this->anna->delete();
-    $signup = Client::factory()->create(['email' => 'anna@alpha-books.com', 'currency' => 'USD']);
+    $signup = Client::factory()->create(['email' => 'anna@alpha-books.com', 'currency' => 'USD', 'email_source' => EmailSource::Client->value]);
     $signup->users()->attach(User::factory()->unverified()->create(['email' => 'anna@alpha-books.com']), ['is_owner' => true]);
     $verified = Client::factory()->create(['email' => 'chef@bravo-cafe.com', 'currency' => 'USD']);
     $verified->users()->attach(User::factory()->create(['email' => 'chef@bravo-cafe.com']), ['is_owner' => true]);
@@ -67,7 +69,7 @@ test('a client who signed up and has not verified the email is shown but not pro
     // Ticked without choosing the client: the review keeps it out; chosen explicitly, it can be imported.
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'include' => true, 'product_id' => 21])->assertSessionHasNoErrors();
     $alpha = collect($this->get(route('admin.services.servers.import.review', $this->server))->inertiaProps('rows'))->keyBy('username')['alpha'];
-    expect($alpha['decision']['problems'])->toBe(['This client has not verified their email: choose the client yourself to import it.'])
+    expect($alpha['decision']['problems'])->toBe(['The client set this email and no login has verified it: choose the client yourself to import it.'])
         ->and($alpha['decision']['flag']['kind'])->toBe('unverified');
 
     $this->put(route('admin.services.servers.import.select', $this->server), ['usernames' => ['alpha'], 'client_id' => $signup->id])->assertSessionHasNoErrors();
@@ -170,4 +172,16 @@ test('the bulk cycle says how many ticked accounts it leaves out, and the defaul
     $this->put(route('admin.services.servers.import.select', $this->server), ['ticked' => true, 'cycle' => null])->assertSessionHasNoErrors();
 
     expect(ServerAccountImport::query()->sole()->selections)->toBe(['alpha' => ['include' => true]]);
+});
+
+test('an address the client set is flagged until any login on the client verifies it; staff vouch for theirs', function () {
+    $own = Client::factory()->create(['email_source' => EmailSource::Client->value]);
+    $verified = Client::factory()->create(['email_source' => EmailSource::Client->value]);
+    $verified->users()->attach(User::factory()->create(['email' => $verified->email]), ['is_owner' => false]);
+    $byStaff = Client::factory()->create(['email_source' => EmailSource::Staff->value]);
+    $byStaff->users()->attach(User::factory()->unverified()->create(['email' => $byStaff->email]), ['is_owner' => true]);
+
+    $flags = app(AccountImportMatcher::class)->clientFlags([$own->id, $verified->id, $byStaff->id, $this->anna->id]);
+
+    expect(array_keys($flags))->toBe([$own->id])->and($flags[$own->id]['kind'])->toBe('unverified');
 });

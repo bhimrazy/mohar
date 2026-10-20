@@ -120,7 +120,9 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function schedule(Schedule $schedule): void
     {
         // Hosted gateways without webhooks: poll pending attempts between daily pipeline runs.
-        $schedule->command('billing:reconcile-payments')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+        $schedule->command('billing:reconcile-payments --only=open')->everyFiveMinutes()->withoutOverlapping()->onOneServer();
+        // Closed attempts, for late payments (#130): hourly, on a lock of its own so it never delays the open ones.
+        $schedule->command('billing:reconcile-payments --only=late')->hourly()->withoutOverlapping(30)->onOneServer();
     }
 
     private function registerAutomation(): void
@@ -298,6 +300,8 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
+            new SettingDefinition('billing.gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours)', 'integer', 'Hourly, up to 168 hours after the payment started. 0 turns it off.', rules: ['min:0', 'max:'.PaymentReconciler::MAX_LATE_LOOKUP_HOURS]),
+            new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),
             $int('gateways.http_timeout_seconds', 'Gateway HTTP timeout (seconds)'),
             $int('gateways.ambiguous_alert_minutes', 'Alert staff about unresolved payments after (minutes)'),
             $bool('quotes.require_tos', 'Quotes require accepting terms'),
