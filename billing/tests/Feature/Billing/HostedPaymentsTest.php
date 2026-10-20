@@ -27,6 +27,8 @@ use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\PaymentsNepal\Support\NprAmount;
+use App\Modules\PaymentsNepal\Support\ProviderException;
+use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
@@ -484,29 +486,30 @@ test('an attempt opened between the in-progress check and the insert still block
     expect($other)->not->toBeFalse();
 
     try {
-        // The first tab is inside its locked section: it has checked, inserted its attempt and not yet committed.
+        // The first tab is inside its locked section: it has checked, inserted its attempt and not yet committed. It holds
+        // FOR SHARE, the weakest row lock that still conflicts with FOR UPDATE, so only a real FOR UPDATE in the second
+        // tab blocks on it (the attempt insert's foreign-key check takes FOR KEY SHARE, which does not).
         pg_query($other, 'BEGIN');
-        pg_query_params($other, 'SELECT id FROM invoices WHERE id = $1 FOR UPDATE', [$invoiceId]);
+        pg_query_params($other, 'SELECT id FROM invoices WHERE id = $1 FOR SHARE', [$invoiceId]);
         pg_query_params($other, "INSERT INTO payment_attempts (reference, gateway, client_id, invoice_id, amount, currency, document_amount, document_currency, status, expires_at, created_at, updated_at)
             VALUES ($1, 'sandbox_card', $2, $3, 5000, 'USD', 5000, 'USD', 'pending', $4, $5, $5)", [PaymentAttempt::newReference(), $clientId, $invoiceId, now()->addMinutes(30)->toDateTimeString(), now()->toDateTimeString()]);
-        // It commits one second from now, while the second tab below is already running; just before committing it
-        // records whether the second tab's session is waiting for a lock.
+        // Without blocking this process, the first tab waits until the second tab's session is stuck on a lock (at most
+        // 10 s), records whether it is, then commits.
         $secondTab = (int) DB::selectOne('SELECT pg_backend_pid() AS pid')->pid;
-        pg_send_query($other, "SELECT pg_sleep(1); SELECT count(*) AS waiting FROM pg_locks WHERE pid = {$secondTab} AND NOT granted; COMMIT");
+        $waiting = sprintf('SELECT 1 FROM pg_locks WHERE pid = %d AND NOT granted', $secondTab);
+        pg_send_query($other, 'DO $poll$ BEGIN FOR i IN 1..200 LOOP EXIT WHEN EXISTS ('.$waiting.'); PERFORM pg_sleep(0.05); END LOOP; END $poll$;'
+            .' SELECT EXISTS ('.$waiting.') AS waiting; COMMIT');
 
-        $started = microtime(true);
         $second = rescue(fn () => app(StartHostedPayment::class)->handle(Invoice::query()->findOrFail($invoiceId), 'sandbox_card'), fn (Throwable $e) => $e, report: false);
-        $waited = microtime(true) - $started;
 
         $results = [];
         while (($result = pg_get_result($other)) !== false) {
             $results[] = pg_fetch_all($result) ?: [];
         }
 
-        // The second tab was blocked on the first tab's lock, then saw its attempt and refused; without the lock it would
-        // have read no committed attempt and opened a second payment.
-        expect((int) ($results[1][0]['waiting'] ?? 0))->toBeGreaterThan(0)
-            ->and($waited)->toBeGreaterThan(0.8)
+        // The second tab was blocked by the first tab's lock, then saw its attempt and refused. Without FOR UPDATE (no
+        // lock, or only a shared one) it is never blocked, reads no committed attempt and opens a second payment.
+        expect($results[1][0]['waiting'] ?? null)->toBe('t')
             ->and($second)->toBeInstanceOf(BillingException::class)
             ->and($second->getMessage())->toContain('already in progress')
             ->and(PaymentAttempt::query()->where('invoice_id', $invoiceId)->count())->toBe(1);
@@ -525,12 +528,23 @@ test('every hosted driver refuses to start a payment in a currency it does not l
 
     hostedSandbox();
     hostedProviderGateways();
+    // Providers that would accept the start, so a driver without its own guard returns an instruction instead of failing.
     Http::preventStrayRequests();
+    Http::fake([
+        'https://dev.khalti.com/api/v2/epayment/initiate/' => Http::response(['pidx' => 'PIDX1', 'payment_url' => 'https://test-pay.khalti.com/?pidx=PIDX1']),
+        STRIPE_API.'checkout/sessions' => fn (ProviderRequest $request) => Http::response(stripeCreatedSession('inv-0-a2', 1)),
+    ]);
     $driver = app(GatewayRegistry::class)->driver($key);
     $intent = new PaymentIntent('inv-0-a2', Money::of(5_000, 'XTS'), 'Invoice', route('billing.gateways.return', $key), route('billing.gateways.return', $key));
+    [$exception, $message] = match ($key) {
+        'fake_wallet' => [RuntimeException::class, 'The wallet only takes NPR, not XTS.'],
+        'khalti' => [ProviderException::class, 'Khalti only takes NPR, not XTS.'],
+        'esewa' => [ProviderException::class, 'eSewa only takes NPR, not XTS.'],
+        'stripe' => [StripeException::class, 'Stripe can\'t take 5000 minor units of XTS exactly.'],
+    };
 
     expect($driver)->toBeInstanceOf(HostedPaymentDriver::class)
-        ->and(fn () => $driver->initiate(app(GatewayManager::class)->config($key), $intent))->toThrow(Exception::class);
+        ->and(fn () => $driver->initiate(app(GatewayManager::class)->config($key), $intent))->toThrow($exception, $message);
     Http::assertNothingSent();
 })->with(HOSTED_DRIVERS);
 
@@ -584,4 +598,4 @@ test('every hosted driver honours the contract', function (string $key) {
     foreach ($secrets as $secret) {
         expect(json_encode($first->raw))->not->toContain($secret);
     }
-})->with(['sandbox_card', 'fake_wallet', 'khalti', 'esewa', 'stripe']);
+})->with(HOSTED_DRIVERS);
