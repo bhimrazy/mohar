@@ -4,8 +4,12 @@ namespace App\Modules\Migration\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Modules\Core\Models\ClientGroup;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Migration\Actions\StartCheck;
 use App\Modules\Migration\Actions\UploadClientFile;
+use App\Modules\Migration\Jobs\CheckRun;
 use App\Modules\Migration\Jobs\StageCsvRun;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Models\MigrationSource;
@@ -17,11 +21,12 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Validator;
 use Inertia\Inertia;
 use Inertia\Response;
 
 /**
- * Admin → Clients → Import clients (client-import spec §5.1, §14): upload a file and see the columns it was read with.
+ * Admin → Clients → Import clients (client-import spec §5, §14): upload a file, map its columns, and check every row.
  * Pages read counts from the run and decrypt only the rows they show.
  */
 class ClientImportController extends Controller
@@ -77,6 +82,38 @@ class ClientImportController extends Controller
         return $this->map($run);
     }
 
+    public function mapping(Request $request, MigrationRun $run, StartCheck $start): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $header = $run->header ?? [];
+        $currencies = Currency::query()->pluck('code')->all();
+        $validator = validator($request->all(), [
+            'columns' => ['required', 'array', 'size:'.count($header)],
+            'columns.*' => ['required', Rule::in(array_keys(ClientColumns::TARGETS))],
+            'date_format' => ['nullable', Rule::in(array_keys(ClientColumns::DATE_FORMATS))],
+            'options.on_match' => ['required', Rule::in(['skip', 'update'])],
+            'options.blank_cells' => ['required', Rule::in(['keep', 'clear'])],
+            'options.closed_clients' => ['required', Rule::in(['import', 'skip'])],
+            'options.match_company' => ['boolean'],
+            'options.match_tax_id' => ['boolean'],
+            'options.create_logins' => ['boolean'],
+            'options.trust_verified' => ['boolean'],
+            'options.groups' => ['array', 'max:50'],
+            'options.groups.*' => ['required', Rule::in(['create', 'none', ...ClientGroup::query()->pluck('id')->map(fn (mixed $id): string => (string) $id)->all()])],
+            'options.currencies' => ['array', 'max:50'],
+            'options.currencies.*' => ['required', Rule::in(['error', ...$currencies])],
+        ], ['columns.*.required' => __('Choose a target for every column, or Ignore.')]);
+        $validator->after(fn (Validator $validator) => $this->checkColumns($validator, $header));
+        $data = $validator->validate();
+
+        $options = [...$data['options'], 'groups' => $data['options']['groups'] ?? [], 'currencies' => array_filter($data['options']['currencies'] ?? [], fn (string $code): bool => $code !== 'error')];
+        $start->handle($run, ['columns' => array_values($data['columns']), 'date_format' => $data['date_format'] ?? null], $options);
+        Inertia::flash('toast', ['type' => 'info', 'message' => __('Checking :count rows. This page shows the progress.', ['count' => number_format($run->row_count)])]);
+
+        return to_route('admin.migration.imports.show', $run);
+    }
+
     /**
      * Continue a step that failed or stalled, from where it stopped.
      */
@@ -84,11 +121,13 @@ class ClientImportController extends Controller
     {
         $this->authorize('migration.runs.execute');
 
-        if ($run->file_key === null || ! $run->claimStopped(MigrationRun::STAGING)) {
+        $staging = $run->file_key !== null;
+
+        if (! $run->claimStopped($staging ? MigrationRun::STAGING : MigrationRun::CHECKING)) {
             throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
         }
 
-        dispatch(new StageCsvRun($run->id));
+        dispatch($staging ? new StageCsvRun($run->id) : new CheckRun($run->id, $run->generation, $run->checked_count));
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Continuing :file where it stopped.', ['file' => $run->file_name])]);
 
         return to_route('admin.migration.imports.show', $run);
@@ -100,6 +139,7 @@ class ClientImportController extends Controller
         $samples = $this->samples($run, count($header));
         $earlier = MigrationRun::query()->with('requester:id,name')->where('migration_source_id', $run->migration_source_id)
             ->where('file_sha256', $run->file_sha256)->where('id', '<', $run->id)->latest('id')->first();
+        $found = $run->found_values ?? [];
 
         return Inertia::render('admin/migration/map', [
             'run' => $this->summary($run),
@@ -108,6 +148,21 @@ class ClientImportController extends Controller
                 'samples' => $samples[$index] ?? [],
                 'forbidden' => ClientColumns::isForbidden($name),
             ], $header, array_keys($header)),
+            'mapping' => ['columns' => $run->mapping['columns'] ?? [], 'date_format' => $run->mapping['date_format'] ?? $this->guessDateFormat($run->mapping['columns'] ?? [], $samples)],
+            'options' => [
+                'on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import', 'match_company' => false, 'match_tax_id' => false,
+                'create_logins' => true, 'trust_verified' => false, ...array_diff_key($run->options ?? [], ['preset' => true]),
+            ],
+            'suggestions' => array_map(fn (string $preset): array => ClientColumns::suggest($header, $preset), array_combine(array_keys(ClientColumns::PRESETS), array_keys(ClientColumns::PRESETS))),
+            'targets' => $this->options(ClientColumns::TARGETS),
+            'required' => ClientColumns::REQUIRED,
+            'dateTargets' => ClientColumns::DATES,
+            'dateFormats' => $this->options(ClientColumns::DATE_FORMATS),
+            'presets' => $this->options(ClientColumns::PRESETS),
+            'found' => array_map(fn (array $values): array => array_map(fn (string $value, int $count): array => ['value' => $value, 'count' => $count], array_keys($values), $values), $found),
+            'groupOptions' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),
+            'currencyOptions' => Currency::query()->orderBy('code')->pluck('code'),
+            'result' => $run->status === MigrationRun::READY ? ['ready' => $run->create_count, 'errors' => $run->error_count, 'warnings' => $run->warning_count] : null,
             'earlier' => $earlier === null ? null : ['name' => $earlier->file_name, 'uploaded_at' => $earlier->created_at?->toIso8601String(), 'by' => $earlier->requester?->name, 'href' => route('admin.migration.imports.show', $earlier)],
         ]);
     }
@@ -154,6 +209,56 @@ class ClientImportController extends Controller
         }
 
         return $samples;
+    }
+
+    /**
+     * Year-first dates are unambiguous, so their format is chosen for staff; day and month orders are left to them.
+     *
+     * @param  list<string|null>  $columns
+     * @param  array<int, list<string>>  $samples
+     */
+    private function guessDateFormat(array $columns, array $samples): ?string
+    {
+        $dates = array_merge(...array_values(array_intersect_key($samples, array_filter($columns, fn (?string $target): bool => in_array($target, ClientColumns::DATES, true)))));
+
+        return $dates !== [] && array_filter($dates, fn (string $date): bool => preg_match('/^\d{4}-\d{1,2}-\d{1,2}/', $date) !== 1) === [] ? 'Y-m-d' : null;
+    }
+
+    /**
+     * Forbidden columns stay ignored, each single field is mapped once, and the required fields are mapped.
+     *
+     * @param  list<string>  $header
+     */
+    private function checkColumns(Validator $validator, array $header): void
+    {
+        $columns = (array) $validator->getData()['columns'];
+        $counts = array_count_values(array_filter($columns, 'is_string'));
+
+        foreach ($header as $index => $name) {
+            if (ClientColumns::isForbidden($name) && ($columns[$index] ?? null) !== ClientColumns::IGNORE) {
+                $validator->errors()->add("columns.{$index}", __('Passwords and card data cannot be imported. Clients set a password from their invitation.'));
+            }
+        }
+
+        foreach ($counts as $target => $count) {
+            if ($count > 1 && ! in_array($target, [ClientColumns::IGNORE, ClientColumns::IMPORTED_FIELD], true)) {
+                $validator->errors()->add('columns', __(':target is chosen for more than one column.', ['target' => ClientColumns::TARGETS[$target] ?? $target]));
+            }
+        }
+
+        if (($counts[ClientColumns::IMPORTED_FIELD] ?? 0) > ClientColumns::MAX_IMPORTED_FIELDS) {
+            $validator->errors()->add('columns', __('Keep at most :max columns as imported fields.', ['max' => ClientColumns::MAX_IMPORTED_FIELDS]));
+        }
+
+        $missing = array_diff(ClientColumns::REQUIRED, array_keys($counts));
+
+        if ($missing !== []) {
+            $validator->errors()->add('columns', __('Map a column to each of: :fields.', ['fields' => implode(', ', array_map(fn (string $field): string => mb_strtolower(ClientColumns::TARGETS[$field]), $missing))]));
+        }
+
+        if (array_intersect(ClientColumns::DATES, array_keys($counts)) !== [] && ($validator->getData()['date_format'] ?? null) === null) {
+            $validator->errors()->add('date_format', __('Choose how the dates in the file are written.'));
+        }
     }
 
     private function maxBytes(Settings $settings): int

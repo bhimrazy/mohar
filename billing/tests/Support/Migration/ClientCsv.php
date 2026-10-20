@@ -6,7 +6,7 @@ use App\Modules\Migration\Models\MigrationRun;
 use Illuminate\Http\UploadedFile;
 
 /**
- * Client files for the import tests, and the upload a staff member makes with them (the queue runs synchronously).
+ * Client files for the import tests, and the steps a staff member takes with them (the queue runs synchronously).
  */
 final class ClientCsv
 {
@@ -50,5 +50,22 @@ final class ClientCsv
             ->assertSessionHasNoErrors()->assertRedirect();
 
         return MigrationRun::query()->latest('id')->firstOrFail();
+    }
+
+    /**
+     * Save a mapping (the suggestion unless given) with options, and return the checked run.
+     *
+     * @param  array<string, mixed>  $options
+     * @param  list<string>|null  $columns
+     */
+    public static function check(MigrationRun $run, array $options = [], ?array $columns = null, ?string $dateFormat = null): MigrationRun
+    {
+        test()->put(route('admin.migration.imports.mapping', $run), [
+            'columns' => $columns ?? $run->fresh()->mapping['columns'],
+            'date_format' => $dateFormat,
+            'options' => ['on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import', ...$options],
+        ])->assertSessionHasNoErrors()->assertRedirect();
+
+        return $run->fresh();
     }
 }

@@ -93,13 +93,19 @@ final class StageCsvRun implements ShouldBeEncrypted, ShouldQueue
     }
 
     /**
-     * Marks the run staged, then deletes the file: a crash in between leaves a key to an object that is gone, which the
-     * next attempt recognises, never a run that cannot finish.
+     * Marks the run staged (with the suggested mapping), then deletes the file: a crash in between leaves a key to an
+     * object that is gone, which the next attempt recognises, never a run that cannot finish.
      */
     private function finish(MigrationRun $run, int $rows, ActivityLogger $audit): void
     {
         $key = (string) $run->file_key;
-        $run->forceFill(['status' => MigrationRun::MAPPING, 'file_key' => null, 'row_count' => $rows, 'staged_count' => $rows])->save();
+        $run->forceFill([
+            'status' => MigrationRun::MAPPING,
+            'file_key' => null,
+            'row_count' => $rows,
+            'staged_count' => $rows,
+            'mapping' => ['columns' => ClientColumns::suggest($run->header ?? [], (string) ($run->options['preset'] ?? 'generic')), 'date_format' => null],
+        ])->save();
         Storage::disk('objects')->delete($key);
         $audit->log('Client import file read and deleted', $run, properties: ['rows' => $rows, 'file' => $run->file_name, 'object' => $key], event: 'migration.file_deleted');
     }
