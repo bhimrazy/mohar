@@ -5,6 +5,7 @@ namespace App\Modules\Core\Console\Commands;
 use App\Events\Core\AutomationRunCompleted;
 use App\Modules\Core\Models\AutomationRun;
 use App\Support\Automation\Automation;
+use App\Support\Queues;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -21,7 +22,7 @@ class RunAutomation extends Command
 
     public function handle(Automation $automation): int
     {
-        $lock = Cache::lock(self::LOCK, 3600);
+        $lock = Cache::lock(self::LOCK, Queues::AUTOMATION_TIMEOUT_SECONDS);
 
         if (! $lock->get()) {
             $this->components->warn('Another automation run is in progress.');

@@ -159,20 +159,37 @@ Cron, as the user that runs PHP:
 The scheduler writes a heartbeat every minute and runs the daily automation pipeline at `core.automation_time`
 (03:00 server time by default). The admin dashboard flags automation that has not run for 26 hours.
 
-Queue workers, kept running by systemd or Supervisor (the queue names follow ADR 0014):
+Queue workers, kept running by systemd or Supervisor. `app:install` prints the same four commands; the queue names
+are in `App\Support\Queues` (ADR 0014):
 
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
 php artisan queue:work --queue=default --tries=3
+php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
 
-The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md), which is still proposed. The first pool
+The pools follow [ADR 0014](../adr/0014-observability-and-queue-topology.md) (queue topology accepted). The first pool
 calls gateways, control panels and registrars. Module jobs time out after `services.module.job_timeout_seconds` (60 s),
 or after the driver's declared command timeout up to `services.module.max_job_timeout_seconds` (180 s); the pool's
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
 the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+
+The fourth worker runs **Run now** from Admin → Automation. A run can last longer than the pools' `retry_after` (a
+billing day for 50,000 clients took 546 s in load testing), and a worker hands a reserved job to a second worker once
+`retry_after` has passed, even while the first is still running it. So these jobs use their own `automation`
+connection: the same backend as `QUEUE_CONNECTION` (`database`, `redis`, `beanstalkd` or `sqs`; `database` for any
+other driver), the `automation` queue, and a `retry_after` of 3,900 s, above the job's 3,600 s timeout. The values
+are set in `App\Support\Queues`, not in `.env`. On SQS, create an `automation` queue with a visibility timeout of
+at least 3,900 s.
+
+- One automation worker is enough: while one run waits or runs, another **Run now** is not queued, and the page
+  says so. The scheduled daily run does not use the queue; it runs in the scheduler process.
+- Without this worker, **Run now** requests wait in the queue until a worker starts.
+- Give the worker a stop timeout above 3,600 s (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose
+  `stop_grace_period`). A worker stopped mid-run ends the run part-way: press **Run now** again, and the tasks that
+  already succeeded that day are skipped.
 
 A minimal systemd unit for one pool:
 
