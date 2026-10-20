@@ -563,7 +563,10 @@ a time: medians of three runs before and three after, on the same database, on a
   through signed links), the checklist, and forms to approve or return documents, record the portal submission and
   record the registry's answer, plus an Overdue badge. On the client domain page, the card shows where the request
   stands, which documents are missing, an upload form, the reasons a step went back, a request letter to copy for
-  organisations, and the price note from the registrar settings.
+  organisations (dated, with the organisation's name, following the
+  current "Registering as" choice), and the price note from the registrar settings. Switching "Registering as" after
+  uploading asks first, because the uploaded documents are removed. "Open" on the admin card fetches a fresh signed
+  link each time, so a page left open still opens the document.
 
 ### Orders
 
