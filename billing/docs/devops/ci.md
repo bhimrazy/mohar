@@ -39,7 +39,8 @@ the dependency policy runs **before** anything is installed (no package code —
 | 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers, Feature and Extensions)      | 212                 |
 | 12  | `npm run build` · app without dev dependencies · cache save · container stop                         | 21 + 2 + 2          |
 
-`timeout-minutes: 15` caps a hung run (steps take about 7.5 minutes). Shared setup lives in `.github/actions/setup-app` (composite action).
+`timeout-minutes: 15` caps a hung run. The job took 579–622 s on the last two runs (39279853998, 39383275452);
+the last step warns (`::warning::`) once the job passes 12 minutes, the point to act before runs are cancelled. Shared setup lives in `.github/actions/setup-app` (composite action).
 
 Caches (keys derived from lockfiles): Composer downloads (`composer.lock`), npm (`package-lock.json`, via
 `setup-node`), and one tool cache restored from the latest run and saved again by every run: PHPStan's result cache
@@ -54,15 +55,20 @@ vCPUs; 4 in the Codespace). Every process gets its own SQLite in-memory database
 reliable and nothing migrates or seeds the base database first.
 
 The Unit and Arch suites never touch the database, so they run only in the SQLite step: `composer test:pgsql`
-passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they name). `Tests\TestCase` fails a
-test in `tests/Unit` or `tests/Arch` that uses a database trait or runs a query; such a test belongs in
+passes `--exclude-testsuite=Unit,Arch` (explicit paths still run whatever they name). Most tests there extend
+`PHPUnit\Framework\TestCase`, which boots no application and cannot reach the database. For the few bound to
+`Tests\TestCase` (one file today), the test case fails a test in `tests/Unit` or `tests/Arch` that uses a database
+trait or runs a query (`tests/Unit/TestHarness/DatabaseFreeSuiteGuardTest.php`); such a test belongs in
 `tests/Feature`.
 
 A seed that takes tens of seconds is seeded once per worker, not in every test:
 `$this->useSeededDatabase('<name>', fn () => $this->seed(...))` in `beforeEach` creates, migrates and seeds a
 separate database the first time a worker asks for it (`<database>_<name>` on PostgreSQL, a temporary file on
 SQLite), then runs each test in a transaction on it that is rolled back in `tearDown()`. BillingSeederTest uses it
-for the 730-day demo billing history.
+for the 730-day demo billing history. A failing seed restores the test's own default connection, and the seeded
+connection has a test-aware transaction manager, so after-commit callbacks behave as under RefreshDatabase
+(`tests/Feature/TestHarness`). PostgreSQL sequences are not rolled back: a test on a seeded database must not
+assert ids or sequence values.
 
 Each worker is one PHP process that runs about half the suite, so memory a test file leaves behind (static
 caches, singletons) adds up against the 1 GB `memory_limit` in `phpunit.xml`. The largest such cache is the arch
@@ -102,16 +108,16 @@ time. It cannot share a pre-seeded database because it changes the registry and 
 
 ## Billable minutes per PR run
 
-| Design                                    | Jobs | Job durations                                                                              | Billable      |
-| ----------------------------------------- | ---- | ------------------------------------------------------------------------------------------ | ------------- |
-| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s       | **5 min**     |
-| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                  | 3–4 min       |
-| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                      | **2 min**     |
-| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                | **4–6 min**   |
-| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                          | **14–15 min** |
-| One job after PR #91                      | 1    | steps 442 s (run 39279853998; PostgreSQL 212 s, SQLite 132 s); earlier revisions 555–589 s | **8 min**     |
-| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                     | **1 min**     |
-| Draft PR / feature-branch push            | 0    | —                                                                                          | **0**         |
+| Design                                    | Jobs | Job durations                                                                                   | Billable      |
+| ----------------------------------------- | ---- | ----------------------------------------------------------------------------------------------- | ------------- |
+| Before (PR #1 layout; PRs #3–#5, develop) | 5    | measured: lint 43–52 s, static 23–34 s, sqlite 20–29 s, pgsql 39–59 s, build 34–43 s            | **5 min**     |
+| Considered: `quality` + `tests`           | 2    | estimated ≈ 75 s + ≈ 61 s                                                                       | 3–4 min       |
+| After: one job                            | 1    | measured 92 s (PR #9, run 39065947655, before Vitest)                                           | **2 min**     |
+| One job on 2026-10-18 (wave 1 merged)     | 1    | measured 202–319 s (PRs #8, #22; full suite on SQLite + PostgreSQL, Vitest)                     | **4–6 min**   |
+| One job on 2026-10-19, before PR #91      | 1    | measured 829–874 s (PRs #69, #72, #73; PostgreSQL step 544–550 s)                               | **14–15 min** |
+| One job after PR #91                      | 1    | measured 579–622 s (runs 39279853998, 39383275452; PostgreSQL step 212–309 s, SQLite 132–194 s) | **10 min**    |
+| After, docs/png-only PR                   | 1    | ≈ 50 s                                                                                          | **1 min**     |
+| Draft PR / feature-branch push            | 0    | —                                                                                               | **0**         |
 
 Each merge additionally runs once on `develop`. Measure real runs with `gh run view <id> --json jobs`
 (job `startedAt`/`completedAt`); if the job regularly exceeds 120 s, the PHPStan cache and step order are the

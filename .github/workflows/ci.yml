@@ -105,6 +105,7 @@ jobs:
                       echo "code=$code"
                       echo "base=$base"
                   } >> "$GITHUB_OUTPUT"
+                  echo "JOB_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
                   echo "Code changes: $code · dependency diff base: $base"
 
             - name: Set up PHP
@@ -267,3 +268,13 @@ jobs:
                       exit 1
                   fi
                   php -r 'require "vendor/autoload.php"; exit(class_exists("Mohar\\Simulators\\SimulatorRegistry") ? 1 : 0);'
+
+            # timeout-minutes is 15; warn at 12 so a slow job is noticed before it is cancelled (billing/docs/devops/ci.md).
+            - name: Job time (warn above 12 minutes)
+              if: always() && steps.changes.outputs.code == 'true'
+              run: |
+                  elapsed=$(( $(date +%s) - JOB_STARTED_AT ))
+                  echo "Job time since checkout: ${elapsed} s of the 900 s timeout"
+                  if [ "$elapsed" -gt 720 ]; then
+                      echo "::warning::CI took ${elapsed} s, over 12 of the 15 minutes before the timeout; see billing/docs/devops/ci.md"
+                  fi

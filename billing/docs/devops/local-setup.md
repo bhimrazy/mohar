@@ -78,7 +78,7 @@ composer ci                                    # every CI gate below, in CI orde
 
 `composer test:pgsql` clears cached config, then runs `vendor/bin/pest --parallel --exclude-testsuite=Unit,Arch`
 (the database-free suites run only on SQLite; one worker per core, or `PEST_PROCESSES=<n>`; extra arguments after
-`--` go to Pest, and an explicit path runs whatever it names) with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
+`--` go to Pest, and an explicit path runs whatever it names; ParaTest accepts one path, so use a directory or `--filter` for more) with `DB_CONNECTION=pgsql` and `DB_HOST` / `DB_PORT` / `DB_DATABASE` /
 `DB_USERNAME` / `DB_PASSWORD` taken from your shell, defaulting to the compose values
 (`127.0.0.1` / `5432` / `billing_test` / `billing` / `billing`). `.env` is not consulted for these: real
 environment variables win over `.env` and over the `<env>` defaults in `phpunit.xml`. The CI "Pest (PostgreSQL)"
