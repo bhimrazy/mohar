@@ -44,8 +44,11 @@ pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searc
   (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
   (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
   and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
-  needs a superuser to run `create extension pg_trgm` first. On 20,000 clients the builds took 2.4 s and the indexes
-  use about 10 MB. SQLite is unchanged.
+  needs a superuser to run `create extension pg_trgm` first. Some managed services also need `pg_trgm` allow-listed
+  before it can be created (Azure Database for PostgreSQL: the `azure.extensions` server parameter). If creating the
+  extension fails, `migrate` stops at the first trigram migration with the database error; allow the extension and run
+  `migrate` again, which is safe to repeat. On 20,000 clients the builds took 2.4 s and the indexes use about 10 MB.
+  SQLite is unchanged.
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
