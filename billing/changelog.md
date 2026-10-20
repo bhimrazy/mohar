@@ -8,17 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
-- **Chargebacks and provider refunds take back account credit (#172).** A dispute or a provider-side refund of a
-  payment that went to account credit (an overpayment, or a payment of an invoice that was already paid or
-  cancelled) left that credit spendable: the chargeback was booked at 0 and the refund only logged "refund needs staff
-  review". Now the part the payment could not return is taken back from the credit that payment placed, once per
-  dispute or refund id, and the chargeback carries the full disputed amount. The take-back never touches credit from
-  anywhere else. If the client already spent the credit, the balance goes negative and a new dashboard to-do,
-  "Clients owing account credit" (`billing.credit.manage`), links to Billing → Account credit filtered to negative
-  balances (new "Show" filter). Webhook results now read "chargeback recorded; credit taken back" or "refund
-  recorded; credit taken back" when credit was taken. No migration. Refunds of flagged late payments (#152) work as
-  before. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments were
-  disputed or refunded at the provider.
+- **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
+  of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
+  cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
+  and the refund only logged "refund needs staff review". Now the part the payment could not return is taken back
+  from the credit that payment placed, once per dispute or refund id, never from other credit. If the client
+  already spent it, the balance goes negative; this now also applies to refunds of flagged late payments (#152),
+  which keep their "Gateway payments to review" flag. Chargeback and refund rows book the whole reversed amount as
+  money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
+  left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
+  to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
+  balances only" filter) and "Disputes and refunds to review" (`billing.payments.manage`; Billing → Transactions,
+  "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
+  recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
+  `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
+  built concurrently on PostgreSQL. Not handled yet: a dispute the merchant wins books nothing, so correct the
+  credit by hand. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  were disputed or refunded at the provider.
 
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
