@@ -274,3 +274,33 @@ export function composeImages(text) {
 
     return images;
 }
+
+/**
+ * Direct dependencies of a package.json that are not pinned to one exact version (ADR 0007): ranges, tags, URLs and
+ * workspaces. An `npm:<name>@<version>` alias passes when its version is exact.
+ *
+ * @param {object|null} packageJson
+ * @returns {string[]} "name@spec" of every dependency that is not exact
+ */
+export function directPinProblems(packageJson) {
+    const exact = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+    const problems = [];
+    for (const section of [
+        'dependencies',
+        'devDependencies',
+        'optionalDependencies',
+    ]) {
+        for (const [name, spec] of Object.entries(
+            packageJson?.[section] ?? {},
+        )) {
+            const version = String(spec).startsWith('npm:')
+                ? String(spec).replace(/^npm:(@?[^@]+)@/, '')
+                : String(spec);
+            if (!exact.test(version)) {
+                problems.push(`${name}@${spec}`);
+            }
+        }
+    }
+
+    return problems;
+}

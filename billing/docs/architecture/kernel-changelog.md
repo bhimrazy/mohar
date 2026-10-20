@@ -6,6 +6,61 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar prerequisites (#164)
+
+- `Redactor`: a secret `name=value` pair inside another pair's value (`Rejected: api-key=…`) is masked; it was kept
+  whole. The search inside a value is bounded (2 levels, values up to 4 KB), so long provider text stays linear in
+  time and memory. Signatures unchanged. Compatible: more is masked, nothing that was masked is shown.
+- No other kernel change: `ReconcileStatus` and `Queues::REGISTRAR` are used as they are. The single dev queue worker
+  (`composer dev`) moved to Core and is built from the `Queues` constants.
+
+### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
+
+- Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes
+  nothing; `rules()` must not query the database), `ImportIdResolver::targetId(string $entity, string $sourceId)`,
+  the DTOs `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}` and the enums
+  `App\Enums\{ImportAction (@open), ImportSeverity}`, as `migration.md` §12 with two trailing defaulted fields,
+  `ImportOutcome::$changes` and `ImportContext::$actorId`. One vocabulary: `$entity` is the registry key and
+  `$sourceSystem` the kind of source (`csv`, `whmcs_api`).
+- Added the final registry `App\Support\Migration\ImportRegistry` (ADR 0012), bound in `AppServiceProvider`:
+  `register(key, class-string|Closure, replace: false, dependsOn: [])` with keys matching `[a-z0-9_]{1,50}`,
+  duplicates refused unless replaced (logged), `has()`, `get()` (checks the importer's `key()`), `keys()`, and
+  `ordered(array $keys = [])`, which checks only the requested chains.
+- Added `App\Support\Queues::IMPORTS` (`imports`), `IMPORT_JOB_TIMEOUT_SECONDS` (120), `DEFAULT_POOL_TIMEOUT_SECONDS`
+  (150) and `DEFAULT_POOL_MEMORY_MB` (256). The default pool works `default,imports`; no new connection (ADR 0014
+  amendment).
+- Arch rule: every `App\Modules\*\Import` namespace that exists uses no `event()` or `dispatch()` helper, event
+  dispatcher, `Event`, `Bus`, `Mail` or `Notification` facade, `SystemMailer`, `AuthMailer`, `App\Events` namespace
+  other than `Migration`, or driver contract or registry; a probe fixture proves the rule fails.
+- The run events (C4) are not in this PR; each lands with the code that dispatches it (ADR 0019).
+
+### Storefront (public site, PR feature/storefront-home)
+
+- Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
+  Orders; Core binds `NullShopperSession` (default currency, empty cart).
+- Added `App\Contracts\Support\PublicHelpDirectory` (`recentAnnouncements()`, `popularArticles()`,
+  `networkStatus()`), implemented by Support; Core binds `NullPublicHelpDirectory`. Spec K9, without the sitemap part.
+- Added `DomainPricing::catalog(string $currency, ?int $clientId = null)`: active TLDs with 1-year register, renew and
+  transfer prices, spotlight flag and badge (spec K4, without `category` and the `TldPricingChanged` event). Service
+  contract: `FakeDomains` is updated.
+- Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
+  `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
+- Added `App\Support\Seo\SitemapRegistry` (ADR 0012 shape: `register(key, Closure, replace: false)` with keys
+  `[a-z0-9_]{1,50}`, a duplicate key throws unless replaced, `has()`, `keys()`, `entries()`; a source that throws is
+  reported and left out), bound as a singleton. Orders, Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`. Declared here with the
+  other storefront kernel pieces; the publish flow that dispatches it is the stacked PR #99.
+- `PriceBook::storefront()` products also document the optional `is_taxable` key (Catalog sends it).
+- Interim gaps, each until its spec contract exists: K6 (`TaxDisplay`): Storefront derives the tax statement and
+  inclusive amounts from a probe line through `TaxCalculator`, and reads `orders.domains_taxable` and
+  `catalog.show_monthly_breakdown` through Core `Settings`. K7 (`GatewayDirectory::acceptanceMarks()`): Storefront
+  reads logos from `GatewayRegistry` drivers that implement `ProvidesLogo`. K5 (`ProductGroupUpdated`): a group that is
+  hidden or renamed can show in the header for up to `storefront.cache_seconds` (600 s).
+- `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
+  `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
+- Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
+  `core.company_*` and `billing.seller.*` through Core `Settings`.
+
 ### Integration simulators, S1 (ADR 0016 §1, §3)
 
 - `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;

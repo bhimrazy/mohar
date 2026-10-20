@@ -2,6 +2,8 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
 use App\Modules\Domains\Actions\SaveRegistrarAccount;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
@@ -28,7 +30,7 @@ class RegistrarController extends Controller
                 $driver = $registrars->driver($key);
                 $account = $accounts->get($key);
                 $settings = $account->settings ?? [];
-                $schema = $driver->settingsSchema();
+                $schema = $registrars->fields($key);
 
                 return [
                     'key' => $key,
@@ -37,11 +39,11 @@ class RegistrarController extends Controller
                     'configured' => $account !== null,
                     'is_active' => $account->is_active ?? true,
                     'test_mode' => $account->test_mode ?? false,
-                    'schema' => $schema,
-                    'settings' => collect($schema)->mapWithKeys(fn (array $field): array => [
-                        $field['key'] => $field['type'] === 'password' ? '' : ($settings[$field['key']] ?? null),
+                    'schema' => array_map(fn (SettingField $field): array => $field->toArray(), $schema),
+                    'settings' => collect($schema)->mapWithKeys(fn (SettingField $field): array => [
+                        $field->key => $field->isSecret() ? '' : ($settings[$field->key] ?? $field->default ?? ($field->type === FieldType::Boolean ? false : null)),
                     ])->all(),
-                    'secrets_set' => collect($schema)->where('type', 'password')->mapWithKeys(fn (array $field): array => [$field['key'] => filled($settings[$field['key']] ?? null)])->all(),
+                    'secrets_set' => collect($schema)->filter(fn (SettingField $field): bool => $field->isSecret())->mapWithKeys(fn (SettingField $field): array => [$field->key => filled($settings[$field->key] ?? null)])->all(),
                     'domains_count' => (int) ($domainCounts[$key] ?? 0),
                     'tlds_count' => (int) ($tldCounts[$key] ?? 0),
                 ];

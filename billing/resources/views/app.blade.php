@@ -48,8 +48,25 @@
         @viteReactRefresh
         @vite(['resources/css/app.css', 'resources/js/app.tsx', "resources/js/pages/{$page['component']}.tsx"])
         <x-inertia::head>
-            <title>{{ $brandName ?? config('app.name') }}</title>
+            <title>{{ $seo['title'] ?? $brandName ?? config('app.name') }}</title>
         </x-inertia::head>
+
+        {{-- Public page head (Storefront PageHead): in the first response for crawlers; the page's <Head> keeps it current. --}}
+        @isset($seo)
+            <meta name="description" content="{{ $seo['description'] }}" data-inertia="description">
+            <meta name="robots" content="{{ $seo['robots'] }}" data-inertia="robots">
+            <link rel="canonical" href="{{ $seo['canonical'] }}" data-inertia="canonical">
+            <meta property="og:type" content="website" data-inertia="og:type">
+            <meta property="og:title" content="{{ $seo['title'] }}" data-inertia="og:title">
+            <meta property="og:description" content="{{ $seo['description'] }}" data-inertia="og:description">
+            <meta property="og:url" content="{{ $seo['canonical'] }}" data-inertia="og:url">
+            @if ($seo['image'])
+                <meta property="og:image" content="{{ $seo['image'] }}" data-inertia="og:image">
+            @endif
+            @foreach ($seo['json_ld'] as $document)
+                <script type="application/ld+json" nonce="{{ Vite::cspNonce() }}">{!! json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) !!}</script>
+            @endforeach
+        @endisset
     </head>
     <body class="font-sans antialiased">
         <x-inertia::app />
