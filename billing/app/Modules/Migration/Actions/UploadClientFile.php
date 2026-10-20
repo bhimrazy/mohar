@@ -30,16 +30,16 @@ class UploadClientFile
         $delimiter = CsvFile::DELIMITERS[$input['delimiter'] ?? ''] ?? null;
         $inspected = CsvFile::inspect($path, $delimiter, (int) $this->settings->get('migration.csv.max_rows'), (int) $this->settings->get('migration.csv.max_columns'));
         $source = isset($input['source_id'])
-            ? MigrationSource::query()->where('driver', 'csv')->findOrFail($input['source_id'])
-            : MigrationSource::query()->create(['driver' => 'csv', 'name' => trim((string) ($input['source_name'] ?? '')), 'created_by' => $user->id]);
+            ? MigrationSource::query()->where('source_system', 'csv')->findOrFail($input['source_id'])
+            : MigrationSource::query()->create(['source_system' => 'csv', 'name' => trim((string) ($input['source_name'] ?? '')), 'created_by' => $user->id]);
         $key = 'migration/uploads/'.Str::uuid()->toString().'.csv.enc';
 
         EncryptedFile::store($path, $key);
 
         $run = MigrationRun::query()->create([
             'migration_source_id' => $source->id,
-            'source_kind' => 'csv',
-            'entity' => 'clients',
+            'source_system' => 'csv',
+            'entity' => 'client',
             'status' => MigrationRun::UPLOADED,
             'file_key' => $key,
             'file_name' => mb_substr($file->getClientOriginalName(), 0, 255),
