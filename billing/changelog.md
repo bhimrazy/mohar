@@ -173,8 +173,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
   network status, ways to pay. The product's own name and tagline never appear.
 - One public layout for home, store, cart, checkout, domains, knowledge base, announcements, network status and the
-  404 page. The header lists the catalog's visible product groups live (a link each up to three groups, otherwise one
-  menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
+  404 page. The header lists the catalog's visible product groups live (a link each up to three groups on wide screens,
+  otherwise one menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
   (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
   area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
   visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.

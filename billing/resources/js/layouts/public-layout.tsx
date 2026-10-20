@@ -268,101 +268,102 @@ function DesktopNav({ site }: { site: Site }) {
     const { products } = site;
     const section = useSection();
     const currentGroup = useCurrentGroup(site);
-    const linkClass = cn(navigationMenuTriggerStyle(), 'bg-transparent px-3');
+    const linkClass = cn(navigationMenuTriggerStyle(), 'bg-transparent px-2.5');
 
     return (
         <NavigationMenu
             viewport={false}
-            className="ml-4 hidden lg:flex"
+            className="ml-2 hidden lg:flex"
             aria-label="Main"
         >
             <NavigationMenuList>
-                {products.mode === 'links'
-                    ? products.groups.map((group) => (
-                          <NavigationMenuItem key={group.id}>
-                              <NavigationMenuLink
-                                  asChild
-                                  className={linkClass}
-                                  active={currentGroup === group.id}
-                              >
-                                  <Link
-                                      href={group.url}
-                                      aria-current={
-                                          currentGroup === group.id
-                                              ? 'page'
-                                              : undefined
-                                      }
-                                  >
-                                      {group.name}
-                                  </Link>
-                              </NavigationMenuLink>
-                          </NavigationMenuItem>
-                      ))
-                    : products.groups.length > 0 && (
-                          <NavigationMenuItem>
-                              <NavigationMenuTrigger
-                                  className="bg-transparent px-3"
-                                  data-active={section === 'products'}
-                                  aria-current={
-                                      section === 'products'
-                                          ? 'page'
-                                          : undefined
-                                  }
-                              >
-                                  {products.label}
-                              </NavigationMenuTrigger>
-                              <NavigationMenuContent>
-                                  <ul className="grid w-[26rem] gap-1">
-                                      {products.groups.map((group) => (
-                                          <li key={group.id}>
-                                              <NavigationMenuLink asChild>
-                                                  <Link
-                                                      href={group.url}
-                                                      className="flex-row items-start justify-between gap-4"
-                                                  >
-                                                      <span className="min-w-0">
-                                                          <span className="block font-medium">
-                                                              {group.name}
-                                                          </span>
-                                                          {group.tagline && (
-                                                              <span className="block text-muted-foreground">
-                                                                  {
-                                                                      group.tagline
-                                                                  }
-                                                              </span>
-                                                          )}
-                                                      </span>
-                                                      {group.from && (
-                                                          <FromPriceText
-                                                              from={group.from}
-                                                              currency={
-                                                                  site.currency
-                                                              }
-                                                              className="shrink-0 text-right text-xs"
-                                                          />
-                                                      )}
-                                                  </Link>
-                                              </NavigationMenuLink>
-                                          </li>
-                                      ))}
-                                      {products.compare_url && (
-                                          <li className="border-t pt-1">
-                                              <NavigationMenuLink asChild>
-                                                  <Link
-                                                      href={
-                                                          products.compare_url
-                                                      }
-                                                      className="font-medium text-primary"
-                                                  >
-                                                      Compare all plans
-                                                  </Link>
-                                              </NavigationMenuLink>
-                                          </li>
-                                      )}
-                                  </ul>
-                              </NavigationMenuContent>
-                          </NavigationMenuItem>
-                      )}
+                {/* Group links need the room of an extra-wide screen; below it they fold into the menu, so the
+                    host's name is never squeezed out of the header. */}
+                {products.mode === 'links' &&
+                    products.groups.map((group) => (
+                        <NavigationMenuItem
+                            key={group.id}
+                            className="hidden xl:block"
+                        >
+                            <NavigationMenuLink
+                                asChild
+                                className={linkClass}
+                                active={currentGroup === group.id}
+                            >
+                                <Link
+                                    href={group.url}
+                                    aria-current={
+                                        currentGroup === group.id
+                                            ? 'page'
+                                            : undefined
+                                    }
+                                >
+                                    {group.name}
+                                </Link>
+                            </NavigationMenuLink>
+                        </NavigationMenuItem>
+                    ))}
+                {products.groups.length > 0 && (
+                    <NavigationMenuItem
+                        className={
+                            products.mode === 'links' ? 'xl:hidden' : undefined
+                        }
+                    >
+                        <NavigationMenuTrigger
+                            className="bg-transparent px-3"
+                            data-active={section === 'products'}
+                            aria-current={
+                                section === 'products' ? 'page' : undefined
+                            }
+                        >
+                            {products.label}
+                        </NavigationMenuTrigger>
+                        <NavigationMenuContent>
+                            <ul className="grid w-[26rem] gap-1">
+                                {products.groups.map((group) => (
+                                    <li key={group.id}>
+                                        <NavigationMenuLink asChild>
+                                            <Link
+                                                href={group.url}
+                                                className="flex-row items-start justify-between gap-4"
+                                            >
+                                                <span className="min-w-0">
+                                                    <span className="block font-medium">
+                                                        {group.name}
+                                                    </span>
+                                                    {group.tagline && (
+                                                        <span className="block text-muted-foreground">
+                                                            {group.tagline}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                {group.from && (
+                                                    <FromPriceText
+                                                        from={group.from}
+                                                        currency={site.currency}
+                                                        className="shrink-0 text-right text-xs"
+                                                    />
+                                                )}
+                                            </Link>
+                                        </NavigationMenuLink>
+                                    </li>
+                                ))}
+                                {products.compare_url && (
+                                    <li className="border-t pt-1">
+                                        <NavigationMenuLink asChild>
+                                            <Link
+                                                href={products.compare_url}
+                                                className="font-medium text-primary"
+                                            >
+                                                Compare all plans
+                                            </Link>
+                                        </NavigationMenuLink>
+                                    </li>
+                                )}
+                            </ul>
+                        </NavigationMenuContent>
+                    </NavigationMenuItem>
+                )}
                 <MenuOfLinks
                     label="Domains"
                     links={site.domains}
