@@ -14,7 +14,10 @@ use Mohar\Simulators\Kernel\StateStore;
  * - Every request needs `Authorization: Bearer <the scenario's secret key>`.
  * - A `Stripe-Version` must be one the simulator knows.
  * - A POST with an `Idempotency-Key` replays its first answer, and a different body for the same key is refused. As
- *   at Stripe, a request that failed validation (400) saves no result, so a corrected retry with the key runs.
+ *   at Stripe, a request that failed parameter validation before it started executing saves no result, so the
+ *   corrected retry with the key runs; a refusal after it started (`charge_already_refunded`) is saved and replayed.
+ * - Parameters are checked as Stripe checks them: three-letter currencies, at most 50 metadata keys of up to 40
+ *   characters with values up to 500, and `expand[]` only on properties that hold a related object.
  * - A Checkout Session past its `expires_at` expires on its own (read lazily), with its `checkout.session.expired`.
  *
  * Errors use Stripe's `{"error": {type, code, message, param}}` envelope, in our own words.
@@ -27,6 +30,9 @@ final class StripeApi
     private const COLLECTIONS = ['cs' => 'sessions', 'pi' => 'payment_intents', 'ch' => 'charges', 'txn' => 'balance', 're' => 'refunds', 'du' => 'disputes', 'pm' => 'methods'];
 
     private readonly StateStore $state;
+
+    /** Set when the request failed parameter validation, before anything ran: no idempotent result is saved. */
+    private bool $invalidParameters = false;
 
     public function __construct(private readonly Scenario $scenario)
     {
@@ -68,7 +74,7 @@ final class StripeApi
 
             $response = $handler($request->input(), $parameters);
 
-            if ($response->status !== 400) {
+            if (! $this->invalidParameters) {
                 $this->state->put('idempotency', $key, ['fingerprint' => $fingerprint, 'status' => $response->status, 'body' => $response->body]);
             }
 
@@ -93,11 +99,14 @@ final class StripeApi
             ! is_array($price) || $currency === '' || count((array) $input['line_items']) !== 1 => ['line_items', 'Send one line item with price_data (currency, unit_amount, product_data).'],
             $amount < 50 => ['line_items[0][price_data][unit_amount]', 'The amount must be at least 50 in the smallest currency unit.'],
             $expiresAt < time() + 1_800 || $expiresAt > time() + 86_400 => ['expires_at', 'expires_at must be between 30 minutes and 24 hours from now.'],
-            count((array) ($input['metadata'] ?? [])) > 50 => ['metadata', 'Metadata can hold at most 50 keys.'],
+            preg_match('/^[a-z]{3}$/', $currency) !== 1 => ['line_items[0][price_data][currency]', "Invalid currency: {$currency}. Use a three-letter ISO code in lower case."],
+            ($metadata = $this->metadataProblem((array) ($input['metadata'] ?? []))) !== null => ['metadata', $metadata],
             default => null,
         };
 
         if ($refusal !== null) {
+            $this->invalidParameters = true;
+
             return $this->error(400, 'invalid_request_error', $refusal[1], param: $refusal[0], code: $refusal[0] === 'line_items[0][price_data][unit_amount]' ? 'amount_too_small' : 'parameter_invalid');
         }
 
@@ -221,7 +230,13 @@ final class StripeApi
         }
 
         foreach ((array) ($input['expand'] ?? []) as $path) {
-            $object = $this->expand($object, explode('.', (string) $path));
+            $expanded = $this->expand($object, explode('.', (string) $path));
+
+            if ($expanded === null) {
+                return $this->error(400, 'invalid_request_error', "This property cannot be expanded ({$path}).", param: 'expand');
+            }
+
+            $object = $expanded;
         }
 
         return Response::json($object);
@@ -300,21 +315,60 @@ final class StripeApi
     }
 
     /**
+     * The object with the related object at $path in place of its id; null when a property on the path does not hold
+     * a related object (Stripe refuses to expand it). A related object not set yet (null) stays null.
+     *
      * @param  array<string, mixed>  $object
      * @param  list<string>  $path
-     * @return array<string, mixed>
+     * @return array<string, mixed>|null
      */
-    private function expand(array $object, array $path): array
+    private function expand(array $object, array $path): ?array
     {
         $field = array_shift($path);
-        $value = $object[$field] ?? null;
-        $related = is_string($value) ? $this->find($value) : (is_array($value) ? $value : null);
 
-        if ($related !== null) {
-            $object[$field] = $path === [] ? $related : $this->expand($related, $path);
+        if (! array_key_exists($field, $object)) {
+            return null;
         }
 
+        $value = $object[$field];
+
+        if ($value === null) {
+            return $object;
+        }
+
+        $related = is_string($value) ? $this->find($value) : (is_array($value) && isset($value['object']) ? $value : null);
+
+        if ($related === null) {
+            return null;
+        }
+
+        $expanded = $path === [] ? $related : $this->expand($related, $path);
+
+        if ($expanded === null) {
+            return null;
+        }
+
+        $object[$field] = $expanded;
+
         return $object;
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $metadata
+     */
+    private function metadataProblem(array $metadata): ?string
+    {
+        if (count($metadata) > 50) {
+            return 'Metadata can hold at most 50 keys.';
+        }
+
+        foreach ($metadata as $key => $value) {
+            if (strlen((string) $key) > 40 || strlen(is_scalar($value) ? (string) $value : '') > 500) {
+                return 'Metadata keys can be up to 40 characters and values up to 500.';
+            }
+        }
+
+        return null;
     }
 
     private function missing(string $type, string $id, string $param = 'id'): Response

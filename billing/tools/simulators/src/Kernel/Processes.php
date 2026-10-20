@@ -17,7 +17,7 @@ use RuntimeException;
  */
 final class Processes
 {
-    private const READY_SECONDS = 10;
+    private const READY_SECONDS = 20;
 
     /** A scenario directory without a readable scenario.json is a leftover only after this long (it may be starting). */
     private const LEFTOVER_SECONDS = 60;

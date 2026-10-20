@@ -65,7 +65,9 @@ final class CallbackDispatcher
     /**
      * Send one delivery through $transport (url, body, headers => HTTP status). Variants: `stale` signs with a timestamp
      * an hour old; `wrong_secret` signs with a secret the app does not know; `unsigned` sends no signature. Delivering
-     * again replays it. A 2xx answer completes it; any other answer schedules the next retry.
+     * again replays it. A 2xx answer completes it; any other answer schedules the next retry. A variant is a test of the
+     * app, not one of the provider's attempts (it never sees a forged webhook): it leaves the genuine delivery's
+     * attempts, schedule and completion untouched.
      *
      * @param  array{id: int, url: string, body: string, headers: array<string, string>}  $delivery
      * @param  Closure(string, string, array<string, string>): int  $transport
@@ -82,18 +84,25 @@ final class CallbackDispatcher
 
         $status = $transport($delivery['url'], $delivery['body'], $headers);
 
+        if ($variant !== null) {
+            return $status;
+        }
+
         if ($status >= 200 && $status < 300) {
             $this->state->pdo()->prepare('UPDATE outbox SET delivered = delivered + 1 WHERE id = ?')->execute([$delivery['id']]);
 
             return $status;
         }
 
-        $statement = $this->state->pdo()->prepare('SELECT attempts FROM outbox WHERE id = ?');
-        $statement->execute([$delivery['id']]);
-        $attempts = (int) $statement->fetchColumn() + 1;
-        $backoff = $this->policy()['backoff'];
-        $this->state->pdo()->prepare('UPDATE outbox SET attempts = ?, deliver_after = ? WHERE id = ?')
-            ->execute([$attempts, time() + (int) ($backoff[min($attempts - 1, count($backoff) - 1)] ?? 0), $delivery['id']]);
+        // Read and written under the lock, so two deliverers of the same delivery cannot lose a count.
+        $this->state->transaction(function () use ($delivery): void {
+            $statement = $this->state->pdo()->prepare('SELECT attempts FROM outbox WHERE id = ?');
+            $statement->execute([$delivery['id']]);
+            $attempts = (int) $statement->fetchColumn() + 1;
+            $backoff = $this->policy()['backoff'];
+            $this->state->pdo()->prepare('UPDATE outbox SET attempts = ?, deliver_after = ? WHERE id = ?')
+                ->execute([$attempts, time() + $backoff[min($attempts - 1, count($backoff) - 1)], $delivery['id']]);
+        });
 
         return $status;
     }

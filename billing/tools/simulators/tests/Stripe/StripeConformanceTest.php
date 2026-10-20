@@ -127,3 +127,24 @@ test('only a Stripe-Version the simulator knows is accepted', function () {
     expect(stripeCall('GET', '/v1/account', headers: ['Stripe-Version' => '2020-08-27'])->json('error.code'))->toBe('api_version_invalid')
         ->and(stripeCall('GET', '/v1/account')->successful())->toBeTrue();
 });
+
+test('a refusal after the request started is saved and replayed; a parameter error is not saved; expand needs an object', function () {
+    $session = stripeCall('POST', '/v1/checkout/sessions', stripeSession())->json('id');
+    Http::withOptions(['verify' => $this->scenario->ca()->bundlePath(), 'allow_redirects' => false])->post($this->scenario->apiUrl()."/c/pay/{$session}/pay");
+    $intent = (string) $this->scenario->state()->get('sessions', $session)['payment_intent'];
+    stripeCall('POST', '/v1/refunds', ['payment_intent' => $intent]);
+
+    $refused = stripeCall('POST', '/v1/refunds', ['payment_intent' => $intent], ['Idempotency-Key' => 'refund-twice']);
+    $replayed = stripeCall('POST', '/v1/refunds', ['payment_intent' => $intent], ['Idempotency-Key' => 'refund-twice']);
+    $currency = stripeSession();
+    $currency['line_items'][0]['price_data']['currency'] = 'dollars';
+    $metadata = [...stripeSession(), 'metadata' => [str_repeat('k', 41) => 'v']];
+
+    expect($refused->json('error.code'))->toBe('charge_already_refunded')
+        ->and($replayed->header('Idempotent-Replayed'))->toBe('true')
+        ->and(stripeCall('POST', '/v1/checkout/sessions', $currency, ['Idempotency-Key' => 'bad-currency'])->json('error.param'))->toBe('line_items[0][price_data][currency]')
+        ->and(stripeCall('POST', '/v1/checkout/sessions', $metadata, ['Idempotency-Key' => 'bad-metadata'])->json('error.param'))->toBe('metadata')
+        ->and($this->scenario->state()->get('idempotency', 'bad-currency'))->toBeNull()
+        ->and(stripeCall('GET', "/v1/payment_intents/{$intent}", ['expand' => ['currency']])->json('error.message'))->toContain('cannot be expanded')
+        ->and(stripeCall('GET', "/v1/checkout/sessions/{$session}", ['expand' => ['payment_intent.latest_charge']])->json('payment_intent.latest_charge.object'))->toBe('charge');
+});

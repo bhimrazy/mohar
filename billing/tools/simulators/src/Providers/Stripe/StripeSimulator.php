@@ -3,12 +3,14 @@
 namespace Mohar\Simulators\Providers\Stripe;
 
 use Mohar\Simulators\Contracts\HasControlActions;
+use Mohar\Simulators\Contracts\RecordsLive;
 use Mohar\Simulators\Contracts\RedactsPayments;
 use Mohar\Simulators\Contracts\SignsCallbacks;
 use Mohar\Simulators\Contracts\Simulator;
 use Mohar\Simulators\Http\Request;
 use Mohar\Simulators\Http\Response;
 use Mohar\Simulators\Http\Route;
+use Mohar\Simulators\Kernel\Recorder;
 use Mohar\Simulators\Kernel\Scenario;
 
 /**
@@ -23,7 +25,7 @@ use Mohar\Simulators\Kernel\Scenario;
  * Its request log and any recording apply the kernel payment redaction rule (RedactsPayments). The keys below are for
  * local scenarios only.
  */
-final class StripeSimulator implements HasControlActions, RedactsPayments, SignsCallbacks, Simulator
+final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPayments, SignsCallbacks, Simulator
 {
     public const SECRET_KEY = 'sk_test_51SimulatorLocalScenarioKey0000';
 
@@ -41,7 +43,12 @@ final class StripeSimulator implements HasControlActions, RedactsPayments, Signs
 
     public function routes(): array
     {
-        $api = fn (callable $handler): \Closure => fn (Request $request, Scenario $scenario, array $parameters): Response => (new StripeApi($scenario))->handle($request, fn (array $input, array $parameters) => $handler(new StripeApi($scenario), $input, $parameters), $parameters);
+        // One StripeApi per request, so a validation failure the handler reports is seen by the idempotency check.
+        $api = fn (callable $handler): \Closure => function (Request $request, Scenario $scenario, array $parameters) use ($handler): Response {
+            $stripe = new StripeApi($scenario);
+
+            return $stripe->handle($request, fn (array $input, array $parameters) => $handler($stripe, $input, $parameters), $parameters);
+        };
 
         return [
             new Route('GET', '/v1/account', 'retrieve_account', $api(fn (StripeApi $stripe) => $stripe->account())),
@@ -80,6 +87,14 @@ final class StripeSimulator implements HasControlActions, RedactsPayments, Signs
                 'Tell the simulator where to send webhooks: POST /__sim/actions/webhook_url {"url": "<APP_URL>/webhooks/stripe"}, then deliver them from /__sim/outbox.',
             ],
         ];
+    }
+
+    /**
+     * The drift script against Stripe's test mode (StripeRecording), with a restricted test key from STRIPE_RECORD_KEY.
+     */
+    public function recordLive(Recorder $recorder): void
+    {
+        (new StripeRecording)->record($recorder);
     }
 
     public function sign(Scenario $scenario, string $body, int $timestamp, bool $wrongSecret = false): array

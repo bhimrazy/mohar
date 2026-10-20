@@ -247,7 +247,8 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - a disputed charge refuses a refund (`charge_disputed`);
     - sessions expire on their own past `expires_at`;
     - a double Pay charges once.
-    - The drift test against real Stripe is skipped until a recording run is possible, which needs a long-lived restricted test key from the owner.
+    - Forged delivery variants leave the genuine delivery's attempts, schedule and completion untouched (#113 re-review).
+    - Drift against real Stripe: a recording script (`StripeRecording`, `simulate:record stripe`) replayed as the same sequence against the simulator, normalised, and compared on the paths the driver reads. Recording is deferred by CTO decision until the owner provides a long-lived restricted test key as a GitHub or Codespaces secret; the live check is skipped until then.
 
 - **#100 re-check lows**, carried into S3:
     - keys are anonymised (a data-like key is renamed) and scanned like values;
