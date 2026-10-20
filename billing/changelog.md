@@ -242,6 +242,14 @@ pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searc
   client groups by name. Client groups not found stop the check until each is mapped, created or dropped; currencies
   not enabled can be mapped; unrecognised countries are listed. Spreadsheet damage (numbers in scientific notation,
   Indian postcodes missing a leading zero) is a warning.
+- **Duplicates** (client-import spec §7): the same email or External ID twice in the file makes the later row an error
+  naming the first; a row imported from the source before comes out unchanged or as an update; an email that matches
+  one client is skipped or updated by the option, with the fields an update changes; several matches, a closed match,
+  a match whose email changed in the last 30 days, and (when flagged) the same company name or tax ID need a decision;
+  a merged match resolves to the client it was merged into; an email that belongs to a contact is a warning.
+- **Check results**: summary cards (new clients, updates, unchanged, skipped, needs a decision, errors, tax-exempt),
+  tabs with counts, and every row with its file row number, the matching client and its notes; search by row number
+  or exact email. Nothing is imported yet: reviewing and applying is the next step.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay.
 

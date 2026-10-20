@@ -7,6 +7,7 @@ use App\Modules\Core\Models\Currency;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\ClientColumns;
+use App\Modules\Migration\Support\ClientMatcher;
 use App\Modules\Migration\Support\RowNormalizer;
 use App\Support\Queues;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
@@ -18,7 +19,8 @@ use Throwable;
 
 /**
  * Checks a run's rows under its mapping, CHUNK rows per job by row number (client-import spec §5.4): normalise and
- * validate each row, and write status, decision and problems with a fixed number of queries per chunk. Each chunk queues the next; the last sets the counts. A job from an earlier mapping (an older
+ * validate each row, apply the duplicate rules, and write status, decision and problems with a fixed number of
+ * queries per chunk. Each chunk queues the next; the last sets the counts. A job from an earlier mapping (an older
  * generation) stops without writing.
  */
 final class CheckRun implements ShouldBeEncrypted, ShouldQueue
@@ -42,7 +44,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
         $this->onQueue(Queues::IMPORTS);
     }
 
-    public function handle(): void
+    public function handle(ClientMatcher $matcher): void
     {
         $run = MigrationRun::query()->find($this->runId);
 
@@ -95,12 +97,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             ];
         }
 
-        $decisions = array_map(fn (array $row): array => [
-            'decision' => in_array('error', array_column($row['problems'], 'severity'), true) ? null : 'create',
-            'match_client_id' => null,
-            'problems' => $row['problems'],
-            'changes' => [],
-        ], $rows);
+        $decisions = $matcher->decide($run, $rows, $hasExternalId);
         $writes = [];
         $taxExempt = 0;
 
@@ -133,9 +130,8 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
                 return false;
             }
 
-            foreach (array_chunk($writes, 250) as $chunk) {
-                MigrationRecord::query()->upsert($chunk, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes']);
-            }
+            // One statement per chunk: 11 values per row stays far below the SQLite and PostgreSQL parameter limits.
+            MigrationRecord::query()->upsert($writes, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes']);
 
             $locked->forceFill([
                 'checked_count' => ($this->afterRow === 0 ? 0 : $locked->checked_count) + $records->count(),

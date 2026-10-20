@@ -11,6 +11,7 @@ use App\Modules\Migration\Actions\StartCheck;
 use App\Modules\Migration\Actions\UploadClientFile;
 use App\Modules\Migration\Jobs\CheckRun;
 use App\Modules\Migration\Jobs\StageCsvRun;
+use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Models\MigrationSource;
 use App\Modules\Migration\Support\ClientColumns;
@@ -31,6 +32,10 @@ use Inertia\Response;
  */
 class ClientImportController extends Controller
 {
+    private const PER_PAGE = 50;
+
+    public const TABS = ['all', 'create', 'update', 'unchanged', 'skip', 'needs_decision', 'error'];
+
     public function index(Settings $settings): Response
     {
         $this->authorize('migration.runs.view');
@@ -75,11 +80,13 @@ class ClientImportController extends Controller
         return to_route('admin.migration.imports.show', $run);
     }
 
-    public function show(MigrationRun $run): Response
+    public function show(Request $request, MigrationRun $run): Response
     {
         $this->authorize('migration.runs.view');
 
-        return $this->map($run);
+        $checked = in_array($run->status, [MigrationRun::CHECKING, MigrationRun::READY], true) || ($run->status === MigrationRun::FAILED && $run->file_key === null && $run->checked_count > 0);
+
+        return $checked && $request->query('step') !== 'map' ? $this->check($request, $run) : $this->map($run);
     }
 
     public function mapping(Request $request, MigrationRun $run, StartCheck $start): RedirectResponse
@@ -162,8 +169,45 @@ class ClientImportController extends Controller
             'found' => array_map(fn (array $values): array => array_map(fn (string $value, int $count): array => ['value' => $value, 'count' => $count], array_keys($values), $values), $found),
             'groupOptions' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name']),
             'currencyOptions' => Currency::query()->orderBy('code')->pluck('code'),
-            'result' => $run->status === MigrationRun::READY ? ['ready' => $run->create_count, 'errors' => $run->error_count, 'warnings' => $run->warning_count] : null,
             'earlier' => $earlier === null ? null : ['name' => $earlier->file_name, 'uploaded_at' => $earlier->created_at?->toIso8601String(), 'by' => $earlier->requester?->name, 'href' => route('admin.migration.imports.show', $earlier)],
+        ]);
+    }
+
+    private function check(Request $request, MigrationRun $run): Response
+    {
+        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
+        $search = trim(mb_substr($request->string('search')->toString(), 0, 255));
+        $rows = $run->records()
+            ->when($tab === 'error', fn ($query) => $query->where('status', 'error'))
+            ->when(! in_array($tab, ['all', 'error'], true), fn ($query) => $query->where('decision', $tab))
+            ->when($search !== '', fn ($query) => ctype_digit(str_replace(',', '', $search))
+                ? $query->where('row_number', (int) str_replace(',', '', $search))
+                : $query->where('email_hash', MigrationRecord::emailHash($search)))
+            ->with('matchedClient:id,first_name,last_name,company_name')
+            ->orderBy('row_number')
+            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes'])
+            ->withQueryString()
+            ->through(fn (MigrationRecord $record): array => [
+                'row' => $record->row_number,
+                'name' => trim(($record->normalized['client']['first_name'] ?? '').' '.($record->normalized['client']['last_name'] ?? '')),
+                'company' => $record->normalized['client']['company_name'] ?? null,
+                'email' => $record->normalized['client']['email'] ?? null,
+                'status' => $record->status,
+                'decision' => $record->decision,
+                'problems' => array_map(fn (array $problem): array => ['severity' => $problem['severity'], 'message' => $problem['message']], $record->problems ?? []),
+                'changes' => array_map(fn (string $field): string => ClientColumns::TARGETS[$field === 'client_group_id' ? 'client_group' : $field] ?? $field, $record->changes ?? []),
+                'match' => $record->matchedClient === null ? null : ['name' => $record->matchedClient->display_name, 'href' => route('admin.clients.show', $record->matchedClient)],
+            ]);
+
+        return Inertia::render('admin/migration/check', [
+            'run' => $this->summary($run),
+            'counts' => [
+                'all' => $run->row_count, 'create' => $run->create_count, 'update' => $run->update_count, 'unchanged' => $run->unchanged_count,
+                'skip' => $run->skip_count, 'needs_decision' => $run->decision_count, 'error' => $run->error_count, 'tax_exempt' => $run->tax_exempt_count,
+            ],
+            'rows' => $rows,
+            'filters' => ['tab' => $tab, 'search' => $search],
+            'matchesByEmail' => ! in_array(ClientColumns::EXTERNAL_ID, $run->mapping['columns'] ?? [], true),
         ]);
     }
 

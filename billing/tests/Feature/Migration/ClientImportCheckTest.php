@@ -1,13 +1,16 @@
 <?php
 
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Migration\Jobs\CheckRun;
 use App\Modules\Migration\Jobs\StageCsvRun;
+use App\Modules\Migration\Models\MigrationIdMap;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\ClientColumns;
+use App\Modules\Migration\Support\ClientMatcher;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -17,7 +20,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Support\Migration\ClientCsv;
 
 /**
- * Client import, map and check (client-import spec §5.2–5.4, §6; AC 9, 10, 12, 13, 20–22).
+ * Client import, map and check (client-import spec §5.2–5.4, §6, §7; AC 9, 10, 12–18, 20–22).
  */
 beforeEach(function () {
     Storage::fake('objects');
@@ -33,6 +36,14 @@ beforeEach(function () {
 function checkedRows(MigrationRun $run): array
 {
     return $run->records()->orderBy('row_number')->get()->keyBy('row_number')->all();
+}
+
+/**
+ * @return list<string>
+ */
+function messages(MigrationRecord $record): array
+{
+    return array_column($record->problems ?? [], 'message');
 }
 
 test('the import and the admin client form reject the same values', function (string $field, string $value) {
@@ -77,6 +88,58 @@ test('the WHMCS preset suggests targets that staff can change, and a mapping wit
         ->and(checkedRows($run)[1]->normalized['extra']['imported_fields'])->toBe([['label' => 'ID', 'value' => '1']]);
 });
 
+test('the same email twice in the file, in any case, makes the later row an error naming the earlier one', function () {
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([
+        ClientCsv::row('1', 'asha@example.com'), ClientCsv::row('2', 'other@example.com'), ClientCsv::row('3', 'ASHA@Example.com'),
+    ])));
+    $rows = checkedRows($run);
+
+    expect($rows[1]->decision)->toBe('create')
+        ->and($rows[3]->status)->toBe('error')->and($rows[3]->decision)->toBeNull()
+        ->and(messages($rows[3]))->toContain('Same email as row 1.')
+        ->and($run->error_count)->toBe(1)->and($run->create_count)->toBe(2);
+});
+
+test('an email that matches one client is skipped by default and updated with the option, listing the changed fields', function () {
+    $client = Client::factory()->create(['email' => 'asha@example.com', 'first_name' => 'Asha', 'last_name' => 'Old', 'country' => 'NP', 'currency' => 'NPR', 'status' => 'active']);
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'Asha@example.com', last: 'Rai')])));
+
+    expect(checkedRows($run)[1])->decision->toBe('skip')->match_client_id->toBe($client->id)
+        ->and($run->skip_count)->toBe(1);
+
+    $run = ClientCsv::check($run, ['on_match' => 'update']);
+    $this->get(route('admin.migration.imports.show', [$run, 'tab' => 'update']))->assertInertia(fn (Assert $page) => $page->component('admin/migration/check')
+        ->where('counts.update', 1)
+        ->where('rows.data.0.row', 1)
+        ->where('rows.data.0.changes', ['Last name'])
+        ->where('rows.data.0.match.name', $client->display_name));
+});
+
+test('a match whose email changed 10 days ago needs a decision, a merged match resolves to the survivor, and a closed match needs a decision', function () {
+    $recent = Client::factory()->create(['email' => 'moved@example.com']);
+    $recent->forceFill(['email_changed_at' => now()->subDays(10)])->saveQuietly();
+    $survivor = Client::factory()->create(['email' => 'kept@example.com', 'status' => 'active']);
+    Client::factory()->create(['email' => 'merged@example.com', 'status' => 'closed', 'merged_into_client_id' => $survivor->id]);
+    Client::factory()->create(['email' => 'closed@example.com', 'status' => 'closed']);
+
+    $rows = checkedRows(ClientCsv::check(ClientCsv::upload(ClientCsv::file([
+        ClientCsv::row('1', 'moved@example.com'), ClientCsv::row('2', 'merged@example.com'), ClientCsv::row('3', 'closed@example.com'),
+    ]))));
+
+    expect($rows[1]->decision)->toBe('needs_decision')->and(messages($rows[1]))->toContain('The client with this email changed it in the last 30 days. Check the match.')
+        ->and($rows[2]->decision)->toBe('skip')->and($rows[2]->match_client_id)->toBe($survivor->id)
+        ->and(messages($rows[2]))->toContain('The matching client was merged; the client it was merged into is used.')
+        ->and($rows[3]->decision)->toBe('needs_decision');
+});
+
+test('with the company option, "Acme Pvt. Ltd." matches an existing "ACME Pvt Ltd" and needs a decision', function () {
+    Client::factory()->create(['company_name' => 'ACME Pvt Ltd', 'email' => 'owner@acme.example']);
+    $run = ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'new@acme.example', company: 'Acme Pvt. Ltd.')]));
+
+    expect(checkedRows(ClientCsv::check($run))[1]->decision)->toBe('create')
+        ->and(checkedRows(ClientCsv::check($run, ['match_company' => true]))[1]->decision)->toBe('needs_decision');
+});
+
 test('a password column cannot be mapped to anything but Ignore', function () {
     $run = ClientCsv::upload(ClientCsv::file([['Asha', 'Rai', 'asha@example.com', 'hunter2']], ['First Name', 'Last Name', 'Email', 'Password']));
 
@@ -115,19 +178,35 @@ test('an unknown group name blocks the check until staff map it, create it or ch
         ->and($rows[2]->decision)->toBe('create');
 });
 
-test('checking a chunk issues the same number of queries whatever its size', function () {
-    $count = function (int $rows): int {
-        $run = ClientCsv::upload(ClientCsv::file(array_map(fn (int $i): array => ClientCsv::row((string) $i, "client{$i}@example.com", company: "Company {$i}"), range(1, $rows))));
-        $run->forceFill(['status' => MigrationRun::CHECKING, 'generation' => 1])->save();
+test('a row imported from this source before is unchanged when its data is the same', function () {
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('42', 'a@example.com')])));
+    $client = Client::factory()->create(['email' => 'renamed@example.com']);
+    $record = checkedRows($run)[1];
+    DB::table('migration_id_map')->insert(['migration_source_id' => $run->migration_source_id, 'entity' => 'client', 'source_id' => '42',
+        'target_id' => $client->id, 'checksum' => $record->checksum, 'synced_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+
+    expect(checkedRows(ClientCsv::check($run))[1])->decision->toBe('unchanged')->match_client_id->toBe($client->id);
+
+    MigrationIdMap::query()->update(['checksum' => str_repeat('0', 64)]);
+    expect(checkedRows(ClientCsv::check($run))[1]->decision)->toBe('update');
+});
+
+test('checking a chunk issues a fixed number of queries; the company lookup adds one per 200 distinct first words', function () {
+    $count = function (int $rows, bool $company): int {
+        // Every row has its own email, tax ID and company first word, so no lookup can share work between rows.
+        $run = ClientCsv::upload(ClientCsv::file(array_map(fn (int $i): array => [...ClientCsv::row((string) $i, "client{$i}@example.com", company: "Firm{$i} Hosting"), "TAX{$i}"], range(1, $rows)), [...ClientCsv::HEADER, 'Tax ID']));
+        $run->forceFill(['status' => MigrationRun::CHECKING, 'generation' => 1, 'mapping' => [...$run->mapping, 'columns' => [...$run->mapping['columns']]],
+            'options' => ['match_company' => $company, 'match_tax_id' => true]])->save();
         DB::flushQueryLog();
         DB::enableQueryLog();
-        (new CheckRun($run->id, 1))->withFakeQueueInteractions()->handle();
+        (new CheckRun($run->id, 1))->withFakeQueueInteractions()->handle(app(ClientMatcher::class));
         DB::disableQueryLog();
 
         return count(DB::getQueryLog());
     };
 
-    expect($count(150))->toBe($count(15));
+    expect($count(CheckRun::CHUNK, false))->toBe($count(10, false))
+        ->and($count(CheckRun::CHUNK, true))->toBe($count(10, true) + intdiv(CheckRun::CHUNK - 1, 200));
 });
 
 test('no log record or queued payload carries a cell value while checking', function () {
@@ -140,7 +219,7 @@ test('no log record or queued payload carries a cell value while checking', func
     (new StageCsvRun($run->id))->handle(app(ActivityLogger::class));
     $this->put(route('admin.migration.imports.mapping', $run), ['columns' => $run->fresh()->mapping['columns'], 'options' => ['on_match' => 'skip', 'blank_cells' => 'keep', 'closed_clients' => 'import']]);
     $job = Queue::pushed(CheckRun::class)->first();
-    $job->withFakeQueueInteractions()->handle();
+    $job->withFakeQueueInteractions()->handle(app(ClientMatcher::class));
 
     expect(serialize($job))->not->toContain('tracer.value')
         ->and($run->fresh()->checked_count)->toBe(2)
@@ -159,7 +238,7 @@ test('a check from an earlier mapping writes nothing, and saving the mapping a c
     expect(Queue::pushed(CheckRun::class))->toHaveCount(1)->and($run->fresh()->generation)->toBe(1);
 
     $this->put(route('admin.migration.imports.mapping', $run), [...$mapping, 'options' => [...$mapping['options'], 'on_match' => 'update']]);
-    (new CheckRun($run->id, 1))->withFakeQueueInteractions()->handle();
+    (new CheckRun($run->id, 1))->withFakeQueueInteractions()->handle(app(ClientMatcher::class));
 
     expect($run->fresh()->generation)->toBe(2)->and($run->fresh()->checked_count)->toBe(0)
         ->and($run->records()->whereNotNull('status')->count())->toBe(0);

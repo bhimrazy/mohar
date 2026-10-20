@@ -53,7 +53,6 @@ type Props = {
     found: { groups?: Found[]; currencies?: Found[]; countries?: Found[] };
     groupOptions: { id: number; name: string }[];
     currencyOptions: string[];
-    result: { ready: number; errors: number; warnings: number } | null;
     earlier: {
         name: string;
         uploaded_at: string | null;
@@ -133,7 +132,6 @@ export default function ImportMap({
     found,
     groupOptions,
     currencyOptions,
-    result,
     earlier,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -263,19 +261,6 @@ export default function ImportMap({
                 />
                 <ImportSteps current={1} />
                 <ImportProgress run={run} />
-
-                {result && (
-                    <Alert>
-                        <CircleAlert />
-                        <AlertTitle>Every row is checked</AlertTitle>
-                        <AlertDescription>
-                            {count(result.ready)} rows are ready to import,{' '}
-                            {count(result.errors)} have errors and{' '}
-                            {count(result.warnings)} have warnings. Nothing has
-                            been imported.
-                        </AlertDescription>
-                    </Alert>
-                )}
 
                 {earlier && (
                     <Alert>

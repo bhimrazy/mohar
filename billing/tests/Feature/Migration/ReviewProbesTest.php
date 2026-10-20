@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Migration\Jobs\StageCsvRun;
@@ -100,4 +101,32 @@ test('probe: Continue needs the execute permission, and two clicks start one job
     $this->post(route('admin.migration.imports.resume', $run))->assertSessionHasErrors(['run' => 'This import is not stopped.']);
 
     expect(Queue::pushed(StageCsvRun::class))->toHaveCount(2);
+});
+
+// B1 (money): defaults for unmapped fields were compared, so a name-and-email file would clear tax exemption,
+// re-label currency and reactivate a client. §8: "update of the mapped fields only".
+test('probe B1: an update compares only mapped fields; unmapped tax exemption, currency and status are not changes', function () {
+    Client::factory()->create(['email' => 'asha@example.com', 'first_name' => 'Asha', 'last_name' => 'Rai',
+        'currency' => 'USD', 'status' => 'inactive', 'tax_exempt' => true, 'language' => 'en']);
+    $header = ['First Name', 'Last Name', 'Email'];
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([['Asha', 'Rai', 'asha@example.com']], $header)),
+        ['on_match' => 'update'], ['first_name', 'last_name', 'email']);
+    $record = $run->records()->firstOrFail();
+
+    expect($record->changes)->toBe([])
+        ->and($record->decision)->not->toBe('update')
+        ->and($run->tax_exempt_count)->toBe(0);
+});
+
+// N2: a match followed to the merge survivor proposed replacing the survivor's email with the merged client's.
+test('probe N2: a match followed to the merge survivor does not propose replacing the survivor\'s email', function () {
+    $survivor = Client::factory()->create(['email' => 'kept@example.com', 'first_name' => 'Asha', 'last_name' => 'Rai', 'status' => 'active']);
+    Client::factory()->create(['email' => 'merged@example.com', 'status' => 'closed', 'merged_into_client_id' => $survivor->id]);
+    $header = ['First Name', 'Last Name', 'Email'];
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([['Asha', 'Rai', 'merged@example.com']], $header)),
+        ['on_match' => 'update'], ['first_name', 'last_name', 'email']);
+    $record = $run->records()->firstOrFail();
+
+    expect($record->match_client_id)->toBe($survivor->id)
+        ->and($record->changes)->not->toContain('email');
 });
