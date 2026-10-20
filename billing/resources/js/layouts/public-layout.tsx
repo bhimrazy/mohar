@@ -640,32 +640,28 @@ function SiteFooter({ site }: { site: Site }) {
                             />
                             <a
                                 href={`tel:${company.phone.replace(/[^\d+]/g, '')}`}
-                                className="hover:underline"
+                                className="whitespace-nowrap hover:underline"
                             >
                                 {company.phone}
                             </a>
-                            {company.whatsapp && (
-                                <>
-                                    <span aria-hidden="true">·</span>
-                                    <a
-                                        href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
-                                        className="hover:underline"
-                                    >
-                                        WhatsApp {company.whatsapp}
-                                    </a>
-                                </>
-                            )}
                         </p>
                     )}
-                    {company.whatsapp && !company.phone && (
-                        <p className="flex items-center gap-2">
-                            <Phone
-                                className="size-4 shrink-0 text-muted-foreground"
-                                aria-hidden="true"
-                            />
+                    {company.whatsapp && (
+                        <p
+                            className={cn(
+                                'flex items-center gap-2',
+                                company.phone && 'pl-6',
+                            )}
+                        >
+                            {!company.phone && (
+                                <Phone
+                                    className="size-4 shrink-0 text-muted-foreground"
+                                    aria-hidden="true"
+                                />
+                            )}
                             <a
                                 href={`https://wa.me/${company.whatsapp.replace(/[^\d]/g, '')}`}
-                                className="hover:underline"
+                                className="whitespace-nowrap hover:underline"
                             >
                                 WhatsApp {company.whatsapp}
                             </a>

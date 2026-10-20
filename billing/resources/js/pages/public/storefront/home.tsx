@@ -23,6 +23,13 @@ import {
 import { SiteHead, WHY_US_ICONS } from '@/components/storefront/site-head';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { cycleLabel, cycleMonths } from '@/lib/billing-cycles';
 import { cn } from '@/lib/utils';
@@ -438,13 +445,31 @@ function PlanGroup({
                 }
             >
                 {cycles.length > 1 && (
+                    // Phones get a select (one row whatever the number of cycles); wider screens the segmented switch.
+                    <Select value={cycle ?? undefined} onValueChange={setCycle}>
+                        <SelectTrigger
+                            aria-label="Billing cycle"
+                            className="h-10 w-full sm:hidden"
+                        >
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {cycles.map((value) => (
+                                <SelectItem key={value} value={value}>
+                                    {cycleLabel(value)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                )}
+                {cycles.length > 1 && (
                     <ToggleGroup
                         type="single"
                         variant="outline"
                         value={cycle ?? undefined}
                         onValueChange={(value) => value && setCycle(value)}
                         aria-label="Billing cycle"
-                        className="max-w-full overflow-x-auto bg-card"
+                        className="hidden bg-card sm:flex"
                     >
                         {cycles.map((value) => (
                             <ToggleGroupItem
