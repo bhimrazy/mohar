@@ -14,7 +14,7 @@ final class StopCommand extends SimulatorCommand
 {
     protected function perform(): int
     {
-        $id = basename((string) $this->argument('scenario'));
+        $id = basename($this->stringArgument('scenario'));
 
         try {
             Processes::stop(Scenario::load(Scenario::root().'/'.$id), (bool) $this->option('keep'));

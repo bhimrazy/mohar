@@ -30,7 +30,9 @@ and get the security reviewer's sign-off.
   silently.
 - `PermissionGuard::canGrant()` applies the same rule. Staff can grant only what they hold, and sensitive permissions
   only if they hold them explicitly.
-- Every route that mutates something behind a sensitive permission uses the `password.recent` middleware. The
+- Every route that mutates something behind a sensitive permission uses the `password.recent` middleware
+  (`tests/Feature/Security/SensitiveRouteStepUpTest.php` calls every admin route, records the permissions it
+  checks, and repeats the call without a recent password; exemptions are listed there with a reason). The
   password must have been confirmed within `platform.password_confirmation_seconds` (default 900). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
@@ -67,6 +69,11 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## 6. Secrets
 
+- A setting whose key or label reads like a credential, by the kernel `Redactor`'s key rule (secret, token, pass,
+  api key, hash, ...), is `secret: true`, in a section behind a sensitive permission
+  (`tests/Feature/Security/SecretSettingsTest.php`; non-credentials that match are listed there with a reason).
+- Stored server credentials belong to the destination they were saved for: changing the hostname, address, port,
+  TLS flag or driver clears them unless the same save enters them again (`Server::DESTINATION`).
 - Settings marked `secret: true` are encrypted at rest by `Settings` (`enc:v1:` + `Crypt::encryptString` of
   `{key, value}`, so ciphertext is bound to its key). Only registered secrets are ever decrypted. The cache
   holds only the ciphertext, and only `get()` decrypts. They are write-only: never in Inertia props or HTML, masked in
@@ -86,6 +93,13 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
   remote creation time at or after that attempt. A matching name, domain or owner alone is never proof; anything
   else is a conflict for staff. (Added 2026-10-18 from the #69 security review.)
 
+## Known limits
+
+- **Signup reveals whether an address has an account.** `POST /register` answers "The email has already been taken"
+  for a known address. The registration limiter (10 an hour per IP, 5 an hour per address) slows enumeration but
+  does not hide it; hiding it needs an email-first signup flow, where the form always says "check your email".
+  Forgot-password and reset-password answer the same for known and unknown addresses.
+
 ## Go-live checklist
 
 - [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
@@ -95,6 +109,12 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see
       `docs/devops/local-setup.md`). Without it, the login lockout keys on the proxy IP, the audit log records the
       proxy, and HSTS is never sent.
+- [ ] Sessions encrypted (`SESSION_ENCRYPT=true`, the `.env.example` default) or kept in a store no other system
+      reads: a reveal-once secret (a new webhook signing secret) sits in the session until the next request.
+- [ ] `support.inbound_secret` rotated after upgrading past the 2026-10-19 security fixes (Admin → Settings →
+      Inbound email webhook), and set on the mail relay.
+- [ ] `OUTBOUND_ALLOW_PRIVATE_ADDRESSES=false` on a multi-tenant install, so staff cannot point servers at the
+      internal network.
 - [ ] HTTPS only. `SESSION_SECURE_COOKIE=true`. Check that `Strict-Transport-Security` and
       `Content-Security-Policy` headers are present on `/login`, on a 404 and on `/admin` as a guest.
 - [ ] `security.staff_2fa_required` is on (the demo seeder turns it off locally only) and every full administrator
