@@ -38,13 +38,13 @@ the root of the release you are installing.
 3. Build the application image on the host.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml build
+    docker compose -f deploy/compose.prod.yaml build migrate
     ```
 
 4. Generate the application key, once. Copy the printed value into `APP_KEY` in `deploy/.env`.
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 app php artisan key:generate --show
+    docker compose -f deploy/compose.prod.yaml run --rm --no-deps -e APP_OPTIMIZE=0 migrate php artisan key:generate --show
     ```
 
     Also save the key in your password manager, away from your backups. It decrypts the gateway, registrar and server
@@ -61,10 +61,11 @@ the root of the release you are installing.
     The last command asks for the administrator's name, email address and password. The password needs at least 12
     characters, with upper- and lower-case letters, a number and a symbol.
 
-6. Start everything.
+6. Start everything with the first deploy. It starts the app (as its *blue* copy), the web server, the workers and
+   the scheduler. Every later upgrade uses the same command (see [Upgrade](../../operate/upgrade/)).
 
     ```bash
-    docker compose -f deploy/compose.prod.yaml up -d --wait
+    deploy/bin/deploy
     ```
 
 7. Check the install. Open `https://<your domain>/up`; it should load without an error. Then confirm the app trusts
@@ -83,23 +84,26 @@ the root of the release you are installing.
 
 ## What runs
 
-| Service                                                                  | What it does                                               |
-| ------------------------------------------------------------------------ | ---------------------------------------------------------- |
-| `caddy`                                                                  | HTTPS, redirects HTTP to HTTPS, forwards requests to `app` |
-| `app`                                                                    | the web application                                        |
-| `worker-critical`, `worker-notifications`, `worker-default`              | background jobs: payments, provisioning, email, webhooks   |
-| `worker-automation`                                                      | runs **Run now** requests from **Setup → Automation**      |
-| `scheduler`                                                              | runs scheduled work, including the daily automation run    |
-| `migrate`                                                                | runs database changes before the app starts, then exits    |
-| `postgres`, `rustfs`                                                     | the database and object storage                            |
+The app runs as two copies, *blue* and *green*, so an upgrade never interrupts the site. Each service of the app
+exists once per copy; only the live copy's workers and scheduler run. `deploy/bin/deploy status` shows which is live.
+
+| Service                                                                         | What it does                                                    |
+| ------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `caddy`                                                                         | HTTPS, redirects HTTP to HTTPS, forwards requests to the live copy |
+| `app-blue`, `app-green`                                                         | the web application                                             |
+| `worker-critical-…`, `worker-notifications-…`, `worker-default-…`               | background jobs: payments, provisioning, email, webhooks        |
+| `worker-automation-…`                                                           | runs **Run now** requests from **Setup → Automation**           |
+| `scheduler-…`                                                                   | runs scheduled work, including the daily automation run         |
+| `migrate`                                                                       | runs database changes before a new version starts, then exits   |
+| `postgres`, `rustfs`                                                            | the database and object storage                                 |
 
 Only Caddy publishes ports. PostgreSQL and object storage have no route to the internet. The PHP containers run as
 an unprivileged user on a read-only file system.
 
-To read the logs of a service:
+To read the logs of a service of the live copy (here blue):
 
 ```bash
-docker compose -f deploy/compose.prod.yaml logs -f app
+docker compose -f deploy/compose.prod.yaml --profile blue logs -f app-blue
 ```
 
 Caddy's logs replace the one-time tokens in password-reset and invitation links with `REDACTED`, so logs can be shared
@@ -107,14 +111,15 @@ for support without handing out working links.
 
 ## If you change `deploy/.env` later
 
-The containers read it when they start. Recreate the services that read it after an edit (Caddy reads the domain and
-the `CADDY_` settings):
+The containers read it when they start. Deploy again after an edit: the other copy starts with the new settings
+and takes over without a gap.
 
 ```bash
-docker compose -f deploy/compose.prod.yaml up -d --force-recreate caddy app worker-critical worker-notifications worker-default worker-automation scheduler
+deploy/bin/deploy
 ```
 
-Like an upgrade, this waits for an automation run in progress, up to an hour (see
-[Upgrade](../../operate/upgrade/)).
+Like an upgrade, this waits for an automation run in progress, up to an hour (see [Upgrade](../../operate/upgrade/)).
+Caddy reads the domain, the ports and the `CADDY_` settings: after changing those, also restart it with
+`docker compose -f deploy/compose.prod.yaml up -d --force-recreate caddy`.
 
 Next: [Sign in for the first time](../first-sign-in/).

@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-20 12:00 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
+Last updated: 2026-10-20 16:00 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts
 or stops, or the owner makes a decision. Keep it short: history goes in `history.md`.
 
 ## Summary
@@ -17,9 +17,28 @@ or stops, or the owner makes a decision. Keep it short: history goes in `history
 - The milestone that moves the number most: a fresh PostgreSQL install via the install command, a real cPanel/WHM
   account created from an order, paid through Stripe, on a server the owner provides.
 
+## Review round 3 (2026-10-20 afternoon): `docs/reviews/2026-10-20-{ceo-round-3,cto-round-3,security,architecture}.md`
+
+- Score **53/100** by the CEO rubric (from 46): install 60, integrations 44, migration 25, proof 65.
+- Owner decisions today: **Nepal is the main market**; the repository is switched between public and private as
+  needed, with CI on GitHub while public and the local merge gate while private; licence all rights reserved, `main`
+  kept as a readme-and-licence landing page; all 12 client-importer recommendations
+  accepted; 4-vCPU codespace kept.
+- Security: no blockers. High #172 (chargeback and overpayment refunds leave credit spendable) is being fixed.
+- Architecture: kernel growth is small, but agreed orderings were skipped. ADR 0020 (hot-path reads) is Proposed. The
+  registrar PR must use the kernel `ReconcileStatus`. Step-up is still owned by Platform (#112 to be cut to ADR 0018 §4).
+  The company clock (ADR 0013) is needed for Nepal.
+- Open owner questions:
+  - do Nepali tax invoices need Bikram Sambat dates and BS fiscal-year numbering?
+  - electronic billing / CBMS rules for VAT-registered hosts;
+  - connectIPS merchant enrolment (weeks of lead time);
+  - a WHMCS dev licence or a fake-data export;
+  - a cPanel 15-day trial on a VPS.
+
 ## Repository
 
-- GitHub `bhimrazy/whmcs` (private). `develop` = integration, `main` = release (not yet cut).
+- GitHub `bhimrazy/whmcs` (visibility switched by the owner as needed; see operating-model.md, "Repository visibility
+  and CI"). `develop` = integration, `main` = landing page (readme and licence); release not yet cut.
 - App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5). Local setup: `billing/docs/devops/local-setup.md`.
   Production install and upgrade (`php artisan app:install`): `billing/docs/devops/install.md`.
   Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`.
