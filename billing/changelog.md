@@ -179,6 +179,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `DomainPricing`, `MergeFieldRegistry`), DTOs and 37 domain events.
 - Server-driven sidebar navigation and dashboard-card registries; admin (`/admin`) and client (`/client`) areas.
 - Object storage: `objects` disk backed by RustFS via `compose.yaml` + `objects:ensure-bucket` command (ADR 0004).
+- CI back from about 14.5 to about 10 minutes (579–622 s per job): the PostgreSQL step went from 550 s to
+  212–309 s (no pre-suite migrate and seed, direct container connection, savepoints released inside the test
+  transaction, 4 workers, the database-free Unit and Arch suites on SQLite only, the demo billing history seeded once
+  per worker with `useSeededDatabase()`), and Pint and tsc reuse cached results. The job warns past 12 of its 15
+  minutes. `composer test:pgsql` no longer migrates or seeds the base database and skips Unit and Arch;
+  `PEST_PROCESSES` sets its worker count (docs/devops/ci.md, ADR 0006 amended).
 
 ### Themes & brand
 
@@ -212,6 +218,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   queue against today's clients, products and services, comparing owners with the user the fetch signed in as, without
   asking the server; it needs a recent password and is recorded in the activity log. Unmatched accounts link to creating a product for their package; live services missing on the
   server link to the service to cancel or terminate it; a fetch that never finished says so, with Fetch again.
+- Import accounts page fixes: a service whose username differs only in case stays linked on the page; the Missing on
+  server count matches its tab; a "Match again" whose queue job never ran no longer hides the list (it is usable again
+  after 10 minutes); and on a list fetched before the connection user was recorded, Match again lists owned accounts
+  apart instead of proposing them, until the list is fetched again.
 - Services, service addons, servers and server groups (least full / fill until full, max accounts, encrypted
   credentials), per-service billing dates with anchored cycles and a local invoice ↔ period mirror.
 - Provisioning driver contract (`create/suspend/unsuspend/terminate/changePackage/changePassword/usage/testConnection`,
