@@ -5,6 +5,12 @@ Clean-room: based only on the public WHMCS developer docs (External API referenc
 We use no WHMCS source code, encoded files or licence internals, and no information about protections. The only data we read is data the
 operator owns, through the documented API, using credentials the operator creates.
 
+> **Amended by `client-import.md` (2026-10-20).** Client import builds the client slice of this pipeline first and adds a
+> CSV connector. It changes this spec in eight points, listed in `client-import.md` §2 (A1–A8): the `imports` queue
+> instead of `migration`, imported fields instead of notes for unmapped custom fields, paged `GetContacts`, marketing
+> consent with evidence, importers setting `email_changed_at`, the database "gap reader" as an owner decision, a
+> `source_kind` on runs, and `ImportOutcome::$changes`. Everything else here stands.
+
 ## 1. Purpose & scope
 
 An operator moves **their own** business data from **their own** WHMCS installation into our platform. Competitors offer the same
