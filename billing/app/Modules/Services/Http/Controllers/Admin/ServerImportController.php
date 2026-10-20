@@ -16,7 +16,6 @@ use App\Modules\Services\Support\AccountImportMatcher;
 use App\Modules\Services\Support\AccountImportPlan;
 use App\Support\Services\ProvisioningDriverRegistry;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -151,25 +150,6 @@ class ServerImportController extends Controller
         $import->update(['selections' => $selections]);
 
         return back();
-    }
-
-    /**
-     * Open, active clients for the client picker on this page (name, company or email).
-     */
-    public function clients(Request $request, Server $server): JsonResponse
-    {
-        $this->authorize('services.servers.import');
-
-        $term = mb_substr(trim($request->string('q')->toString()), 0, 100);
-
-        return response()->json(Client::query()
-            ->where('status', 'active')
-            ->when($term !== '', fn ($query) => $query->search($term))
-            ->orderBy('first_name')->orderBy('last_name')->orderBy('id')
-            ->limit(20)
-            ->get(['id', 'first_name', 'last_name', 'company_name', 'email', 'currency'])
-            ->map(fn (Client $client): array => ['id' => $client->id, 'display_name' => $client->display_name, 'email' => $client->email, 'currency' => $client->currency])
-            ->values());
     }
 
     /**

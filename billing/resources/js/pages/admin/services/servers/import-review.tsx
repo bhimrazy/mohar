@@ -226,43 +226,25 @@ export default function ServerImportReview({
                     }
                     footer={
                         page.last > 1 && (
-                            <div className="flex items-center justify-between px-4 py-3 text-sm">
-                                <span className="text-muted-foreground">
-                                    Page {page.current} of {page.last}
-                                </span>
-                                <span className="flex gap-2">
-                                    {page.current > 1 && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            asChild
-                                        >
-                                            <Link
-                                                href={pageLink(
-                                                    page.current - 1,
-                                                )}
-                                            >
-                                                Previous
-                                            </Link>
-                                        </Button>
-                                    )}
-                                    {page.current < page.last && (
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            asChild
-                                        >
-                                            <Link
-                                                href={pageLink(
-                                                    page.current + 1,
-                                                )}
-                                            >
-                                                Next
-                                            </Link>
-                                        </Button>
-                                    )}
-                                </span>
-                            </div>
+                            <p className="flex gap-4 px-4 py-3 text-sm">
+                                Page {page.current} of {page.last}
+                                {page.current > 1 && (
+                                    <Link
+                                        href={pageLink(page.current - 1)}
+                                        className="text-primary hover:underline"
+                                    >
+                                        Previous
+                                    </Link>
+                                )}
+                                {page.current < page.last && (
+                                    <Link
+                                        href={pageLink(page.current + 1)}
+                                        className="text-primary hover:underline"
+                                    >
+                                        Next
+                                    </Link>
+                                )}
+                            </p>
                         )
                     }
                 />
