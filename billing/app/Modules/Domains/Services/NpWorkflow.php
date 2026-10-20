@@ -3,6 +3,7 @@
 namespace App\Modules\Domains\Services;
 
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\BusinessCalendar;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Actions\SyncDomain;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -38,7 +39,16 @@ class NpWorkflow
     /** Business days a rejected request may wait: the registry drops rejected requests after three to four. */
     public const RESUBMIT_BUSINESS_DAYS = 2;
 
-    public function __construct(private DomainStateMachine $states, private ActivityLogger $activity, private Settings $settings, private SyncDomain $sync) {}
+    /** Days without a client upload or a staff step after which an unsubmitted request is closed (CTO, 2026-10-20). */
+    public const ABANDONED_DAYS = 90;
+
+    public function __construct(
+        private DomainStateMachine $states,
+        private ActivityLogger $activity,
+        private Settings $settings,
+        private SyncDomain $sync,
+        private BusinessCalendar $calendar,
+    ) {}
 
     public function start(Domain $domain): NpRegistration
     {
@@ -92,10 +102,13 @@ class NpWorkflow
         });
     }
 
-    public function review(NpRegistration $registration, bool $approved, ?string $reasons): void
+    /**
+     * @param  list<string>  $checklist  the checks staff confirmed (kept in the activity log)
+     */
+    public function review(NpRegistration $registration, bool $approved, ?string $reasons, array $checklist = []): void
     {
         $this->step($registration, [NpStage::DocumentsReview], fn (NpRegistration $locked) => $approved
-            ? $this->move($locked, NpStage::ReadyToSubmit, 'Staff task: submit the .np request in the registry portal')
+            ? $this->move($locked, NpStage::ReadyToSubmit, 'Staff task: submit the .np request in the registry portal', [], ['checklist' => $checklist])
             : $this->move($locked, NpStage::AwaitingDocuments, '.np documents returned to the client', ['returned_reasons' => $reasons]));
     }
 
@@ -120,13 +133,13 @@ class NpWorkflow
     public function decide(NpRegistration $registration, bool $approved, ?CarbonImmutable $registryExpiry, ?int $code, ?string $note, ?int $staffId): ?string
     {
         $this->step($registration, [NpStage::Submitted], function (NpRegistration $locked) use ($approved, $registryExpiry, $code, $note): void {
-            $locked->documents()->whereNull('delete_after')->update(['delete_after' => CarbonImmutable::today()->addDays($this->retentionDays())]);
+            $locked->documents()->whereNull('delete_after')->update(['delete_after' => $this->calendar->today()->addDays($this->retentionDays())]);
 
             if ($approved) {
                 $this->move($locked, NpStage::Approved, '.np request approved by the registry', [
                     'approved_at' => now(),
                     'registry_expires_on' => $registryExpiry,
-                    'review_due_on' => $registryExpiry ?? CarbonImmutable::today()->addYearsNoOverflow($this->reviewCycleYears()),
+                    'review_due_on' => $registryExpiry ?? $this->calendar->today()->addYearsNoOverflow($this->reviewCycleYears()),
                     'review_confirmed_at' => now(),
                 ]);
 
@@ -137,7 +150,14 @@ class NpWorkflow
             $this->states->transition($locked->domain, DomainStatus::Pending, 'Rejected by the .np registry', ['last_error' => $note]);
         });
 
-        return $approved ? $this->sync->handle($registration->domain()->firstOrFail(), staffId: $staffId)['error'] : null;
+        if (! $approved) {
+            return null;
+        }
+
+        $domain = $registration->domain()->firstOrFail();
+        $error = $this->sync->handle($domain, staffId: $staffId)['error'];
+
+        return $error ?? ($domain->fresh()?->status === DomainStatus::Active ? null : "The approval is recorded, but the domain is {$domain->fresh()?->status->label()}, so it was not activated.");
     }
 
     /**
@@ -159,7 +179,8 @@ class NpWorkflow
     public function renewed(Domain $domain): void
     {
         $this->step(NpRegistration::query()->where('domain_id', $domain->id)->firstOrFail(), [NpStage::Approved], function (NpRegistration $locked): void {
-            $from = $locked->review_due_on?->isFuture() ? $locked->review_due_on : CarbonImmutable::today();
+            $today = $this->calendar->today();
+            $from = $locked->review_due_on?->gt($today) ? $locked->review_due_on : $today;
             $locked->forceFill(['review_due_on' => $from->addYearsNoOverflow($this->reviewCycleYears()), 'review_confirmed_at' => null])->save();
             $this->log($locked, 'Staff task: confirm the .np registry status after the renewal');
         });
@@ -183,21 +204,44 @@ class NpWorkflow
     }
 
     /**
-     * Daily: delete documents past their retention date, and those of requests whose domain was closed or deleted.
+     * Daily: close abandoned requests, start the retention period of documents whose domain was closed or deleted,
+     * then delete documents past their retention date (one activity entry per request).
      */
     public function pruneDocuments(CarbonImmutable $today): int
     {
-        $terminal = array_map(fn (DomainStatus $status): string => $status->value, array_filter(DomainStatus::cases(), fn (DomainStatus $status): bool => $status->isTerminal()));
-        $closed = Domain::query()->withTrashed()->where(fn (Builder $query) => $query->whereIn('status', $terminal)->orWhereNotNull('deleted_at'))->select('id');
-        $documents = NpDocument::query()
-            ->where(fn (Builder $query) => $query->whereDate('delete_after', '<=', $today)
-                ->orWhere(fn (Builder $query) => $query->where('created_at', '<=', $today->subDays($this->retentionDays()))
-                    ->whereIn('np_registration_id', NpRegistration::query()->whereIn('domain_id', $closed)->select('id'))))
-            ->orderBy('id')
-            ->get();
+        $this->closeAbandoned($today);
+        $deleteAfter = $today->addDays($this->retentionDays())->toDateString();
+        NpDocument::query()->whereNull('delete_after')
+            ->whereIn('np_registration_id', NpRegistration::query()->whereNotIn('id', NpRegistration::query()->open()->select('id'))->select('id'))
+            ->update(['delete_after' => $deleteAfter]);
+
+        $documents = NpDocument::query()->whereDate('delete_after', '<=', $today)->with('registration.domain')->orderBy('id')->get();
         $this->delete($documents);
 
+        foreach ($documents->groupBy('np_registration_id') as $deleted) {
+            $this->log($deleted->first()->registration, '.np documents deleted after the retention period', ['count' => $deleted->count()]);
+        }
+
         return $documents->count();
+    }
+
+    /**
+     * Close requests that saw no client upload and no staff step for ABANDONED_DAYS before submission: the domain is
+     * cancelled and the documents get their retention date (CTO decision, 2026-10-20).
+     */
+    private function closeAbandoned(CarbonImmutable $today): void
+    {
+        $cutoff = $this->calendar->startOfDayUtc($today->subDays(self::ABANDONED_DAYS));
+
+        NpRegistration::query()->open()
+            ->whereIn('stage', [NpStage::AwaitingDocuments->value, NpStage::DocumentsReview->value, NpStage::ReadyToSubmit->value])
+            ->where('stage_changed_at', '<', $cutoff)
+            ->whereDoesntHave('documents', fn (Builder $query) => $query->where('created_at', '>=', $cutoff))
+            ->with('domain')->orderBy('id')->get()
+            ->each(function (NpRegistration $registration): void {
+                $this->states->transition($registration->domain, DomainStatus::Cancelled, 'The .np request was abandoned: no documents or staff step for '.self::ABANDONED_DAYS.' days');
+                $this->log($registration, 'Staff task: a .np request was closed after '.self::ABANDONED_DAYS.' days without activity; refund the order if it was paid');
+            });
     }
 
     /**
@@ -209,10 +253,11 @@ class NpWorkflow
      */
     public function queue(string $queue): Builder
     {
-        $now = CarbonImmutable::now();
+        // Business days are counted on the company's calendar, then compared with UTC timestamps.
+        $now = CarbonImmutable::now($this->calendar->timezone());
 
         return $queue === 'overdue'
-            ? NpRegistration::query()->overdue(self::businessDaysBefore($now, max(1, (int) ($this->option('staff_sla_business_days') ?? 4))), self::businessDaysBefore($now, self::RESUBMIT_BUSINESS_DAYS))
+            ? NpRegistration::query()->overdue(self::businessDaysBefore($now, max(1, (int) ($this->option('staff_sla_business_days') ?? 4)))->utc(), self::businessDaysBefore($now, self::RESUBMIT_BUSINESS_DAYS)->utc())
             : NpRegistration::query()->waitingForStaff();
     }
 
@@ -260,6 +305,10 @@ class NpWorkflow
         return DB::transaction(function () use ($registration, $stages, $step): mixed {
             $locked = NpRegistration::query()->with('domain')->lockForUpdate()->findOrFail($registration->id);
 
+            if ($locked->domain->trashed() || $locked->domain->status->isTerminal()) {
+                throw new DomainActionNotAllowed("The domain is {$locked->domain->status->label()}, so its .np request is closed.");
+            }
+
             if (! in_array($locked->stage, $stages, true)) {
                 throw new DomainActionNotAllowed('This .np request has moved on to another step; reload the page.');
             }
@@ -273,11 +322,12 @@ class NpWorkflow
 
     /**
      * @param  array<string, mixed>  $attributes
+     * @param  array<string, mixed>  $properties
      */
-    private function move(NpRegistration $registration, NpStage $stage, string $description, array $attributes = []): void
+    private function move(NpRegistration $registration, NpStage $stage, string $description, array $attributes = [], array $properties = []): void
     {
         $registration->forceFill([...$attributes, 'stage' => $stage, 'stage_changed_at' => now()])->save();
-        $this->log($registration, $description, array_filter(['reasons' => $attributes['returned_reasons'] ?? null, 'code' => $attributes['rejection_code'] ?? null, 'note' => $attributes['rejection_note'] ?? null]));
+        $this->log($registration, $description, array_filter([...$properties, 'reasons' => $attributes['returned_reasons'] ?? null, 'code' => $attributes['rejection_code'] ?? null, 'note' => $attributes['rejection_note'] ?? null]));
     }
 
     /**

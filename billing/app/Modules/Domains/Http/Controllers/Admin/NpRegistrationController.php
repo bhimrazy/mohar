@@ -9,6 +9,7 @@ use App\Modules\Domains\Models\NpDocument;
 use App\Modules\Domains\Models\NpRegistration;
 use App\Modules\Domains\Services\NpWorkflow;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
@@ -27,7 +28,7 @@ class NpRegistrationController extends Controller
         $error = null;
 
         match ($action) {
-            'review' => $workflow->review($registration, $approved, $request->validated('reasons')),
+            'review' => $workflow->review($registration, $approved, $request->validated('reasons'), array_keys(array_filter((array) $request->validated('checklist', [])))),
             'submitted' => $workflow->markSubmitted($registration, CarbonImmutable::parse($request->string('submitted_on')->toString())),
             'decision' => $error = $workflow->decide(
                 $registration,
@@ -62,7 +63,13 @@ class NpRegistrationController extends Controller
         $this->authorize('domains.np.review');
         abort_unless($document->registration->domain_id === $domain->id, 404);
 
-        return response(Crypt::decryptString((string) Storage::disk(NpDocument::DISK)->get($document->path)), 200, [
+        try {
+            $contents = Crypt::decryptString((string) Storage::disk(NpDocument::DISK)->get($document->path));
+        } catch (DecryptException) {
+            abort(410, __('This document can no longer be decrypted (the application key changed). Ask the client to upload it again.'));
+        }
+
+        return response($contents, 200, [
             'Content-Type' => $document->mime,
             'Content-Disposition' => 'inline; filename="document-'.$document->id.'"',
             'Cache-Control' => 'private, no-store',

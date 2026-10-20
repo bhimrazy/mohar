@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Http\Requests;
 
+use App\Modules\Core\Support\BusinessCalendar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\NpWorkflow;
 use Illuminate\Contracts\Validation\ValidationRule;
@@ -32,7 +33,8 @@ class NpStepRequest extends FormRequest
                     : ['exclude_unless:approved,true', 'accepted']])->all(),
                 'reasons' => ['exclude_if:approved,true', 'required', 'string', 'max:1000'],
             ],
-            'submitted' => ['submitted_on' => ['required', 'date', 'before_or_equal:today']],
+            // "Today" on the company's calendar (staff in Kathmandu are hours ahead of UTC).
+            'submitted' => ['submitted_on' => ['required', 'date', 'before_or_equal:'.app(BusinessCalendar::class)->today()->toDateString()]],
             'decision' => [
                 'approved' => ['required', 'boolean'],
                 'registry_expires_on' => ['exclude_unless:approved,true', 'nullable', 'date', 'after:today'],
