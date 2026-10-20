@@ -6,13 +6,12 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * What a source record became: (source, type, source id) → target id, with the checksum of what was imported.
+ * What a source record became: (source, entity, source id) → target id, with the checksum of what was imported.
  *
  * @property int $id
  * @property int $migration_source_id
- * @property string $source_type
+ * @property string $entity the importer's registry key ("client")
  * @property string $source_id
- * @property string $target_type
  * @property int $target_id
  * @property string $checksum
  * @property CarbonImmutable $synced_at

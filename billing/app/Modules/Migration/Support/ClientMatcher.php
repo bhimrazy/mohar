@@ -36,7 +36,7 @@ final class ClientMatcher
         $first = $rows[0]['row'];
         $earlierEmails = $this->earlier($run, 'email_hash', array_values(array_filter(array_column($rows, 'email_hash'))), $first);
         $earlierIds = $hasExternalId ? $this->earlier($run, 'source_id', array_column($rows, 'source_id'), $first) : [];
-        $mapped = MigrationIdMap::query()->where('migration_source_id', $run->migration_source_id)->where('source_type', 'client')
+        $mapped = MigrationIdMap::query()->where('migration_source_id', $run->migration_source_id)->where('entity', 'client')
             ->whereIn('source_id', array_column($rows, 'source_id'))->get(['source_id', 'target_id', 'checksum'])->keyBy('source_id');
         $emails = array_values(array_unique(array_filter(array_map(fn (array $row): ?string => $row['client']['email'] ?? null, $rows))));
         $byEmail = $this->clients(fn (Builder $query) => $query->whereIn(DB::raw('lower(email)'), $emails));

@@ -177,7 +177,7 @@ test('a row imported from this source before is unchanged when its data is the s
     $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('42', 'a@example.com')])));
     $client = Client::factory()->create(['email' => 'renamed@example.com']);
     $record = checkedRows($run)[1];
-    DB::table('migration_id_map')->insert(['migration_source_id' => $run->migration_source_id, 'source_type' => 'client', 'source_id' => '42', 'target_type' => 'core.client',
+    DB::table('migration_id_map')->insert(['migration_source_id' => $run->migration_source_id, 'entity' => 'client', 'source_id' => '42',
         'target_id' => $client->id, 'checksum' => $record->checksum, 'synced_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
     expect(checkedRows(ClientCsv::check($run))[1])->decision->toBe('unchanged')->match_client_id->toBe($client->id);
