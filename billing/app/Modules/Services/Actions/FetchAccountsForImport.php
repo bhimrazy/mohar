@@ -36,7 +36,9 @@ class FetchAccountsForImport
         $import = DB::transaction(function () use ($server, $staff): ServerAccountImport {
             Server::query()->whereKey($server->id)->lockForUpdate()->first();
 
-            if (self::latest($server)?->isRunning()) {
+            $previous = self::latest($server);
+
+            if ($previous?->isRunning()) {
                 throw ValidationException::withMessages(['import' => __('The accounts on :server are being read already. This page updates when the list is ready.', ['server' => $server->name])]);
             }
 
@@ -46,6 +48,8 @@ class FetchAccountsForImport
                 'server_id' => $server->id,
                 'requested_by' => $staff?->id,
                 'status' => ServerAccountImport::FETCHING,
+                // Staff choices carry over to the new list for the accounts still on the server (AccountImportMatcher::store()).
+                'selections' => $previous?->selections,
                 'expires_at' => now()->addHours(ServerAccountImport::HOURS),
             ]);
         });

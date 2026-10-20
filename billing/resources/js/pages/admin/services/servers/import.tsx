@@ -7,13 +7,14 @@ import {
 } from '@inertiajs/react';
 import {
     CircleAlert,
+    Pencil,
     Link2,
     ServerCrash,
     Sparkles,
     UserRoundSearch,
     Users,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -27,6 +28,7 @@ import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { useQueryParams } from '@/components/app/use-query-params';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Spinner } from '@/components/ui/spinner';
@@ -35,7 +37,7 @@ import ServerController from '@/actions/App/Modules/Services/Http/Controllers/Ad
 import ServerImportController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServerImportController';
 import ServiceController from '@/actions/App/Modules/Services/Http/Controllers/Admin/ServiceController';
 import { show as showClient } from '@/routes/admin/clients';
-import type { LaravelPaginated } from '@/types/app';
+import type { LaravelPaginated, SelectOption } from '@/types/app';
 
 type Category = 'proposed' | 'unmatched' | 'reseller' | 'linked';
 type Tab = 'all' | Category | 'missing';
@@ -57,6 +59,7 @@ type AccountRow = {
     service: LinkedService | null;
     differences: string[];
     include: boolean;
+    chosen: { cycle?: string; next_due_date?: string };
 };
 
 type ReportLine = {
@@ -93,6 +96,8 @@ type Props = {
     filters: { tab: Tab; search: string };
     createProductUrl: string | null;
     included: number;
+    productOptions: { id: number; name: string }[];
+    cycles: SelectOption[];
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -164,6 +169,7 @@ function ServiceLink({ service }: { service: LinkedService }) {
 const accountColumns = (
     createProductUrl: string | null,
     toggle: (row: AccountRow) => void,
+    choose: (row: AccountRow) => void,
 ): DataTableColumn<AccountRow>[] => [
     {
         key: 'include',
@@ -265,6 +271,23 @@ const accountColumns = (
             </span>
         ),
     },
+    {
+        key: 'choose',
+        header: <span className="sr-only">Actions</span>,
+        align: 'right',
+        cell: (row) =>
+            row.category !== 'linked' && (
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => choose(row)}
+                    aria-label={`Choose how ${row.username} is imported`}
+                    title="Choose client, product and billing"
+                >
+                    <Pencil />
+                </Button>
+            ),
+    },
 ];
 
 const missingColumns: DataTableColumn<MissingRow>[] = [
@@ -311,10 +334,13 @@ export default function ServerImport({
     filters,
     createProductUrl,
     included,
+    productOptions,
+    cycles,
 }: Props) {
     const page = usePage();
     const { errors } = page.props as { errors: Record<string, string> };
     const report = fetched?.report ?? null;
+    const [choosing, setChoosing] = useState<AccountRow | null>(null);
     const select = (
         data: Record<string, string | boolean | string[]>,
         onSuccess?: () => void,
@@ -686,6 +712,7 @@ export default function ServerImport({
                                             usernames: [row.username],
                                             include: !row.include,
                                         }),
+                                    setChoosing,
                                 )}
                                 rows={rows.data as AccountRow[]}
                                 getRowKey={(row) => row.username}
@@ -707,6 +734,21 @@ export default function ServerImport({
                     </>
                 )}
             </Page>
+            <ImportChoiceDialog
+                serverId={server.id}
+                usernames={choosing ? [choosing.username] : []}
+                initial={
+                    choosing && {
+                        client: choosing.client,
+                        product: choosing.product,
+                        cycle: choosing.chosen.cycle ?? null,
+                        next_due_date: choosing.chosen.next_due_date ?? null,
+                    }
+                }
+                onClose={() => setChoosing(null)}
+                productOptions={productOptions}
+                cycles={cycles}
+            />
         </>
     );
 }

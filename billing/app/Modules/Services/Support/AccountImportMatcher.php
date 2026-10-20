@@ -147,6 +147,7 @@ class AccountImportMatcher
             'missing' => $matched['missing'],
             'fetched_at' => $import->fetched_at ?? now(),
             'connection_user' => $connectionUser,
+            'selections' => array_intersect_key($import->selections ?? [], array_flip(array_column($matched['rows'], 'username'))) ?: null,
         ]);
 
         return count($matched['rows']);
