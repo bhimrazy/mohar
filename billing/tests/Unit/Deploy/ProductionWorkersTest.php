@@ -18,9 +18,27 @@ function d2DeployDir(): string
     return dirname(__DIR__, 4).'/deploy';
 }
 
-function d2Services(): array
+/** Every compose service, colours included. */
+function d2AllServices(): array
 {
     return Yaml::parseFile(d2DeployDir().'/compose.prod.yaml')['services'];
+}
+
+/**
+ * The services by role. Blue-green (D3): each app role runs once per colour, so the roles are the blue services
+ * without their suffix; the test below proves green is the same service apart from its image and profile.
+ */
+function d2Services(): array
+{
+    $roles = [];
+
+    foreach (d2AllServices() as $name => $service) {
+        if (! str_ends_with($name, '-green')) {
+            $roles[preg_replace('/-blue$/', '', $name)] = $service;
+        }
+    }
+
+    return $roles;
 }
 
 /** The connection a queue:work command reads: its positional argument, else the default (database). */
@@ -172,4 +190,21 @@ test('a deploy during the daily automation run lets the scheduler finish it inst
     // withoutOverlapping mutex (24 h) and the command lock (1 h) behind. An idle scheduler still stops in ~0.1 s.
     expect(d2Seconds(d2Services()['scheduler']['stop_grace_period']))
         ->toBeGreaterThan(Queues::AUTOMATION_TIMEOUT_SECONDS);
+});
+
+test('each green service is its blue twin, apart from the image variable and the profile', function () {
+    $all = d2AllServices();
+    $blue = array_filter(array_keys($all), fn (string $name) => str_ends_with($name, '-blue'));
+
+    expect($blue)->not->toBeEmpty();
+
+    foreach ($blue as $name) {
+        $green = preg_replace('/-blue$/', '-green', $name);
+        $strip = fn (array $service) => array_diff_key($service, ['image' => true, 'profiles' => true]);
+
+        expect($all)->toHaveKey($green)
+            ->and($strip($all[$green]))->toBe($strip($all[$name]), "{$green} differs from {$name}")
+            ->and($all[$name]['profiles'])->toBe(['blue'])
+            ->and($all[$green]['profiles'])->toBe(['green']);
+    }
 });

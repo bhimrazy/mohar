@@ -31,10 +31,10 @@ test('only caddy publishes ports, and the data stores sit on the internal networ
         ->and($compose['services']['rustfs']['networks'])->toBe(['backend'])
         ->and($compose['services']['caddy']['networks'])->toBe(['edge']);
 
-    // Nothing but caddy and app on the trusted edge range.
+    // Nothing but caddy and the two colours' web containers on the trusted edge range.
     $onEdge = collect($compose['services'])
         ->filter(fn (array $service) => in_array('edge', $service['networks'] ?? [], true))->keys()->sort()->values();
-    expect($onEdge->all())->toBe(['app', 'caddy']);
+    expect($onEdge->all())->toBe(['app-blue', 'app-green', 'caddy']);
 });
 
 test('the app trusts forwarded headers only from the edge network range, never "*"', function () {
