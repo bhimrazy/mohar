@@ -1,0 +1,46 @@
+---
+title: Requirements
+description: What you need before you install.
+---
+
+There are two ways to install. Pick one, then check its list.
+
+## With Docker Compose (recommended)
+
+Everything runs in containers on one Linux host: the app, its workers and scheduler, PostgreSQL, object storage and
+a web server that gets the TLS certificate for you.
+
+- A Linux host with Docker Engine and the Docker Compose v2 plugin.
+- At least 2 vCPU and 4 GB of memory.
+- A domain name for the app, such as `billing.example.com`, with DNS `A` (and `AAAA` for IPv6) records pointing at
+  the host.
+- Ports 80 and 443 open to the internet (TCP), and 443 over UDP for HTTP/3.
+- An SMTP account or a mail service. Password resets, invoices and security notices are sent by email, so the app
+  is not usable without it.
+- Somewhere off the host to keep backups.
+
+Next: [Install with Docker Compose](../install-docker/).
+
+## On a server without Docker
+
+You run PHP, the database and the workers yourself.
+
+| Component      | What you need                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------- |
+| PHP            | 8.4, with the extensions Laravel needs plus `pdo_pgsql`, `pgsql`, `intl`, `gd`, `bcmath`, `pcntl`, `zip` and `opcache` |
+| Web server     | nginx with php-fpm, or another server that can run PHP, serving HTTPS only                                           |
+| Composer       | 2.10                                                                                                                  |
+| Node.js        | 24.21.0, only to build the front-end files during install and upgrade                                                 |
+| PostgreSQL     | 18. SQLite is for development only                                                                                    |
+| Object storage | any S3-compatible bucket (for example RustFS, MinIO or AWS S3) for invoice PDFs, attachments and uploads              |
+| Mail           | an SMTP account or a mail service                                                                                     |
+| Processes      | cron for the scheduler, and systemd or Supervisor to keep the queue workers running                                   |
+
+Next: [Install on a server without Docker](../install-server/).
+
+## Accounts you will connect later
+
+None of these are needed to install. You add them during set-up.
+
+- A payment gateway account: Stripe, eSewa or Khalti. Bank transfer needs no account.
+- A cPanel/WHM server and an API token for it, if you sell cPanel hosting.

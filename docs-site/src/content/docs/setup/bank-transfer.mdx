@@ -1,0 +1,29 @@
+---
+title: Bank transfer
+description: Show bank details on invoices and record payments by hand.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Bank transfer needs no provider account. Clients see your instructions on unpaid invoices, pay from their bank, and
+you record the payment when it arrives.
+
+<Steps>
+
+1. Go to **Setup → Gateways → Bank transfer**.
+
+2. In **Payment instructions**, write your bank name, account name and number, and anything else the client needs.
+   Write `{invoice}` where the invoice number should appear, so clients put it in the payment reference.
+
+    <Screenshot name="gateway-bank" alt="Bank transfer gateway settings with the payment instructions field." />
+
+3. Turn on **Active** and **Offer to clients**, then select **Save gateway**.
+
+</Steps>
+
+## Record a payment
+
+When the money is in your account, open the invoice under **Billing → Invoices**, select **Record payment**, and
+enter the amount, date and your bank's reference. The invoice is marked paid when its balance reaches zero. See
+[Invoices and payments](../../daily/invoices/).

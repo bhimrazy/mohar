@@ -1,0 +1,54 @@
+---
+title: Stripe
+description: Take card payments through Stripe Checkout.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Clients pay on Stripe's hosted Checkout page. Card details never reach your server. Stripe tells the app about each
+payment through a webhook, and the app looks the payment up at Stripe before it marks the invoice paid.
+
+You need a Stripe account. Start with test mode and test keys, then switch to live keys.
+
+<Steps>
+
+1. Go to **Setup → Gateways → Stripe**. Copy the address shown under **Webhook** at the bottom of the page. It ends in
+   `/billing/webhooks/stripe`.
+
+2. In the Stripe Dashboard, open **Workbench → API keys** and copy the secret key. You can use a restricted key
+   instead; it needs write access to Checkout Sessions and Refunds, and read access to PaymentIntents, Refunds and
+   Disputes.
+
+3. In Stripe Workbench, create a **snapshot** event destination for the webhook address from step 1, with these
+   events:
+    - `checkout.session.completed`
+    - `checkout.session.async_payment_succeeded`
+    - `checkout.session.async_payment_failed`
+    - `checkout.session.expired`
+    - `payment_intent.succeeded`
+    - `refund.created`
+    - `refund.updated`
+    - `charge.dispute.created`
+
+    Copy the destination's signing secret. It starts with `whsec_`.
+
+4. Back on the gateway page, paste the **Secret key** and the **Webhook signing secret**. The **Publishable key** is
+   optional. Leave **Test mode** on while you use test keys.
+
+    <Screenshot name="gateway-stripe" alt="Stripe gateway settings: general options, test mode, secret key, webhook signing secret, publishable key, test connection and the webhook address." />
+
+5. Select **Save gateway**, then **Test connection**. A passing test shows your Stripe account name; nothing is
+   created at Stripe.
+
+6. Turn on **Active** and save. Pay a test invoice with one of Stripe's test cards to check the whole flow.
+
+7. To go live, turn **Test mode** off, replace both secrets with live ones (the live webhook destination has its own
+   signing secret), save and test again.
+
+</Steps>
+
+<Aside>
+	Refunds, full or partial, are sent to Stripe from the transaction on the invoice. A refund made in the Stripe
+	Dashboard is recorded too, through the webhook.
+</Aside>

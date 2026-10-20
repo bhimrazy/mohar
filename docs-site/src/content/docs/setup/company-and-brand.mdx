@@ -1,0 +1,46 @@
+---
+title: Company and brand
+description: Set your company name, billing email, date format and the look of the client area.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Your company name is the brand clients see: in the sidebar, on sign-in pages, in browser titles, emails and invoices.
+
+## Company details
+
+<Steps>
+
+1. Go to **Setup → Settings → Company**.
+
+2. Fill in:
+    - **Company name**: shown everywhere as your brand;
+    - **Billing email address**: printed on invoices and used as the reply-to address for client email;
+    - **Default country**: pre-selected for new clients;
+    - **Date format**;
+    - **Daily automation time**: when the daily billing run starts, in server time. The default is 03:00.
+
+3. Select **Save company settings**.
+
+    <Screenshot name="settings-company" alt="Settings, Company section, with company name, billing email, default country, date format and daily automation time." />
+
+</Steps>
+
+## Logo, theme and tagline
+
+<Steps>
+
+1. Go to **Setup → Appearance**.
+
+2. Under **Defaults**, choose the theme for the admin panel, the client area and the storefront.
+
+3. Under **Brand**, add a tagline if you want one. It appears under the logo on sign-in pages and in email footers.
+   Select **Save brand**.
+
+    <Screenshot name="appearance" alt="Appearance page with theme defaults on the left and the brand panel on the right." />
+
+</Steps>
+
+The seller details printed on invoices (legal name, address, tax numbers) are under **Setup → Settings → Billing**;
+see [Tax](../tax/).

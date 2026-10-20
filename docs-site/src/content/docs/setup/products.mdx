@@ -1,0 +1,46 @@
+---
+title: Products
+description: Create product groups and products, and set their prices.
+---
+
+import { Steps } from '@astrojs/starlight/components';
+import Screenshot from '~/components/Screenshot.astro';
+
+Products are what clients order: hosting plans, VPS, SSL certificates. Each product belongs to a group, and groups
+are how the store is organised.
+
+## Create a group
+
+<Steps>
+
+1. Go to **Setup → Product groups** and select **New group**.
+
+2. Give it a name clients will see, such as "Shared Hosting", and save.
+
+    <Screenshot name="product-groups" alt="Product groups list." />
+
+</Steps>
+
+## Create a product
+
+<Steps>
+
+1. Go to **Setup → Products** and select **New product**.
+
+2. On the **Details** tab, choose the group and the type, and enter the name and description. Under **Billing**, keep
+   **Recurring** for plans billed every month or year. Leave **Taxable** on if tax applies.
+
+3. Under **Automation**, choose when the account is set up, for example **When the first payment is received**.
+
+4. Open the **Pricing** tab. Turn on each billing cycle you sell, in each currency, and enter the price. Clients only
+   see the cycles priced in their own currency. Select **Save prices**.
+
+    <Screenshot name="product-pricing" alt="The Pricing tab of a product, with monthly, annual and biennial prices in US dollars, Indian rupees and Nepalese rupees." />
+
+5. Open the **Provisioning** tab to connect the product to a server. See
+   [Connect a cPanel/WHM server](../cpanel-server/#use-the-server-for-a-product).
+
+</Steps>
+
+Prices in other currencies can be converted from the default currency with each currency's rounding rule. Lock a
+price to keep the amount you typed. Changing a price never changes what existing clients pay.

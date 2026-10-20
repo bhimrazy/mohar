@@ -1,0 +1,89 @@
+---
+title: Upgrade to a new release
+description: Back up, install the new release and apply its database changes.
+---
+
+import { Aside, Steps, TabItem, Tabs } from '@astrojs/starlight/components';
+
+Read the release's upgrade notes first. Then take a database backup: a database change cannot always be undone.
+See [Backups](../backups/).
+
+<Tabs syncKey="install">
+<TabItem label="Docker Compose">
+
+<Steps>
+
+1. Back up the database.
+
+2. Get the new release into the install folder (for example check out its tag), then build the new image.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml build
+    ```
+
+3. Start the new version.
+
+    ```bash
+    docker compose -f deploy/compose.prod.yaml up -d --wait
+    ```
+
+    The `migrate` service applies the database changes before the new app and workers start. The site is unavailable
+    for the few seconds the new app takes to pass its health check, and workers finish their current job first.
+
+</Steps>
+
+**Rolling back:** build or deploy the previous release the same way. Database changes are not reversed. If the
+release you are leaving removed or renamed something in the database, restore the backup you took in step 1.
+
+</TabItem>
+<TabItem label="Without Docker">
+
+<Steps>
+
+1. Put the site in maintenance mode and back up the database.
+
+    ```bash
+    php artisan down
+    ```
+
+2. Deploy the new release, then install and build:
+
+    ```bash
+    composer install --no-dev --optimize-autoloader
+    npm ci && npm run build
+    ```
+
+3. Apply the changes and refresh the caches:
+
+    ```bash
+    php artisan optimize:clear
+    php artisan migrate --force
+    php artisan app:install --no-interaction
+    php artisan optimize
+    php artisan queue:restart
+    ```
+
+4. Bring the site back.
+
+    ```bash
+    php artisan up
+    ```
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+## What the installer changes on an upgrade
+
+Running `app:install` again is safe. It adds reference data the release introduces and resets the permissions of the
+four built-in roles (Full Administrator, Billing, Support and Sales) so new permissions reach them. Each reset is in
+the activity log. Custom roles, and the names you gave built-in roles, are kept.
+
+<Aside>
+	If you changed a built-in role's permissions, the upgrade resets them. Copy the role into a custom role to keep
+	your own permissions.
+</Aside>
+
+Email templates you never edited move to the new wording. Templates you edited keep your text, and the template
+editor shows **New default available** with a side-by-side comparison.
