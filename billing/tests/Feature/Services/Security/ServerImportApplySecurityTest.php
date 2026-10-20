@@ -16,8 +16,7 @@ use Tests\Support\Cpanel\Whm;
 /**
  * Security review of #95 (Import accounts, step 3b: choose, review, import). Only accounts in the stored list, only
  * staff choices, only the client staff confirmed; apply is step-up, throttled, audited per row and not replayable.
- * Adopted; secApply() and the throttle case now send the review page's digest, which apply requires. The client
- * search case moves with the client picker to the next PR.
+ * Adopted; secApply() and the throttle case now send the review page's digest, which apply requires.
  */
 beforeEach(function () {
     CarbonImmutable::setTestNow('2026-10-19 10:00:00');
@@ -162,6 +161,7 @@ test('apply needs a recent password and is throttled; review and selections need
     foreach ([['services.*'], ['services.servers.*']] as $permissions) {
         actingAsStaff($permissions);
         $this->get(route('admin.services.servers.import.review', $this->server))->assertForbidden();
+        $this->get(route('admin.services.servers.import.clients', $this->server))->assertForbidden();
         $this->put(route('admin.services.servers.import.select', $this->server), ['proposed' => true])->assertForbidden();
         $this->post(route('admin.services.servers.import.apply', $this->server))->assertForbidden();
     }

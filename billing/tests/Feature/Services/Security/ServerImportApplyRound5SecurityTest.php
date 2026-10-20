@@ -90,7 +90,9 @@ test('[R5-2] a stopped import\'s report says why it stopped and names each revie
     $report = collect(ServerAccountImport::query()->sole()->report);
     // beta and gamma were reviewed and confirmed but never reached: each should be listed with the reason.
     expect($report->pluck('username')->filter()->values()->all())->toBe(['acme', 'beta', 'gamma'])
-        ->and($report->firstWhere('username', 'beta')['message'] ?? '')->toContain('no longer import');
+        // Since the #133 product review the reason is stored once, on the import; unreached lines read "Not reached."
+        ->and(ServerAccountImport::query()->sole()->stop_reason)->toContain('no longer import')
+        ->and($report->firstWhere('username', 'beta')['message'] ?? '')->toBe('Not reached.');
 });
 
 test('[R5-3] a review saved while an import runs does not replace the confirmed rows, and its digest starts nothing', function () {

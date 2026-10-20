@@ -3,6 +3,7 @@
 namespace App\Modules\Services\Models;
 
 use App\Models\User;
+use App\Modules\Services\Support\AccountImportMatcher;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -28,11 +29,11 @@ use Illuminate\Support\Facades\DB;
  * @property list<int>|null $missing ids of live services whose account the server did not report
  * @property string|null $connection_user the panel user the fetch signed in as
  * @property array<string, array{include?: bool, client_id?: int, product_id?: int, cycle?: string, next_due_date?: string}>|null $selections staff choices by username
- * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null}|null $reviewed what the review page showed
+ * @property array{digest: string, rows: list<array{username: string, client_id: int, product_id: int, cycle: string, next_due_date: string, anchor_day: int, amount: int, currency: string}>, staff_id: int|null, earlier?: int}|null $reviewed what the review page showed (earlier: report lines already there when the import started)
  * @property int $imported_count accounts the last import created
  * @property int $not_imported_count reviewed accounts the last import left out, or did not reach when it stopped
  * @property string|null $stop_reason why the last import stopped early
- * @property-read list<array{username: string, imported: bool, message: string, service_id: int|null}> $report the last
+ * @property-read list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}> $report the last
  *                                                                                                   import's lines
  * @property string|null $error our message, redacted
  * @property CarbonImmutable|null $fetched_at
@@ -102,7 +103,7 @@ class ServerAccountImport extends Model
     /**
      * The last import's lines, in order (server_account_import_report_lines); read only when asked for.
      *
-     * @return Attribute<list<array{username: string, imported: bool, message: string, service_id: int|null}>, never>
+     * @return Attribute<list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}>, never>
      */
     protected function report(): Attribute
     {
@@ -110,15 +111,26 @@ class ServerAccountImport extends Model
     }
 
     /**
-     * @return list<array{username: string, imported: bool, message: string, service_id: int|null}>
+     * @return list<array{username: string, imported: bool, message: string, service_id: int|null, at: string|null}>
      */
-    public function reportLines(?int $limit = null): array
+    public function reportLines(?int $limit = null, int $offset = 0, bool $failuresFirst = false): array
     {
-        return array_values(DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)->orderBy('id')
-            ->when($limit !== null, fn ($query) => $query->limit((int) $limit))
-            ->get(['username', 'imported', 'message', 'service_id'])
-            ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id])
+        // The page lists lines not imported first, so no failure sits behind the ones that worked.
+        return array_values(DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)
+            ->when($failuresFirst, fn ($query) => $query->orderBy('imported'))->orderBy('id')
+            ->when($limit !== null, fn ($query) => $query->offset($offset)->limit((int) $limit))
+            ->get(['username', 'imported', 'message', 'service_id', 'created_at'])
+            ->map(fn (object $line): array => ['username' => (string) $line->username, 'imported' => (bool) $line->imported, 'message' => (string) $line->message, 'service_id' => $line->service_id === null ? null : (int) $line->service_id, 'at' => $line->created_at === null ? null : CarbonImmutable::parse((string) $line->created_at)->toIso8601String()])
             ->all());
+    }
+
+    /**
+     * The report's accounts that a stop left unreached (stop()), as opposed to those that failed.
+     */
+    public function notReachedCount(): int
+    {
+        return DB::table('server_account_import_report_lines')->where('server_account_import_id', $this->id)
+            ->where('imported', false)->where('message', AccountImportMatcher::text('Not reached.'))->count();
     }
 
     public function isRunning(): bool

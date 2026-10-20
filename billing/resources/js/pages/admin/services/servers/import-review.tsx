@@ -13,7 +13,12 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import { ImportChoiceDialog } from '@/components/services/import-choice-dialog';
+import { ImportClientFlag } from '@/components/services/import-client-flag';
+import type { ImportClientFlagData } from '@/components/services/import-client-flag';
+import type { ImportChoice } from '@/components/services/import-choice-dialog';
 import { Button } from '@/components/ui/button';
+import type { SelectOption } from '@/types/app';
 import { cycleLabel } from '@/types/services';
 
 type Row = {
@@ -26,6 +31,9 @@ type Row = {
         cycle: string | null;
         next_due_date: string | null;
         amount: number | null;
+        list_amount: number | null;
+        discount: { group: string; percent: number } | null;
+        flag: ImportClientFlagData | null;
         problems: string[];
     };
 };
@@ -42,6 +50,14 @@ type Props = {
         accounts: number;
     }[];
     digest: string;
+    cycles: SelectOption[];
+};
+
+const BLANK: ImportChoice = {
+    client: null,
+    product: null,
+    cycle: null,
+    next_due_date: null,
 };
 
 const plural = (count: number, noun: string) =>
@@ -65,8 +81,14 @@ export default function ServerImportReview({
     counts,
     totals,
     digest,
+    cycles,
 }: Props) {
     const [confirming, setConfirming] = useState(false);
+    const [bulk, setBulk] = useState(false);
+    const change = (row: Row) =>
+        ServerImportController.show(server.id, {
+            query: { search: row.username },
+        });
     const back = ServerImportController.show(server.id);
     const ready = rows.filter((row) => row.decision.problems.length === 0);
     const excluded = rows.filter((row) => row.decision.problems.length > 0);
@@ -91,17 +113,26 @@ export default function ServerImportReview({
                     meta={<span className="font-mono">{server.hostname}</span>}
                     description="Check every row: matches come from the contact email the server reports, which the account holder can change. Each account becomes a service for its client, active or suspended as on the server. No invoice, welcome email or server change follows; clients set a password themselves."
                     actions={
-                        <Button
-                            disabled={counts.ready === 0}
-                            title={
-                                counts.ready === 0
-                                    ? 'No account is ready to import.'
-                                    : undefined
-                            }
-                            onClick={() => setConfirming(true)}
-                        >
-                            Import {plural(counts.ready, 'account')}
-                        </Button>
+                        <>
+                            <Button
+                                variant="outline"
+                                disabled={counts.ready === 0}
+                                onClick={() => setBulk(true)}
+                            >
+                                Set cycle and due date
+                            </Button>
+                            <Button
+                                disabled={counts.ready === 0}
+                                title={
+                                    counts.ready === 0
+                                        ? 'No account is ready to import.'
+                                        : undefined
+                                }
+                                onClick={() => setConfirming(true)}
+                            >
+                                Import {plural(counts.ready, 'account')}
+                            </Button>
+                        </>
                     }
                 />
 
@@ -139,7 +170,23 @@ export default function ServerImportReview({
                                         {row.username}
                                     </span>
                                     <span className="text-muted-foreground">
-                                        {row.decision.problems.join(' ')}
+                                        {row.decision.flag && (
+                                            <>
+                                                <ImportClientFlag
+                                                    flag={row.decision.flag}
+                                                    className=""
+                                                >
+                                                    .
+                                                </ImportClientFlag>{' '}
+                                            </>
+                                        )}
+                                        {row.decision.problems.join(' ')}{' '}
+                                        <Link
+                                            href={change(row)}
+                                            className="text-primary hover:underline"
+                                        >
+                                            Change
+                                        </Link>
                                     </span>
                                 </li>
                             ))}
@@ -165,6 +212,13 @@ export default function ServerImportReview({
                                     <span className="text-xs text-muted-foreground">
                                         {row.decision.product?.name}
                                     </span>
+                                    {row.decision.flag && (
+                                        <ImportClientFlag
+                                            flag={row.decision.flag}
+                                        >
+                                            ; you chose this client.
+                                        </ImportClientFlag>
+                                    )}
                                 </span>
                             ),
                         },
@@ -183,7 +237,7 @@ export default function ServerImportReview({
                             key: 'billing',
                             header: 'Billing',
                             cell: (row) => (
-                                <span className="flex flex-col">
+                                <span className="flex min-w-0 flex-col break-words whitespace-normal">
                                     <span>
                                         <Money
                                             amount={row.decision.amount ?? 0}
@@ -201,7 +255,32 @@ export default function ServerImportReview({
                                         <DateTime
                                             value={row.decision.next_due_date}
                                         />
+                                        {' · '}
+                                        <Link
+                                            href={change(row)}
+                                            className="text-primary hover:underline"
+                                        >
+                                            Change
+                                        </Link>
                                     </span>
+                                    {row.decision.list_amount !== null && (
+                                        <span className="text-xs text-muted-foreground">
+                                            {row.decision.discount
+                                                ? `${row.decision.discount.group} group, ${row.decision.discount.percent}% off`
+                                                : 'Client group discount'}{' '}
+                                            (list price{' '}
+                                            <Money
+                                                amount={
+                                                    row.decision.list_amount
+                                                }
+                                                currency={
+                                                    row.decision.client
+                                                        ?.currency ?? 'USD'
+                                                }
+                                            />
+                                            )
+                                        </span>
+                                    )}
                                 </span>
                             ),
                         },
@@ -259,6 +338,18 @@ export default function ServerImportReview({
                 destructive={false}
                 action={ServerImportController.apply(server.id)}
                 data={{ digest }}
+            />
+            <ImportChoiceDialog
+                key={bulk ? 'bulk' : 'closed'}
+                serverId={server.id}
+                usernames={[]}
+                ticked
+                count={counts.ready + counts.excluded}
+                initial={bulk ? BLANK : null}
+                onClose={() => setBulk(false)}
+                productOptions={[]}
+                cycles={cycles}
+                datesOnly
             />
         </>
     );
