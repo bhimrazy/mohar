@@ -12,10 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `np_documents` tables. The new permission `domains.np.review` covers reviewing registrant documents and recording
   registry steps. `domains.*` grants it; grant it explicitly to other staff who handle `.np` requests. Registrant
   documents are stored encrypted on the `objects` disk and deleted 30 days after approval, rejection or the
-  domain's cancellation or deletion. A request with no client upload and no staff step for 90 days before submission
-  is closed: its domain is cancelled, staff get a task to refund a paid order, and its documents follow 30 days
-  later (`domains.np_document_retention_days`). Two new automation tasks run this: "Flag overdue .np status checks"
-  and "Delete old .np documents", which also closes abandoned requests.
+  domain's cancellation or deletion (`domains.np_document_retention_days`). Nothing is cancelled automatically: a
+  request still waiting for the client's documents with no upload and no staff step for 90 days appears on the new
+  staff to-do "Abandoned .np requests" (domain, client, amount paid), where staff cancel and refund or keep waiting.
+  Two new automation tasks: "Flag overdue .np status checks" and "Delete old .np documents".
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
   `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`

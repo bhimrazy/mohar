@@ -295,9 +295,14 @@ them in the portal). The pre-filled request letter also waits, with the screens 
 
 _Closed and abandoned requests (CTO decision, 2026-10-20): a request whose domain is cancelled, transferred away,
 marked fraud or deleted is closed. No step can be recorded on it, it leaves the to-dos and takes no uploads, and its
-documents are deleted 30 days later (`domains.np_document_retention_days`). A request that has had no client upload
-and no staff step for 90 days before submission is closed the same way: the domain is cancelled and staff get a task
-to refund a paid order. Dates and business days use the company calendar (`system.timezone`). Known limits: image
+documents are deleted 30 days later (`domains.np_document_retention_days`), whoever closed it. The system never
+cancels a paid order on its own (revised 2026-10-20): a request still waiting for the client's documents, on a domain
+that is `pending` or `pending_registration`, with no client upload and no staff step for 90 days, is listed on the
+"Abandoned .np requests" staff to-do (`domains.np.review`) with the domain, the client and the amount paid on its
+order invoice. Staff decide: cancel the domain and refund through the existing domain and billing actions, or keep
+waiting ("Keep waiting" restarts the 90 days). The client sees a notice asking for the documents. Requests waiting on
+staff (`documents_review`, `ready_to_submit`) are never listed or touched. Each document deletion is independent, so
+one failure is logged and never stops the rest. Dates and business days use the company calendar (`system.timezone`). Known limits: image
 metadata (EXIF, such as phone GPS) is kept as uploaded, and a hard delete of a domain record (none exists today)
 would leave its encrypted files on disk._
 
