@@ -163,7 +163,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   client groups by name. Client groups not found stop the check until each is mapped, created or dropped; currencies
   not enabled can be mapped; unrecognised countries are listed. Spreadsheet damage (numbers in scientific notation,
   Indian postcodes missing a leading zero) is a warning.
- (`migration.staging_days`, housekeeping task "Purge
+- Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay.
 
 ### Platform foundation
