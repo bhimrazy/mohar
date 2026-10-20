@@ -12,6 +12,7 @@ use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -71,6 +72,18 @@ abstract class TestCase extends BaseTestCase
 
         $this->releaseCommittedSavepoints();
         $this->refuseDatabaseInDatabaseFreeSuites();
+        $this->forgetTrustedHostsAndProxies();
+    }
+
+    /**
+     * Symfony keeps trusted hosts and proxies in static properties, so a test that runs TrustHosts or TrustProxies
+     * outside the testing environment leaks them to every later test in the same worker: a request for a foreign
+     * host then fails with 400 depending on test order (CI on #94). Start every test from Symfony's defaults.
+     */
+    private function forgetTrustedHostsAndProxies(): void
+    {
+        Request::setTrustedHosts([]);
+        Request::setTrustedProxies([], -1);
     }
 
     /**

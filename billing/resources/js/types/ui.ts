@@ -30,6 +30,10 @@ export type Brand = {
     mark: string;
     favicon: string;
     customised: boolean;
+    /** The host uploaded the light wordmark (else logoLight, if set, is the product's default). */
+    hasUploadedLogo: boolean;
+    /** The host uploaded the mark (else mark is the product's default). */
+    hasUploadedMark: boolean;
 };
 
 export type ThemeOption = {

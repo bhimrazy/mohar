@@ -6,14 +6,14 @@ jobs, setup work and pointless runs.
 
 ## When it runs
 
-| Event                                         | Runs?                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled                                           |
-| Draft PR                                      | only when labelled `ci`; otherwise runs when marked ready for review                        |
-| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)                                     |
-| Push to `develop`/`main` (merges)             | yes, never cancelled                                                                        |
-| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main` |
-| Manual                                        | `workflow_dispatch`                                                                         |
+| Event                                                        | Runs?                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR to `develop`/`main` (opened, push, reopen)                | yes; superseded runs of the same PR are cancelled                                                                                                                                                                                                                     |
+| Draft PR                                                     | only when labelled `ci`; otherwise runs when marked ready for review                                                                                                                                                                                                  |
+| Push to a feature branch                                     | no (its PR run covers it — no duplicate push + PR runs)                                                                                                                                                                                                               |
+| Push to `develop`/`main` (merges)                            | yes, never cancelled                                                                                                                                                                                                                                                  |
+| Only Markdown / `*.png` / `billing/docs/**` / `docs-site/**` | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main`. The docs site is never built in CI. A change to `docs-site/` dependency files (`package.json`, lockfile, `.npmrc`, `.nvmrc`) also runs the audits and the cooldown check |
+| Manual                                                       | `workflow_dispatch`                                                                                                                                                                                                                                                   |
 
 The **E2E simulators (hosting lifecycle)** job (ADR 0016 §4) is opt-in.
 
