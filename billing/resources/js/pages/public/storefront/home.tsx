@@ -3,6 +3,7 @@ import {
     Activity,
     ArrowRight,
     BookOpen,
+    Eye,
     LifeBuoy,
     Mail,
     Megaphone,
@@ -100,6 +101,7 @@ type Props = {
     } | null;
     tax_note: string | null;
     currency: string;
+    preview: boolean;
     seo: PageSeo;
 };
 
@@ -115,6 +117,16 @@ export default function Home(props: Props) {
     return (
         <>
             <SiteHead seo={props.seo} />
+            {props.preview && (
+                <div
+                    role="status"
+                    className="sticky top-16 z-20 flex items-center justify-center gap-2 border-b bg-warning-subtle px-4 py-2 text-sm font-medium text-warning-text"
+                >
+                    <Eye className="size-4" aria-hidden="true" />
+                    Preview of your draft, not live. Visitors still see the
+                    published version.
+                </div>
+            )}
 
             <section className="border-b bg-gradient-to-b from-muted/60 to-background">
                 <div

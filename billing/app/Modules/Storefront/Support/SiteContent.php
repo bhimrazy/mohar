@@ -101,4 +101,71 @@ final class SiteContent
 
         return $result;
     }
+
+    /**
+     * Top-level content keys that differ (for StorefrontPublished and the audit log).
+     *
+     * @param  array<string, mixed>  $from
+     * @param  array<string, mixed>  $to
+     * @return list<string>
+     */
+    public static function changedSections(array $from, array $to): array
+    {
+        $from = self::normalise($from);
+        $to = self::normalise($to);
+
+        return array_values(array_filter(array_keys(self::defaults()), fn (string $key): bool => $from[$key] !== $to[$key]));
+    }
+
+    /**
+     * Plain-language list of what differs between two versions, for the publish confirmation and the audit log.
+     *
+     * @param  array<string, mixed>  $from
+     * @param  array<string, mixed>  $to
+     * @return list<string>
+     */
+    public static function changes(array $from, array $to): array
+    {
+        $from = self::normalise($from);
+        $to = self::normalise($to);
+        $changes = [];
+        $labels = [
+            'hero.eyebrow' => 'Small label above the headline changed',
+            'hero.headline' => 'Headline changed',
+            'hero.subtext' => 'Text under the headline changed',
+            'hero.domain_search' => 'Domain search in the headline turned '.(($to['hero']['domain_search'] ?? true) ? 'on' : 'off'),
+            'trust_facts' => 'Trust facts changed',
+            'why_us' => 'Why choose us points changed',
+            'cta' => 'Call to action band text changed',
+            'featured.group_ids' => 'Featured product groups changed',
+            'featured.cycle' => 'Billing cycle shown first changed',
+            'news' => 'News and status settings changed',
+            'header' => 'Products in the header changed',
+            'seo.title' => 'Page title changed',
+            'seo.description' => 'Search description changed',
+            'seo.noindex' => 'Search engines '.(($to['seo']['noindex'] ?? false) ? 'blocked' : 'allowed'),
+            'legal' => 'Legal page links changed',
+            'prices' => 'Price and tax display changed',
+        ];
+
+        foreach ($labels as $path => $label) {
+            if (data_get($from, $path) !== data_get($to, $path)) {
+                $changes[] = $label;
+            }
+        }
+
+        $enabled = fn (array $content): array => array_column($content['sections'], 'enabled', 'key');
+
+        foreach (self::SECTIONS as $key => $label) {
+            if ($enabled($from)[$key] !== $enabled($to)[$key]) {
+                $changes[] = $label.' turned '.($enabled($to)[$key] ? 'on' : 'off');
+            }
+        }
+
+        if (array_column($from['sections'], 'key') !== array_column($to['sections'], 'key')) {
+            $changes[] = 'Section order changed';
+        }
+
+        return $changes;
+    }
 }

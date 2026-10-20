@@ -9,6 +9,9 @@ return [
     // seconds; publishing and catalog, gateway, settings and support events flush them sooner.
     'cache_seconds' => 600,
 
+    // Signed preview links for the draft stay valid this many minutes.
+    'preview_minutes' => 60,
+
     // The market each currency is priced for (ISO country): its tax statement and tax-inclusive prices use Billing's
     // tax rules for that country. Currencies not listed (USD, sold across markets) show the neutral statement.
     'tax_markets' => ['NPR' => 'NP', 'INR' => 'IN'],

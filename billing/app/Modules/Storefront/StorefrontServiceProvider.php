@@ -20,6 +20,9 @@ use App\Modules\Storefront\Http\Middleware\ShareSite;
 use App\Modules\Storefront\Services\ContentStore;
 use App\Modules\Storefront\Support\StorefrontCache;
 use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Navigation\Navigation;
+use App\Support\Navigation\NavItem;
+use App\Support\Permissions\PermissionRegistry;
 use App\Support\Seo\SitemapRegistry;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
@@ -31,8 +34,8 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
- * Storefront: the public home page, the shared public layout's data (header, footer), the public 404 page, domain
- * prices and /sitemap.xml (docs/product/storefront-marketing.md).
+ * Storefront: the public home page, the shared public layout's data (header, footer), Admin → Website with draft,
+ * preview and publish, the public 404 page and /sitemap.xml (docs/product/storefront-marketing.md).
  */
 class StorefrontServiceProvider extends ModuleServiceProvider
 {
@@ -81,5 +84,12 @@ class StorefrontServiceProvider extends ModuleServiceProvider
                     : null);
             }
         });
+
+        $this->app->make(Navigation::class)->add('admin', new NavItem('Website', 'admin.storefront.website.edit', 'Globe', 'Setup', 75, 'storefront.content.manage', 'admin.storefront.*'));
+
+        $this->app->make(PermissionRegistry::class)->register('Website', [
+            'storefront.content.manage' => 'Edit and preview the website draft',
+            'storefront.publish' => 'Publish the website',
+        ], sensitive: ['storefront.publish']);
     }
 }

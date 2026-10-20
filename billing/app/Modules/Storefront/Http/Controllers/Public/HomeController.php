@@ -21,7 +21,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 
 /**
- * Public pages owned by the Storefront: home, domain prices and the 404 page. Every one
+ * Public pages owned by the Storefront: home (and its staff preview), domain prices and the 404 page. Every one
  * renders in the shared public layout.
  */
 class HomeController extends Controller
@@ -35,7 +35,25 @@ class HomeController extends Controller
 
     public function show(Request $request): Response
     {
-        return $this->render($request, $this->store->published());
+        return $this->render($request, $this->store->published(), preview: false);
+    }
+
+    /**
+     * The draft as visitors would see it, at a signed staff-only URL (spec §6.1). Never cached, never indexed.
+     */
+    public function preview(Request $request): HttpResponse
+    {
+        $this->authorize('storefront.content.manage');
+        $content = $this->store->draft()->content ?? $this->store->published();
+        Inertia::share('site', fn (): array => $this->site->forRequest($request, $content));
+
+        $response = $this->render($request, $content, preview: true)->toResponse($request);
+        // The signed URL is a credential: never sent as a Referer, never stored by a cache (security standards §6).
+        $response->headers->set('X-Robots-Tag', 'noindex, nofollow');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+        $response->headers->set('Cache-Control', 'no-store, private');
+
+        return $response;
     }
 
     public function domainPricing(Request $request, Catalogue $catalogue, PriceDisplay $prices, StorefrontCache $cache): Response
@@ -104,18 +122,18 @@ class HomeController extends Controller
     /**
      * @param  array<string, mixed>  $content
      */
-    private function render(Request $request, array $content): Response
+    private function render(Request $request, array $content, bool $preview): Response
     {
-        $props = $this->home->props($content, $this->shopper->currency($request), $request->user() !== null);
+        $props = $this->home->props($content, $this->shopper->currency($request), $request->user() !== null, $preview);
         $title = trim((string) $content['seo']['title']);
         $head = PageHead::make(
             $title !== '' ? $title : app(BrandProvider::class)->brand()->name.' | '.HomePage::headline($content),
             trim((string) $content['seo']['description']) !== '' ? $content['seo']['description'] : ($content['hero']['subtext'] ?: HomePage::headline($content)),
             '/',
-            noindex: $content['seo']['noindex'],
+            noindex: $preview || $content['seo']['noindex'],
             company: $this->site->company(),
         );
 
-        return Inertia::render('public/storefront/home', [...$props, 'seo' => $head])->withViewData(['seo' => $head]);
+        return Inertia::render('public/storefront/home', [...$props, 'preview' => $preview, 'seo' => $head])->withViewData(['seo' => $head]);
     }
 }
