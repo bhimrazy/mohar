@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Upgrade notes
 
 - **PostgreSQL: the `pg_trgm` extension and 12 search indexes.** Four migrations run `create extension if not exists
-  pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
+pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
   (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
   (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
   and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
@@ -129,17 +129,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Performance
 
 Measured on the load-test data at 20,000 clients (143,247 invoices), PostgreSQL 18 capped at 2 CPUs, one request at
-a time; the before and after runs used the same database and host load.
+a time: medians of three runs before and three after, on the same database, on a shared host (load 4 to 7).
 
-- **Admin dashboard:** first paint with an empty cache 5.5 s → 0.47 s, the deferred widgets 7.2 s → 0.30 s, peak memory
-  125 MB → 39 MB (the deferred request failed at PHP's 128 MB default). With the 60-second cache warm: 327 ms → 161 ms.
-  Receivables, monthly recurring revenue, tax collected and weekly sign-ups are summed in SQL, one row per currency,
-  instead of reading every open or recently paid invoice and every service into PHP. The figures are unchanged:
-  the full dashboard payload is identical byte for byte in UTC and in Asia/Kathmandu. MRR is cached for 60 seconds,
-  as the Billing figures already were.
-- **Search on PostgreSQL:** admin global search 223 ms → 28 ms, invoice list search 215 ms → 67 ms, services list
-  search 127 ms → 89 ms, clients list search 86 ms → 54 ms, the client picker 40 ms → 17 ms. Contains searches now use
-  trigram indexes instead of reading the whole table (#48).
+- **Admin dashboard:** first paint with an empty cache 5.7 s → 0.75 s, the deferred widgets 6.0 s → 0.42 s, with the
+  60-second cache warm 400 ms → 283 ms; peak memory 125 MB → 39 MB (the deferred request failed at PHP's 128 MB
+  default). Receivables, monthly recurring revenue, tax collected and weekly sign-ups are summed in SQL, one row per
+  currency, instead of reading every open or recently paid invoice and every service into PHP. The figures are
+  unchanged: the full dashboard payload is identical byte for byte in UTC and in Asia/Kathmandu. MRR is cached for
+  60 seconds, as the Billing figures already were.
+- **Search on PostgreSQL:** admin global search 226 ms → 47 ms, invoice list search 220 ms → 113 ms, the client
+  picker 70 ms → 28 ms; the services and clients list searches spend less time in the database (70 → 50 ms and
+  42 → 27 ms). Contains searches use trigram indexes instead of reading the whole table (#48).
 - Tests now fail if a dashboard query reads unbounded rows of invoices, services, clients, tickets or transactions,
   if the admin invoice, client, service and ticket lists or the client invoice and service lists query per row, or
   if a searched column has no usable index on PostgreSQL.
