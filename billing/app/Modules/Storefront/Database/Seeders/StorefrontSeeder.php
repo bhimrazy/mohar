@@ -34,7 +34,7 @@ class StorefrontSeeder extends DemoSeeder
         $content['trust_facts'] = [
             ['label' => 'Hosting since', 'value' => '2014'],
             ['label' => 'Data centres', 'value' => 'Kathmandu, Frankfurt'],
-            ['label' => 'Support', 'value' => 'Every day'],
+            ['label' => 'Pay in', 'value' => 'NPR, INR or USD'],
         ];
         $content['seo']['description'] = 'Web hosting, domains and SSL with clear prices, local payment options and support every day.';
 

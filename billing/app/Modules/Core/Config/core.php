@@ -8,6 +8,7 @@ return [
     'date_format' => 'M j, Y', // one of App\Modules\Core\Support\DateFormats::OPTIONS
     'automation_time' => '03:00',
     // Public website footer (Settings → Company). Empty values are not shown.
+    'support_email' => '',
     'support_hours' => '',
     'whatsapp' => '',
     'registration_number' => '',

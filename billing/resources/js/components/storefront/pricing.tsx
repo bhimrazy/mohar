@@ -1,5 +1,14 @@
 import { Link } from '@inertiajs/react';
-import { Check, Globe, Info, Landmark, Search, Star } from 'lucide-react';
+import {
+    Check,
+    CreditCard,
+    Globe,
+    Info,
+    Landmark,
+    Search,
+    Star,
+    Wallet,
+} from 'lucide-react';
 import { Money } from '@/components/app/money';
 import { GatewayLogo } from '@/components/billing/gateway-logo';
 import { Badge } from '@/components/ui/badge';
@@ -298,10 +307,7 @@ export function PaymentMarks({
                         />
                     ) : (
                         <>
-                            <Landmark
-                                className="size-4 text-muted-foreground"
-                                aria-hidden="true"
-                            />
+                            <MarkIcon mark={mark} />
                             {mark.label}
                         </>
                     )}
@@ -309,6 +315,18 @@ export function PaymentMarks({
             ))}
         </ul>
     );
+}
+
+/** A plain icon for a method without an official logo: a card, a bank transfer, or a generic wallet. */
+function MarkIcon({ mark }: { mark: PaymentMark }) {
+    const text = `${mark.key} ${mark.label}`.toLowerCase();
+    const Icon = text.includes('card')
+        ? CreditCard
+        : text.includes('bank') || text.includes('transfer')
+          ? Landmark
+          : Wallet;
+
+    return <Icon className="size-4 text-muted-foreground" aria-hidden="true" />;
 }
 
 /** Domain search into the store's domain page. */
@@ -336,7 +354,7 @@ export function DomainSearch({
                 />
                 <Input
                     name="domain"
-                    placeholder="Find your domain, e.g. mybusiness.com"
+                    placeholder="e.g. mybusiness.com"
                     aria-label="Domain name"
                     className="h-11 border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
                 />

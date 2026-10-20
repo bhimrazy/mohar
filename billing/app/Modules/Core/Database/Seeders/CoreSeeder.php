@@ -7,6 +7,7 @@ use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
+use App\Modules\Core\Support\Settings;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -20,6 +21,19 @@ class CoreSeeder extends DemoSeeder
     {
         DB::transaction(fn () => $currencies->install());
         DB::transaction(fn () => $roles->install());
+
+        // A fictional host, so the demo's public site, mail and invoices speak for a host, never for the product.
+        app(Settings::class)->setMany([
+            'core.company_name' => 'Himal Host',
+            'core.company_email' => 'billing@himalhost.example',
+            'core.support_email' => 'support@himalhost.example',
+            'core.support_hours' => 'Sunday–Friday, 9:00–18:00 (Nepal time). Tickets every day.',
+            'core.whatsapp' => '+977 9800000000',
+            'core.registration_number' => '123456/078/079',
+            'core.social_facebook' => 'https://www.facebook.com/himalhost.example',
+            'core.social_instagram' => 'https://www.instagram.com/himalhost.example',
+            'core.social_linkedin' => 'https://www.linkedin.com/company/himalhost-example',
+        ]);
 
         $admin = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->sole();
 
