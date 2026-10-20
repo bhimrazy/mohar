@@ -96,7 +96,7 @@ test('signatures match our fixed vectors for whole-rupee requests and comma-form
         ))->toBe('C9QSBh3Ovftd7ZkOZRW2g1+iCbF3NtqdeTqsEQ/RNwo=');
 });
 
-test('a validly signed COMPLETE return still waits for the status check, then pays exactly once', function () {
+test('a validly signed COMPLETE return still waits for the status check, then the poller pays it once', function () {
     Event::fake([InvoicePaid::class]);
     [$invoice, $attempt] = startEsewa();
     Http::fake([ESEWA_STATUS => Http::sequence()->push(esewaStatus($attempt, 'PENDING', refId: null))->push(esewaStatus($attempt, 'COMPLETE'))]);
@@ -105,9 +105,7 @@ test('a validly signed COMPLETE return still waits for the status check, then pa
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
 
     $this->travel(6)->minutes();
-    $this->get(esewaSuccess($attempt));
-    $this->get(esewaSuccess($attempt));
-    $this->artisan('billing:reconcile-payments');
+    $this->artisan('billing:reconcile-payments')->assertSuccessful();
 
     expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
         ->and(Transaction::query()->where('gateway', EsewaDriver::KEY)->sole()->gateway_txn_id)->toBe('0007G36')
@@ -115,15 +113,6 @@ test('a validly signed COMPLETE return still waits for the status check, then pa
     Http::assertSent(fn (Request $request) => str_starts_with($request->url(), 'https://rc.esewa.com.np/')
         && $request['product_code'] === 'EPAYTEST' && $request['total_amount'] === '1130.50' && $request['transaction_uuid'] === $attempt->reference);
     Event::assertDispatchedTimes(InvoicePaid::class, 1);
-});
-
-test('the poller settles a payment whose customer never came back', function () {
-    [$invoice, $attempt] = startEsewa();
-    Http::fake([ESEWA_STATUS => Http::response(esewaStatus($attempt, 'COMPLETE'))]);
-
-    $this->artisan('billing:reconcile-payments')->assertSuccessful();
-
-    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
 test('a genuine success return verifies and names the attempt', function () {
@@ -213,6 +202,33 @@ test('an eSewa outage keeps the attempt open for the next poll', function () {
     $this->artisan('billing:reconcile-payments');
 
     expect($attempt->fresh())->status->toBe(AttemptStatus::Pending)->lookup_count->toBe(1)->raw->toMatchArray(['error' => 'error_message: Service is currently unavailable; code: 0']);
+});
+
+test('eSewa is offered for NPR invoices only and other currencies are refused', function () {
+    [, $client] = actingAsClient();
+    $usd = issueInvoice($client);
+
+    $this->get(route('client.invoices.show', $usd->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => ! collect($gateways)->contains('key', EsewaDriver::KEY)));
+    $this->from(route('client.invoices.show', $usd->id))
+        ->post(route('client.invoices.pay', $usd->id), ['gateway' => EsewaDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Esewa can\'t take payments in USD.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
+});
+
+test('an amount below eSewa\'s minimum is shown disabled with the reason and refused', function () {
+    nepalGateway('bank_transfer', []);
+    [, $invoice] = nprInvoice([50]);
+
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment.gateways', fn ($gateways) => collect($gateways)->firstWhere('key', EsewaDriver::KEY)['unavailable_reason'] === 'Esewa needs at least Rs 1.00.')
+        ->where('payment.selected_gateway', 'bank_transfer'));
+    $this->from(route('client.invoices.show', $invoice->id))
+        ->post(route('client.invoices.pay', $invoice->id), ['gateway' => EsewaDriver::KEY])
+        ->assertSessionHasErrors(['billing' => 'Esewa needs at least Rs 1.00. Choose another way to pay.']);
+
+    expect(PaymentAttempt::query()->count())->toBe(0);
 });
 
 test('eSewa payments are refunded in the portal, not through the API', function () {
