@@ -33,17 +33,23 @@ return new class extends Migration
         });
 
         // Attempts that closed before this upgrade are not swept for late payments (webhooks and staff still can).
-        DB::table('payment_attempts')->whereIn('status', ['expired', 'failed'])->update(['lookups_closed_at' => now()]);
+        // Older ones are outside any late window (at most 168 hours) already.
+        DB::table('payment_attempts')->whereIn('status', ['expired', 'failed'])
+            ->where('created_at', '>=', now()->subHours(168))
+            ->update(['lookups_closed_at' => now()]);
 
         // The late sweep filters closed attempts by created_at; the to-dos count rows with a check reason.
         OnlineIndex::create('payment_attempts', ['created_at']);
         OnlineIndex::create('payment_attempts', ['check_reason']);
+        // The "Late payments" filter on Payment attempts (newest first).
+        OnlineIndex::create('payment_attempts', ['id'], 'payment_attempts_flagged_index', where: 'late_payment_at is not null or check_reason is not null');
         OnlineIndex::create('credit_ledger', ['gateway', 'external_ref'], 'credit_ledger_gateway_external_ref_unique', unique: true, where: 'external_ref is not null');
     }
 
     public function down(): void
     {
         OnlineIndex::drop('credit_ledger', 'credit_ledger_gateway_external_ref_unique');
+        OnlineIndex::drop('payment_attempts', 'payment_attempts_flagged_index');
         OnlineIndex::drop('payment_attempts', ['check_reason']);
         OnlineIndex::drop('payment_attempts', ['created_at']);
 

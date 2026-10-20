@@ -498,3 +498,29 @@ test('a refund that finds no credit left keeps its zero guard line for staff onl
     $this->get(route('admin.billing.credit.index', ['client' => $client->id]))->assertInertia(fn (Assert $page) => $page
         ->where('entries.data', fn ($rows) => collect($rows)->contains(fn ($row) => $row['id'] === $guard->id && str_contains($row['description'], 're_3MoharRefund0001'))));
 });
+
+test('a refund that fails while taking credit back books nothing, and the retry books the refund and the take-back once', function () {
+    [$invoice] = closedStripeAttempt();
+    payInvoice($invoice, 1_000, 'bank-ref-6');
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund', ['amount' => 2_000]))]);
+    $crash = true;
+    CreditLedgerEntry::creating(function () use (&$crash): void {
+        if ($crash) {
+            $crash = false;
+
+            throw new RuntimeException('process died while taking the credit back');
+        }
+    });
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0012'))->assertServerError();
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(0)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(1_000);
+
+    postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0012'))->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
+    postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0013'))->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole()->amount_out)->toBe(1_500)
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(500);
+});

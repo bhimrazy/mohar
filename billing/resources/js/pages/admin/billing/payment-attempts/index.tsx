@@ -52,7 +52,7 @@ const LATE_OPTIONS: SelectOption[] = [{ value: '1', label: 'Late payments' }];
 /** Why staff should check a booked payment (`check_reason`). */
 const CHECK_LABELS: Record<string, string> = {
     late: 'Late payment',
-    credit: 'Paid twice',
+    credit: 'Kept as credit',
     refund: 'Refund over credit',
 };
 

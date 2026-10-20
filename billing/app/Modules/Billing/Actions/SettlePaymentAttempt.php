@@ -23,13 +23,13 @@ use Illuminate\Support\Facades\DB;
  * A success the provider confirms for an attempt we already closed (expired, failed or cancelled) is booked too,
  * after the same lookup and guards: on the invoice up to its balance, the rest (or all of it, when the invoice is
  * no longer payable) as account credit. Every late case is audited and raises a staff to-do (#130), and so does
- * any hosted payment that goes to credit because the invoice was already paid.
+ * any hosted payment that goes to account credit (invoice already paid or cancelled, or the payment held for review).
  */
 class SettlePaymentAttempt
 {
     public const LATE_NOTE = 'Late payment received after the attempt closed: check and refund if needed';
 
-    public const CREDIT_NOTE = 'Payment went to account credit because the invoice was already paid: check and refund if needed';
+    public const CREDIT_NOTE = 'Payment went to account credit (invoice already paid or cancelled, or payment held for review): check and refund if needed';
 
     /** The provider's answer to the last lookup this instance made (null when it made none). */
     public ?LookupResult $lastResult = null;
@@ -208,7 +208,8 @@ class SettlePaymentAttempt
         $attempt->status = AttemptStatus::Succeeded;
         $attempt->review_reason = null;
 
-        // On time, but the invoice was already paid (e.g. by a late payment first): the customer paid twice.
+        // On time, but it went to credit: the invoice was already paid (e.g. by a late payment first) or cancelled,
+        // or the payment was held for review.
         if ($attempt->late_payment_at === null && ($credited = $this->credited($transaction)) > 0) {
             $attempt->check_reason = PaymentAttempt::CHECK_CREDIT;
             $this->activity->log(self::CREDIT_NOTE, $transaction, $attempt->client_id, [

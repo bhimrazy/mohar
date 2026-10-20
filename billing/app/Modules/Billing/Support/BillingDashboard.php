@@ -89,7 +89,7 @@ class BillingDashboard
             'href' => route('admin.billing.payment-attempts.index', ['late' => 1]),
             'tone' => 'warning',
             'icon' => 'CreditCard',
-            'hint' => 'Paid after the attempt closed, or paid twice: refund if needed',
+            'hint' => 'Paid late, or kept as credit: refund if needed',
         ], 'billing.payments.manage', 14);
 
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);

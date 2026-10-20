@@ -444,7 +444,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Late gateway payments (#130): each one writes an activity entry ("Late payment received after the attempt
   closed: check and refund if needed") and raises the dashboard to-do "Late payments to check" until staff mark it
   checked on Payment attempts (new "Late payments" filter; marking needs a recent password and is recorded once).
-  A hosted payment that goes to credit because the invoice was already paid gets the same to-do. The client sees
+  A hosted payment that goes to account credit (the invoice was already paid or cancelled, or the payment was held
+  for review) gets the same to-do. The client sees
   the payment on the invoice and any surplus on the account credit page. A provider refund of such a payment takes
   the credit back, up to what is left, once per refund id (one credit line, even when nothing was left; staff see a zero line, the client does not); the rest
   goes to "Gateway payments to review", as do a closed attempt the

@@ -53,7 +53,7 @@ class PaymentAttempt extends Model
     /** Booked after the attempt closed (#130). */
     public const CHECK_LATE = 'late';
 
-    /** Booked on time, but all or part of it went to account credit because the invoice was already paid. */
+    /** Booked on time, but all or part went to account credit: invoice already paid or cancelled, or payment held. */
     public const CHECK_CREDIT = 'credit';
 
     /** Refunded at the provider for more than the account credit left from it. */

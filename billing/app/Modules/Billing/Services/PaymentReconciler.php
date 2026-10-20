@@ -77,36 +77,51 @@ class PaymentReconciler
         $tripped = [];
         $checked = 0;
 
-        $attempts = PaymentAttempt::query()
-            ->whereIn('status', [AttemptStatus::Expired, AttemptStatus::Failed])
-            ->whereNull('lookups_closed_at')
-            ->where('created_at', '>=', now()->subHours($hours))
-            ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', now()->subMinutes(self::LATE_INTERVAL_MINUTES)))
-            ->orderBy('id')
-            ->limit($cap)
-            ->get();
+        /** @var list<int> $seen attempts already tried in this run (a lookup that threw saved nothing) */
+        $seen = [];
 
-        foreach ($attempts as $attempt) {
-            if (microtime(true) >= $deadline) {
+        // The cap counts lookups made. A gateway that errors is dropped from the next query, so one provider that is
+        // down never uses up the run for the others.
+        while ($checked < $cap && microtime(true) < $deadline) {
+            $attempts = PaymentAttempt::query()
+                ->whereIn('status', [AttemptStatus::Expired, AttemptStatus::Failed])
+                ->whereNull('lookups_closed_at')
+                ->where('created_at', '>=', now()->subHours($hours))
+                ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', now()->subMinutes(self::LATE_INTERVAL_MINUTES)))
+                ->whereNotIn('gateway', array_keys($tripped))
+                ->whereNotIn('id', $seen)
+                ->orderBy('id')
+                ->limit($cap - $checked)
+                ->get();
+
+            if ($attempts->isEmpty()) {
                 break;
             }
 
-            if (isset($tripped[$attempt->gateway])) {
-                continue;
-            }
-
-            try {
-                $this->settle->handle($attempt);
-                $checked++;
-                $result = $this->settle->lastResult;
-
-                // One error answer and that provider is left alone until the next run.
-                if ($result !== null && ($result->retryable || $result->status === LookupResult::AMBIGUOUS)) {
-                    $tripped[$attempt->gateway] = true;
+            foreach ($attempts as $attempt) {
+                if (microtime(true) >= $deadline) {
+                    break 2;
                 }
-            } catch (Throwable $exception) {
-                $tripped[$attempt->gateway] = true;
-                report($exception);
+
+                if (isset($tripped[$attempt->gateway])) {
+                    continue;
+                }
+
+                $seen[] = $attempt->id;
+
+                try {
+                    $this->settle->handle($attempt);
+                    $checked++;
+                    $result = $this->settle->lastResult;
+
+                    // One error answer and that provider is left alone until the next run.
+                    if ($result !== null && ($result->retryable || $result->status === LookupResult::AMBIGUOUS)) {
+                        $tripped[$attempt->gateway] = true;
+                    }
+                } catch (Throwable $exception) {
+                    $tripped[$attempt->gateway] = true;
+                    report($exception);
+                }
             }
         }
 

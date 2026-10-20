@@ -256,35 +256,44 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 409, self::PAYMENT_NOT_BOOKED, $event->raw, $event->invoiceId);
         }
 
-        $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
-        $txnId = $event->txnId;
+        // The refund rows and any credit taken back commit together (all record-only, no provider call), so a crash
+        // can't leave the credit in place while the provider's retry is answered "duplicate".
+        try {
+            return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
+                $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
+                $txnId = $event->txnId;
 
-        foreach ($parents as $parent) {
-            $portion = min($remaining, $parent->refundable_remaining);
+                foreach ($parents as $parent) {
+                    $portion = min($remaining, $parent->refundable_remaining);
 
-            if ($portion <= 0) {
-                continue;
-            }
+                    if ($portion <= 0) {
+                        continue;
+                    }
 
-            $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
-            $remaining -= $portion;
-            $txnId = null;
+                    $this->refund->handle($parent, $portion, RefundMode::RecordOnly, gatewayTxnId: $txnId, reason: __('Refunded at the gateway'));
+                    $remaining -= $portion;
+                    $txnId = null;
+                }
+
+                if ($remaining > 0 && ($flagged = $this->flaggedAttempt($parents)) !== null) {
+                    return $this->takeBackCredit($gatewayKey, $event, $flagged, $parents, $remaining);
+                }
+
+                if ($remaining > 0) {
+                    // E.g. a refund of money that went to account credit: acknowledge (no retries) and leave it to staff.
+                    return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $parents[0]->invoice_id);
+                }
+
+                return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
+            });
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent delivery of the same refund booked it first (refund row or credit line).
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
         }
-
-        if ($remaining > 0 && ($flagged = $this->flaggedAttempt($parents)) !== null) {
-            return $this->takeBackCredit($gatewayKey, $event, $flagged, $parents, $remaining);
-        }
-
-        if ($remaining > 0) {
-            // E.g. a refund of money that went to account credit: acknowledge (no retries) and leave it to staff.
-            return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $parents[0]->invoice_id);
-        }
-
-        return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
     }
 
     /**
-     * The hosted attempt behind one of these payments, when it was flagged for staff (late, or paid twice): its
+     * The hosted attempt behind one of these payments, when it was flagged for staff (late, or gone to credit): its
      * money went to account credit, so a refund at the provider takes that credit back (#130).
      *
      * @param  list<Transaction>  $parents
@@ -303,7 +312,8 @@ class GatewayCallbackHandler
      * Anything the credit can't cover goes to staff ("Gateway payments to review"), so the client never keeps both
      * the refund and the credit. Exactly once per provider refund id: the ledger line carries (gateway, refund id),
      * unique in the database, and is written even when no credit is left (amount 0), so a replay never takes credit
-     * the client received later. A replay finds it under the client lock; a race that slips past hits the index.
+     * the client received later. A replay finds it under the client lock; a race that slips past hits the index and
+     * the caller (which runs this inside its transaction) answers "duplicate".
      *
      * @param  list<Transaction>  $parents
      * @return Outcome
@@ -317,48 +327,36 @@ class GatewayCallbackHandler
             return $this->outcome($gatewayKey, 200, 'refund needs staff review', [...$event->raw, 'unallocated' => $remaining], $payment->invoice_id);
         }
 
-        try {
-            [$taken, $uncovered, $duplicate] = DB::transaction(function () use ($gatewayKey, $refundId, $payment, $attempt, $remaining): array {
-                Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
+        Client::query()->whereKey($payment->client_id)->lockForUpdate()->firstOrFail();
 
-                if (CreditLedgerEntry::query()->where('gateway', $gatewayKey)->where('external_ref', $refundId)->exists()) {
-                    return [0, 0, true];
-                }
-
-                $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
-                $this->credit->post(
-                    $payment->client_id,
-                    Money::of($taken, $payment->currency)->negate(),
-                    CreditReason::CreditRemoved,
-                    $payment->invoice_id,
-                    $payment->id,
-                    mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $refundId]), 0, 255),
-                    gateway: $gatewayKey,
-                    externalRef: $refundId,
-                );
-
-                if ($remaining > $taken) {
-                    $attempt->update([
-                        'check_reason' => PaymentAttempt::CHECK_REFUND,
-                        'late_checked_at' => null,
-                        'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
-                    ]);
-                }
-
-                return [$taken, $remaining - $taken, false];
-            });
-        } catch (UniqueConstraintViolationException) {
-            // A concurrent delivery of the same refund booked it first.
-            [$taken, $uncovered, $duplicate] = [0, 0, true];
+        if (CreditLedgerEntry::query()->where('gateway', $gatewayKey)->where('external_ref', $refundId)->exists()) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $payment->invoice_id);
         }
 
-        $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $uncovered];
+        $taken = min($remaining, max(0, $this->credit->balance($payment->client_id, $payment->currency)->amount));
+        $this->credit->post(
+            $payment->client_id,
+            Money::of($taken, $payment->currency)->negate(),
+            CreditReason::CreditRemoved,
+            $payment->invoice_id,
+            $payment->id,
+            mb_substr(__('Refunded at the gateway (:refund)', ['refund' => $refundId]), 0, 255),
+            gateway: $gatewayKey,
+            externalRef: $refundId,
+        );
+        $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $remaining - $taken];
 
-        return match (true) {
-            $duplicate => $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $payment->invoice_id),
-            $uncovered > 0 => $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $payment->invoice_id),
-            default => $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $payment->invoice_id),
-        };
+        if ($remaining > $taken) {
+            $attempt->update([
+                'check_reason' => PaymentAttempt::CHECK_REFUND,
+                'late_checked_at' => null,
+                'review_reason' => mb_substr('Refunded at the provider for '.($remaining - $taken).' more than the account credit left', 0, 191),
+            ]);
+
+            return $this->outcome($gatewayKey, 200, 'refund needs staff review', $payload, $payment->invoice_id);
+        }
+
+        return $this->outcome($gatewayKey, 200, 'refund recorded; credit taken back', $payload, $payment->invoice_id);
     }
 
     /**
