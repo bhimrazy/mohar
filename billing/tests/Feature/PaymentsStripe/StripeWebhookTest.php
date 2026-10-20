@@ -424,7 +424,7 @@ test('a closed attempt whose session Stripe reports as not paid stays closed and
         ->and(ActivityLog::query()->where('event', 'billing.payment.late')->count())->toBe(0);
 });
 
-test('a Stripe refund of a late payment that went to credit takes the credit back once, and staff review what credit cannot cover', function () {
+test('a Stripe refund of a late payment that went to credit takes the credit back once, and staff review what the client already spent', function () {
     [$invoice] = closedStripeAttempt();
     payInvoice($invoice, 2_500, 'bank-ref-3');
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
@@ -436,15 +436,17 @@ test('a Stripe refund of a late payment that went to credit takes the credit bac
     $credit = app(CreditLedgerService::class);
     expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(1_500);
 
-    // The client spent most of the rest; a second refund of 1,000 finds 500 to take back.
+    // The client spent most of the rest; a second refund of 1,000 takes it back anyway: the balance goes negative (#183).
     $credit->post($invoice->client_id, Money::of(-1_000, 'USD'), CreditReason::AppliedToInvoice);
     Http::fake([STRIPE_API.'refunds/re_3MoharRefund0002*' => Http::response(stripeFixture('refund', ['id' => 're_3MoharRefund0002']))]);
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0002', eventId: 'evt_1MoharEvent0009'))->assertOk()->assertJson(['result' => 'refund needs staff review']);
 
     $this->travel(31)->minutes();
-    expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(0)
+    $todos = collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()));
+    expect($credit->balance($invoice->client_id, 'USD')->amount)->toBe(-500)
         ->and(PaymentAttempt::query()->sole())->check_reason->toBe(PaymentAttempt::CHECK_REFUND)->late_checked_at->toBeNull()
-        ->and(collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.payment_review')['count'])->toBe(1);
+        ->and($todos->firstWhere('key', 'billing.payment_review')['count'])->toBe(1)
+        ->and($todos->firstWhere('key', 'billing.credit_owed')['count'])->toBe(1);
 });
 
 test('two deliveries of one refund racing on late-payment credit write one ledger line', function () {
@@ -484,7 +486,7 @@ test('the database refuses a second ledger line for the same provider refund', f
     expect(CreditLedgerEntry::query()->where('client_id', $client->id)->count())->toBe(4);
 });
 
-test('a refund that finds no credit left keeps its zero guard line for staff only', function () {
+test('a refund that finds the credit spent takes it back as a negative balance and flags the attempt', function () {
     [$invoice] = closedStripeAttempt();
     payInvoice($invoice, 2_500, 'bank-ref-5');
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
@@ -493,15 +495,15 @@ test('a refund that finds no credit left keeps its zero guard line for staff onl
     Http::fake([STRIPE_API.'refunds/re_3MoharRefund0001*' => Http::response(stripeFixture('refund'))]);
 
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0011'))->assertOk()->assertJson(['result' => 'refund needs staff review']);
-    $guard = CreditLedgerEntry::query()->where('external_ref', 're_3MoharRefund0001')->sole();
-    expect($guard->amount)->toBe(0);
-
-    $this->get(route('client.credit.index'))->assertInertia(fn (Assert $page) => $page
-        ->where('entries.data', fn ($rows) => collect($rows)->doesntContain('id', $guard->id) && collect($rows)->isNotEmpty()));
+    $line = CreditLedgerEntry::query()->where('external_ref', 're_3MoharRefund0001')->sole();
+    expect($line->amount)->toBe(-1_000)
+        ->and(app(CreditLedgerService::class)->balance($client->id, 'USD')->amount)->toBe(-1_000)
+        ->and(PaymentAttempt::query()->sole()->check_reason)->toBe(PaymentAttempt::CHECK_REFUND)
+        ->and(Transaction::query()->where('type', TransactionType::Refund)->sole())->amount_out->toBe(1_000)->review_amount->toBeNull();
 
     billingStaff();
     $this->get(route('admin.billing.credit.index', ['client' => $client->id]))->assertInertia(fn (Assert $page) => $page
-        ->where('entries.data', fn ($rows) => collect($rows)->contains(fn ($row) => $row['id'] === $guard->id && str_contains($row['description'], 're_3MoharRefund0001'))));
+        ->where('entries.data', fn ($rows) => collect($rows)->contains(fn ($row) => $row['id'] === $line->id && str_contains($row['description'], 're_3MoharRefund0001'))));
 });
 
 test('a refund that fails while taking credit back books nothing, and the retry books the refund and the take-back once', function () {
@@ -526,6 +528,7 @@ test('a refund that fails while taking credit back books nothing, and the retry 
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0012'))->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
     postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0013'))->assertOk()->assertJson(['result' => 'duplicate']);
 
-    expect(Transaction::query()->where('type', TransactionType::Refund)->sole()->amount_out)->toBe(1_500)
+    // The refund books all 2,000 that left at Stripe: 1,500 from the payment, 500 from the credit.
+    expect(Transaction::query()->where('type', TransactionType::Refund)->sole()->amount_out)->toBe(2_000)
         ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(500);
 });

@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
+  of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
+  cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
+  and the refund only logged "refund needs staff review". Now the part the payment could not return is taken back
+  from the credit that payment placed, once per dispute or refund id, never from other credit. If the client
+  already spent it, the balance goes negative; this now also applies to refunds of flagged late payments (#152),
+  which keep their "Gateway payments to review" flag. Chargeback and refund rows book the whole reversed amount as
+  money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
+  left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
+  to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
+  balances only" filter) and "Disputes to review" (`billing.payments.manage` and `billing.transactions.view`; Billing → Transactions,
+  "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
+  recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
+  `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
+  built concurrently on PostgreSQL. Not handled yet: a dispute the merchant wins books nothing, so correct the
+  credit by hand. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  were disputed or refunded at the provider.
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
   `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
