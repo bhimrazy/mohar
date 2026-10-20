@@ -11,6 +11,7 @@ use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Integrations\Endpoints;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
@@ -50,6 +51,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Automation::class);
         $this->app->singleton(ThemeRegistry::class);
         $this->app->singleton(ClientMergeRegistry::class);
+        $this->app->singleton(ImportRegistry::class);
         $this->app->singleton(ReferenceDataRegistry::class);
         $this->app->singleton(ExchangeRateSources::class);
         $this->app->singleton(PriceConverters::class);

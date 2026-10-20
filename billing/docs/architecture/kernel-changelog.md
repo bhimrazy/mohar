@@ -6,6 +6,26 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
+
+- Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes
+  nothing; `rules()` must not query the database), `ImportIdResolver::targetId(string $entity, string $sourceId)`,
+  the DTOs `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}` and the enums
+  `App\Enums\{ImportAction (@open), ImportSeverity}`, as `migration.md` §12 with two trailing defaulted fields,
+  `ImportOutcome::$changes` and `ImportContext::$actorId`. One vocabulary: `$entity` is the registry key and
+  `$sourceSystem` the kind of source (`csv`, `whmcs_api`).
+- Added the final registry `App\Support\Migration\ImportRegistry` (ADR 0012), bound in `AppServiceProvider`:
+  `register(key, class-string|Closure, replace: false, dependsOn: [])` with keys matching `[a-z0-9_]{1,50}`,
+  duplicates refused unless replaced (logged), `has()`, `get()` (checks the importer's `key()`), `keys()`, and
+  `ordered(array $keys = [])`, which checks only the requested chains.
+- Added `App\Support\Queues::IMPORTS` (`imports`), `IMPORT_JOB_TIMEOUT_SECONDS` (120), `DEFAULT_POOL_TIMEOUT_SECONDS`
+  (150) and `DEFAULT_POOL_MEMORY_MB` (256). The default pool works `default,imports`; no new connection (ADR 0014
+  amendment).
+- Arch rule: every `App\Modules\*\Import` namespace that exists uses no `event()` or `dispatch()` helper, event
+  dispatcher, `Event`, `Bus`, `Mail` or `Notification` facade, `SystemMailer`, `AuthMailer`, `App\Events` namespace
+  other than `Migration`, or driver contract or registry; a probe fixture proves the rule fails.
+- The run events (C4) are not in this PR; each lands with the code that dispatches it (ADR 0019).
+
 ### Storefront (public site, PR feature/storefront-home)
 
 - Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
