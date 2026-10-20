@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Drivers\Registrars;
 
+use App\Data\Integrations\SettingField;
 use App\Modules\Domains\Models\RegistrarAccount;
 use Closure;
 use InvalidArgumentException;
@@ -53,6 +54,23 @@ class RegistrarManager
         }
 
         return $names;
+    }
+
+    /**
+     * The driver's settings as typed fields (the shared SettingField schema). Reads driver metadata only.
+     *
+     * @return list<SettingField>
+     */
+    public function fields(string $key): array
+    {
+        if (! $this->has($key)) {
+            return [];
+        }
+
+        $definition = $this->drivers[$key];
+        $driver = $definition instanceof Closure ? $definition() : app($definition);
+
+        return array_values(array_map(SettingField::fromArray(...), $driver->settingsSchema()));
     }
 
     /**
