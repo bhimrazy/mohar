@@ -298,6 +298,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
+            $int('gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours, 0 = off)'),
             $int('gateways.http_timeout_seconds', 'Gateway HTTP timeout (seconds)'),
             $int('gateways.ambiguous_alert_minutes', 'Alert staff about unresolved payments after (minutes)'),
             $bool('quotes.require_tos', 'Quotes require accepting terms'),

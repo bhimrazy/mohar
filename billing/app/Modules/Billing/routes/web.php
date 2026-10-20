@@ -66,6 +66,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('gateway-log', [GatewayLogController::class, 'index'])->name('gateway-log.index');
     Route::get('payment-attempts', [PaymentAttemptController::class, 'index'])->name('payment-attempts.index');
     Route::post('payment-attempts/{attempt}/check', [PaymentAttemptController::class, 'check'])->name('payment-attempts.check');
+    Route::post('payment-attempts/{attempt}/late-checked', [PaymentAttemptController::class, 'lateChecked'])->middleware('password.recent')->name('payment-attempts.late-checked');
 }));
 
 Route::clientArea(function (): void {

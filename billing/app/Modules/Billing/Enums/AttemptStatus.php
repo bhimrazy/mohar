@@ -19,4 +19,13 @@ enum AttemptStatus: string
     {
         return $this === self::Pending || $this === self::Ambiguous;
     }
+
+    /**
+     * Closed without a payment (expired, cancelled at the provider, replaced). The provider may still report a
+     * success for it later, which is booked as a late payment.
+     */
+    public function isClosed(): bool
+    {
+        return $this === self::Expired || $this === self::Failed;
+    }
 }

@@ -83,6 +83,15 @@ class BillingDashboard
             'icon' => 'CreditCard',
         ], 'billing.payments.manage', 13);
 
+        $dashboard->todo('admin', 'billing.late_payments', fn (?User $user): array => [
+            'label' => 'Late payments to check',
+            'count' => PaymentAttempt::query()->whereNotNull('late_payment_at')->whereNull('late_checked_at')->where('status', AttemptStatus::Succeeded)->count(),
+            'href' => route('admin.billing.payment-attempts.index', ['late' => 1]),
+            'tone' => 'warning',
+            'icon' => 'CreditCard',
+            'hint' => 'Paid after the attempt closed: refund if needed',
+        ], 'billing.payments.manage', 14);
+
         $dashboard->health('admin', 'billing.gateways', fn (?User $user): array => $this->gatewayHealth(), 'billing.payments.manage', 40);
     }
 

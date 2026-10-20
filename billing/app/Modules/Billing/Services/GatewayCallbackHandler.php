@@ -162,7 +162,8 @@ class GatewayCallbackHandler
 
     /**
      * A hosted attempt changed at the provider: settle it exactly like the return route and the poller do (lookup,
-     * then the guards against the attempt's stored amount, currency and rate). The event's own figures are unused.
+     * then the guards against the attempt's stored amount, currency and rate), also when the attempt is already
+     * closed. The event's own figures are unused.
      *
      * @return Outcome
      */
@@ -179,8 +180,10 @@ class GatewayCallbackHandler
 
         $before = $attempt->status;
         $status = $this->settle->handle($attempt);
+        // A closed attempt is looked up like an open one: a success the provider confirms is booked late (#130).
         $result = match (true) {
             $status === AttemptStatus::Succeeded && $before === AttemptStatus::Succeeded => 'duplicate',
+            $status === AttemptStatus::Succeeded && $before->isClosed() => 'late payment recorded',
             $status === AttemptStatus::Succeeded => 'payment recorded',
             default => 'attempt '.$status->value,
         };

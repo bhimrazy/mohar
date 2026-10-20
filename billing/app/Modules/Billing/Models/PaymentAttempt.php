@@ -34,13 +34,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $lookup_count
  * @property int|null $transaction_id
  * @property array<string, mixed>|null $raw
+ * @property CarbonImmutable|null $late_payment_at
+ * @property CarbonImmutable|null $late_checked_at
  * @property CarbonImmutable|null $created_at
  * @property-read Invoice|null $invoice
  */
 #[Fillable([
     'reference', 'gateway', 'client_id', 'invoice_id', 'payment_batch_id', 'amount', 'currency', 'document_amount',
     'document_currency', 'fx_rate', 'provider_ref', 'provider_txn_id', 'status', 'review_reason', 'expires_at',
-    'last_lookup_at', 'lookup_count', 'transaction_id', 'raw',
+    'last_lookup_at', 'lookup_count', 'transaction_id', 'raw', 'late_payment_at', 'late_checked_at',
 ])]
 class PaymentAttempt extends Model
 {
@@ -55,6 +57,8 @@ class PaymentAttempt extends Model
             'fx_rate' => 'decimal:12',
             'expires_at' => 'datetime',
             'last_lookup_at' => 'datetime',
+            'late_payment_at' => 'datetime',
+            'late_checked_at' => 'datetime',
             'lookup_count' => 'integer',
             'raw' => 'array',
         ];
