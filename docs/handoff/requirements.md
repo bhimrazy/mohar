@@ -113,6 +113,7 @@ installed), Billing PDF not on `BrandProvider`, branch protection and required c
 | Social sign-in deferred (owner, 2026-10-20): after registrars, the client importer and the load-test performance fixes. Sign-in PR 0 (#112) is cut to the #81 fix (`password.recent` registered outside Platform); the rest of ADR 0018 waits.                    |
 | Stripe test account (owner, 2026-10-20): the owner has a Stripe sandbox. Its keys go in the admin's Stripe gateway settings or as GitHub/Codespaces secrets, never in chat or in the repo. The simulator stays the CI default; a live sandbox run is the proof.   |
 | CI minutes (owner, 2026-10-20): GitHub Actions is capped at 3,000 minutes a month with no paid overage. Drafts carry no `ci` label; engineers verify locally; the CTO runs CI once per PR at merge; smoke and load runs only by decision. |
+| Repository visibility (owner, 2026-10-20): make the repository public when needed and private again afterwards; the name change is deferred. Licence: all rights reserved (`LICENSE`). `main` stays a minimal readme-and-licence page. Rules: operating-model.md, "Repository visibility and CI". |
 | Docs site (owner, 2026-10-20): a standard, minimal docs site, not "AI slop" UI. Astro Starlight in `docs-site/`, kept in this repo; not published for now (GitHub Pages from this private repo would be public). The build can be deployed elsewhere later. How hosts get the code is decided later. |
 
 Open brand items: the Billing invoice PDF does not use `BrandProvider` yet (no reference in
