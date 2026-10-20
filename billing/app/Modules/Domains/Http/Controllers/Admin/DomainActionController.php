@@ -38,7 +38,7 @@ class DomainActionController extends Controller
     {
         $status = DomainStatus::from($request->string('status')->toString());
         $meta = $domain->registrar_meta ?? [];
-        unset($meta['submission'], $meta['renew_sent_for']);
+        unset($meta['submission'], $meta['renew_sent_for'], $meta['renew_sent_at']);
 
         // Staff have verified the registrar state: forcing a status also closes any unresolved submission.
         $states->transition($domain, $status, $request->string('reason')->toString(), [

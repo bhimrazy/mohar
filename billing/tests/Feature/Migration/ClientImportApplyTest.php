@@ -17,6 +17,8 @@ use App\Modules\Migration\Models\MigrationIdMap;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Support\SourceIds;
 use App\Support\Migration\ImportRegistry;
+use App\Support\Queues;
+use Illuminate\Foundation\DevCommands;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -228,4 +230,10 @@ test('a password reset reaches an imported login only through its own mailbox', 
     $this->post(route('password.email'), ['email' => 'asha@example.com'])->assertSessionHasNoErrors();
 
     expect(DB::table('password_reset_tokens')->where('email', 'asha@example.com')->exists())->toBeTrue();
+});
+
+test('the dev worker reads the imports queue', function () {
+    $queue = collect(DevCommands::commands())->firstWhere('name', 'queue');
+
+    expect($queue['command'])->toMatch('/--queue=\S*\b'.Queues::IMPORTS.'\b/');
 });

@@ -19,6 +19,7 @@ use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Services\RenewalInvoices;
+use App\Modules\Domains\Support\RemoteIds;
 use Carbon\CarbonImmutable;
 
 /**
@@ -69,6 +70,7 @@ class SyncDomain
     private function transferSync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
         $result = $this->gateway->forDomain($domain, 'transfer_sync', fn (Registrar $registrar): TransferSyncResult => $registrar->transferSync($domain), staffId: $staffId);
+        $this->rememberRemote($domain, $result->remote, $notifyOnly);
 
         if ($result->completed) {
             $change = $this->change($domain, 'status', $domain->status->value, DomainStatus::Active->value, ! $notifyOnly);
@@ -113,6 +115,7 @@ class SyncDomain
     {
         $result = $this->gateway->forDomain($domain, 'sync', fn (Registrar $registrar): SyncResult => $registrar->sync($domain), staffId: $staffId);
         $apply = ! $notifyOnly;
+        $this->rememberRemote($domain, $result->remote, $notifyOnly);
 
         if ($result->transferredAway || $result->cancelled) {
             $to = $result->transferredAway ? DomainStatus::TransferredAway : DomainStatus::Cancelled;
@@ -181,6 +184,16 @@ class SyncDomain
         }
 
         return $changes;
+    }
+
+    /**
+     * @param  array<string, string|int>  $remote
+     */
+    private function rememberRemote(Domain $domain, array $remote, bool $notifyOnly): void
+    {
+        if ($remote !== [] && ! $notifyOnly) {
+            $domain->forceFill(['registrar_meta' => RemoteIds::merge($domain->registrar_meta, $remote)])->save();
+        }
     }
 
     /**

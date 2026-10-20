@@ -51,10 +51,12 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\DevCommands;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -107,6 +109,10 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
+        // automation connection keeps its own worker in Platform.
+        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');
+
         // Client import (client-import spec §16): Core writes its own records for every import source.
         $imports = $this->app->make(ImportRegistry::class);
         $imports->register('client', ClientImporter::class);

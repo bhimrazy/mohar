@@ -110,16 +110,17 @@ class RefundTransaction
             $refund->forceFill(['gateway_txn_id' => $result->txnId, 'raw' => GatewayLogger::redact($result->raw)]);
         }
 
-        // 3. Finalise the books.
+        // 3. Finalise the books. Locks in the module's order: invoice, then client (the credit post), as payments,
+        // credit and chargebacks take them, so a refund to credit never deadlocks with a dispute of the same invoice.
         return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId): Transaction {
+            $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
+
             $refund->status = TransactionStatus::Succeeded;
             $refund->save();
 
             if ($mode === RefundMode::ToCredit) {
                 $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
             }
-
-            $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
 
             if ($invoice !== null) {
                 $this->applyToInvoice($invoice, $refund, $amount, $reverseEffects, $userId);

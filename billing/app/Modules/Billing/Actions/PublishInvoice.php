@@ -13,8 +13,10 @@ use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Services\SellerDetails;
 use App\Modules\Billing\Support\AfterCommit;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 
 /**
  * draft → unpaid: recompute tax with current rules, assign the next number (or proforma number), set issue
@@ -30,9 +32,23 @@ class PublishInvoice
         private SellerDetails $seller,
     ) {}
 
-    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null, bool $notify = true): Invoice
+    /**
+     * @param  Client|null  $client  the invoice's client, read in the caller's transaction. Used only when $invoice was
+     *                               created in this request (IssueInvoice creates and publishes in one transaction);
+     *                               for any other invoice the client is read again, so a copy read earlier can never
+     *                               set the tax. A client that is not the invoice's, or is modified, throws.
+     *
+     * @throws LogicException when $client is not the invoice's unmodified client
+     */
+    public function handle(Invoice $invoice, ?CarbonImmutable $issueDate = null, bool $notify = true, ?Client $client = null): Invoice
     {
-        return DB::transaction(function () use ($invoice, $issueDate, $notify): Invoice {
+        if ($client !== null && ($client->id !== $invoice->client_id || $client->isDirty())) {
+            throw new LogicException("The client passed to publish invoice {$invoice->id} is not its unmodified client.");
+        }
+
+        $client = $invoice->wasRecentlyCreated ? $client : null;
+
+        return DB::transaction(function () use ($invoice, $issueDate, $notify, $client): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
             if ($invoice->status !== InvoiceStatus::Draft) {
@@ -43,7 +59,7 @@ class PublishInvoice
                 throw new BillingException(__('Add at least one line before publishing.'));
             }
 
-            $this->calculator->recalculate($invoice);
+            $this->calculator->recalculate($invoice, $client);
 
             if ($invoice->total < 0) {
                 throw new BillingException(__('An invoice total can\'t be negative. Issue account credit or a credit note instead.'));

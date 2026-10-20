@@ -10,12 +10,10 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
-use App\Support\Queues;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
@@ -37,8 +35,6 @@ class MigrationServiceProvider extends ModuleServiceProvider
         if (! array_key_exists('password.recent', $router->getMiddleware())) {
             $router->aliasMiddleware('password.recent', RequirePassword::class);
         }
-
-        DevCommands::artisan('queue:listen --queue='.Queues::IMPORTS.' --tries=3 --timeout=0', 'imports-queue');
 
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',

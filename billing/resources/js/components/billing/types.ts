@@ -82,6 +82,7 @@ export type Transaction = {
     exchange_rate: string | null;
     refundable_remaining: number;
     refundable: boolean;
+    to_review?: number | null;
     description: string | null;
     parent_transaction_id: number | null;
     invoice_id: number | null;

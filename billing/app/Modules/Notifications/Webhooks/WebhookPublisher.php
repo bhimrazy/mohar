@@ -10,6 +10,7 @@ use App\Modules\Notifications\Models\WebhookEndpoint;
 use App\Modules\Notifications\Services\MergeContext;
 use App\Modules\Notifications\Support\EventKey;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * Turns a domain event into one delivery per subscribed endpoint (spec §8). The event id is derived
@@ -30,6 +31,13 @@ class WebhookPublisher
             return 0;
         }
 
+        // Without a subscribed endpoint there is nothing to build: the payload's entity is not even read.
+        $endpoints = $this->subscribed($type);
+
+        if ($endpoints->isEmpty()) {
+            return 0;
+        }
+
         $properties = get_object_vars($event);
         $ids = array_filter($properties, fn (mixed $value, string $key): bool => is_int($value) && str_ends_with($key, 'Id'), ARRAY_FILTER_USE_BOTH);
         $id = $idProperty !== null && is_int($properties[$idProperty] ?? null) ? $properties[$idProperty] : null;
@@ -39,7 +47,7 @@ class WebhookPublisher
             $object = array_filter($properties, fn (mixed $value, string $key): bool => is_scalar($value) && ! array_key_exists($key, $ids) && $key !== 'occurrenceId', ARRAY_FILTER_USE_BOTH);
         }
 
-        return $this->publish($type, $object, $this->snakeKeys($ids), EventKey::of($event));
+        return $this->deliver($endpoints, $type, $object, $this->snakeKeys($ids), EventKey::of($event));
     }
 
     /**
@@ -49,11 +57,30 @@ class WebhookPublisher
      */
     public function publish(string $type, array $object, array $ids, string $eventKey, ?array $endpointIds = null): int
     {
-        $endpoints = WebhookEndpoint::query()->where('is_active', true)
+        return $this->deliver($this->subscribed($type, $endpointIds), $type, $object, $ids, $eventKey);
+    }
+
+    /**
+     * Active endpoints that take this event type, in id order.
+     *
+     * @param  list<int>|null  $endpointIds  limit to these endpoints (ping)
+     * @return Collection<int, WebhookEndpoint>
+     */
+    private function subscribed(string $type, ?array $endpointIds = null): Collection
+    {
+        return WebhookEndpoint::query()->where('is_active', true)
             ->when($endpointIds !== null, fn ($query) => $query->whereIn('id', $endpointIds))
             ->orderBy('id')->get()
             ->filter(fn (WebhookEndpoint $endpoint): bool => $type === WebhookEventTypes::PING || $endpoint->subscribesTo($type));
+    }
 
+    /**
+     * @param  Collection<int, WebhookEndpoint>  $endpoints
+     * @param  array<string, mixed>  $object
+     * @param  array<string, int>  $ids
+     */
+    private function deliver(Collection $endpoints, string $type, array $object, array $ids, string $eventKey): int
+    {
         if ($endpoints->isEmpty()) {
             return 0;
         }

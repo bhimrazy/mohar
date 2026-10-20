@@ -8,6 +8,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
+  of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
+  cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
+  and the refund only logged "refund needs staff review". Now the part the payment could not return is taken back
+  from the credit that payment placed, once per dispute or refund id, never from other credit. If the client
+  already spent it, the balance goes negative; this now also applies to refunds of flagged late payments (#152),
+  which keep their "Gateway payments to review" flag. Chargeback and refund rows book the whole reversed amount as
+  money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
+  left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
+  to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
+  balances only" filter) and "Disputes to review" (`billing.payments.manage` and `billing.transactions.view`; Billing → Transactions,
+  "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
+  recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
+  `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
+  built concurrently on PostgreSQL. Not handled yet: a dispute the merchant wins books nothing, so correct the
+  credit by hand. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  were disputed or refunded at the provider.
+- **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
+  `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
+  capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
+  Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
+  hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
+  scheduler process no longer calls registrars itself. The provider pool (`queue:work
+--queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
+  queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
+  ones, so local runs process registrar jobs too.
+- **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
+  off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
+  checked with the registrar (never re-sent) and listed in the sync report. No schema change.
 - **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
   `storefront.publish` (make it live). `storefront.publish` is sensitive: only an exact grant (or `*`) gives it, never
   `storefront.*`, and publishing asks for the password when it was not confirmed recently. Grant both explicitly to
@@ -563,6 +596,14 @@ a time: medians of three runs before and three after, on the same database, on a
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+- Registrar prerequisites (registrars.md §2): a submission or renewal whose outcome was lost is checked in the
+  registrar account with `findSubmission` (executed → applied; in progress → waits for sync; absent or unknown →
+  staff review, never re-sent); registrar ids such as order and transfer ids are kept in `registrar_meta.remote`;
+  the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
+  driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
+- Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+  The registrar gateway also masks the account's configured credentials by value in its log and in the error text
+  that reaches the domain's last error, the activity log and `RegistrarActionFailed`.
 
 ### Orders
 
@@ -585,6 +626,16 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Billing
 
+- **Fewer database queries per issued invoice** (renewal runs, and every other invoice):
+    - On 20,000 clients a billing day's 4,251 renewals took 42.7 queries each, now 34.7. On this shared host that was
+      138 → 126 ms per renewal (medians of three alternating runs).
+    - Issuing reuses the client and the new lines it has just written instead of reading them again, and reads the
+      order's payment guard only when there is account credit to apply.
+    - Invoice, proforma and quote numbers take one query fewer after a period's first number.
+    - Webhooks no longer build a payload when no endpoint subscribes to the event. As a result, an error in a payload
+      resolver for such an event is no longer reported to the error log; with a subscribed endpoint it still is.
+    - The stored result is unchanged: a full renewal run on that data leaves every invoice, line, service link, credit
+      entry, transaction, email and queued job identical.
 - Implements `Invoicer`, `TaxCalculator`, `CreditLedger`, `GatewayDirectory` and `InvoiceQueries`, and consults
   `PaymentGuard` before taking a payment.
 - Invoices are immutable once issued; changes go through an adjustments ledger. Gap-free and proforma numbering,
