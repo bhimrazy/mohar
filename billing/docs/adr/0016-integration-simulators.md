@@ -264,6 +264,27 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - a dispute, recorded as a chargeback once, putting the invoice in collections;
     - a declined card and then an abandoned checkout: the session is expired at Stripe by the driver, the attempt is expired, and the invoice stays unpaid.
 
+### S4 as delivered
+
+- **The scenario.** `tests/Simulators/HostingLifecycleTest.php` is HTTP-level, with every module real and only the providers simulated:
+    1. `migrate`, then `app:install` (no demo data);
+    2. the WHM server trusted through Test connection and "Trust this certificate" on the staff routes;
+    3. a product on `root_basic`, and Stripe in test mode against its simulator;
+    4. a customer registers, verifies the address, orders, and pays on the hosted page;
+    5. the invoice is Paid, the service is Active and the WHM account exists;
+    6. overdue (the due dates are backdated in the throwaway database, as §4 allows), suspension in WHM, the renewal paid, and unsuspension;
+    7. an immediate cancellation, after which the account is gone from WHM (the service ends Cancelled);
+    8. a staff refund at Stripe, then a dispute on the renewal (a chargeback, and the invoice in Collections).
+    - Faults: a forged webhook is refused and a replay is a duplicate (in the lifecycle). In a second test, `createacct` commits and then times out, and the verify sweep adopts the account (`createacct` sent once).
+    - Single sign-on waits for cPanel PR 2.
+- **The runner.** `php artisan simulate:e2e`:
+    - creates `billing_e2e_<random>` on PostgreSQL (or a temporary SQLite file);
+    - runs the scenario in a Pest subprocess with phpunit.xml's environment, so the host's `.env` (a database queue, say) does not leak in, within a time budget (360 s);
+    - drops the database unless `--keep`.
+    - The harness refuses any other database.
+    - Deviation from §4: one runner, the in-process Pest scenario on a throwaway database, rather than a second topology with `artisan serve` and `queue:work`. Queued jobs run on the sync queue, so provisioning still goes through `RunModuleCommand` and the module lock.
+- **CI.** The `E2E simulators (hosting lifecycle)` job has its own PostgreSQL service and `timeout-minutes: 10`. The main job never runs `tests/Simulators`, which is in no testsuite. The job is non-required in branch protection until it has passed 10 consecutive runs.
+
 ## Limits: what simulators cannot prove
 
 - That the provider really behaves as we read its reference: undocumented fields, error wording, rate limits, real

@@ -5,6 +5,7 @@ namespace Mohar\Simulators;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Support\ServiceProvider;
 use Mohar\Simulators\Console\CleanCommand;
+use Mohar\Simulators\Console\E2eCommand;
 use Mohar\Simulators\Console\ListCommand;
 use Mohar\Simulators\Console\RecordCommand;
 use Mohar\Simulators\Console\ScanCommand;
@@ -53,6 +54,6 @@ final class SimulatorsServiceProvider extends ServiceProvider
             return;
         }
 
-        $this->commands([ListCommand::class, StartCommand::class, StopCommand::class, CleanCommand::class, RecordCommand::class, ScanCommand::class]);
+        $this->commands([ListCommand::class, StartCommand::class, StopCommand::class, CleanCommand::class, RecordCommand::class, ScanCommand::class, E2eCommand::class]);
     }
 }

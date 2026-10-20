@@ -229,3 +229,59 @@ jobs:
                       exit 1
                   fi
                   php -r 'require "vendor/autoload.php"; exit(class_exists("Mohar\\Simulators\\SimulatorRegistry") ? 1 : 0);'
+
+    # ADR 0016 §4-5: the end-to-end hosting scenario against the whm and stripe simulators, on a throwaway PostgreSQL
+    # database. Its own job and check name, so a simulator failure never hides a main-suite failure; non-required in
+    # branch protection until it has passed 10 consecutive runs. The main job never runs tests/Simulators.
+    e2e-simulators:
+        name: E2E simulators (hosting lifecycle)
+        if: >-
+            github.event_name != 'pull_request' ||
+            (github.event.action == 'labeled' && github.event.label.name == 'ci') ||
+            (github.event.action != 'labeled' && (github.event.pull_request.draft == false || contains(github.event.pull_request.labels.*.name, 'ci')))
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        services:
+            postgres:
+                # Must equal the postgres image in billing/compose.yaml (the main job asserts it).
+                image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+                env:
+                    POSTGRES_DB: billing_test
+                    POSTGRES_USER: billing
+                    POSTGRES_PASSWORD: billing
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U billing -d billing_test"
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 10
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Set up PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                  php-version: '8.4'
+                  tools: composer:2.10.3
+                  extensions: pdo_sqlite, pdo_pgsql, pgsql
+                  coverage: none
+
+            # The main job runs the lockfile, audit and cooldown checks; this one installs the same locked versions.
+            - name: Install dependencies
+              uses: ./.github/actions/setup-app
+
+            - name: Hosting lifecycle against the simulators (6-minute budget)
+              env:
+                  APP_ENV: testing
+                  DB_HOST: 127.0.0.1
+                  DB_PORT: '5432'
+                  DB_DATABASE: billing_test
+                  DB_USERNAME: billing
+                  DB_PASSWORD: billing
+              run: php artisan simulate:e2e --connection=pgsql --budget=360

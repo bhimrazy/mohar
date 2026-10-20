@@ -90,6 +90,18 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`stripe.api` and `stripe.checkout`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Turn on the Stripe gateway's test mode with the simulator's secret key and webhook secret.
 - **Redaction.** It is a `RedactsPayments` simulator. Live recording waits for a Stripe test account (go-live checklist). Its script must rename `metadata` keys as well as values: the merchant chooses those keys, and they can name a customer.
 
+## The end-to-end scenario
+
+`php artisan simulate:e2e` runs `tests/Simulators` (ADR 0016 §4) against both simulators:
+
+- it creates a throwaway database `billing_e2e_<random>` on PostgreSQL (`--connection=pgsql`, the default) or as a temporary SQLite file (`--connection=sqlite`);
+- it runs the scenario within a time budget (`--budget`, 360 s by default);
+- it drops the database afterwards, unless `--keep`.
+
+The harness (`tests/Simulators/SimulatorHarness.php`) refuses any other database. The app runs in process, the simulators run as real TLS processes, the customer's browser is an HTTP client that trusts the scenario CA, and webhooks are posted to the app with the bytes and signature the simulator made.
+
+The main CI job never runs `tests/Simulators`. The `E2E simulators` job does, on its own PostgreSQL service, with a 10-minute limit.
+
 ## Recordings and the secret scan
 
 `simulate:scan` checks every `*/recordings/*.json` file in this package, keys as well as values, for:
