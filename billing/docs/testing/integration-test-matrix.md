@@ -94,7 +94,7 @@ Applies to:
 | ----- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------------------------------- |
 | PG-17 | Replays and duplicates         | Repeated returns, duplicate or replayed webhooks, and a return racing the poller and webhooks give one transaction and one `InvoicePaid`.                                                           | H, W       | owner; stripe AC4-5; billing AC8 |
 | PG-18 | Second checkout blocked        | While a started payment can still complete at the provider, a second start (same or other method, other tab) is refused; it is allowed once the first one ends.                                     | H          | owner; std Payments              |
-| PG-19 | Late payment on an old session | A success the provider reports for an attempt we already closed (expired, failed, replaced) is booked once (as credit if the invoice was paid meanwhile), never lost.                               | H          | owner; billing §4                |
+| PG-19 | Late payment on an old session | A success the provider reports for an attempt we already closed (expired, failed or cancelled) is booked once (as credit if the invoice was paid meanwhile), never lost.                            | H          | owner; billing §4                |
 | PG-20 | Continue or switch             | With a session still open, the customer can continue it or choose another method (which first closes the old session); after expiry "Pay a different way" appears with a "don't pay again" warning. | H          | owner (#123); std Payments       |
 
 ### D. After payment: refunds and disputes
@@ -173,7 +173,7 @@ Live results here are from 2026-10-20 unless the [log](#live-sandbox-results-log
 | PG-16 | Bound to client and gateway      | HP-09, HP-10                                         | SW-16                                                         | ES-08 (other transaction)                          | KH-03                | n/a                                      | HP-10, CB-04                                                         |
 | PG-17 | Replays and duplicates           | PY-01                                                | SW-06, SR-01 · sim #113 · **Live PASS**                       | ES-03, ES-14                                       | KH-04                | n/a                                      | HP-01, WH-01, WH-05                                                  |
 | PG-18 | Second checkout blocked          | HP-08, CS-01 · **GAP** (race)                        | SC-12 · **Live PASS**                                         | CS-01 (as second method)                           | CS-01, CS-02         | n/a                                      | PS-01, PS-02 (combined payments)                                     |
-| PG-19 | Late payment, old session        | **GAP** ⁶ (PY-07, PS-03 cover the booking rule only) | **GAP**                                                       | **GAP**                                            | **GAP**              | n/a                                      | **GAP**                                                              |
+| PG-19 | Late payment, old session        | **DONE** ⁶ HostedPaymentsTest, review probes of #152 | **DONE** StripeWebhookTest (late cases) · sim #152            | **DONE** EsewaDriverTest (late cases)              | **DONE** late cases  | n/a                                      | (shared)                                                             |
 | PG-20 | Continue or switch               | CS-01 (after expiry)                                 | SC-05, SC-13 · **Live FAIL** (#123)                           | CS-01 · **Live PASS** (after expiry)               | CS-01                | n/a                                      | (shared)                                                             |
 | PG-21 | Refund from admin                | PY-03, PY-04, AI-02, MI-01, MI-05, SB-05, CS-08      | SR-01, SR-03, SR-05, SS-01 · sim #113 · Live NOT RUN          | ES-12 (no API: record), CS-08                      | KH-14, KH-15, KH-16  | PY-06, AI-02                             | PY-05                                                                |
 | PG-22 | Refund made at the provider      | —                                                    | SW-12, SW-13, SR-04 · **Live PASS**                           | **GAP** (#27)                                      | **GAP** (#27)        | n/a                                      | WH-07, MI-04                                                         |
@@ -210,11 +210,9 @@ Footnotes:
    with; PG-12 covers these returns. A Stripe webhook secret is per endpoint and not public.
 5. The sandbox card driver uses the push model of `billing.md` §6: its signed webhook body is the source of truth by
    design. It is a test gateway, refused in production (PG-35).
-6. `SettlePaymentAttempt::handle()` returns at once for an attempt that is no longer open, and a webhook for one
-   answers 200 "attempt expired". So a success the provider reports after we closed the attempt is logged but not
-   booked. For Stripe this needs a paid session on an attempt we expired, which Stripe prevents when we expire the
-   session first (PG-05); the eSewa and Khalti paths (attempt expired after TTL plus grace) are not proven either
-   way. This needs a product decision, then a test (M-01).
+6. Decided in #130, built in #152: a success the provider confirms for an attempt we already closed is booked after
+   the same lookup and guards, on the invoice up to its balance and the rest as account credit, with an activity
+   entry and the "Late payments to check" to-do. Closed attempts are swept hourly for 48 hours (setting).
 7. Disputes on eSewa and Khalti are handled with the provider offline; no dispute signal reaches us.
 8. eSewa shares `ProviderHttp` (timeouts and retries) with Khalti, so KH-07 proves eSewa's timeouts too.
 9. ES-15 proves the fail-closed attempt. Refusing activation in production is the shared `SandboxPolicy`, proven
@@ -224,9 +222,9 @@ Footnotes:
 
 | Status                                                                  | Cases | IDs                                                           |
 | ----------------------------------------------------------------------- | ----- | ------------------------------------------------------------- |
-| Covered: every gateway it applies to has an automated test              | 29    | all others                                                    |
+| Covered: every gateway it applies to has an automated test              | 30    | all others                                                    |
 | Partly covered: at least one applicable gateway or sub-case has no test | 9     | PG-05, PG-18, PG-20, PG-22, PG-25, PG-27, PG-30, PG-32, PG-40 |
-| Not covered by any automated test                                       | 4     | PG-09, PG-10, PG-19, PG-37                                    |
+| Not covered by any automated test                                       | 3     | PG-09, PG-10, PG-37                                           |
 | **Total**                                                               | 42    |                                                               |
 
 Two of the uncovered cases passed live (PG-09 on Stripe) or can only be proven live (PG-10). Live sandbox runs
@@ -489,7 +487,7 @@ first. Ordered by risk: money taken but not booked, or charged wrongly, first.
 
 | #    | Case         | Risk   | Proposed test (file :: name)                                                                                                                                                     | Note                                                              |
 | ---- | ------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| M-01 | PG-19        | High   | `tests/Feature/Billing/HostedPaymentsTest.php` :: a success the provider reports for an attempt we already closed is booked once, as credit when the invoice was paid meanwhile  | Blocked: decide the behaviour first (footnote 6)                  |
+| M-01 | PG-19        | High   | **DONE** (#152): `StripeWebhookTest`, `EsewaDriverTest`, `KhaltiDriverTest`, `HostedPaymentsTest` :: the late payment cases (closed attempt booked once, credit, replays)        | Decided in #130 (footnote 6)                                      |
 | M-02 | PG-09        | High   | `tests/Feature/Billing/HostedPaymentsTest.php` :: a hosted payment on a part-paid invoice asks the provider for the remaining balance only                                       | Live PASS on Stripe; no automated proof for any driver            |
 | M-03 | PG-25        | High   | `tests/Feature/PaymentsStripe/StripeWebhookTest.php` :: a dispute that arrives before its payment is booked is refused for retry, then booked as a chargeback once               | #124; also as a simulator scenario in S3                          |
 | M-04 | PG-18        | High   | `tests/Feature/Billing/HostedPaymentsTest.php` :: an attempt opened between the in-progress check and the insert still blocks a second start (invoice lock held)                 | Proves the lock, not only the sequential refusal; PostgreSQL gate |

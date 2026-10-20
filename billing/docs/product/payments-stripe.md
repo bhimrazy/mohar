@@ -137,7 +137,7 @@ stored:
 | `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
 | anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
 
-- **Closed attempts:** an event for an attempt we already closed (expired, cancelled, replaced) is verified and
+- **Closed attempts:** an event for an attempt we already closed (expired, failed or cancelled) is verified and
   looked up the same way; a session or PaymentIntent Stripe reports as paid is booked as a late payment
   (billing.md §13) and answered `late payment recorded`.
 - **Idempotency:** payments are unique on `(stripe, pi_…, payment)`, refunds on `re_…`, chargebacks on `du_…`
