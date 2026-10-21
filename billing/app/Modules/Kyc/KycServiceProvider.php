@@ -5,12 +5,19 @@ namespace App\Modules\Kyc;
 use App\Events\Core\ClientClosed;
 use App\Events\Core\ClientMerged;
 use App\Events\Core\ClientReopened;
+use App\Models\User;
+use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Kyc\Actions\PruneDocuments;
+use App\Modules\Kyc\Enums\DocumentStatus;
+use App\Modules\Kyc\Http\Controllers\Admin\ReviewController;
+use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Kyc\Http\Middleware\ShareKycBanner;
 use App\Modules\Kyc\Listeners\ScheduleDocumentRetention;
 use App\Modules\Kyc\Services\KycVerification;
 use App\Support\Automation\Automation;
 use App\Support\Modules\ModuleServiceProvider;
+use App\Support\Navigation\Navigation;
+use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
@@ -42,7 +49,13 @@ class KycServiceProvider extends ModuleServiceProvider
 
         $this->app->make(PermissionRegistry::class)->register('Identity verification', [
             'kyc.settings.manage' => 'Manage identity verification settings',
-        ]);
+            ReviewController::PERMISSION => 'View identity documents and approve or reject them',
+        ], sensitive: [ReviewController::PERMISSION]);
+
+        $navigation = $this->app->make(Navigation::class);
+        $navigation->add('admin', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', 'Clients', 40, ReviewController::PERMISSION, 'admin.kyc.*',
+            badge: fn (?User $user): ?int => RequestMemo::remember('kyc.waiting', fn (): int => KycDocument::query()->current()->where('status', DocumentStatus::Pending->value)->distinct()->count('client_id')) ?: null));
+        $navigation->add('admin-client', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', order: 70, permission: ReviewController::PERMISSION));
 
         $this->app->make(SettingsRegistry::class)->section('kyc', 'Identity verification', [
             new SettingDefinition('kyc.enabled', 'Ask clients to verify their identity', 'boolean', 'Shows a banner and a verification page in the client area. It never blocks ordering or paying.'),
