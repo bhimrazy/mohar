@@ -45,4 +45,30 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
             || Transaction::query()->where('currency', $currency)->exists()
             || CreditLedgerEntry::query()->where('currency', $currency)->exists();
     }
+
+    /**
+     * The clients among $clientIds with any invoice, quote, transaction or credit entry (the Billing source of
+     * ClientCurrencyUsage). Four indexed lookups, each only for the clients not found yet.
+     *
+     * @param  list<int>  $clientIds
+     * @return list<int>
+     */
+    public function clientsWithDocuments(array $clientIds): array
+    {
+        if ($clientIds === []) {
+            return [];
+        }
+
+        $found = [];
+
+        foreach ([Invoice::class, Quote::class, Transaction::class, CreditLedgerEntry::class] as $model) {
+            $pending = array_values(array_diff($clientIds, $found));
+
+            if ($pending !== []) {
+                array_push($found, ...$model::query()->whereIn('client_id', $pending)->distinct()->pluck('client_id')->map(fn (mixed $id): int => (int) $id)->all());
+            }
+        }
+
+        return array_values(array_unique($found));
+    }
 }

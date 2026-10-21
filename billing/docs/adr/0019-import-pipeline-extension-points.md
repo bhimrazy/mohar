@@ -1,9 +1,10 @@
 # ADR 0019 — Import pipeline extension points
 
-- Status: Proposed · 2026-10-20 · Owner: Principal architect
+- Status: Accepted · 2026-10-21 (CTO) · Owner: Principal architect. Acceptance covers Vocabulary, Rules and Events;
+  Sources and Importer capabilities are a direction, decided when their first consumer lands (ADR 0010).
 - Related: ADR 0010 (contract evolution), ADR 0011 (events), ADR 0012 (capability interfaces and registries),
-  ADR 0014 (queues), `billing/docs/product/migration.md` §12, `billing/docs/product/client-import.md` §16, PR #160
-  (architecture review).
+  ADR 0014 (queues), ADR 0017 (background work), `billing/docs/product/migration.md` §12,
+  `billing/docs/product/client-import.md` §16, PR #160 and #184 (architecture reviews).
 
 ## Context
 
@@ -13,7 +14,7 @@ client import is its first consumer. The WHMCS API connector (client-import PR C
 and domains (migration.md phase 2), and possibly the cPanel account import (#95, #133) will need more than that. This
 ADR names the extension points now, so each can be added later without changing a provider contract.
 
-## Decision (proposed)
+## Decision
 
 ### Vocabulary
 
@@ -26,30 +27,45 @@ ADR names the extension points now, so each can be added later without changing 
 
 - **Quiet imports.** Importers dispatch no domain event other than the run events in `App\Events\Migration`, send no
   mail or notification, and call no driver (Arch rule in `tests/Arch/ExtensionsTest.php`).
-- **Dry runs write nothing.** With `ImportContext::$dryRun`, `upsert()` returns the outcome it would produce. Callers
-  never rely on a rollback, which would not undo sequences or stored files.
+- **Dry runs write nothing.** With `ImportContext::$dryRun`, `upsert()` returns the outcome it would produce (action,
+  changes, issues). Callers never rely on a rollback, which would not undo sequences or stored files. This includes
+  reference data an importer would create (client groups), and links to records the same dry run has not created; an
+  importer resolves those only when writing.
+- **Apply invariants.** One applying run per install, checked in one place for start and resume (a run stopped
+  partway still holds the slot); chunk jobs claim each row inside its transaction, so a redelivered or resumed job
+  never applies a row twice.
 
-### Sources
+### Sources (direction, decided when the first consumer lands)
 
 `SourceConnector` (today internal to the Migration module) becomes a kernel provider contract with an ADR 0012
 registry, so a package (Blesta, HostBill) or another module (the WHM account list) can add a source without editing
 Migration. Shape to be settled with the WHMCS connector (client-import PR C).
 
-### Importer capabilities (optional interfaces, ADR 0012)
+### Importer capabilities (optional interfaces, ADR 0012; direction, decided when the first consumer lands)
 
 - `PreparesChunk` (batch validation) and a batch `ImportIdResolver::targetIds()`, so validating 50,000 invoices keeps
   one query per lookup per chunk (client-import spec §13).
 - `MatchesExisting`: the owning module matches an incoming record to one it holds (a domain by name, a cPanel account
   by server and username), because Migration cannot read those tables.
-- `RevertsImport`, with a trailing `ImportOutcome::$before`, for undo of entities outside Core.
+- `RevertsImport`, for undo of every entity, Core's included. The snapshot travels in the trailing
+  `ImportOutcome::$before` (added with #184): the owning module produces it under its own lock, and Migration stores it
+  without reading the owner's tables.
 - `FinalizesImport` and `AppliesCutover`, if most importers turn out to implement `finalize()` and `cutover()` as
   empty methods.
 
 ### Events
 
-Each run event lands with the code that dispatches it: `MigrationRunCompleted(int $runId, string $sourceSystem, bool
-$failed, array $counts)` with counts per entity, `MigrationRunUndone(int $runId, int $reverted, int $kept)`, and
-`MigrationRunPaused(int $runId, string $reasonCode)`.
+Each run event lands with the code that dispatches it, and implements `ShouldDispatchAfterCommit`:
+
+- `MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed by entity, each with
+  `created`, `updated`, `unchanged`, `skipped` and `failed`. Dispatched once, on the applying → completed transition,
+  after commit; a stopped run dispatches `MigrationRunPaused`, never `Completed`.
+- `MigrationRunPaused(int $runId, ImportStopReason $reasonCode)`, when a run stops and waits for staff
+  (`App\Enums\ImportStopReason`, an `@open` enum; `ApplyFailed` today).
+- `MigrationRunUndone(int $runId, int $reverted, int $kept)`, with undo.
+
+Run events are kernel events from their first dispatch, an exception to ADR 0008's promote-on-consume rule, because
+their consumers (Notifications, webhooks, packages) are outside Migration.
 
 ## Open questions
 

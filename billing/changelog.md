@@ -23,6 +23,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`billing.payment.late_closed_by_dispute`). Credit a win restored is taken back again by a later provider refund or
   dispute of the same charge. New webhook results: "dispute won; payment reinstated", "dispute
   won; needs staff review" and "dispute not booked yet; retry expected". No migration.
+- **Changing a client login's email removes its verification (#184).** Every path that changes the email of a client
+  login (not staff) now leaves `email_verified_at` empty unless the same save sets it (the profile page already did
+  this). The client import relies on it: it links an existing login only when its email was verified 30 days ago or
+  more. Staff logins are unchanged: when an admin changes a colleague's email, verification is cleared and the
+  verification mail is sent; staff who change their own email on the staff page stay verified.
+- **Nepal-first install defaults (#170) and a queue timeout check (#195).** Nothing changes on an existing
+  installation: `app:install` writes the regional defaults only while no currency exists, so a database upgraded
+  from an earlier release keeps the US dollar default, US as default country, UTC as company time zone and the
+  built-in date and tax settings it already used, whether or not they were ever stored. A **new** install now
+  starts with country Nepal, NPR as the default currency (USD and INR are added with rates relative to it), time
+  zone Asia/Kathmandu, dates like `1 Jan 2026`, a VAT rule of 13% for Nepal, the seller tax country set to Nepal
+  and invoice numbers `INV-00001`. Tax stays off until you enable it in Settings → Billing → Tax. The install
+  now also **fails a first install** (and only warns on an installation that already has currencies, such as the re-run after an upgrade) when a queue connection's `retry_after` is not above the longest job timeout (200 s on the
+  default connection, 3,600 s on `automation`): raise `DB_QUEUE_RETRY_AFTER` (or the Redis or Beanstalkd
+  equivalent) above the figure the message gives. The shipped values (240 s) pass. The company time zone is
+  now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
+  still pending).
+
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
   migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
   longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
@@ -268,8 +286,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Check results**: summary cards (new clients, updates, unchanged, skipped, needs a decision, errors, tax-exempt),
   tabs with counts, and every row with its file row number, the matching client and its notes; search by row number
   or exact email. Nothing is imported yet: reviewing and applying is the next step.
+- **Import** (client-import spec §5.6): confirming needs a recent password, the digest of the rows reviewed (a new
+  check or a changed decision needs a new review), no row left needing a decision, and an acknowledgement when
+  tax-exempt clients are included. One import runs per install at a time. Rows are applied on the `imports` queue,
+  200 per job, each in its own transaction: a stopped import continues where it stopped without creating anything
+  twice, and a new client whose email someone added after the review is not created. Clients are created through
+  Core's importer with origin `import`, the email source `import`, `imported_at`, the sign-up date as their creation
+  date, imported fields, and a marketing consent row with its evidence (never turning a withdrawal into a grant);
+  closed rows are created closed without a login. An update changes only the fields the file maps (defaults such as
+  currency, status and tax exemption apply to new clients only). **An import never changes the email of an existing
+  client or of any login**: the review and the report say "Email in the file differs: kept the current one". A
+  currency change on a client that already has invoices, quotes, payments, credit, services, orders or domains is a
+  row error. Each new open
+  client gets an owner login whose password hash is of a random secret nobody keeps, so it cannot sign in until an
+  invitation sets a password. **An import never links an existing login on its own**: a row whose email belongs to a
+  client login needs a decision (link it, only when its email was verified at least 30 days ago, or create the client
+  without a login); a staff login's email gets no login. The id map records every row, so the same file again comes
+  out unchanged. No email is sent, and no `ClientRegistered` or other client event fires; `MigrationRunCompleted` fires
+  once, after commit, and `MigrationRunPaused` when an import stops. Continue goes through the same one-at-a-time
+  check as confirm, and each row is claimed under a lock, so no row is applied twice. The page shows the progress and
+  the counts by outcome.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
-  expired client imports"); their counts stay.
+  expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an
+  import stopped partway and never continued loses them 30 days after its last activity and can no longer be continued.
 
 ### Storefront
 

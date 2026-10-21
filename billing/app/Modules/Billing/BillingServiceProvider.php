@@ -18,6 +18,7 @@ use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
+use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
@@ -35,8 +36,10 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
@@ -87,7 +90,12 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
+
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->source('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
@@ -282,7 +290,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
             new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
-            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
+            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code of the country you charge tax from, e.g. NP. Also used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
             new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
             new SettingDefinition('billing.vat.home_country', 'VAT home country', help: 'ISO code, e.g. DE', rules: ['size:2']),

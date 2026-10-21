@@ -41,6 +41,8 @@ const STATUS_LABELS: Record<ImportRun['status'], string> = {
     mapping: 'Map columns',
     checking: 'Checking',
     ready: 'Checked',
+    applying: 'Importing',
+    completed: 'Imported',
     failed: 'Stopped',
     expired: 'Expired',
 };

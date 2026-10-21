@@ -11,8 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * One uploaded file and what became of it: uploaded → staging → mapping → checking → ready (→ applying → completed
- * in the review step), or failed / expired.
+ * One uploaded file and what became of it: uploaded → staging → mapping → checking → ready → applying → completed,
+ * or failed / expired.
  *
  * @property int $id
  * @property int $migration_source_id
@@ -40,7 +40,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $error_count
  * @property int $warning_count
  * @property int $tax_exempt_count
+ * @property string|null $review_digest the digest of the reviewed rows, which confirming must send back
+ * @property int $created_count
+ * @property int $updated_count
+ * @property int $skipped_count
+ * @property int $failed_count
  * @property string|null $error
+ * @property int|null $applied_by
+ * @property CarbonImmutable|null $applied_at when staff confirmed the import (the import time of every row)
+ * @property CarbonImmutable|null $undo_until
  * @property int|null $requested_by
  * @property CarbonImmutable|null $heartbeat_at
  * @property CarbonImmutable $expires_at
@@ -49,12 +57,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $updated_at
  * @property-read MigrationSource $source
  * @property-read User|null $requester
+ * @property-read User|null $applier
  */
 #[Fillable([
     'migration_source_id', 'source_system', 'entity', 'status', 'generation', 'file_key', 'file_name', 'file_sha256',
     'file_bytes', 'delimiter', 'header', 'mapping', 'options', 'found_values', 'row_count', 'staged_count',
     'checked_count', 'create_count', 'update_count', 'unchanged_count', 'skip_count', 'decision_count', 'error_count',
-    'warning_count', 'tax_exempt_count', 'error', 'requested_by', 'heartbeat_at', 'expires_at', 'purged_at',
+    'warning_count', 'tax_exempt_count', 'created_count', 'updated_count', 'skipped_count', 'failed_count', 'error', 'requested_by',
+    'heartbeat_at', 'expires_at', 'purged_at', 'review_digest', 'applied_by', 'applied_at', 'undo_until',
 ])]
 class MigrationRun extends Model
 {
@@ -68,9 +78,16 @@ class MigrationRun extends Model
 
     public const READY = 'ready';
 
+    public const APPLYING = 'applying';
+
+    public const COMPLETED = 'completed';
+
     public const FAILED = 'failed';
 
     public const EXPIRED = 'expired';
+
+    /** Days after its last activity that an import stopped partway, and never continued, loses its row details. */
+    public const STOPPED_PURGE_DAYS = 30;
 
     /** Minutes without progress after which a running step is reported as stalled. */
     public const STALLED_MINUTES = 10;
@@ -83,6 +100,8 @@ class MigrationRun extends Model
             'options' => 'array',
             'found_values' => 'encrypted:array',
             'heartbeat_at' => 'immutable_datetime',
+            'applied_at' => 'immutable_datetime',
+            'undo_until' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
             'purged_at' => 'immutable_datetime',
         ];
@@ -105,6 +124,14 @@ class MigrationRun extends Model
     }
 
     /**
+     * @return BelongsTo<User, $this>
+     */
+    public function applier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'applied_by');
+    }
+
+    /**
      * @return HasMany<MigrationRecord, $this>
      */
     public function records(): HasMany
@@ -114,7 +141,7 @@ class MigrationRun extends Model
 
     public function isRunning(): bool
     {
-        return in_array($this->status, [self::UPLOADED, self::STAGING, self::CHECKING], true);
+        return in_array($this->status, [self::UPLOADED, self::STAGING, self::CHECKING, self::APPLYING], true);
     }
 
     public function isStalled(): bool

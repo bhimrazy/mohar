@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Orders\Support;
+namespace App\Support;
 
 /**
  * ISO 3166-1 alpha-2 codes offered at checkout. Display names come from the browser (Intl.DisplayNames).
@@ -22,4 +22,9 @@ final class Countries
         'TL', 'TM', 'TN', 'TO', 'TR', 'TT', 'TV', 'TW', 'TZ', 'UA', 'UG', 'UM', 'US', 'UY', 'UZ', 'VA', 'VC', 'VE', 'VG', 'VI',
         'VN', 'VU', 'WF', 'WS', 'YE', 'YT', 'ZA', 'ZM', 'ZW',
     ];
+
+    public static function exists(string $code): bool
+    {
+        return in_array(strtoupper($code), self::CODES, true);
+    }
 }

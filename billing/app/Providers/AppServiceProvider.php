@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use App\Modules\Core\Support\AccountLinks;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Clients\ClientMergeRegistry;
 use App\Support\Currencies\ExchangeRateSources;
 use App\Support\Currencies\PriceConverters;
@@ -51,6 +52,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Automation::class);
         $this->app->singleton(ThemeRegistry::class);
         $this->app->singleton(ClientMergeRegistry::class);
+        $this->app->singleton(ClientCurrencyUsage::class);
         $this->app->singleton(ImportRegistry::class);
         $this->app->singleton(ReferenceDataRegistry::class);
         $this->app->singleton(ExchangeRateSources::class);
