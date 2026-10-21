@@ -25,9 +25,11 @@ Definitions live in `.claude/agents/`. Pass the file name as `subagent_type` whe
 | Principal architect | `principal-architect` | ADRs, kernel | kernel PRs (brief and diff), ADRs, periodic architecture round            |
 | CEO / CTO advisors  | `ceo-advisor`, `cto-advisor` | no    | the periodic review round                                                 |
 
-Model: chosen at launch with the Agent tool's `model` parameter, not pinned in the definitions. Current owner
-preference: Fable for every subagent (2026-10-21, usage headroom). All agents share one GitHub account, so reviews
-are posted as comments and the verdict line is the gate.
+Model: chosen at launch with the Agent tool's `model` parameter, not pinned in the definitions, because the owner
+steers which model family has usage headroom. Current preference (2026-10-21): Opus for money, auth, kernel,
+security, architecture and re-checks; Sonnet for docs, slop reviews, mechanical fixes and research. A stopped agent
+keeps its model on resume, so switching family means a fresh agent with a full brief. All agents share one GitHub
+account, so reviews are posted as comments and the verdict line is the gate.
 
 ## Workstream lifecycle
 
@@ -172,4 +174,4 @@ preview and monitors, and relaunches interrupted work.
 | 2026-10-20 | Speed: combined review + one re-check; 2,000-line cap; agents to machine limits; `qa-design-reviewer` retired  |
 | 2026-10-20 | CI is a budget while private (local merge gate, #188); then public with CI on PRs; `main` minimal, all rights reserved |
 | 2026-10-20 | Nepal is the main market; `.np` is registered by clients themselves; confirm local practice before building    |
-| 2026-10-21 | Fable for subagents; repository renamed `bhimrazy/mohar`; shared `review-rules.md`; `agent-log.md` retired     |
+| 2026-10-21 | Fable for subagents, then Opus/Sonnet by task after Fable's weekly limit; repository renamed `bhimrazy/mohar`; shared `review-rules.md`; `agent-log.md` retired |

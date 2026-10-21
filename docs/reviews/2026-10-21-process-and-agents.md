@@ -63,8 +63,7 @@ backfill, Fable advisor). That is right: a role file pays off when the same brie
    2026-10-20 afternoon)" style headings in three places, superseded sections kept, and the current rule spread over
    "Review policy", "Gates by PR type" and "CI minutes budget". It should state the rules in force; the dates belong in
    `history.md` or a decision table.
-5. **Model pins drift.** Ten definitions pin `model: opus`, two pin `fable`; the owner's current choice is Fable
-   (10-21). The launch-time `model` parameter overrides the pin, so the pin is only a default that is wrong whenever
+5. **Model pins drift.** Ten definitions pin `model: opus`, two pin `fable`; the owner's choice changed twice on 10-21 (Fable, then Opus or Sonnet by task once Fable hit its weekly limit), which is the point: the launch-time `model` parameter overrides the pin, so the pin is only a default that is wrong whenever
    the owner's preference changes. Better: no pin, and the current preference stated once in the operating model.
 6. **Descriptions say "Use on every PR that…"** for `database-reviewer`, `security-reviewer` and `principal-architect`,
    while the practice is one combined review. The descriptions are what the CTO sees when choosing; they oversell.
@@ -119,7 +118,7 @@ corrected below.
   launch counts come from.
 - `docs/handoff/review-rules.md`: the shared reviewer rules (conduct, heavy commands, verdict formats, probes,
   PostgreSQL line, combined-review mode). Each reviewer definition points at it and keeps its own checklist.
-- Agent definitions: no `model:` pins (the operating model states the current owner preference: Fable, 10-21);
+- Agent definitions: no `model:` pins (the operating model states the current owner preference);
   descriptions say when the role is used under the current policy; dated incidents replaced by the rule;
   `module-engineer` gets the three engineer-side checks and the 2,000-line cap; `review-board` gets the combined
   mode; `re-reviewer` runs targeted tests and lets CI run the suite; `devops-engineer` gets `deploy/`, the deploy

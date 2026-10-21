@@ -10,7 +10,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   merges below.
 - Owner decisions in force: **Nepal is the main market**; clients register `.np` themselves and Mohar shows the
   host's nameservers (#199); the repository is **public** and renamed **`bhimrazy/mohar`** (10-21), `main` is a
-  readme-and-licence page, all rights reserved; subagents run on Fable (10-21); the client-importer recommendations
+  readme-and-licence page, all rights reserved; subagents run on Opus or Sonnet by task (10-21; Fable's weekly
+  limit resets 10-25); the client-importer recommendations
   are accepted; a basic KYC module is queued (#197).
 - Merged since 2026-10-20 16:00: client importer A0–A3 (#160–#163: kernel contracts, upload, mapping, review),
   registrar prerequisites (#164), the chargeback credit fix (#181, H1 from the security round), renewals
