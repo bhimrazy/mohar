@@ -10,12 +10,10 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
-use App\Support\Queues;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
@@ -38,8 +36,6 @@ class MigrationServiceProvider extends ModuleServiceProvider
             $router->aliasMiddleware('password.recent', RequirePassword::class);
         }
 
-        DevCommands::artisan('queue:listen --queue='.Queues::IMPORTS.' --tries=3 --timeout=0', 'imports-queue');
-
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',
             'migration.runs.execute' => 'Upload client files, map and check them (reads client data)',
@@ -52,6 +48,7 @@ class MigrationServiceProvider extends ModuleServiceProvider
             new SettingDefinition('migration.csv.max_rows', 'Most rows per file', 'integer', rules: ['integer', 'min:100', 'max:500000']),
             new SettingDefinition('migration.csv.max_columns', 'Most columns per file', 'integer', rules: ['integer', 'min:10', 'max:500']),
             new SettingDefinition('migration.staging_days', 'Days an unapplied upload is kept', 'integer', 'Its rows are then purged; counts stay.', rules: ['integer', 'min:1', 'max:30']),
+            new SettingDefinition('migration.undo_days', 'Days an applied import keeps its rows', 'integer', 'After that its row details are purged; counts and outcomes stay.', rules: ['integer', 'min:1', 'max:30']),
         ], 'migration.runs.execute');
 
         $this->app->make(Automation::class)->task('migration.purge', Automation::HOUSEKEEPING, fn (CarbonImmutable $today): int => $this->purgeExpired(),
@@ -59,20 +56,26 @@ class MigrationServiceProvider extends ModuleServiceProvider
     }
 
     /**
-     * Client-import spec §5.8: an unapplied run's file and row payloads are removed when it expires. Idempotent.
+     * Client-import spec §5.8: a run's file and row payloads are removed when it expires: 7 days after upload when it was
+     * never applied, at the end of the undo window when it was, and STOPPED_PURGE_DAYS after the last activity of an
+     * import that stopped partway and was never continued (it keeps its status; it can no longer be continued).
+     * Idempotent.
      */
     private function purgeExpired(): int
     {
         $purged = 0;
 
-        MigrationRun::query()->whereNull('purged_at')->where('expires_at', '<=', now())->whereNull('applied_at')
+        MigrationRun::query()->whereNull('purged_at')->where(fn ($query) => $query
+            ->where(fn ($query) => $query->where('expires_at', '<=', now())->where(fn ($query) => $query->whereNull('applied_at')->orWhere('status', MigrationRun::COMPLETED)))
+            ->orWhere(fn ($query) => $query->whereNotNull('applied_at')->whereIn('status', [MigrationRun::FAILED, MigrationRun::APPLYING])
+                ->where('heartbeat_at', '<=', now()->subDays(MigrationRun::STOPPED_PURGE_DAYS))))
             ->lazyById(100)->each(function (MigrationRun $run) use (&$purged): void {
                 if ($run->file_key !== null) {
                     Storage::disk('objects')->delete($run->file_key);
                 }
 
                 MigrationRecord::query()->where('migration_run_id', $run->id)->update(['raw' => null, 'normalized' => null, 'before' => null]);
-                $run->forceFill(['status' => MigrationRun::EXPIRED, 'file_key' => null, 'header' => null, 'found_values' => null, 'purged_at' => now()])->save();
+                $run->forceFill(['status' => $run->applied_at !== null ? ($run->status === MigrationRun::APPLYING ? MigrationRun::FAILED : $run->status) : MigrationRun::EXPIRED, 'file_key' => null, 'header' => null, 'found_values' => null, 'purged_at' => now()])->save();
                 app(ActivityLogger::class)->log('Client import rows purged', $run, properties: ['file' => $run->file_name, 'rows' => $run->row_count], event: 'migration.purged');
                 $purged++;
             });

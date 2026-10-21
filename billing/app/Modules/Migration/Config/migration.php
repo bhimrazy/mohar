@@ -9,4 +9,6 @@ return [
     ],
     // Days an upload that was never applied keeps its rows before they are purged (§5.8).
     'staging_days' => 7,
+    // Days an applied import can be undone; its row payloads are purged afterwards (§5.7).
+    'undo_days' => 7,
 ];

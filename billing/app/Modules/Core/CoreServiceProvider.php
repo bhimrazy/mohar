@@ -17,6 +17,8 @@ use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Contracts\Support\PublicHelpDirectory;
 use App\Models\User;
+use App\Modules\Core\Import\ClientImporter;
+use App\Modules\Core\Import\LoginImporter;
 use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\RegionalDefaults;
 use App\Modules\Core\Install\RegionalSettings;
@@ -46,6 +48,7 @@ use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
@@ -113,7 +116,12 @@ class CoreServiceProvider extends ModuleServiceProvider
     {
         // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
         // automation connection keeps its own worker in Platform.
-        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT]).' --tries=1 --timeout=0', 'queue');
+        DevCommands::artisan('queue:listen --queue='.implode(',', [Queues::PAYMENTS, Queues::PROVISIONING, Queues::REGISTRAR, Queues::NOTIFICATIONS, Queues::WEBHOOKS, Queues::DEFAULT, Queues::IMPORTS]).' --tries=1 --timeout=0', 'queue');
+
+        // Client import (client-import spec §16): Core writes its own records for every import source.
+        $imports = $this->app->make(ImportRegistry::class);
+        $imports->register('client', ClientImporter::class);
+        $imports->register('user', LoginImporter::class, dependsOn: ['client']);
 
         $navigation = $this->app->make(Navigation::class);
         $navigation->add('admin', new NavItem('Dashboard', 'admin.dashboard', 'LayoutGrid', 'General', 0));

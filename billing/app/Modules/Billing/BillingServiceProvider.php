@@ -36,6 +36,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
@@ -92,6 +93,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->source('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.

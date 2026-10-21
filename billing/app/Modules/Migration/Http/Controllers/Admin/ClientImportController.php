@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Migration\Actions\ApplyRun;
+use App\Modules\Migration\Actions\DecideRows;
 use App\Modules\Migration\Actions\StartCheck;
 use App\Modules\Migration\Actions\UploadClientFile;
 use App\Modules\Migration\Jobs\CheckRun;
@@ -16,6 +19,7 @@ use App\Modules\Migration\Models\MigrationRun;
 use App\Modules\Migration\Models\MigrationSource;
 use App\Modules\Migration\Support\ClientColumns;
 use App\Modules\Migration\Support\CsvFile;
+use App\Modules\Migration\Support\ErrorsCsv;
 use App\Support\Queues;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +29,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Validator;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Admin → Clients → Import clients (client-import spec §5, §14): upload a file, map its columns, and check every row.
@@ -35,6 +40,9 @@ class ClientImportController extends Controller
     private const PER_PAGE = 50;
 
     public const TABS = ['all', 'create', 'update', 'unchanged', 'skip', 'needs_decision', 'error'];
+
+    /** Tabs once the import ran: by outcome, the rows not imported on their own tab. */
+    public const OUTCOME_TABS = ['all', 'created', 'updated', 'unchanged', 'skipped', 'failed'];
 
     public function index(Settings $settings): Response
     {
@@ -84,7 +92,8 @@ class ClientImportController extends Controller
     {
         $this->authorize('migration.runs.view');
 
-        $checked = in_array($run->status, [MigrationRun::CHECKING, MigrationRun::READY], true) || ($run->status === MigrationRun::FAILED && $run->file_key === null && $run->checked_count > 0);
+        $checked = in_array($run->status, [MigrationRun::CHECKING, MigrationRun::READY, MigrationRun::APPLYING, MigrationRun::COMPLETED], true)
+            || ($run->status === MigrationRun::FAILED && $run->file_key === null && $run->checked_count > 0);
 
         return $checked && $request->query('step') !== 'map' ? $this->check($request, $run) : $this->map($run);
     }
@@ -122,19 +131,104 @@ class ClientImportController extends Controller
     }
 
     /**
-     * Continue a step that failed or stalled, from where it stopped.
+     * Confirm the reviewed rows (ApplyRun). Tax-exempt rows need their own acknowledgement.
      */
-    public function resume(MigrationRun $run): RedirectResponse
+    public function apply(Request $request, MigrationRun $run, ApplyRun $apply): RedirectResponse
     {
         $this->authorize('migration.runs.execute');
 
-        $staging = $run->file_key !== null;
+        $data = $request->validate([
+            'digest' => ['required', 'string', 'size:64'],
+            'tax_exempt' => [$run->tax_exempt_count > 0 ? 'accepted' : 'nullable'],
+        ], [
+            'digest.required' => __('Review the import before confirming it.'),
+            'tax_exempt.accepted' => __('Confirm that the tax-exempt clients will be invoiced without tax.'),
+        ]);
+        /** @var User $user */
+        $user = $request->user();
+        $apply->start($run, (string) $data['digest'], $user);
+        Inertia::flash('toast', ['type' => 'info', 'message' => __('Importing :file. This page shows the progress.', ['file' => $run->file_name])]);
 
-        if (! $run->claimStopped($staging ? MigrationRun::STAGING : MigrationRun::CHECKING)) {
-            throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
+        return to_route('admin.migration.imports.show', $run);
+    }
+
+    /**
+     * Staff choose what one row does (DecideRows): create (and link, or not, a login that has the email), update the matched
+     * client, or skip.
+     */
+    public function decide(Request $request, MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $data = $request->validate(['row' => ['required', 'integer', 'min:1'], 'decision' => ['required', Rule::in(['create', 'link', 'no_link', 'update', 'skip'])]]);
+        $decide->one($run, (int) $data['row'], (string) $data['decision']);
+
+        return back();
+    }
+
+    /**
+     * Accept every safe proposal; the toast says how many flagged rows were left for staff.
+     */
+    public function accept(MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        ['accepted' => $accepted, 'left' => $left] = $decide->acceptProposed($run);
+        Inertia::flash('toast', ['type' => $left > 0 ? 'info' : 'success', 'message' => trim(trans_choice('{0} No proposal to accept.|{1} 1 proposed row accepted.|[2,*] :count proposed rows accepted.', $accepted, ['count' => number_format($accepted)])
+            .' '.trans_choice('{0}|{1} 1 row is left for you: its match is closed, shared by several clients or changed email recently, or its email belongs to a login.|[2,*] :count rows are left for you: their matches are closed, shared by several clients or changed email recently, or their emails belong to logins.', $left, ['count' => number_format($left)]))]);
+
+        return back();
+    }
+
+    public function skipUndecided(MigrationRun $run, DecideRows $decide): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $count = $decide->skipUndecided($run);
+        Inertia::flash('toast', ['type' => 'success', 'message' => trans_choice('1 row will be skipped.|:count rows will be skipped.', $count, ['count' => number_format($count)])]);
+
+        return back();
+    }
+
+    /**
+     * The rows that were not imported, as CSV, generated now and never stored (ErrorsCsv).
+     */
+    public function errors(MigrationRun $run, ActivityLogger $audit): StreamedResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        $audit->log('Client import errors downloaded', $run, properties: ['file' => $run->file_name], event: 'migration.errors_downloaded');
+
+        return response()->streamDownload(function () use ($run): void {
+            $out = fopen('php://output', 'wb');
+
+            if ($out !== false) {
+                ErrorsCsv::write($run, $out);
+                fclose($out);
+            }
+        }, pathinfo($run->file_name, PATHINFO_FILENAME).'-errors.csv', ['Content-Type' => 'text/csv; charset=UTF-8', 'Cache-Control' => 'no-store']);
+    }
+
+    /**
+     * Continue a step that failed or stalled, from where it stopped.
+     */
+    public function resume(MigrationRun $run, ApplyRun $apply): RedirectResponse
+    {
+        $this->authorize('migration.runs.execute');
+
+        if ($run->applied_at !== null) {
+            // Applying goes through the one place that keeps imports one at a time.
+            $apply->resume($run);
+        } else {
+            $staging = $run->file_key !== null;
+
+            if ($run->purged_at !== null || ! $run->claimStopped($staging ? MigrationRun::STAGING : MigrationRun::CHECKING)) {
+                throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
+            }
+
+            dispatch($staging ? new StageCsvRun($run->id) : new CheckRun($run->id, $run->generation, $run->checked_count));
         }
 
-        dispatch($staging ? new StageCsvRun($run->id) : new CheckRun($run->id, $run->generation, $run->checked_count));
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Continuing :file where it stopped.', ['file' => $run->file_name])]);
 
         return to_route('admin.migration.imports.show', $run);
@@ -175,17 +269,20 @@ class ClientImportController extends Controller
 
     private function check(Request $request, MigrationRun $run): Response
     {
-        $tab = in_array($tab = $request->string('tab')->toString(), self::TABS, true) ? $tab : 'all';
+        $applied = $run->applied_at !== null;
+        $tabs = $applied ? self::OUTCOME_TABS : self::TABS;
+        $tab = in_array($tab = $request->string('tab')->toString(), $tabs, true) ? $tab : 'all';
         $search = trim(mb_substr($request->string('search')->toString(), 0, 255));
         $rows = $run->records()
-            ->when($tab === 'error', fn ($query) => $query->where('status', 'error'))
-            ->when(! in_array($tab, ['all', 'error'], true), fn ($query) => $query->where('decision', $tab))
+            ->when($applied && $tab !== 'all', fn ($query) => $query->where('outcome', $tab))
+            ->when(! $applied && $tab === 'error', fn ($query) => $query->where('status', 'error'))
+            ->when(! $applied && ! in_array($tab, ['all', 'error'], true), fn ($query) => $query->where('decision', $tab))
             ->when($search !== '', fn ($query) => ctype_digit(str_replace(',', '', $search))
                 ? $query->where('row_number', (int) str_replace(',', '', $search))
                 : $query->where('email_hash', MigrationRecord::emailHash($search)))
             ->with('matchedClient:id,first_name,last_name,company_name')
             ->orderBy('row_number')
-            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes'])
+            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'link_login', 'outcome', 'target_id'])
             ->withQueryString()
             ->through(fn (MigrationRecord $record): array => [
                 'row' => $record->row_number,
@@ -197,10 +294,15 @@ class ClientImportController extends Controller
                 'problems' => array_map(fn (array $problem): array => ['severity' => $problem['severity'], 'message' => $problem['message']], $record->problems ?? []),
                 'changes' => array_map(fn (string $field): string => ClientColumns::TARGETS[$field === 'client_group_id' ? 'client_group' : $field] ?? $field, $record->changes ?? []),
                 'match' => $record->matchedClient === null ? null : ['name' => $record->matchedClient->display_name, 'href' => route('admin.clients.show', $record->matchedClient)],
+                'choices' => $run->status === MigrationRun::READY ? DecideRows::choices($record) : [],
+                'link_login' => $record->link_login,
+                'outcome' => $record->outcome,
+                'client_href' => in_array($record->outcome, ['created', 'updated'], true) && $record->target_id !== null ? route('admin.clients.show', $record->target_id) : null,
             ]);
 
         return Inertia::render('admin/migration/check', [
             'run' => $this->summary($run),
+            'errorsUrl' => $run->error_count + $run->failed_count > 0 && $request->user()?->hasPermission('migration.runs.execute') ? route('admin.migration.imports.errors', $run) : null,
             'counts' => [
                 'all' => $run->row_count, 'create' => $run->create_count, 'update' => $run->update_count, 'unchanged' => $run->unchanged_count,
                 'skip' => $run->skip_count, 'needs_decision' => $run->decision_count, 'error' => $run->error_count, 'tax_exempt' => $run->tax_exempt_count,
@@ -208,6 +310,12 @@ class ClientImportController extends Controller
             'rows' => $rows,
             'filters' => ['tab' => $tab, 'search' => $search],
             'matchesByEmail' => ! in_array(ClientColumns::EXTERNAL_ID, $run->mapping['columns'] ?? [], true),
+            'digest' => $run->status === MigrationRun::READY ? $run->review_digest : null,
+            'report' => $run->applied_at === null ? null : [
+                'created' => $run->created_count, 'updated' => $run->updated_count, 'skipped' => $run->skipped_count, 'failed' => $run->failed_count,
+                'unchanged' => $run->records()->where('outcome', 'unchanged')->count(),
+                'applied_by' => $run->applier?->name, 'applied_at' => $run->applied_at->toIso8601String(), 'undo_until' => $run->undo_until?->toIso8601String(),
+            ],
         ]);
     }
 
@@ -225,9 +333,11 @@ class ClientImportController extends Controller
             'rows' => $run->row_count,
             'staged' => $run->staged_count,
             'checked' => $run->checked_count,
+            'applied' => $run->status === MigrationRun::APPLYING ? $run->records()->whereNotNull('outcome')->count() : 0,
             'running' => $run->isRunning(),
             'stalled' => $run->isStalled(),
             'error' => $run->error,
+            'purged' => $run->purged_at !== null,
             'queue' => Queues::IMPORTS,
             'requested_by' => $run->requester?->name,
             'uploaded_at' => $run->created_at?->toIso8601String(),

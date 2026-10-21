@@ -3,6 +3,7 @@
 namespace App\Modules\Migration\Models;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -16,6 +17,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $checksum
  * @property CarbonImmutable $synced_at
  */
+#[Fillable(['migration_source_id', 'entity', 'source_id'])]
 class MigrationIdMap extends Model
 {
     protected $table = 'migration_id_map';
