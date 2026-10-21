@@ -245,8 +245,9 @@ class PlaceOrder
         } else {
             // Lock the client before any row that references it is inserted, the order IssueInvoice uses (#192). The
             // order's foreign key takes a key-share lock on the client; two checkouts of one client that apply credit
-            // would each hold one while waiting for the other's credit lock on the client, and deadlock.
-            Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
+            // would each hold one while waiting for the other's credit lock on the client, and deadlock. The order is
+            // priced in the currency read under that lock, so a currency change (#218) cannot land in between.
+            $client = Client::query()->whereKey($client->id)->lockForUpdate()->firstOrFail();
         }
 
         $cart = $this->pricer->price($data->items, $client->currency, $data->promotionCode, $client, $data->priceOverrides);

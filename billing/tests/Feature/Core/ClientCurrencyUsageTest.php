@@ -46,3 +46,14 @@ test('the answer is the union of every source, each asked only for the clients n
 test('with no source registered no client is in use', function () {
     expect((new ClientCurrencyUsage)->clientsInUse([1, 2]))->toBe([]);
 });
+
+test('the sources for one client are every key that holds it, in registration order', function () {
+    $usage = new ClientCurrencyUsage;
+    $usage->register('billing', fn (array $ids): array => ['7']);
+    $usage->register('services', fn (array $ids): array => []);
+    $usage->register('orders', fn (array $ids): array => $ids);
+
+    expect($usage->sourcesFor(7))->toBe(['billing', 'orders'])
+        ->and($usage->sourcesFor(8))->toBe(['orders'])
+        ->and((new ClientCurrencyUsage)->sourcesFor(7))->toBe([]);
+});

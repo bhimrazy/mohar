@@ -12,8 +12,12 @@
  * pending service, after the order row is inserted and before the invoice is issued.
  * pay (#224): ApplyPayment of <amount> on the invoice <id> (an overpayment goes to account credit); <pause ms> is spent
  * after the payment row is inserted (its foreign key holds a key-share lock on the client) and before the credit post.
+ * plain (#218): an invoice through Invoicer that applies no credit; <pause ms> is spent after the invoice row is inserted.
+ * currency (#218): Client::updateDetails (the admin client edit) changing the client's currency to <amount>, a currency
+ * code; <pause ms> is spent saving the client, after the lock and the check.
  *
- * Prints one JSON object: {label, invoice, status, applied, issued, ended}, or {label, error}.
+ * Prints one JSON object: {label, invoice, status, applied, issued, ended}, or {label, error}. A plain invoice or a
+ * currency change that is refused prints status "refused" and the reason as message.
  */
 
 use App\Contracts\Billing\GatewayDirectory;
@@ -28,14 +32,17 @@ use App\Enums\BillableType;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Data\PaymentData;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
+use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CheckoutData;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Tests\Fakes\Orders\FakeGateways;
 use Tests\Fakes\Orders\FakePriceBook;
 use Tests\Fakes\Orders\FakeServiceRegistry;
@@ -76,6 +83,14 @@ if ($mode === 'checkout') {
         usleep($pauseOnce * 1000);
         $pauseOnce = 0;
     });
+} elseif ($mode === 'plain') {
+    $pauseOnce = (int) $pause;
+    Invoice::created(function () use (&$pauseOnce): void {
+        usleep($pauseOnce * 1000);
+        $pauseOnce = 0;
+    });
+} elseif ($mode === 'currency') {
+    Client::updating(fn () => usleep((int) $pause * 1000));
 } else {
     app()->instance(PaymentGuard::class, new class((int) $pause) implements PaymentGuard
     {
@@ -116,7 +131,40 @@ try {
         exit(0);
     }
 
+    if ($mode === 'currency') {
+        try {
+            [$client] = Client::updateDetails((int) $clientId, ['currency' => $amount], EmailSource::Staff);
+            $status = 'changed';
+            $message = $client->currency;
+        } catch (ValidationException $e) {
+            $status = 'refused';
+            $message = $e->validator->errors()->first('currency');
+        }
+
+        $issued = microtime(true);
+        DB::commit();
+        $print(['status' => $status, 'message' => $message, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
     $client = Client::query()->findOrFail((int) $clientId);
+
+    if ($mode === 'plain') {
+        try {
+            $lines = [new InvoiceLineData('Hosting', (int) $amount, billableType: BillableType::Manual)];
+            $invoiceId = app(Invoicer::class)->issue(new InvoiceDraft($client->id, $client->currency, $lines, notify: false))->invoiceId;
+        } catch (BillingException $e) {
+            DB::rollBack();
+            $print(['status' => 'refused', 'message' => $e->getMessage(), 'issued' => microtime(true), 'ended' => microtime(true)]);
+            exit(0);
+        }
+
+        $invoice = Invoice::query()->findOrFail($invoiceId);
+        $issued = microtime(true);
+        DB::commit();
+        $print(['invoice' => $invoice->id, 'status' => $invoice->status->value, 'currency' => $invoice->currency, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
 
     if ($mode === 'checkout') {
         $data = OrdersFakes::checkout($client, [OrdersFakes::productItem(1)], skipFraud: true);

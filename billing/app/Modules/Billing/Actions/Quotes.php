@@ -47,7 +47,8 @@ class Quotes
         }
 
         return DB::transaction(function () use ($data, $quote): Quote {
-            $client = Client::query()->findOrFail($data['client_id']);
+            // A share lock on the client, so its currency cannot change before this quote is saved in it (#218).
+            $client = Client::query()->sharedLock()->findOrFail($data['client_id']);
             $quote ??= new Quote(['stage' => QuoteStage::Draft]);
             $quote->fill([
                 'client_id' => $client->id,
