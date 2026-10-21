@@ -2,6 +2,8 @@
 
 namespace App\Modules\Orders\Services;
 
+use App\Contracts\Currencies\CurrencyDirectory;
+use App\Data\Currencies\CurrencyDisplay;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
@@ -27,6 +29,7 @@ class CartManager
     public function __construct(
         private CustomerResolver $customers,
         private Settings $settings,
+        private CurrencyDirectory $currencies,
     ) {}
 
     /**
@@ -167,8 +170,27 @@ class CartManager
         return [
             'support_email' => $this->settings->get('core.company_email') ?: null,
             'cart_count' => count($this->find($request)->items ?? []),
-            'currencies' => array_values(Currency::query()->orderByDesc('is_default')->orderBy('code')->pluck('code')->all()),
+            'currencies' => $this->currencyCodes(),
             'can_switch_currency' => $request->user() === null,
         ];
+    }
+
+    /**
+     * Currencies a shopper may switch between, default first: every currency for guests; none for a signed-in
+     * client, who shops in the account's currency.
+     *
+     * @return list<string>
+     */
+    public function switchableCurrencies(Request $request): array
+    {
+        return $request->user() === null ? $this->currencyCodes() : [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function currencyCodes(): array
+    {
+        return array_map(fn (CurrencyDisplay $display): string => $display->code, $this->currencies->displays());
     }
 }

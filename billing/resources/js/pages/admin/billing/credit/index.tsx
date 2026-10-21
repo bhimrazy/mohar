@@ -38,9 +38,10 @@ type Props = {
         separate_invoices: boolean | null;
     } | null;
     entries: ResourcePaginated<CreditEntry>;
+    owing: boolean;
 };
 
-export default function CreditIndex({ client, entries, can }: Props) {
+export default function CreditIndex({ client, entries, can, owing }: Props) {
     const { apply } = useQueryParams();
 
     const columns: DataTableColumn<CreditEntry>[] = [
@@ -240,6 +241,26 @@ export default function CreditIndex({ client, entries, can }: Props) {
                             placeholder="All clients — search to filter"
                         />
                     </Field>
+                    <Field
+                        htmlFor="credit-view"
+                        label="Show"
+                        className="w-full content-start sm:w-64"
+                    >
+                        <SelectField
+                            id="credit-view"
+                            value={owing ? 'owing' : 'all'}
+                            onChange={(value) =>
+                                apply({ owing: value === 'owing' ? 1 : null })
+                            }
+                            options={[
+                                { value: 'all', label: 'All movements' },
+                                {
+                                    value: 'owing',
+                                    label: 'Negative balances only',
+                                },
+                            ]}
+                        />
+                    </Field>
                     {client && (
                         <>
                             <StatCard
@@ -305,11 +326,19 @@ export default function CreditIndex({ client, entries, can }: Props) {
                     rows={entries.data}
                     getRowKey={(entry) => entry.id}
                     empty={
-                        <EmptyState
-                            icon={Wallet}
-                            title="No credit movements yet"
-                            description="Overpayments, deposits and adjustments appear here."
-                        />
+                        owing ? (
+                            <EmptyState
+                                icon={Wallet}
+                                title="No negative balances"
+                                description="A client owes credit when a chargeback or refund takes back credit they already spent."
+                            />
+                        ) : (
+                            <EmptyState
+                                icon={Wallet}
+                                title="No credit movements yet"
+                                description="Overpayments, deposits and adjustments appear here."
+                            />
+                        )
                     }
                     footer={
                         <Pagination paginator={entries} itemLabel="entries" />

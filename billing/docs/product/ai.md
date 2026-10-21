@@ -99,7 +99,7 @@ app/Modules/Ai/
 - **Conversations** use the SDK's `RemembersConversations` (tables `agent_conversations`, `agent_conversation_messages`; the
   published migration moves into the Ai module with its prefix). The participant is the `User`. Our `ai_conversations` row is
   the authorization anchor: `id, sdk_conversation_id (unique), user_id, client_id (nullable), surface (admin|client), title,
-last_used_at, timestamps`. Before `continue()`, check that the row matches the user, the surface and (for the client surface)
+  last_used_at, timestamps`. Before `continue()`, check that the row matches the user, the surface and (for the client surface)
   `ClientContext::id()`, **and** check `conversationBelongsTo()`. This stops staff reading each other's chats and stops a user
   carrying one account's chat into another account. Purge after `ai.conversation_retention_days`.
 - **Streaming (copilot, client assistant):** `POST /admin/ai/copilot/messages` (JSON body `{conversation_id?, message}`, CSRF
@@ -133,7 +133,7 @@ last_used_at, timestamps`. Before `continue()`, check that the row matches the u
   amounts and promises before sending". Instructions forbid the model from promising refunds, credits, discounts, deadlines or
   service actions; it must recommend the staff member decide.
 - **F1 Classify:** structured output `{priority: low|medium|high|urgent, department_id (enum from TicketThreadData.departments),
-tags[] (from existing tags ∪ ≤3 new), confidence: low|medium|high, reason (≤200 chars)}`. Shown as suggestion chips. Clicking
+  tags[] (from existing tags ∪ ≤3 new), confidence: low|medium|high, reason (≤200 chars)}`. Shown as suggestion chips. Clicking
   one calls Support's existing update action under `support.tickets.update`. The Laravel AI `Classification` API doesn't support
   Anthropic in 1.0.1, so this uses a structured-output agent instead.
 - **F2 Copilot:** a slide-over `Sheet` from the admin header (shortcut ⌘/Ctrl+J) plus the full page `admin/ai/copilot` with
@@ -214,13 +214,13 @@ the modules' existing `*.view` permissions. The client assistant needs no staff 
 ## 8. Data & audit
 
 - `ai_usage` (append-only; no update or delete except the retention job): `id, user_id, client_id?, surface, feature
-(copilot|ticket_summary|ticket_draft|ticket_classify|kb_draft|client_assistant), conversation_id?, subject_type?, subject_id?,
-provider, model, steps, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, cost_micro_usd, tool_calls json
-[{name, args (redacted), result_bytes, ms, denied}], redactions, status (ok|failed|refused|budget_blocked|rate_limited|disabled),
-error_code?, prompt_redacted? (text, when store_content), response? (text), content_purged_at?, created_at`. Indexes:
+  (copilot|ticket_summary|ticket_draft|ticket_classify|kb_draft|client_assistant), conversation_id?, subject_type?, subject_id?,
+  provider, model, steps, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, cost_micro_usd, tool_calls json
+  [{name, args (redacted), result_bytes, ms, denied}], redactions, status (ok|failed|refused|budget_blocked|rate_limited|disabled),
+  error_code?, prompt_redacted? (text, when store_content), response? (text), content_purged_at?, created_at`. Indexes:
   `(created_at)`, `(user_id, created_at)`, `(feature, created_at)`.
 - `ai_suggestions`: `id, kind (ticket_summary|ticket_reply|ticket_classification|kb_article), subject_type, subject_id, user_id,
-usage_id, source_version, payload json, outcome (pending|accepted|edited|discarded), resolved_at, timestamps`. The outcome
+  usage_id, source_version, payload json, outcome (pending|accepted|edited|discarded), resolved_at, timestamps`. The outcome
   comes from Support's send/apply flow through `TicketAssist::resolveSuggestion()`. It drives the "acceptance rate" metric.
 - The activity log records enable/disable, consent, settings changes (Core already does this), budget exhaustion, and every
   denied tool call.
@@ -359,7 +359,7 @@ interface TicketAssist {                            // Ai implements; Core binds
 DTOs in `App\Data\Ai`:
 
 - `TicketThreadData(int ticketId, int version, string subject, string status, string priority, int departmentId,
-list<DepartmentOptionData> departments, list<string> existingTags, list<TicketMessageData> messages)`. Messages are
+  list<DepartmentOptionData> departments, list<string> existingTags, list<TicketMessageData> messages)`. Messages are
   type=reply only, already ordered, notes included only when the actor can see them.
 - `TicketMessageData(string authorType, string body, CarbonImmutable createdAt)`.
 - `DepartmentOptionData(int id, string name, ?string description)`.

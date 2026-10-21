@@ -6,14 +6,14 @@ jobs, setup work and pointless runs.
 
 ## When it runs
 
-| Event                                         | Runs?                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| PR to `develop`/`main` (opened, push, reopen) | yes; superseded runs of the same PR are cancelled                                           |
-| Draft PR                                      | only when labelled `ci`; otherwise runs when marked ready for review                        |
-| Push to a feature branch                      | no (its PR run covers it — no duplicate push + PR runs)                                     |
-| Push to `develop`/`main` (merges)             | yes, never cancelled                                                                        |
-| Only Markdown / `*.png` / `billing/docs/**`   | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main` |
-| Manual                                        | `workflow_dispatch`                                                                         |
+| Event                                                        | Runs?                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR to `develop`/`main` (opened, push, reopen)                | yes; superseded runs of the same PR are cancelled                                                                                                                                                                                                                     |
+| Draft PR                                                     | only when labelled `ci`; otherwise runs when marked ready for review                                                                                                                                                                                                  |
+| Push to a feature branch                                     | no (its PR run covers it — no duplicate push + PR runs)                                                                                                                                                                                                               |
+| Push to `develop`/`main` (merges)                            | yes, never cancelled                                                                                                                                                                                                                                                  |
+| Only Markdown / `*.png` / `billing/docs/**` / `docs-site/**` | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main`. The docs site is never built in CI. A change to `docs-site/` dependency files (`package.json`, lockfile, `.npmrc`, `.nvmrc`) also runs the audits and the cooldown check |
+| Manual                                                       | `workflow_dispatch`                                                                                                                                                                                                                                                   |
 
 The **E2E simulators (hosting lifecycle)** job (ADR 0016 §4) is opt-in.
 
@@ -144,3 +144,19 @@ check (green via the in-job fast path) and branch protection never waits for a c
   (`dependency-policy.md`).
 - Validate with [actionlint](https://github.com/rhysd/actionlint) v1.7.12 from the repository root.
 - Keep `timeout-minutes` on every job so a hung run cannot burn minutes.
+
+## Manual workflows
+
+Two more workflows build and run the production stack on a runner. Neither is part of CI. Each runs only when
+started by hand, through Actions → Run workflow or by adding a label to a pull request. In `load-test.yml`, adding
+any other label never cancels a running test.
+
+| Workflow                               | Label          | Runs                                                                                    | Minutes                     |
+| -------------------------------------- | -------------- | --------------------------------------------------------------------------------------- | --------------------------- |
+| `deploy-smoke.yml`                     | `deploy-smoke` | install on fresh PostgreSQL and RustFS, check `/up`, sign-in and a queued job           | see `production.md`         |
+| `load-test.yml` (`loadtest/README.md`) | `load-test`    | small profile, large volume; any profile or volume from Actions; results as an artifact | see `docs/devops/sizing.md` |
+
+Both use the standard Linux runner: 4 CPUs and 16 GB for a public repository (2 CPUs and 8 GB for a private one).
+The repository is public, so the runner fits the small and medium profiles; `load-test.yml` skips the large profile
+(8 vCPU) there unless asked, because the runner is smaller than it is. Results and the guidance drawn from them are in
+`docs/devops/sizing.md`.

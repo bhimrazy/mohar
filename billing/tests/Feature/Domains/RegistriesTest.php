@@ -2,16 +2,22 @@
 
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Jobs\RegisterDomain;
+use App\Modules\Domains\Jobs\RenewDomain;
+use App\Modules\Domains\Jobs\SyncRegistrars;
+use App\Modules\Domains\Jobs\TransferDomain;
 use App\Modules\Domains\Models\Domain;
 use App\Support\Automation\Automation;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Navigation\Navigation;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Tests\Fakes\Domains\DomainFixtures;
 
 beforeEach(function () {
@@ -111,12 +117,25 @@ test('needs-attention todos count expiring and failed domains', function () {
 });
 
 test('registrar sync has one owner: the hourly schedule, not the daily pipeline', function () {
-    $sync = collect(app(Schedule::class)->events())
-        ->filter(fn ($event) => str_contains((string) $event->command, 'domains:sync'));
+    $sync = collect(app(Schedule::class)->events())->filter(fn ($event) => $event->description === 'domains:sync');
 
     expect(app(Automation::class)->ordered())->not->toHaveKey('domains.sync')
         ->and($sync)->toHaveCount(1)
-        ->and($sync->first()->expression)->toBe('0 * * * *');
+        ->and($sync->first()->expression)->toBe('0 * * * *')
+        ->and($sync->first()->command)->toBeNull();
+});
+
+test('registrar work runs on the registrar queue, never in the scheduler process (ADR 0014, 0017)', function () {
+    Queue::fake();
+
+    collect(app(Schedule::class)->events())->firstWhere('description', 'domains:sync')->run(app());
+    RegisterDomain::dispatch(1);
+    TransferDomain::dispatch(2);
+    RenewDomain::dispatch(3, 1, '2027-01-31');
+
+    foreach ([SyncRegistrars::class, RegisterDomain::class, TransferDomain::class, RenewDomain::class] as $job) {
+        Queue::assertPushedOn(Queues::REGISTRAR, $job);
+    }
 });
 
 test('the registrar health check reports the 7-day command success rate', function () {

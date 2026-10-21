@@ -40,7 +40,7 @@ anywhere.
    `CAPTURE`/`REFUND`/`TOKENIZE`/`WEBHOOK`/`REMOTE_INPUT` as flags for now: their methods sit on the base interface
    with `AbstractGatewayDriver` defaults. Moving them to interfaces is a 2.0 change. Until the deprecated flags are
    removed, a test asserts that `supports(REDIRECT)` holds exactly when the driver is an `instanceof
-HostedPaymentDriver`, for every registered driver.
+   HostedPaymentDriver`, for every registered driver.
 
 ### Registries
 
