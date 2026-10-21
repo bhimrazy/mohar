@@ -88,7 +88,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
                 'help' => 'Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.'],
             ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created. Paste its whsec_… secret here.'],
+                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.closed. Paste its whsec_… secret here.'],
             ['key' => 'publishable_key', 'label' => 'Publishable key', 'type' => 'string',
                 'help' => 'Optional (pk_…). Checkout doesn\'t need it; "Test connection" checks that it belongs to the same mode as the secret key.'],
         ];
@@ -292,6 +292,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
                 'payment_intent.succeeded' => $this->paymentIntentEvent($gateway, $context),
                 'refund.created', 'refund.updated' => $this->refundEvent($gateway, $context),
                 'charge.dispute.created' => $this->disputeEvent($gateway, $context),
+                'charge.dispute.closed' => $this->disputeEvent($gateway, $context, closed: true),
                 default => $context->ignored('not used'),
             };
         } catch (ConnectionException) {
@@ -553,7 +554,11 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
         );
     }
 
-    private function disputeEvent(GatewayConfig $gateway, WebhookContext $context): CallbackEvent|CallbackRejection
+    /**
+     * A dispute opened, or closed ($closed). Only a closed dispute that Stripe reports as won (the money returned) is
+     * passed on; any other close (lost, or an inquiry closed) is acknowledged and changes nothing.
+     */
+    private function disputeEvent(GatewayConfig $gateway, WebhookContext $context, bool $closed = false): CallbackEvent|CallbackRejection
     {
         $response = $this->client->get($gateway, 'disputes/'.$context->objectId, ['payment_intent'], background: true);
 
@@ -574,8 +579,12 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $context->ignored('dispute without an amount');
         }
 
+        if ($closed && ($dispute['status'] ?? null) !== 'won') {
+            return $context->ignored('dispute closed without a win');
+        }
+
         return new CallbackEvent(
-            type: CallbackEvent::CHARGEBACK,
+            type: $closed ? CallbackEvent::DISPUTE_WON : CallbackEvent::CHARGEBACK,
             invoiceId: null,
             txnId: $dispute['id'],
             amount: $amount,

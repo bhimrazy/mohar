@@ -18,6 +18,12 @@ final readonly class CallbackEvent
     public const CHARGEBACK = 'chargeback';
 
     /**
+     * The merchant won a dispute and the provider returned the disputed money. $txnId is the dispute id the CHARGEBACK
+     * carried; Billing reverses what that chargeback booked, once per dispute id.
+     */
+    public const DISPUTE_WON = 'dispute_won';
+
+    /**
      * A hosted payment attempt changed at the provider. $reference names our attempt; Billing settles it through
      * HostedPaymentDriver::lookup() and the attempt's stored amount and rate, never from the event's figures.
      */

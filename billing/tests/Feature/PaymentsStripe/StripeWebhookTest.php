@@ -284,6 +284,26 @@ test('a dispute that arrives before its payment is booked is refused for a retry
     Event::assertDispatchedTimes(PaymentReversed::class, 1);
 });
 
+test('a dispute Stripe closes as won reinstates the payment once; one closed as lost changes nothing (#191)', function (string $status, string $result, InvoiceStatus $after) {
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::sequence()
+        ->push(stripeFixture('dispute'))
+        ->push(stripeFixture('dispute', ['status' => $status]))
+        ->push(stripeFixture('dispute', ['status' => $status]))]);
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0008'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
+
+    $closed = stripeEvent('charge.dispute.closed', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0009');
+    postStripeWebhook($closed)->assertOk()->assertJson(['result' => $result]);
+    postStripeWebhook($closed)->assertOk();
+
+    expect($invoice->fresh()->status)->toBe($after)
+        ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->count())->toBe($status === 'won' ? 1 : 0);
+})->with([
+    'won' => ['won', 'dispute won; payment reinstated', InvoiceStatus::Paid],
+    'lost' => ['lost', 'ignored event type', InvoiceStatus::Collections],
+]);
+
 test('a dispute of a payment made by another integration on the account is acknowledged, not retried', function () {
     paidStripeAttempt();
     Http::fake([STRIPE_API.'disputes/du_1MoharDispute0002*' => Http::response(stripeFixture('dispute', ['id' => 'du_1MoharDispute0002', 'payment_intent' => ['id' => 'pi_3SomeoneElse00001', 'metadata' => ['mohar_reference' => null]]]))]);

@@ -8,6 +8,7 @@ use App\Data\Billing\CallbackRejection;
 use App\Events\Billing\PaymentFailed;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\RecordChargeback;
+use App\Modules\Billing\Actions\RecordDisputeWon;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Data\PaymentData;
@@ -46,6 +47,9 @@ class GatewayCallbackHandler
      */
     public const PAYMENT_NOT_BOOKED = 'payment not booked yet; retry expected';
 
+    /** A won dispute whose chargeback is not booked yet (the win arrived first): 409, so the provider retries. */
+    public const DISPUTE_NOT_BOOKED = 'dispute not booked yet; retry expected';
+
     public const MAX_CALLBACK_AGE_SECONDS = 300;
 
     /** Larger bodies are refused before any signature work (no provider sends callbacks near this size). */
@@ -61,6 +65,7 @@ class GatewayCallbackHandler
         private GatewayAmounts $amounts,
         private SettlePaymentAttempt $settle,
         private CreditLedgerService $credit,
+        private RecordDisputeWon $disputeWon,
     ) {}
 
     /**
@@ -120,6 +125,7 @@ class GatewayCallbackHandler
                 CallbackEvent::PAYMENT_FAILED => $this->failure($gatewayKey, $event),
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
                 CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
+                CallbackEvent::DISPUTE_WON => $this->won($gatewayKey, $event),
                 CallbackEvent::ATTEMPT_UPDATED => $this->attemptUpdated($gatewayKey, $event),
                 // Unknown event types are acknowledged and ignored, never booked as money movements.
                 default => $this->outcome($gatewayKey, 200, 'ignored event type', ['type' => $event->type, 'txn_id' => $event->txnId], $event->invoiceId),
@@ -399,6 +405,39 @@ class GatewayCallbackHandler
         } catch (UniqueConstraintViolationException|ReversalAlreadyRecorded) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
         }
+    }
+
+    /**
+     * A dispute the merchant won: RecordDisputeWon puts back what its chargeback booked, once per dispute id (#191).
+     *
+     * @return Outcome
+     */
+    private function won(string $gatewayKey, CallbackEvent $event): array
+    {
+        if ($event->txnId === '' || $this->disputeWon->existing($gatewayKey, $event->txnId) !== null) {
+            return $this->outcome($gatewayKey, 200, $event->txnId === '' ? 'dispute without an id' : 'duplicate', $event->raw, $event->invoiceId);
+        }
+
+        $chargeback = $this->chargeback->existing($gatewayKey, $event->txnId);
+
+        if ($chargeback === null) {
+            return $this->outcome($gatewayKey, 409, self::DISPUTE_NOT_BOOKED, $event->raw, $event->invoiceId);
+        }
+
+        try {
+            $won = $this->disputeWon->handle($chargeback, GatewayLogger::redact($event->raw));
+        } catch (UniqueConstraintViolationException) {
+            // Another delivery of the same win committed first.
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $chargeback->invoice_id);
+        }
+
+        if (! $won->wasRecentlyCreated) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $chargeback->invoice_id);
+        }
+
+        return $this->outcome($gatewayKey, 200, $won->review_amount !== null ? 'dispute won; needs staff review' : 'dispute won; payment reinstated', [
+            ...$event->raw, 'reinstated' => $won->amount_in, 'review' => $won->review_amount,
+        ], $chargeback->invoice_id);
     }
 
     /**
