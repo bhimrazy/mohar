@@ -60,9 +60,10 @@ composer deps:check                                # composer validate + compose
   touches `billing/composer.json|lock`, `billing/package.json|package-lock.json`, `docs-site/package.json|package-lock.json`,
   any `.npmrc` or a workflow file — `composer audit --locked` and `npm audit --audit-level=high --package-lock-only`
   (for `billing/` and `docs-site/`). Why: on 2026-10-21 a newly published advisory turned every PR red at once
-  (fixed by #206), so the owner decided (2026-10-21) that the audits block only changes to dependency files, and the
-  nightly `.github/workflows/security-audit.yml` runs the same audits and opens (or comments on) a `security` +
-  `go-live` issue when a new advisory appears. All **before** `composer install` / `npm ci`, so no
+  (fixed by #206), so the owner decided (2026-10-21) that the audits block only changes to dependency files. A new
+  advisory against unchanged lockfiles surfaces on the next dependency change or a manual `composer deps:check`;
+  there is no nightly run while `main`, the default branch, stays a landing page (owner, 2026-10-21). All **before**
+  `composer install` / `npm ci`, so no
   package code runs before the lockfiles pass. PR runs diff against the PR base, pushes against
   `github.event.before` (a new branch or an unreachable base checks `--all`). `composer ci` runs the same via
   `composer deps:check`.
