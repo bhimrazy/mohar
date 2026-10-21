@@ -29,11 +29,18 @@ class DomainsSeeder extends DemoSeeder
         '.co.uk' => ['settings' => ['is_spotlight' => true, 'grace_days' => 30, 'redemption_days' => 60, 'redemption_fee' => 5000, 'renew_window_days' => 180, 'sort_order' => 5], 'prices' => [999, 0, 1099]],
     ];
 
+    /** .np second levels: clients register these at the registry themselves; they only use them with hosting. */
+    private const SELF_REGISTERED = ['.com.np', '.org.np', '.edu.np', '.net.np'];
+
     public function run(): void
     {
         RegistrarAccount::query()->firstOrCreate(['key' => 'log'], ['is_active' => true, 'test_mode' => true, 'settings' => ['api_key' => 'demo-key', 'simulate' => 'none']]);
 
         $tlds = [];
+
+        foreach (self::SELF_REGISTERED as $index => $extension) {
+            Tld::query()->firstOrCreate(['extension' => $extension], ['registrar_key' => null, 'registered_by_client' => true, 'auto_register' => false, 'is_active' => true, 'sort_order' => 20 + $index]);
+        }
 
         foreach (self::TLDS as $extension => $definition) {
             $tld = Tld::query()->firstOrCreate(['extension' => $extension], [
