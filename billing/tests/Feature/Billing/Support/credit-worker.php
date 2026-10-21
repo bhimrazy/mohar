@@ -4,12 +4,14 @@
  * Race helper (#192): one invoice that applies account credit, issued in its own process and transaction against the
  * given database, so that real concurrent transactions meet on the client's credit. Started by runRaceWorkers().
  *
- *   php credit-worker.php <label> <issue|checkout> <database> <client id> <amount> <delay ms> <pause ms>
+ *   php credit-worker.php <label> <issue|checkout|pay> <database> <client or invoice id> <amount> <delay ms> <pause ms>
  *
  * issue: a renewal-style invoice through Invoicer; <pause ms> is spent in the order guard, after the invoice is
  * published (it holds the invoice number) and before the credit is applied.
  * checkout: a real PlaceOrder checkout applying credit (catalog and services faked); <pause ms> is spent creating the
  * pending service, after the order row is inserted and before the invoice is issued.
+ * pay (#224): ApplyPayment of <amount> on the invoice <id> (an overpayment goes to account credit); <pause ms> is spent
+ * after the payment row is inserted (its foreign key holds a key-share lock on the client) and before the credit post.
  *
  * Prints one JSON object: {label, invoice, status, applied, issued, ended}, or {label, error}.
  */
@@ -23,7 +25,10 @@ use App\Data\Billing\InvoiceDraft;
 use App\Data\Billing\InvoiceLineData;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
+use App\Modules\Billing\Actions\ApplyPayment;
+use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Actions\PlaceOrder;
 use App\Modules\Orders\Data\CheckoutData;
@@ -63,6 +68,12 @@ if ($mode === 'checkout') {
             return crc32($this->label) % 1_000_000 + parent::createPending($draft);
         }
     });
+} elseif ($mode === 'pay') {
+    $pauseOnce = (int) $pause;
+    Transaction::created(function () use (&$pauseOnce): void {
+        usleep($pauseOnce * 1000);
+        $pauseOnce = 0;
+    });
 } else {
     app()->instance(PaymentGuard::class, new class((int) $pause) implements PaymentGuard
     {
@@ -82,6 +93,16 @@ usleep((int) $delay * 1000);
 DB::beginTransaction();
 
 try {
+    if ($mode === 'pay') {
+        $invoice = Invoice::query()->findOrFail((int) $clientId);
+        app(ApplyPayment::class)->handle($invoice, new PaymentData((int) $amount, 'bank_transfer', 'race-'.$label));
+        $invoice->refresh();
+        $issued = microtime(true);
+        DB::commit();
+        $print(['invoice' => $invoice->id, 'status' => $invoice->status->value, 'applied' => $invoice->amount_paid, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
     $client = Client::query()->findOrFail((int) $clientId);
 
     if ($mode === 'checkout') {

@@ -16,6 +16,7 @@ use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\Client;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -71,6 +72,14 @@ class ApplyPayment
 
         if ($refusal !== null && ! $payment->fromGateway) {
             throw new BillingException($refusal);
+        }
+
+        // A payment that may post account credit (closed or refused invoice, overpayment, a deposit) locks the client
+        // before its row is inserted (#224). The insert's foreign key takes a key-share lock on the client; two such
+        // payments of one client on different invoices would each hold it and then wait on each other for the credit
+        // post's FOR UPDATE, which PostgreSQL aborts as a deadlock (40P01). Locks still run invoice, then client.
+        if (! $invoice->status->isPayable() || $refusal !== null || $payment->amount >= $invoice->balance) {
+            Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
         }
 
         $transaction = Transaction::query()->create([
