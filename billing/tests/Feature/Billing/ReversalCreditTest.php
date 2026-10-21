@@ -95,9 +95,10 @@ test('credit the client already spent goes negative and becomes a staff to-do', 
 test('partial refunds never take back more credit than the payment placed', function () {
     $client = overpaidClient('ch_r5');
 
+    // Credit first (#194): all 3,000 the payment placed, then 3,000 of the invoice.
     sandboxWebhook(['type' => 'charge.refunded', 'txn_id' => 're_r5a', 'parent_txn_id' => 'ch_r5', 'amount' => 6_000, 'currency' => 'USD'])
         ->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
-    expect(creditBalance($client))->toBe(2_000);
+    expect(creditBalance($client))->toBe(0);
 
     sandboxWebhook(['type' => 'charge.refunded', 'txn_id' => 're_r5b', 'parent_txn_id' => 'ch_r5', 'amount' => 3_000, 'currency' => 'USD'])
         ->assertOk()->assertJson(['result' => 'refund needs staff review']);

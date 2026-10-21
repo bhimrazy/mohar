@@ -102,8 +102,9 @@ test('partial refund then disputes never take back more than the overpayment pla
     app(CreditLedgerService::class)->post($client->id, Money::of(1_500, 'USD'), CreditReason::Manual);
     expect(probeBalance($client->id))->toBe(4_500);
 
+    // Credit first (#194): the 3,000 the overpayment placed, then 3,000 of the invoice.
     sandboxWebhook(['type' => 'charge.refunded', 'txn_id' => 're_v2', 'parent_txn_id' => 'ch_v2', 'amount' => 6_000, 'currency' => 'USD'])->assertOk();
-    expect(probeBalance($client->id))->toBe(3_500);
+    expect(probeBalance($client->id))->toBe(1_500);
 
     sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_v2a', 'parent_txn_id' => 'ch_v2', 'amount' => 2_000, 'currency' => 'USD'])->assertOk();
     sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_v2b', 'parent_txn_id' => 'ch_v2', 'amount' => 8_000, 'currency' => 'USD'])->assertOk();

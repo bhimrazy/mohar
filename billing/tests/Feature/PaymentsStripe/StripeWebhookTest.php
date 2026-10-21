@@ -284,6 +284,26 @@ test('a dispute that arrives before its payment is booked is refused for a retry
     Event::assertDispatchedTimes(PaymentReversed::class, 1);
 });
 
+test('a dispute Stripe closes as won reinstates the payment once; one closed as lost changes nothing (#191)', function (string $status, string $result, InvoiceStatus $after) {
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::sequence()
+        ->push(stripeFixture('dispute'))
+        ->push(stripeFixture('dispute', ['status' => $status]))
+        ->push(stripeFixture('dispute', ['status' => $status]))]);
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0008'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
+
+    $closed = stripeEvent('charge.dispute.closed', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0009');
+    postStripeWebhook($closed)->assertOk()->assertJson(['result' => $result]);
+    postStripeWebhook($closed)->assertOk();
+
+    expect($invoice->fresh()->status)->toBe($after)
+        ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->count())->toBe($status === 'won' ? 1 : 0);
+})->with([
+    'won' => ['won', 'dispute won; payment reinstated', InvoiceStatus::Paid],
+    'lost' => ['lost', 'ignored event type', InvoiceStatus::Collections],
+]);
+
 test('a dispute of a payment made by another integration on the account is acknowledged, not retried', function () {
     paidStripeAttempt();
     Http::fake([STRIPE_API.'disputes/du_1MoharDispute0002*' => Http::response(stripeFixture('dispute', ['id' => 'du_1MoharDispute0002', 'payment_intent' => ['id' => 'pi_3SomeoneElse00001', 'metadata' => ['mohar_reference' => null]]]))]);
@@ -330,6 +350,24 @@ function closedStripeAttempt(AttemptStatus $closedAs = AttemptStatus::Expired, a
 
     return [$invoice, $attempt->fresh()];
 }
+
+test('a disputed late payment leaves "Late payments to check" and says it was disputed (#194)', function () {
+    [, $attempt] = closedStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+    $reason = $attempt->fresh()->review_reason;
+    expect($reason)->not->toBeNull();
+    $todo = fn (): int => collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'] ?? 0;
+    expect($todo())->toBe(1);
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response(stripeFixture('dispute'))]);
+
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0010'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
+
+    // The original reason stays, the note is added, and the close is in the activity log like a staff "Mark checked".
+    expect($todo())->toBe(0)
+        ->and($attempt->fresh())->late_checked_at->not->toBeNull()->review_reason->toBe($reason.'; disputed at the provider (du_1MoharDispute0001)')
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late_closed_by_dispute')->sole())
+        ->client_id->toBe($attempt->client_id)->properties->toMatchArray(['dispute' => 'du_1MoharDispute0001']);
+});
 
 function lateActivity(): ActivityLog
 {
@@ -528,7 +566,8 @@ test('a refund that fails while taking credit back books nothing, and the retry 
     postStripeWebhook(stripeEvent('refund.created', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0012'))->assertOk()->assertJson(['result' => 'refund recorded; credit taken back']);
     postStripeWebhook(stripeEvent('refund.updated', 're_3MoharRefund0001', eventId: 'evt_1MoharEvent0013'))->assertOk()->assertJson(['result' => 'duplicate']);
 
-    // The refund books all 2,000 that left at Stripe: 1,500 from the payment, 500 from the credit.
+    // The refund books all 2,000 that left at Stripe, credit first (#194): 1,000 from the credit, 1,000 from the payment.
     expect(Transaction::query()->where('type', TransactionType::Refund)->sole()->amount_out)->toBe(2_000)
-        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(500);
+        ->and(app(CreditLedgerService::class)->balance($invoice->client_id, 'USD')->amount)->toBe(0)
+        ->and(Transaction::query()->where('type', TransactionType::Payment)->where('gateway', StripeDriver::KEY)->sole()->refundable_remaining)->toBe(500);
 });
