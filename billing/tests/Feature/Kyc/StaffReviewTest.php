@@ -71,6 +71,7 @@ test('numbers and images show only for the client that was unlocked, after a ste
 });
 
 test('the unlock ends with the password step-up, whichever comes first', function () {
+    $this->freezeSecond();
     actingAsStaff(['kyc.documents.review']);
     $this->withSession(['auth.password_confirmed_at' => now()->subMinutes(10)->getTimestamp()]);
     $this->post(route('admin.kyc.unlock', $this->client))->assertRedirect();
