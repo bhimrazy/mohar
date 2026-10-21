@@ -67,7 +67,7 @@ admin review routes stay available, so staff can finish the queue after the feat
   Inertia prop, a log line or an audit entry; clients see the last 4 characters of the number only.
 - A failed upload never flashes the document number to the session (excluded from old input).
 - Metadata (EXIF) is not stripped yet: re-encoding needs PHP's GD extension, which the production image has but the
-  development and CI PHP do not; tracked as a follow-up issue.
+  development and CI PHP do not; tracked in #233.
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.
