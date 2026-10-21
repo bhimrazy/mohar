@@ -50,7 +50,7 @@ class ReviewController extends Controller
 
         return Inertia::render('admin/kyc/index', [
             'queue' => $queue->through(fn (KycDocument $row): array => [
-                'client' => ['id' => (int) $row->client_id, 'name' => $clients->get((int) $row->client_id)?->display_name ?? '', 'email' => $clients->get((int) $row->client_id)?->email],
+                'client' => ['id' => (int) $row->client_id, ...$clients->has((int) $row->client_id) ? ['name' => $clients->get((int) $row->client_id)->display_name, 'email' => $clients->get((int) $row->client_id)->email] : ['name' => '', 'email' => null]],
                 'waiting' => (int) $row->getAttribute('waiting'),
                 'waitingSince' => $row->getAttribute('waiting_since') === null ? null : CarbonImmutable::parse((string) $row->getAttribute('waiting_since'), 'UTC')->toIso8601String(),
             ]),
@@ -80,10 +80,7 @@ class ReviewController extends Controller
                 'version' => DecideDocument::version($document),
                 // The number and images only after the step-up; images only through short-lived signed links.
                 'number' => $unlocked ? $document->number : null,
-                'images' => $unlocked ? array_values(array_filter([
-                    ['side' => 'front', 'label' => 'Front', 'url' => $this->link($document, 'front')],
-                    $document->back_path === null ? null : ['side' => 'back', 'label' => 'Back', 'url' => $this->link($document, 'back')],
-                ])) : [],
+                'images' => $unlocked ? $this->images($document) : [],
             ])->values()->all(),
         ]);
     }
@@ -142,6 +139,20 @@ class ReviewController extends Controller
             : __(':document rejected. The client sees your reason and can upload it again.', ['document' => $decided->type->label()])]);
 
         return to_route('admin.kyc.show', $decided->client_id);
+    }
+
+    /**
+     * @return list<array{side: string, label: string, url: string}>
+     */
+    private function images(KycDocument $document): array
+    {
+        $images = [['side' => 'front', 'label' => 'Front', 'url' => $this->link($document, 'front')]];
+
+        if ($document->back_path !== null) {
+            $images[] = ['side' => 'back', 'label' => 'Back', 'url' => $this->link($document, 'back')];
+        }
+
+        return $images;
     }
 
     private function link(KycDocument $document, string $side): string
