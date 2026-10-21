@@ -42,14 +42,18 @@ class IssueInvoice
 
         try {
             return DB::transaction(function () use ($draft, $source): Invoice {
-                $client = Client::query()->findOrFail($draft->clientId);
+                $addFunds = collect($draft->lines)->every(fn (InvoiceLineData $line): bool => $line->billableType === BillableType::AddFunds);
+                $mayApplyCredit = ! $addFunds && $draft->status !== 'draft' && ($draft->applyCredit || $this->settings->bool('credit.auto_apply_on_generate'));
+
+                // An invoice that may take credit locks the client before inserting the invoice (#192). Otherwise the
+                // insert's key-share lock on the client, held while this waits for the invoice number, deadlocks
+                // (PostgreSQL) with another invoice of the client that holds the number and locks the client for credit.
+                $client = Client::query()->when($mayApplyCredit, fn ($query) => $query->lockForUpdate())->findOrFail($draft->clientId);
                 $currency = strtoupper($draft->currency);
 
                 if ($currency !== strtoupper($client->currency)) {
                     throw new BillingException(__('Invoices must be in the client currency (:currency).', ['currency' => $client->currency]));
                 }
-
-                $addFunds = collect($draft->lines)->every(fn (InvoiceLineData $line): bool => $line->billableType === BillableType::AddFunds);
 
                 $invoice = Invoice::query()->create([
                     'client_id' => $client->id,
@@ -93,11 +97,11 @@ class IssueInvoice
                 $this->publish->handle($invoice, $draft->issueDate, $draft->notify, $client);
                 $invoice->refresh();
 
-                if ($invoice->kind === InvoiceKind::Standard && $invoice->balance > 0 && ($draft->applyCredit || $this->settings->bool('credit.auto_apply_on_generate'))) {
-                    $available = $this->credit->balance($invoice->client_id, $invoice->currency)->amount;
-
-                    if ($available > 0 && $this->guard->refusalReason($invoice->id) === null) {
-                        $this->applyCredit->handle($invoice, min($available, $invoice->balance));
+                if ($mayApplyCredit && $invoice->kind === InvoiceKind::Standard && $invoice->balance > 0) {
+                    // ApplyCredit reads the amount again under the lock: credit spent meanwhile (also by this request,
+                    // e.g. an order guard) lowers it, and none left leaves the invoice unpaid instead of failing (#192).
+                    if ($this->credit->balance($invoice->client_id, $invoice->currency)->isPositive() && $this->guard->refusalReason($invoice->id) === null) {
+                        $this->applyCredit->handleAvailable($invoice);
 
                         return $invoice->refresh();
                     }

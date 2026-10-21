@@ -8,6 +8,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant
+  wins (Stripe `charge.dispute.closed` with status `won`) now books a `chargeback_reversal` transaction once per
+  dispute, under either `billing.reversal.set_collections` setting: the invoice is paid again up to what it still
+  owes, the payment can be refunded again by that much, and
+  the account credit the dispute took back is restored, which clears the negative balance and the "Clients owing
+  account credit" to-do it caused. Money the invoice can no longer take (it was paid again or cancelled since the
+  dispute) goes to "Disputes to review", never to credit. Add `charge.dispute.closed` to the Stripe webhook
+  destination; until then won disputes are still not booked. A win for a dispute you already corrected by hand
+  restores the credit again: check those clients after the upgrade. Partial provider refunds and disputes now take
+  back the credit the payment placed before they reduce the invoice (before: invoice first), so a partial refund of
+  an overpaid payment leaves the invoice paid. A disputed payment flagged "Late payments to check" leaves that to-do,
+  keeping its review note with "disputed at the provider" added, and an activity entry
+  (`billing.payment.late_closed_by_dispute`). Credit a win restored is taken back again by a later provider refund or
+  dispute of the same charge. New webhook results: "dispute won; payment reinstated", "dispute
+  won; needs staff review" and "dispute not booked yet; retry expected". No migration.
 - **eSewa attempts live 60 minutes and end on a cancel.** A captured run of eSewa's UAT sandbox (2026-10-21) showed
   that eSewa keeps a booked session payable about 50 minutes after the form post, and that a cancel on eSewa's page
   answers `NOT_FOUND` in the status check, not `CANCELED`. Before, the attempt expired after 15 minutes, so a
@@ -57,8 +72,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
   recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
   `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
-  built concurrently on PostgreSQL. Not handled yet: a dispute the merchant wins books nothing, so correct the
-  credit by hand. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  built concurrently on PostgreSQL. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
   were disputed or refunded at the provider.
 - **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
   `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
@@ -687,6 +701,11 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Billing
 
+- **Renewals and checkouts no longer fail when the client's credit is spent at the same time** (#192). Issuing an
+  invoice that applies account credit, and placing an order, lock the client before inserting anything for it. On
+  PostgreSQL two renewals, or two checkouts, of one client applying credit no longer deadlock (one of them used to
+  fail). The credit applied is read under that lock: credit spent meanwhile lowers it, and with none left the invoice
+  is issued unpaid. Checkouts of one client now run one after the other.
 - **Fewer database queries per issued invoice** (renewal runs, and every other invoice):
     - On 20,000 clients a billing day's 4,251 renewals took 42.7 queries each, now 34.7. On this shared host that was
       138 → 126 ms per renewal (medians of three alternating runs).

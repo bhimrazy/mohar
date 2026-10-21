@@ -174,6 +174,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
             'payment.failed' => CallbackEvent::PAYMENT_FAILED,
             'charge.refunded' => CallbackEvent::REFUND,
             'charge.dispute' => CallbackEvent::CHARGEBACK,
+            'charge.dispute.won' => CallbackEvent::DISPUTE_WON,
             default => null,
         };
 
