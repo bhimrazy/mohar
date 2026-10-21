@@ -38,6 +38,8 @@ declare module '@inertiajs/core' {
                 client: string;
                 expires_at: string;
             };
+            /** Client-area identity verification banner; null when off, verified or outside the client area. */
+            kyc?: { status: string; href: string } | null;
             [key: string]: unknown;
         };
     }
