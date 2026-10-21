@@ -20,6 +20,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   look for clients whose invoices are in another currency than the client's. No migration and no permission change.
   Kernel: `ClientCurrencyUsage::sourcesFor()`.
 
+- **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
+  `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
+  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). The daily housekeeping stage gains
+  the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
+  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read.
+
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
@@ -309,6 +315,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`platform.invitation_expiry_days`, default 7), now shared by staff and client-login invitations. Invitations sent
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
+
+### Identity verification (KYC)
+
+- Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
+  phone number (numbers without a prefix get `+977`, set in `kyc.phone_country_code`), and upload two different
+  documents out of Citizenship certificate, National ID (NID) and Driving licence, each with its number and a front and
+  back image. A banner on every client-area page shows the status (to do, pending review, declined) until the
+  client is verified. Verification never blocks ordering, paying or using services.
+- Images must be JPEG, PNG or WebP by their content (SVG and PDF are refused), up to 5 MB each. Images and document
+  numbers are encrypted at rest; clients see only the last four characters of a number.
+- A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
+  cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
+  the daily task `kyc.prune_documents`, at most 500 per run.
+- Staff review (approve, or decline with a reason) follows in the next pull request.
 
 ### Client import
 
