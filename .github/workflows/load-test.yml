@@ -49,9 +49,10 @@ permissions:
     contents: read
 
 concurrency:
-    # Any label added to the PR starts this workflow; only `load-test` runs it. Other labels get a group of their
-    # own, so labelling a PR during a load test never cancels it.
-    group: load-test-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' && github.event.label.name != 'load-test') && github.run_id || 'run' }}
+    # A `load-test` label shares one group per pull request, so re-labelling cancels the superseded run of that PR.
+    # Every other run gets a group of its own (the run id): a second dispatch never cancels a running one, and any
+    # other label added to the PR during a load test never cancels it.
+    group: load-test-${{ (github.event_name == 'pull_request' && github.event.label.name == 'load-test') && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
     cancel-in-progress: true
 
 jobs:
