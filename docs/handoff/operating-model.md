@@ -112,6 +112,9 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
   #108 merges) and the E2E simulator job (`e2e` label) run only on an explicit CTO decision. Before each switch to public,
   re-run the secret and workflow check: no secrets in history, no `pull_request_target` with a PR-head checkout,
   least `permissions:`, label-triggered jobs startable only by maintainers.
+- **Security audits (owner decision 2026-10-21):** `composer audit` and `npm audit` block a PR or push only when it
+  changes a manifest, lockfile, `.npmrc` or workflow file; the nightly `security-audit` workflow opens a
+  `security` + `go-live` issue when a new advisory appears against unchanged lockfiles.
 - **Private:** minutes are capped (3,000 a month, reached 90% on 2026-10-20). Merges are then gated locally by
   `scripts/merge-gate.sh <pr>` (#188, the same steps as CI on the PR merged into `develop`), PR heads merge with a
   `[skip ci]` commit naming the gate result, and smoke, load and E2E workflows stay off.

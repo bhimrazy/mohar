@@ -6,14 +6,14 @@ jobs, setup work and pointless runs.
 
 ## When it runs
 
-| Event                                                        | Runs?                                                                                                                                                                                                                                                                 |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PR to `develop`/`main` (opened, push, reopen)                | yes; superseded runs of the same PR are cancelled                                                                                                                                                                                                                     |
-| Draft PR                                                     | only when labelled `ci`; otherwise runs when marked ready for review                                                                                                                                                                                                  |
-| Push to a feature branch                                     | no (its PR run covers it — no duplicate push + PR runs)                                                                                                                                                                                                               |
-| Push to `develop`/`main` (merges)                            | yes, never cancelled                                                                                                                                                                                                                                                  |
-| Only Markdown / `*.png` / `billing/docs/**` / `docs-site/**` | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main`. The docs site is never built in CI. A change to `docs-site/` dependency files (`package.json`, lockfile, `.npmrc`, `.nvmrc`) also runs the audits and the cooldown check |
-| Manual                                                       | `workflow_dispatch`                                                                                                                                                                                                                                                   |
+| Event                                                        | Runs?                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR to `develop`/`main` (opened, push, reopen)                | yes; superseded runs of the same PR are cancelled                                                                                                                                                                                                                       |
+| Draft PR                                                     | only when labelled `ci`; otherwise runs when marked ready for review                                                                                                                                                                                                    |
+| Push to a feature branch                                     | no (its PR run covers it — no duplicate push + PR runs)                                                                                                                                                                                                                 |
+| Push to `develop`/`main` (merges)                            | yes, never cancelled                                                                                                                                                                                                                                                    |
+| Only Markdown / `*.png` / `billing/docs/**` / `docs-site/**` | in-job fast path: only `vp check` (Markdown formatting); PRs and pushes to `develop`/`main`. The docs site is never built in CI. A change to `docs-site/` dependency files (`package.json`, lockfile, `.npmrc`, `.nvmrc`) also runs the cooldown check (and the audits) |
+| Manual                                                       | `workflow_dispatch`                                                                                                                                                                                                                                                     |
 
 The **E2E simulators (hosting lifecycle)** job (ADR 0016 §4) is opt-in.
 
@@ -30,21 +30,21 @@ job therefore costs less than several parallel ones. Steps run cheapest first so
 the dependency policy runs **before** anything is installed (no package code — e.g. Composer's
 `package:discover` hook — executes before the lockfiles pass):
 
-| #   | Step                                                                                                 | s (run 39279853998) |
-| --- | ---------------------------------------------------------------------------------------------------- | ------------------- |
-| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                               | 20                  |
-| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base     | 3                   |
-| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                     | 6                   |
-| 3   | postgres digest drift (ci.yml = compose.yaml)                                                        | 0                   |
-| 4   | `composer validate` · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` | 2                   |
-| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)         | 1                   |
-| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                   | 17                  |
-| 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                               | 10                  |
-| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`)                                               | 1 + 1 + 3 + 4       |
-| 9   | PHPStan (result cache restored)                                                                      | 2                   |
-| 10  | Pest on SQLite (`--parallel`, 2 workers, every suite)                                                | 132                 |
-| 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers, Feature and Extensions)      | 212                 |
-| 12  | `npm run build` · app without dev dependencies · cache save · container stop                         | 21 + 2 + 2          |
+| #   | Step                                                                                                                                                                                                      | s (run 39279853998) |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| 0   | runner + PostgreSQL service container (`postgres:18.6-alpine@sha256…`)                                                                                                                                    | 20                  |
+| 1   | checkout (depth 2 for PRs, full history for pushes) · docs-only detection · dependency diff base                                                                                                          | 3                   |
+| 2   | setup-php · setup-node (toolchain only, no project dependencies)                                                                                                                                          | 6                   |
+| 3   | postgres digest drift (ci.yml = compose.yaml)                                                                                                                                                             | 0                   |
+| 4   | `composer validate` on every code or dependency change · `composer audit --locked` · `npm audit --audit-level=high --package-lock-only` only when a manifest, lockfile, `.npmrc` or workflow file changed | 2                   |
+| 5   | dependency cooldown + binding (`check-dependency-age.mjs`, PR base or `github.event.before`)                                                                                                              | 1                   |
+| 6   | install: Composer + npm from lockfiles (cached), `.env`, Wayfinder                                                                                                                                        | 17                  |
+| 7   | `vp check` (format + lint) — the only step on docs-only PRs and pushes                                                                                                                                    | 10                  |
+| 8   | restore tool caches · Pint · tsc · Vitest (`npm test`)                                                                                                                                                    | 1 + 1 + 3 + 4       |
+| 9   | PHPStan (result cache restored)                                                                                                                                                                           | 2                   |
+| 10  | Pest on SQLite (`--parallel`, 2 workers, every suite)                                                                                                                                                     | 132                 |
+| 11  | tune PostgreSQL · `composer test:pgsql` (Pest on PostgreSQL, 4 workers, Feature and Extensions)                                                                                                           | 212                 |
+| 12  | `npm run build` · app without dev dependencies · cache save · container stop                                                                                                                              | 21 + 2 + 2          |
 
 `timeout-minutes: 15` caps a hung run. The job took 579–622 s on the last two runs (39279853998, 39383275452);
 the last step warns (`::warning::`) once the job passes 12 minutes, the point to act before runs are cancelled. Shared setup lives in `.github/actions/setup-app` (composite action).
