@@ -8,7 +8,8 @@ use App\Modules\Migration\Models\MigrationRun;
  * What staff reviewed, as one hash (client-import spec §5.6). Each row stores a hash of its decision, data checksum,
  * matched client and login choice under the run's current check; the run's digest combines them (XOR), so a single
  * decision updates it in constant time, without reading or decrypting other rows. Confirming sends the digest the page
- * showed, and the import starts only while it still matches.
+ * showed, and the import starts only while it still matches. It is a concurrency token, not a MAC: it detects a change
+ * since the review, not tampering.
  */
 final class ReviewDigest
 {
@@ -40,12 +41,11 @@ final class ReviewDigest
     }
 
     /**
-     * 32 bytes, always: a missing hash counts as zeros, so it never shortens the XOR.
+     * 32 bytes, always: a missing or malformed hash (not 64 hex digits) counts as zeros, so it never shortens the XOR
+     * and never throws.
      */
     private static function bytes(?string $hex): string
     {
-        $bytes = $hex === null ? false : hex2bin($hex);
-
-        return $bytes !== false && strlen($bytes) === 32 ? $bytes : str_repeat("\0", 32);
+        return $hex !== null && strlen($hex) === 64 && ctype_xdigit($hex) ? (string) hex2bin($hex) : str_repeat("\0", 32);
     }
 }

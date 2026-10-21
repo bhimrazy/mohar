@@ -2,7 +2,6 @@
 
 namespace App\Modules\Migration\Support;
 
-use App\Contracts\Billing\ClientDocuments;
 use App\Models\User;
 use App\Modules\Core\Import\ClientImporter;
 use App\Modules\Core\Import\LoginImporter;
@@ -12,6 +11,7 @@ use App\Modules\Core\Support\Like;
 use App\Modules\Migration\Models\MigrationIdMap;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
+use App\Support\Clients\ClientCurrencyUsage;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -124,8 +124,8 @@ final class ClientMatcher
     }
 
     /**
-     * A currency change on a client that already has invoices, quotes, payments or credit is a row error (spec §6.4):
-     * its amounts are stored in that currency. One lookup for the chunk.
+     * A currency change on a client that already has invoices, services, orders, payments or credit is a row error
+     * (spec §6.4): its amounts are stored in that currency. One kernel lookup for the chunk (ClientCurrencyUsage).
      *
      * @param  list<array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}>  $results
      * @return list<array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}>
@@ -133,13 +133,13 @@ final class ClientMatcher
     public function lockCurrencies(array $results): array
     {
         $changing = array_values(array_filter(array_map(fn (array $result): ?int => in_array('currency', $result['changes'], true) ? $result['match_client_id'] : null, $results)));
-        $locked = array_flip(app(ClientDocuments::class)->clientsWithDocuments($changing));
+        $locked = array_flip(app(ClientCurrencyUsage::class)->clientsInUse($changing));
 
         return array_map(fn (array $result): array => in_array('currency', $result['changes'], true) && isset($locked[$result['match_client_id']]) ? [
             ...$result,
             'decision' => null,
             'changes' => [],
-            'problems' => [...$result['problems'], ['severity' => 'error', 'code' => 'currency_locked', 'message' => __('The currency cannot change: this client already has invoices, quotes, payments or credit in its currency.'), 'field' => 'currency']],
+            'problems' => [...$result['problems'], ['severity' => 'error', 'code' => 'currency_locked', 'message' => __('The currency cannot change: this client already has invoices, services, orders, payments or credit in its currency.'), 'field' => 'currency']],
         ] : $result, $results);
     }
 

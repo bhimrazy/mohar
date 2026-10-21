@@ -118,7 +118,7 @@ pickers, toggles, date-time pickers in company time, image upload to object stor
 
 - **Draft.** All website content (hero, sections, menus, banners, testimonials, FAQ, trust facts) is edited as one draft:
   `storefront_revisions: id, status (draft|published|archived), content (versioned schema), version, note, created_by,
-published_by, published_at`. At most one draft; saving never changes the live site.
+  published_by, published_at`. At most one draft; saving never changes the live site.
 - **Preview.** A pane beside the editor renders the draft with live prices, at desktop or phone width, light or dark.
   "Open preview" shows the whole site with the draft at a signed URL: staff only, 60 minutes, `noindex`, with a
   "Preview — not live" bar.

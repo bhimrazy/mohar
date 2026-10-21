@@ -2,7 +2,6 @@
 
 namespace App\Modules\Core\Import;
 
-use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Migration\RecordImporter;
 use App\Data\Migration\ImportContext;
 use App\Data\Migration\ImportIssue;
@@ -16,6 +15,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\ClientMarketingConsent;
 use App\Modules\Core\Support\ClientRules;
+use App\Support\Clients\ClientCurrencyUsage;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Arr;
 
@@ -98,9 +98,9 @@ class ClientImporter implements RecordImporter
 
         unset($fields['email']);
 
-        // Amounts are stored in the client's currency: it cannot change once the client has billing documents (§6.4).
-        if (isset($fields['currency']) && $fields['currency'] !== $client->currency && app(ClientDocuments::class)->clientsWithDocuments([$client->id]) !== []) {
-            $issues[] = new ImportIssue(ImportSeverity::Warning, 'currency_kept', __('The currency was kept: this client already has invoices, quotes, payments or credit in it.'));
+        // Amounts are stored in the client's currency: it cannot change once any module holds amounts for the client (§6.4).
+        if (isset($fields['currency']) && $fields['currency'] !== $client->currency && app(ClientCurrencyUsage::class)->clientsInUse([$client->id]) !== []) {
+            $issues[] = new ImportIssue(ImportSeverity::Warning, 'currency_kept', __('The currency was kept: this client already has invoices, services, orders, payments or credit in it.'));
             unset($fields['currency']);
         }
 
@@ -111,6 +111,8 @@ class ClientImporter implements RecordImporter
             return new ImportOutcome($client->id, $changes === [] ? ImportAction::Unchanged : ImportAction::Updated, $issues, $changes);
         }
 
+        // The undo snapshot is read here, under the row lock taken above, so no edit can land between it and the write.
+        $snapshot = $client->only([...$changes, 'imported_fields']);
         $client->forceFill(Arr::only($fields, $changes));
 
         $client->imported_fields = $this->importedFields($client->imported_fields ?? [], $attributes, $context) ?: null;
@@ -122,7 +124,9 @@ class ClientImporter implements RecordImporter
         $client->save();
         $this->consent($client, $attributes, $context, false, $issues);
 
-        return new ImportOutcome($client->id, $changes === [] ? ImportAction::Unchanged : ImportAction::Updated, $issues, $changes);
+        return $changes === []
+            ? new ImportOutcome($client->id, ImportAction::Unchanged, $issues)
+            : new ImportOutcome($client->id, ImportAction::Updated, $issues, $changes, Arr::only($snapshot, $changes));
     }
 
     public function finalize(ImportContext $context): array

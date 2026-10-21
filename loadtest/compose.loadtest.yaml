@@ -1,0 +1,144 @@
+# Load-test overlay on the production stack (loadtest/README.md). Only loadtest/bin/run uses it, merged after
+# deploy/compose.prod.yaml with a generated env file that holds a profile from loadtest/profiles/:
+#
+#   docker compose -p mohar-loadtest -f deploy/compose.prod.yaml -f loadtest/compose.loadtest.yaml \
+#       --env-file <run.env> --profile blue up -d --wait caddy app-blue worker-critical-blue ...
+#
+# The production file is blue-green (two colours behind profiles); the load test runs one colour, blue, so every
+# override names a `-blue` service, and bin/run writes the Caddy upstream that deploy/bin/deploy writes for blue.
+#
+# What it changes, and nothing else: per-service CPU and memory limits from the profile, a common cgroup parent that
+# caps the whole stack at the profile's totals (LOADTEST_CGROUP_PARENT, set up by bin/run), worker replicas per
+# pool, PostgreSQL memory settings plus pg_stat_statements, the PHP thread count, a read-only mount of loadtest/
+# for the seed and bench scripts, a network alias for the test domain, and the k6 load generator.
+#
+# Relative paths resolve against deploy/, the directory of the first compose file.
+# Third-party images are <name>:<tag>@sha256:<digest> and at least 7 days old (ADR 0007, `composer deps:check`).
+
+services:
+    caddy:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        networks:
+            edge:
+                aliases:
+                    - ${APP_DOMAIN:?set APP_DOMAIN}
+        deploy:
+            resources:
+                limits:
+                    cpus: ${CADDY_CPUS:?set a profile}
+                    memory: ${CADDY_MEMORY:?set a profile}
+
+    app-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        environment:
+            PHP_THREADS: ${PHP_THREADS:?set a profile}
+        volumes:
+            - ../loadtest:/loadtest:ro
+            - ../loadtest/frankenphp/Caddyfile:/etc/frankenphp/Caddyfile:ro
+        deploy:
+            resources:
+                limits:
+                    cpus: ${APP_CPUS:?set a profile}
+                    memory: ${APP_MEMORY:?set a profile}
+
+    worker-critical-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        deploy:
+            replicas: ${WORKER_CRITICAL_REPLICAS:?set a profile}
+            resources:
+                limits:
+                    cpus: ${WORKER_CRITICAL_CPUS:?set a profile}
+                    memory: ${WORKER_CRITICAL_MEMORY:?set a profile}
+
+    worker-notifications-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        deploy:
+            replicas: ${WORKER_NOTIFICATIONS_REPLICAS:?set a profile}
+            resources:
+                limits:
+                    cpus: ${WORKER_NOTIFICATIONS_CPUS:?set a profile}
+                    memory: ${WORKER_NOTIFICATIONS_MEMORY:?set a profile}
+
+    worker-default-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        deploy:
+            replicas: ${WORKER_DEFAULT_REPLICAS:?set a profile}
+            resources:
+                limits:
+                    cpus: ${WORKER_DEFAULT_CPUS:?set a profile}
+                    memory: ${WORKER_DEFAULT_MEMORY:?set a profile}
+
+    scheduler-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        volumes:
+            - ../loadtest:/loadtest:ro
+        deploy:
+            resources:
+                limits:
+                    cpus: ${SCHEDULER_CPUS:?set a profile}
+                    memory: ${SCHEDULER_MEMORY:?set a profile}
+
+    # Not sized by the profiles (it only runs Admin -> Automation -> Run now); inside the host cap like the rest.
+    worker-automation-blue:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+
+    # Also runs the seeder (bin/run: `run migrate php /loadtest/seed/run.php` with APP_ENV=loadtest), which holds the
+    # service plan in memory: 2 GB for the large volume.
+    migrate:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        volumes:
+            - ../loadtest:/loadtest:ro
+        deploy:
+            resources:
+                limits:
+                    cpus: ${SEED_CPUS:-1}
+                    memory: ${SEED_MEMORY:-2048M}
+
+    postgres:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        command:
+            - postgres
+            - -c
+            - shared_buffers=${PG_SHARED_BUFFERS:?set a profile}
+            - -c
+            - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:?set a profile}
+            - -c
+            - work_mem=${PG_WORK_MEM:?set a profile}
+            - -c
+            - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:?set a profile}
+            - -c
+            - max_connections=${PG_MAX_CONNECTIONS:?set a profile}
+            # Per-query statistics for the bottleneck report (bin/run creates the extension and reads it).
+            - -c
+            - shared_preload_libraries=pg_stat_statements
+            - -c
+            - pg_stat_statements.track=top
+            - -c
+            - track_io_timing=on
+        deploy:
+            resources:
+                limits:
+                    cpus: ${POSTGRES_CPUS:?set a profile}
+                    memory: ${POSTGRES_MEMORY:?set a profile}
+
+    rustfs:
+        cgroup_parent: ${LOADTEST_CGROUP_PARENT:-}
+        deploy:
+            resources:
+                limits:
+                    cpus: ${RUSTFS_CPUS:?set a profile}
+                    memory: ${RUSTFS_MEMORY:?set a profile}
+
+    # The load generator stands outside the capped "host" (no cgroup parent), like a client on another machine. It
+    # reaches the stack only through Caddy on the edge network, as https://${APP_DOMAIN}. Started with `run`, never
+    # by `up` (profile).
+    k6:
+        image: grafana/k6:2.3.0@sha256:9c2dee7f8ed74d317e4027c06a10f169b625638189de8d4555d0b3486a5aeb34
+        profiles:
+            - loadgen
+        networks:
+            - edge
+        volumes:
+            - ../loadtest/k6:/scripts:ro
+            - ${LOADTEST_RESULTS:?set LOADTEST_RESULTS}:/results
+        restart: 'no'
