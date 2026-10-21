@@ -62,6 +62,23 @@ class Tld extends Model
         return $extension === '.np' || str_ends_with($extension, '.np');
     }
 
+    /** Second levels the .np registry issues names under (register.com.np/np-ccTLDs, 2026-10-20). */
+    public const NP_SECOND_LEVELS = ['com', 'coop', 'edu', 'gov', 'info', 'mil', 'name', 'net', 'org'];
+
+    /**
+     * Why the .np registry cannot have issued this name (it registers only under its second levels), or null.
+     */
+    public static function registryLevelHint(string $domain): ?string
+    {
+        $labels = explode('.', strtolower($domain));
+
+        if (end($labels) !== 'np' || (count($labels) >= 3 && in_array($labels[count($labels) - 2], self::NP_SECOND_LEVELS, true))) {
+            return null;
+        }
+
+        return __('.np names are registered under .com.np, .org.np and the other second levels. Search for yourname.com.np.');
+    }
+
     protected static function booted(): void
     {
         static::creating(function (Tld $tld): void {

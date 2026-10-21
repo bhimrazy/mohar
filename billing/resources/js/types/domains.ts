@@ -101,6 +101,8 @@ export type LookupResult = {
     self_registered?: boolean;
     registration_url?: string | null;
     existing_url?: string | null;
+    /** Why the registry cannot have issued this name (e.g. asha.np); replaces the note and "I already have it". */
+    level_hint?: string | null;
 };
 
 export type DomainSearch = {

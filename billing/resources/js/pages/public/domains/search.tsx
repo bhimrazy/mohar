@@ -100,7 +100,12 @@ function ResultRow({
                     <p className="text-sm text-muted-foreground">
                         {statusText(result)}
                     </p>
-                    {result.self_registered && (
+                    {result.level_hint && (
+                        <p className="mt-1 max-w-prose text-sm">
+                            {result.level_hint}
+                        </p>
+                    )}
+                    {result.self_registered && !result.level_hint && (
                         <p className="mt-1 max-w-prose text-sm">
                             {result.tld} domains are registered by you at the
                             registry

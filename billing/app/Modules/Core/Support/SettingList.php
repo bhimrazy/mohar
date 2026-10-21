@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Domains\Support;
+namespace App\Modules\Core\Support;
 
 /**
  * List-valued settings may be stored as arrays (config defaults) or as comma/newline separated text

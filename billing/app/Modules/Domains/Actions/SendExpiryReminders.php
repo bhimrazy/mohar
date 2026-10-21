@@ -4,12 +4,12 @@ namespace App\Modules\Domains\Actions;
 
 use App\Events\Domains\DomainExpiring;
 use App\Events\Domains\DomainExpiryDigest;
+use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\DomainReminder;
 use App\Modules\Domains\Services\DomainEvents;
-use App\Modules\Domains\Support\SettingList;
 use Carbon\CarbonImmutable;
 
 /**
