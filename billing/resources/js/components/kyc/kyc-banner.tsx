@@ -19,7 +19,7 @@ const MESSAGES: Record<
         tone: 'info',
     },
     pending_review: {
-        text: 'Your identity documents are pending review. We will update this page once our team has checked them.',
+        text: 'Your identity documents are pending review. We will email you once our team has checked them.',
         action: 'View status',
         tone: 'warning',
     },

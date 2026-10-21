@@ -93,7 +93,7 @@ test('B1: unlocking one client does not reveal another client\'s document number
 
     // At 2754ff47 kyc.unlocked_until is one session flag: B's numbers and links show, with no audit entry for B.
     $this->get(route('admin.kyc.show', $b))->assertOk()
-        ->assertInertia(fn (AssertableInertia $page) => $page->where('unlocked', false)->where('documents.0.number', null)->where('documents.0.images', []));
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('unlockedUntil', null)->where('documents.0.number', null)->where('documents.0.images', []));
 });
 
 describe('approve versus re-upload in real concurrent transactions (PostgreSQL)', function () {
@@ -138,7 +138,9 @@ test('V1: an image link answers private, no-store with nosniff and the global CS
     confirmPassword();
     $document = KycDocument::factory()->create();
     Storage::disk(KycDocument::DISK)->put($document->front_path, Crypt::encryptString('front-bytes'));
-    $url = URL::temporarySignedRoute('admin.kyc.image', now()->addMinutes(15), ['document' => $document->id, 'side' => 'front']);
+    // Adopted in the fix round: links are bound to the staff member and need the client unlocked (#231 B1, M1).
+    $this->post(route('admin.kyc.unlock', $document->client_id))->assertRedirect();
+    $url = URL::temporarySignedRoute('admin.kyc.image', now()->addMinutes(15), ['document' => $document->id, 'side' => 'front', 'staff' => $staff->id]);
 
     $response = $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
     expect((string) $response->headers->get('Cache-Control'))->toContain('no-store')->toContain('private')

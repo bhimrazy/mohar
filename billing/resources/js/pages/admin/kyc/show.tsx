@@ -16,11 +16,12 @@ import { StatusBadge } from '@/components/app/status-badge';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { KYC_TONE } from '@/components/kyc/kyc-tone';
 
 type Document = {
     id: number;
     type: string;
-    status: 'pending' | 'approved' | 'rejected';
+    status: 'pending' | 'approved' | 'declined';
     statusLabel: string;
     reason: string | null;
     uploadedAt: string | null;
@@ -32,35 +33,32 @@ type Document = {
 
 type Props = {
     client: { id: number; name: string; email: string; phone: string | null };
-    status: { value: string; label: string };
+    status: { value: string; label: string; verifiedAt: string | null };
     steps: { email: boolean; phone: boolean };
-    unlocked: boolean;
+    unlockedUntil: string | null;
     documents: Document[];
 };
 
-const TONE = {
-    not_started: 'neutral',
-    in_progress: 'info',
-    pending_review: 'warning',
-    rejected: 'danger',
-    verified: 'success',
-    pending: 'warning',
-    approved: 'success',
-} as const;
+function Decision({
+    document,
+    unlocked,
+}: {
+    document: Document;
+    unlocked: boolean;
+}) {
+    const [declining, setDeclining] = useState(false);
 
-function Decision({ document }: { document: Document }) {
-    const [rejecting, setRejecting] = useState(false);
-
-    if (rejecting) {
+    if (declining && unlocked) {
         return (
             <Form
                 {...ReviewController.decide.form(document.id)}
                 options={{ preserveScroll: true }}
+                noValidate
                 className="grid gap-3"
             >
                 {({ errors, processing }) => (
                     <>
-                        <input type="hidden" name="decision" value="reject" />
+                        <input type="hidden" name="decision" value="decline" />
                         <input
                             type="hidden"
                             name="version"
@@ -76,7 +74,6 @@ function Decision({ document }: { document: Document }) {
                                 id={`reason-${document.id}`}
                                 name="reason"
                                 maxLength={500}
-                                required
                                 aria-invalid={!!errors.reason}
                                 aria-describedby={`reason-${document.id}-description`}
                             />
@@ -88,12 +85,12 @@ function Decision({ document }: { document: Document }) {
                                 disabled={processing}
                             >
                                 {processing && <Spinner />}
-                                Reject document
+                                Decline document
                             </Button>
                             <Button
                                 type="button"
                                 variant="ghost"
-                                onClick={() => setRejecting(false)}
+                                onClick={() => setDeclining(false)}
                             >
                                 Cancel
                             </Button>
@@ -105,20 +102,33 @@ function Decision({ document }: { document: Document }) {
     }
 
     return (
-        <div className="flex flex-wrap gap-2">
-            <ConfirmDialog
-                trigger={<Button>Approve</Button>}
-                title={`Approve the ${document.type}?`}
-                description="The client cannot replace an approved document. Check that the number and both sides are readable and match the account holder."
-                confirmLabel="Approve document"
-                destructive={false}
-                action={ReviewController.decide(document.id)}
-                method="post"
-                data={{ decision: 'approve', version: document.version }}
-            />
-            <Button variant="outline" onClick={() => setRejecting(true)}>
-                Reject with a reason
+        <div className="flex flex-wrap items-center gap-2">
+            {unlocked ? (
+                <ConfirmDialog
+                    trigger={<Button>Approve</Button>}
+                    title={`Approve the ${document.type}?`}
+                    description="The client cannot replace an approved document, and we email them the decision. Check that the number and both sides are readable and match the account holder."
+                    confirmLabel="Approve document"
+                    destructive={false}
+                    action={ReviewController.decide(document.id)}
+                    method="post"
+                    data={{ decision: 'approve', version: document.version }}
+                />
+            ) : (
+                <Button disabled>Approve</Button>
+            )}
+            <Button
+                variant="outline"
+                disabled={!unlocked}
+                onClick={() => setDeclining(true)}
+            >
+                Decline with a reason
             </Button>
+            {!unlocked && (
+                <p className="text-sm text-muted-foreground">
+                    Show the documents first to decide.
+                </p>
+            )}
         </div>
     );
 }
@@ -127,10 +137,11 @@ export default function KycReview({
     client,
     status,
     steps,
-    unlocked,
+    unlockedUntil,
     documents,
 }: Props) {
     const [opening, setOpening] = useState(false);
+    const unlocked = unlockedUntil !== null;
 
     return (
         <>
@@ -138,7 +149,14 @@ export default function KycReview({
             <Page>
                 <PageHeader
                     title={client.name}
-                    description="Identity verification"
+                    description={
+                        status.verifiedAt ? (
+                            <>
+                                Verified on{' '}
+                                <DateTime value={status.verifiedAt} />
+                            </>
+                        ) : undefined
+                    }
                     back={{
                         href: ReviewController.index(),
                         label: 'Identity verification',
@@ -147,7 +165,9 @@ export default function KycReview({
                         <StatusBadge
                             status={status.value}
                             label={status.label}
-                            tone={TONE[status.value as keyof typeof TONE]}
+                            tone={
+                                KYC_TONE[status.value as keyof typeof KYC_TONE]
+                            }
                         />
                     }
                 />
@@ -156,7 +176,7 @@ export default function KycReview({
                     <DescriptionList
                         items={[
                             {
-                                label: 'Client',
+                                label: 'Account',
                                 value: (
                                     <Link
                                         href={ClientController.show(client.id)}
@@ -182,35 +202,65 @@ export default function KycReview({
                     />
                 </SectionCard>
 
-                {!unlocked && documents.length > 0 && (
+                {documents.length > 0 && (
                     <SectionCard>
-                        <div className="flex flex-wrap items-center gap-3">
-                            <LockKeyhole
-                                className="size-5 text-muted-foreground"
-                                aria-hidden="true"
-                            />
-                            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-                                Document numbers and images are hidden. Opening
-                                them asks for your password, is recorded in the
-                                activity log, and lasts 15 minutes.
-                            </p>
-                            <Button
-                                disabled={opening}
-                                onClick={() =>
-                                    router.post(
-                                        ReviewController.unlock.url(client.id),
-                                        {},
-                                        {
-                                            preserveScroll: true,
-                                            onStart: () => setOpening(true),
-                                            onFinish: () => setOpening(false),
-                                        },
-                                    )
-                                }
-                            >
-                                {opening ? <Spinner /> : <Eye />}
-                                Show documents
-                            </Button>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <div className="flex min-w-0 flex-1 items-start gap-3">
+                                {unlocked ? (
+                                    <Eye
+                                        className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+                                        aria-hidden="true"
+                                    />
+                                ) : (
+                                    <LockKeyhole
+                                        className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+                                        aria-hidden="true"
+                                    />
+                                )}
+                                <p className="text-sm text-muted-foreground">
+                                    {unlocked && unlockedUntil ? (
+                                        <>
+                                            Documents are visible until{' '}
+                                            <DateTime
+                                                value={unlockedUntil}
+                                                format="datetime"
+                                            />{' '}
+                                            (
+                                            <DateTime
+                                                value={unlockedUntil}
+                                                relative
+                                            />
+                                            ). Each image you open is recorded
+                                            in the activity log.
+                                        </>
+                                    ) : (
+                                        'Document numbers and images are hidden. Showing them asks for your password, is recorded in the activity log, and lasts up to 15 minutes.'
+                                    )}
+                                </p>
+                            </div>
+                            {!unlocked && (
+                                <Button
+                                    className="w-full sm:w-auto"
+                                    disabled={opening}
+                                    onClick={() =>
+                                        router.post(
+                                            ReviewController.unlock.url(
+                                                client.id,
+                                            ),
+                                            {},
+                                            {
+                                                preserveScroll: true,
+                                                onStart: () => setOpening(true),
+                                                onFinish: () =>
+                                                    setOpening(false),
+                                            },
+                                        )
+                                    }
+                                >
+                                    {opening ? <Spinner /> : <Eye />}
+                                    Show documents
+                                </Button>
+                            )}
                         </div>
                     </SectionCard>
                 )}
@@ -252,7 +302,7 @@ export default function KycReview({
                                 <StatusBadge
                                     status={document.status}
                                     label={document.statusLabel}
-                                    tone={TONE[document.status]}
+                                    tone={KYC_TONE[document.status]}
                                 />
                             }
                         >
@@ -290,14 +340,17 @@ export default function KycReview({
                                         ))}
                                     </div>
                                 )}
-                                {document.status === 'rejected' &&
+                                {document.status === 'declined' &&
                                     document.reason && (
                                         <p className="text-sm text-muted-foreground">
                                             Reason given: {document.reason}
                                         </p>
                                     )}
                                 {document.status === 'pending' && (
-                                    <Decision document={document} />
+                                    <Decision
+                                        document={document}
+                                        unlocked={unlocked}
+                                    />
                                 )}
                             </div>
                         </SectionCard>

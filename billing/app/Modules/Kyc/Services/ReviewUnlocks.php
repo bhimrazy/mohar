@@ -19,7 +19,7 @@ class ReviewUnlocks
         $confirmedAt = (int) $request->session()->get('auth.password_confirmed_at', 0);
         $stepUpEnds = $confirmedAt + (int) config('platform.password_confirmation_seconds', 900);
         $until = min(CarbonImmutable::now()->addMinutes(self::MINUTES)->getTimestamp(), $stepUpEnds);
-        $unlocks = array_filter($this->all($request), fn (int $expires): bool => $expires > time());
+        $unlocks = array_filter($this->all($request), fn (int $expires): bool => $expires > now()->getTimestamp());
         $unlocks[$clientId] = $until;
         $request->session()->put($this->key($request), $unlocks);
 
@@ -30,7 +30,7 @@ class ReviewUnlocks
     {
         $expires = $this->all($request)[$clientId] ?? 0;
 
-        return $expires > time() ? CarbonImmutable::createFromTimestamp($expires) : null;
+        return $expires > now()->getTimestamp() ? CarbonImmutable::createFromTimestamp($expires) : null;
     }
 
     /**
