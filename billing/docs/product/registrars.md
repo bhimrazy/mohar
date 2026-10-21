@@ -289,15 +289,21 @@ workflow, `np_manual`, was built in #168/#185 and closed unmerged; its branches 
   Nepali citizens and organisations, and then points it to our nameservers. "How to register" opens
   `domains.self_registration_url` (default https://register.com.np/how-to-register-np-domain, the guide of the `.np`
   registry, run by Mercantile Communications per IANA's root zone database). "I already have it" opens the store
-  with the name carried into "Use a domain I own".
+  with the name carried into "Use a domain I own". A name the registry cannot issue (`asha.np`) gets the reason
+  instead: ".np names are registered under .com.np, .org.np and the other second levels. Search for
+  yourname.com.np." Self-registered TLDs are never sent to the registrar, for lookups or suggestions.
 - **Checkout.** "Use a domain I own" accepts `.np` names only under the registry's second levels, verified at
   register.com.np/np-ccTLDs on 2026-10-20: `.com.np`, `.coop.np`, `.edu.np`, `.gov.np`, `.info.np`, `.mil.np`,
-  `.name.np`, `.net.np`, `.org.np`. No domain record and no registrar order are created for it.
-- **Client area.** A hosting service with a domain shows its nameservers (the server's, else
-  `domains.default_nameservers`) with the line "Set these at your registry if your domain is registered elsewhere,
-  such as a .np domain."
+  `.name.np`, `.net.np`, `.org.np`. No domain record and no registrar order are created for it. The domain registry
+  contract refuses a registration or transfer under such a TLD, whoever asks.
+- **Client area.** A hosting service shows its server's nameservers; a service with a domain but no server
+  nameservers shows the default nameservers an admin saved. The shipped placeholder is never shown, so the card is
+  absent until real nameservers exist. A Copy button copies the list; with a domain the card says "Set these at your
+  registry if your domain is registered elsewhere, such as a .np domain."
 - **For hosts.** Mark any other extension the same way in Admin → Domains → TLD pricing → (TLD) → "Registered by the
-  client at the registry". Put your nameservers on each server (Admin → Servers) or in the default nameservers setting.
+  client at the registry". Put your nameservers on each server (Admin → Servers) or in the default nameservers setting;
+  until one of them has real nameservers, the admin dashboard lists the to-do "Set your nameservers so clients with
+  their own domain know where to point it."
 
 ## 10. Recommended implementation order
 
