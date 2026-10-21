@@ -15,7 +15,7 @@ use App\Modules\Orders\Services\CartManager;
 use App\Modules\Orders\Services\CheckoutGateways;
 use App\Modules\Orders\Services\CustomerResolver;
 use App\Modules\Orders\Services\InvoiceLinks;
-use App\Modules\Orders\Support\Countries;
+use App\Support\Countries;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
