@@ -112,3 +112,33 @@ function expectCreditSpentOnce(array $results, Client $client): void
         ->and(app(CreditLedger::class)->balance($client->id, 'USD')->amount)->toBe(0)
         ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->where('balance_after', '<', 0)->exists())->toBeFalse();
 }
+
+describe('two overpayments of one client in real concurrent transactions (PostgreSQL, #224)', function () {
+    beforeEach(function () {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
+            $this->markTestSkipped('Needs separate committed sessions on one server database (PostgreSQL).');
+        }
+    });
+
+    test('both are booked: each invoice paid, each surplus in account credit', function () {
+        $this->useSeededDatabase('overpay_race', function (): void {
+            $client = billingClient(['email' => 'overpay@example.test']);
+            issueInvoice($client, [1_000]);
+            issueInvoice($client, [1_000]);
+        });
+        $client = Client::query()->where('email', 'overpay@example.test')->sole();
+        [$a, $b] = Invoice::query()->where('client_id', $client->id)->orderBy('id')->pluck('id')->all();
+        $database = DB::connection()->getDatabaseName();
+
+        // Each pays 1,500 on its own 1,000 invoice and pauses 1 s after inserting its payment row (a key-share lock on
+        // the client row through the foreign key), before posting the 500 surplus (FOR UPDATE on the client).
+        $results = runRaceWorkers([
+            'first' => ['pay', $database, (string) $a, '1500', '0', '1000'],
+            'second' => ['pay', $database, (string) $b, '1500', '300', '1000'],
+        ]);
+
+        expect(array_column($results, 'status'))->toBe(['paid', 'paid'])
+            ->and(app(CreditLedger::class)->balance($client->id, 'USD')->amount)->toBe(1_000)
+            ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->where('reason', CreditReason::Overpayment)->pluck('amount')->all())->toBe([500, 500]);
+    });
+});

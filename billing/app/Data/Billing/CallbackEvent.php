@@ -24,6 +24,12 @@ final readonly class CallbackEvent
     public const DISPUTE_WON = 'dispute_won';
 
     /**
+     * A dispute the provider opened without withdrawing money (an inquiry, #212). $txnId is the dispute id; Billing
+     * puts it on the staff to-do and moves no money. A later CHARGEBACK with the same id books the money.
+     */
+    public const DISPUTE_INQUIRY = 'dispute_inquiry';
+
+    /**
      * A hosted payment attempt changed at the provider. $reference names our attempt; Billing settles it through
      * HostedPaymentDriver::lookup() and the attempt's stored amount and rate, never from the event's figures.
      */

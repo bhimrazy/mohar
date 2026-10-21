@@ -151,10 +151,32 @@ test('a dispute raised at Stripe is recorded as a chargeback, once', function ()
 
     $this->scenario->simulator()->actions()['dispute'](['payment_intent' => $payment->gateway_txn_id, 'reason' => 'fraudulent'], $this->scenario);
 
-    expect(array_column(deliverWebhooks(), 1))->toBe(['chargeback recorded'])
-        ->and(array_column(deliverWebhooks(replay: true), 1))->toBe(['duplicate'])
+    // charge.dispute.created books it; charge.dispute.funds_withdrawn, which Stripe sends next, is a duplicate.
+    expect(array_column(deliverWebhooks(), 1))->toBe(['chargeback recorded', 'duplicate'])
+        ->and(array_column(deliverWebhooks(replay: true), 1))->toBe(['duplicate', 'duplicate'])
         ->and(Transaction::query()->where('type', TransactionType::Chargeback)->sole()->gateway_txn_id)->toStartWith('du_')
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
+});
+
+test('an inquiry raised at Stripe books a zero-amount to-do and no money, and its close changes nothing (#212)', function () {
+    [, $invoice] = usdInvoice([2_500]);
+    browser()->post(checkoutFor($invoice).'/pay');
+    deliverWebhooks();
+    $payment = Transaction::query()->where('gateway', StripeDriver::KEY)->sole();
+    $actions = $this->scenario->simulator()->actions();
+
+    $dispute = $actions['dispute'](['payment_intent' => $payment->gateway_txn_id, 'inquiry' => true], $this->scenario)['dispute'];
+
+    expect(array_column(deliverWebhooks(), 1))->toBe(['dispute inquiry recorded; no money moved'])
+        ->and(array_column(deliverWebhooks(replay: true), 1))->toBe(['duplicate']);
+
+    $actions['close_dispute'](['dispute' => $dispute, 'status' => 'warning_closed'], $this->scenario);
+
+    expect(array_column(deliverWebhooks(), 1))->toBe(['ignored event type'])
+        ->and(Transaction::query()->where('type', TransactionType::DisputeInquiry)->sole())->amount_in->toBe(0)->amount_out->toBe(0)
+        ->and(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse()
+        ->and($payment->fresh()->refundable_remaining)->toBe(2_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Paid);
 });
 
 test('a dispute delivered before the payment is booked gets a 409, and its retry is booked as a chargeback (#124)', function () {
@@ -169,7 +191,7 @@ test('a dispute delivered before the payment is booked gets a 409, and its retry
         ->and(array_column($answers, 1))->toContain('payment recorded');
 
     // The outbox retries the refused dispute, as Stripe does; now it is booked.
-    expect(deliverWebhooks())->toBe([[200, 'chargeback recorded']])
+    expect(deliverWebhooks())->toBe([[200, 'chargeback recorded'], [200, 'duplicate']])
         ->and(Transaction::query()->where('type', TransactionType::Chargeback)->count())->toBe(1)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections);
 });

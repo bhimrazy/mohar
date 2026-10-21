@@ -68,6 +68,10 @@ Dry runs read without locks and write nothing (ADR 0019).
   `FOR UPDATE`, locks the client before the insert: `IssueInvoice` when the invoice may take credit, and `PlaceOrder`
   for an existing client before the order row. This does not contradict the money order: the new invoice is not yet
   visible, so no other transaction can hold it.
+- **Multi-invoice payments (#224):** a payment of several invoices in one transaction (`PaymentBatches::settle`,
+  `RecordManualTransaction`) locks all of them up front, in id order, before any client lock. `ApplyPayment` locks the
+  client after the invoice, before its row is inserted, only when it will post credit (overpayment, a deposit paid in
+  full, a closed or held invoice).
 - **Import:** run rows (claim), then the migration record, then the target row (client).
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 

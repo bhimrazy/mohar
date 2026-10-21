@@ -196,7 +196,8 @@ test('a customer orders, pays, is provisioned, suspended when overdue, unsuspend
 
     $second = Transaction::query()->where('type', TransactionType::Payment)->where('invoice_id', $renewal->id)->sole();
     $this->stripe->simulator()->actions()['dispute'](['payment_intent' => $second->gateway_txn_id], $this->stripe);
-    expect($this->deliverStripeWebhooks())->toBe(['chargeback recorded'])
+    // charge.dispute.created books it; charge.dispute.funds_withdrawn, sent next, is a duplicate.
+    expect($this->deliverStripeWebhooks())->toBe(['chargeback recorded', 'duplicate'])
         ->and($renewal->fresh()->status)->toBe(InvoiceStatus::Collections);
 });
 
