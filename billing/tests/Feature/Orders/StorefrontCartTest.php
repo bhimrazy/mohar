@@ -123,6 +123,29 @@ describe('cart', function () {
             ->assertSessionHasErrors(['domain_name' => 'taken.com is already used by another service.']);
     });
 
+    it('accepts an existing .np name only under the registry\'s second levels, as a hosting domain with no domain order', function () {
+        $this->fakes->catalog->addProduct(2, 'Business Hosting', requiresDomain: true);
+
+        foreach (['asha.np', 'asha.xyz.np'] as $name) {
+            $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => $name])
+                ->assertSessionHasErrors(['domain_name' => 'Enter your full .np name, for example yourname.com.np. Names are registered under .com.np, .coop.np, .edu.np, .gov.np, .info.np, .mil.np, .name.np, .net.np, .org.np.']);
+        }
+
+        $this->post(route('store.cart.products.store', 2), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'asha.com.np'])
+            ->assertSessionHasNoErrors();
+
+        $items = Cart::query()->sole()->cartItems();
+        expect($items)->toHaveCount(1)
+            ->and($items[0]->domain())->toBe('asha.com.np')
+            ->and($items[0]->domainAction())->toBeNull();
+    });
+
+    it('carries a domain the visitor owns from the search into "Use a domain I own"', function () {
+        $this->get(route('store.index', ['domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existingDomain', 'asha.com.np'));
+        $this->get(route('store.products.show', [1, 'domain' => 'asha.com.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', 'asha.com.np'));
+        $this->get(route('store.products.show', [1, 'domain' => 'asha.np']))->assertInertia(fn (Assert $page) => $page->where('existing_domain', null));
+    });
+
     it('requires an EPP code for domain transfers', function () {
         $this->post(route('store.cart.domains.store'), ['domain' => 'acme.com', 'action' => 'transfer', 'years' => 1])
             ->assertSessionHasErrors(['epp_code']);

@@ -299,7 +299,7 @@ test('dashboard todos, the renewals widget and the cancellation badge reflect op
     $todos = collect($dashboard->resolveTodos('admin', $user))->keyBy('key');
     $widget = collect($dashboard->resolveWidgets('admin', $user))->firstWhere('key', 'services.renewals');
 
-    expect($todos->keys()->all())->toBe(['services.pending', 'services.cancellations'])
+    expect($todos->keys()->all())->toBe(['services.pending', 'services.cancellations', 'services.nameservers'])
         ->and($todos['services.pending']['count'])->toBe(1)
         ->and($widget['items'])->toHaveCount(1)
         ->and($widget['items'][0]['href'])->toBe(route('admin.services.services.show', $renewing));

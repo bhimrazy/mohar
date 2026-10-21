@@ -10,6 +10,7 @@ use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Http\Resources\ServiceResource;
 use App\Modules\Services\Models\Service;
 use App\Modules\Services\Services\ServicePresenter;
+use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServiceSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -40,7 +41,7 @@ class ServiceController extends Controller
         ]);
     }
 
-    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings): Response
+    public function show(int $service, ServicePresenter $presenter, ServiceSettings $settings, ClientNameservers $nameservers): Response
     {
         $this->context->authorize('services');
 
@@ -67,6 +68,7 @@ class ServiceController extends Controller
             'cancellationTypes' => array_map(fn (CancellationType $type): array => ['value' => $type->value, 'label' => $type->label()], CancellationType::cases()),
             'changeOptions' => Inertia::defer(fn (): array => $presenter->changeOptions($model, CarbonImmutable::today())),
             'creditOnDowngrade' => $settings->creditOnDowngrade(),
+            'nameservers' => $nameservers->forService($model),
             'can' => [
                 'cancel' => $live && $settings->clientCanRequestCancellation() && $model->openCancellationRequest === null,
                 'changePassword' => $live && $driver instanceof ChangesPassword && $model->username !== null,

@@ -21,6 +21,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
   still pending).
 
+
+- **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
+  migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
+  longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
+  New setting: `domains.self_registration_url` ("How to register" link, default the registry's guide).
 - **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
   of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
   cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
@@ -73,8 +78,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
   seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
   `migrate:fresh --seed` for the new demo values.
-
-> > > > > > > origin/develop
 
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
@@ -575,6 +578,16 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Domains
 
+- `.np` self-registration flow (registrars.md §9). TLDs can be marked "registered by the client at the registry" (on
+  by default for `.np` and its second levels). Domain search explains that the client registers these names at the
+  registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"
+  preselected. Checkout accepts `.np` names only under the registry's second levels (`.com.np`, `.org.np`, `.edu.np`
+  and the rest) and creates no registrar order. The client's hosting service shows the nameservers to set at the
+  registry, with a Copy button: the server's, else the default nameservers an admin saved (never the shipped
+  placeholder). Until real nameservers exist, staff get the to-do "Set your nameservers so clients with their own
+  domain know where to point it." A bare `.np` name in the search explains the second levels instead of offering
+  "I already have it". The demo marks `.com.np`, `.org.np`, `.edu.np` and `.net.np`
+  this way.
 - TLD catalog with per-term register/transfer/renew prices per currency and client-group slab (no silent currency
   conversion), grace/redemption periods and fees, renew windows, EPP requirement and registrar assignment.
 - `DomainPricing` (`price`, `terms`, `split` for multi-level TLDs such as `.co.uk`, renewal terms within the
@@ -911,6 +924,12 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### DevOps
 
+- CI security audits only on dependency changes (owner decision 2026-10-21). `composer audit` and `npm audit` now
+  block a PR or push only when it changes a Composer or npm manifest or lockfile, an `.npmrc` or a workflow file, so a
+  newly published advisory no longer turns every open PR red. A new advisory against unchanged lockfiles shows up on
+  the next dependency change or a manual `composer deps:check` (no nightly run: scheduled workflows run only from the
+  default branch, `main`, which stays a landing page). Lockfile sync and the dependency cooldown check still run on
+  every PR.
 - `vite-plus` 0.3.3 → 1.1.0 (and the `vite` alias/override `@voidzero-dev/vite-plus-core` 0.3.3 → 1.1.0). The
   core bundled `launch-editor` 2.14.1, affected by GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw and GHSA-587h-7wmj-h5pm
   (published 2026-10-20; `npm audit --audit-level=high` failed CI); 1.1.0 is the first fixed release and bundles
