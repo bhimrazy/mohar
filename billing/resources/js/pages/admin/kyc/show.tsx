@@ -36,19 +36,28 @@ type Props = {
     status: { value: string; label: string; verifiedAt: string | null };
     steps: { email: boolean; phone: boolean };
     unlockedUntil: string | null;
+    canDecide: boolean;
     documents: Document[];
 };
 
 function Decision({
     document,
     unlocked,
+    canDecide,
 }: {
     document: Document;
     unlocked: boolean;
+    canDecide: boolean;
 }) {
     const [declining, setDeclining] = useState(false);
+    const ready = unlocked && canDecide;
+    const blocked = !canDecide
+        ? 'Only administrators can approve or decline identity documents.'
+        : !unlocked
+          ? 'Show the documents first to decide.'
+          : null;
 
-    if (declining && unlocked) {
+    if (declining && ready) {
         return (
             <Form
                 {...ReviewController.decide.form(document.id)}
@@ -103,7 +112,7 @@ function Decision({
 
     return (
         <div className="flex flex-wrap items-center gap-2">
-            {unlocked ? (
+            {ready ? (
                 <ConfirmDialog
                     trigger={<Button>Approve</Button>}
                     title={`Approve the ${document.type}?`}
@@ -119,15 +128,13 @@ function Decision({
             )}
             <Button
                 variant="outline"
-                disabled={!unlocked}
+                disabled={!ready}
                 onClick={() => setDeclining(true)}
             >
                 Decline with a reason
             </Button>
-            {!unlocked && (
-                <p className="text-sm text-muted-foreground">
-                    Show the documents first to decide.
-                </p>
+            {blocked && (
+                <p className="text-sm text-muted-foreground">{blocked}</p>
             )}
         </div>
     );
@@ -138,6 +145,7 @@ export default function KycReview({
     status,
     steps,
     unlockedUntil,
+    canDecide,
     documents,
 }: Props) {
     const [opening, setOpening] = useState(false);
@@ -350,6 +358,7 @@ export default function KycReview({
                                     <Decision
                                         document={document}
                                         unlocked={unlocked}
+                                        canDecide={canDecide}
                                     />
                                 )}
                             </div>

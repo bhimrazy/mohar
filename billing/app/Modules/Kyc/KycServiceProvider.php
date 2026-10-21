@@ -51,13 +51,14 @@ class KycServiceProvider extends ModuleServiceProvider
 
         $this->app->make(PermissionRegistry::class)->register('Identity verification', [
             'kyc.settings.manage' => 'Manage identity verification settings',
-            ReviewController::PERMISSION => 'View identity documents and approve or reject them',
-        ], sensitive: [ReviewController::PERMISSION]);
+            ReviewController::VIEW_PERMISSION => 'View the identity verification queue and identity documents',
+            ReviewController::PERMISSION => 'Approve or decline identity documents',
+        ], sensitive: [ReviewController::VIEW_PERMISSION, ReviewController::PERMISSION]);
 
         $navigation = $this->app->make(Navigation::class);
-        $navigation->add('admin', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', 'Clients', 40, ReviewController::PERMISSION, 'admin.kyc.*',
+        $navigation->add('admin', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', 'Clients', 40, ReviewController::VIEW_PERMISSION, 'admin.kyc.*',
             badge: fn (?User $user): ?int => RequestMemo::remember('kyc.waiting', fn (): int => KycDocument::query()->current()->where('status', DocumentStatus::Pending->value)->distinct()->count('client_id')) ?: null));
-        $navigation->add('admin-client', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', order: 70, permission: ReviewController::PERMISSION));
+        $navigation->add('admin-client', new NavItem('Identity verification', 'admin.kyc.index', 'ShieldCheck', order: 70, permission: ReviewController::VIEW_PERMISSION));
 
         // Merge fields for the decision email: outcome, type, reason and link; never the number or the images.
         $this->app->make(MergeFieldRegistry::class)->register('kyc_document', function (int $id): array {

@@ -1,6 +1,7 @@
 <?php
 
 use App\Events\Kyc\DocumentDecided;
+use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
@@ -192,4 +193,24 @@ test('a decision on a document that was replaced or changed after the page loade
 
     expect($other->fresh()->status)->toBe(DocumentStatus::Pending)
         ->and(ActivityLog::query()->whereIn('event', ['kyc.document.approved', 'kyc.document.declined'])->count())->toBe(0);
+});
+
+test('the Support role can see the queue and the documents but cannot approve or decline (owner decision 2026-10-21)', function () {
+    expect(app(PermissionRegistry::class)->isSensitive('kyc.documents.view'))->toBeTrue();
+    actingAsStaff(SystemRoles::permissions('support'));
+
+    $this->get(route('admin.kyc.index'))->assertOk();
+    ($this->unlock)();
+    $this->get(route('admin.kyc.show', $this->client))->assertOk()
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('canDecide', false)->where('documents.0.number', '27-01-74-04821'));
+    $this->get(($this->imageUrl)())->assertOk();
+
+    ($this->decide)(['decision' => 'approve'])->assertForbidden();
+    ($this->decide)(['decision' => 'decline', 'reason' => 'Blurred.'])->assertForbidden();
+    expect($this->document->fresh()->status)->toBe(DocumentStatus::Pending);
+
+    actingAsStaff(SystemRoles::permissions('billing'));
+    $this->get(route('admin.kyc.index'))->assertForbidden();
+    actingAsStaff(SystemRoles::permissions(SystemRoles::FULL_ADMINISTRATOR));
+    $this->get(route('admin.kyc.show', $this->client))->assertInertia(fn (AssertableInertia $page) => $page->where('canDecide', true));
 });

@@ -389,7 +389,7 @@ test('a system role edited away from its definition gets its permissions back, w
 
     $results = app(ReferenceDataInstaller::class)->install();
 
-    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'services.services.view', 'support.*'])
+    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'kyc.documents.view', 'services.services.view', 'support.*'])
         ->and($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3));
 
     $log = ActivityLog::query()->where('event', 'role.updated')->sole();

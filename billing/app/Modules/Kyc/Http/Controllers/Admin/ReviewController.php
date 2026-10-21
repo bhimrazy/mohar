@@ -29,19 +29,23 @@ use Symfony\Component\HttpFoundation\Response as HttpResponse;
 use Throwable;
 
 /**
- * Staff review of identity documents (spec §7). Every action needs kyc.documents.review, a sensitive permission.
+ * Staff review of identity documents (spec §7). Viewing needs kyc.documents.view and deciding kyc.documents.review; both are sensitive permissions.
  * Numbers and images show only for a client the staff member unlocked (password step-up, audited), and images only
  * through signed links bound to that staff member, inside the same window.
  */
 class ReviewController extends Controller
 {
+    /** Approve or decline (owner decision 2026-10-21: full administrators only by default). */
     public const PERMISSION = 'kyc.documents.review';
+
+    /** See the queue, a client's page and, after a step-up, the documents (Support has it by default). */
+    public const VIEW_PERMISSION = 'kyc.documents.view';
 
     public function __construct(private KycVerification $kyc, private ReviewUnlocks $unlocks) {}
 
     public function index(Request $request, ReviewQueue $queue): Response|RedirectResponse
     {
-        $this->authorize(self::PERMISSION);
+        $this->authorizeView($request);
 
         if ($request->filled('client')) {
             return to_route('admin.kyc.show', $request->integer('client'));
@@ -74,7 +78,7 @@ class ReviewController extends Controller
 
     public function show(Request $request, Client $client): Response
     {
-        $this->authorize(self::PERMISSION);
+        $this->authorizeView($request);
         Inertia::encryptHistory();
         $documents = $this->kyc->documents($client);
         $until = $this->unlocks->until($request, $client->id);
@@ -89,6 +93,7 @@ class ReviewController extends Controller
             ],
             'steps' => ['email' => $this->kyc->emailProved($client), 'phone' => $this->kyc->phoneDone($client)],
             'unlockedUntil' => $until?->toIso8601String(),
+            'canDecide' => $request->user()?->hasPermission(self::PERMISSION) ?? false,
             'documents' => $documents->map(fn (KycDocument $document): array => [
                 'id' => $document->id,
                 'type' => $document->type->label(),
@@ -110,7 +115,7 @@ class ReviewController extends Controller
      */
     public function unlock(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
     {
-        $this->authorize(self::PERMISSION);
+        $this->authorizeView($request);
         $this->unlocks->unlock($request, $client->id);
         $activity->log('Identity documents opened for review', $client, $client->id, event: 'kyc.documents.opened');
 
@@ -123,7 +128,7 @@ class ReviewController extends Controller
      */
     public function image(Request $request, KycDocument $document, string $side, ActivityLogger $activity): HttpResponse
     {
-        $this->authorize(self::PERMISSION);
+        $this->authorizeView($request);
         abort_unless((int) $request->query('staff') === (int) $request->user()?->getAuthIdentifier(), 403);
         abort_if($this->unlocks->until($request, $document->client_id) === null, 403, __('Open the documents again to see this image.'));
         $path = $side === 'back' ? $document->back_path : $document->front_path;
@@ -174,6 +179,15 @@ class ReviewController extends Controller
             : __(':document declined. We emailed the client the reason.', ['document' => $decided->type->label()])]);
 
         return to_route('admin.kyc.show', $decided->client_id);
+    }
+
+    /**
+     * Viewing needs kyc.documents.view; a reviewer (kyc.documents.review) can view too.
+     */
+    private function authorizeView(Request $request): void
+    {
+        $user = $request->user();
+        abort_unless($user instanceof User && ($user->hasPermission(self::VIEW_PERMISSION) || $user->hasPermission(self::PERMISSION)), 403);
     }
 
     /**
