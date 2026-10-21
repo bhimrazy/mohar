@@ -16,8 +16,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   values below 55 are raised to 55. A pending eSewa attempt whose status check says `NOT_FOUND` ends when the
   customer comes back through the cancel URL (attempt failed; on any gateway, a cancel return that ends failed now
   shows "Payment cancelled. You can try again or choose another way to pay.") or once it is 5 minutes old (attempt expired). `NOT_FOUND` never marks an invoice paid. An
-  attempt in staff review is not ended this way, and none is ended early while `gateways.late_lookup_hours` is
-  below 1 (late sweep off). A cancel return for a pending attempt may look up the status again 10 seconds after the
+  attempt in staff review is not ended this way, and none is ended early unless `gateways.late_lookup_hours`
+  covers the attempt's lifetime plus two late-sweep hours (3 hours with the 60-minute eSewa attempt; default 48). A cancel return for a pending attempt may look up the status again 10 seconds after the
   last lookup, instead of one minute. Ended attempts stay in the late-payment sweep (#130), so an old eSewa form
   that is still paid is booked and flagged for staff. Attempts already open at the upgrade keep their 15-minute
   expiry. No migration and no permission change. Kernel: `LookupResult` gains a trailing `sessionEnded` field (default false), and

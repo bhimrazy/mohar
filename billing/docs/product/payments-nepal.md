@@ -537,8 +537,10 @@ merchants).
   the status check decides) or the attempt is at least 5 minutes old (the form is auto-posted on page load, so a
   younger attempt may not have reached eSewa yet). A cancel return becomes failed, an abandoned one expired. An
   attempt in staff review is never ended this way. Lookups stay open, so a stale form paid later is still booked
-  as a late payment (§3, #130). That backstop is required: with `gateways.late_lookup_hours` below 1 (the late
-  sweep off) the attempt is not ended early and stays pending and polled as before. The return route lets a cancel
+  as a late payment (§3, #130). That backstop is required, so an attempt ends early only when the late window
+  covers it (`PaymentReconciler::lateSweepCovers()`): `gateways.late_lookup_hours` × 60 must be at least the
+  attempt's lifetime (60 min) + the late lookup interval (60) + the hourly run spacing (60), which is 3 hours today.
+  Below that (including 0, the sweep off) the attempt stays pending and polled as before. The return route lets a cancel
   return for a pending attempt look again 10 seconds after the last lookup instead of one minute. eSewa also sends
   real failures to `failure_url`; one that answers `NOT_FOUND` is treated, and worded, as a cancel.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries

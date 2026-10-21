@@ -11,6 +11,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\GatewayLogger;
+use App\Modules\Billing\Services\PaymentReconciler;
 use App\Modules\Billing\Support\BillingSettings;
 use App\Modules\Core\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
@@ -258,15 +259,14 @@ class SettlePaymentAttempt
      * the customer can pay again at once, if the customer came back through the cancel URL or the form has had
      * NOT_FOUND_SETTLE_MINUTES to reach the provider. A younger attempt may simply not be posted yet, and one in staff
      * review stays there. Lookups stay open, so if a stale form is still paid, the late sweep books it (#130). That
-     * backstop is why it needs a late window of at least an hour (the sweep's interval); without one the attempt
-     * stays pending and polled as before.
+     * backstop is why the late window must cover the attempt (PaymentReconciler::lateSweepCovers()); when it does
+     * not, the attempt stays pending and polled as before.
      */
     private function notFound(PaymentAttempt $attempt, bool $sessionEnded, bool $cancelReturn): void
     {
         $settled = ($attempt->created_at ?? now())->lte(now()->subMinutes(self::NOT_FOUND_SETTLE_MINUTES));
-        $lateSweepOn = $this->settings->int('gateways.late_lookup_hours', 48) >= 1;
 
-        if (! $sessionEnded || ! $lateSweepOn || $attempt->status !== AttemptStatus::Pending || (! $cancelReturn && ! $settled)) {
+        if (! $sessionEnded || ! PaymentReconciler::lateSweepCovers($attempt, $this->settings) || $attempt->status !== AttemptStatus::Pending || (! $cancelReturn && ! $settled)) {
             $this->stillPending($attempt, LookupResult::NOT_FOUND);
 
             return;
