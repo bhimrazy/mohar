@@ -24,7 +24,7 @@ test('accepting all proposals creates the possible duplicates and leaves a recen
     $digest = $run->review_digest;
 
     $this->post(route('admin.migration.imports.accept', $run))->assertRedirect()
-        ->assertInertiaFlash('toast.message', '1 proposed row accepted. 1 row is left for you: its match is closed, shared by several clients or changed email recently.');
+        ->assertInertiaFlash('toast.message', '1 proposed row accepted. 1 row is left for you: its match is closed, shared by several clients or changed email recently, or its email belongs to a login.');
     $run->refresh();
 
     expect($run->records()->where('row_number', 1)->value('decision'))->toBe('create')
