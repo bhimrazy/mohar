@@ -144,7 +144,7 @@ test('V1: an image link answers private, no-store with nosniff and the global CS
 
     $response = $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
     expect((string) $response->headers->get('Cache-Control'))->toContain('no-store')->toContain('private')
-        ->and((string) $response->headers->get('Content-Security-Policy'))->toContain("default-src")
+        ->and((string) $response->headers->get('Content-Security-Policy'))->toContain('default-src')
         ->and($response->headers->has('Referrer-Policy'))->toBeTrue();
 
     $staff->role->forceFill(['permissions' => ['kyc.settings.manage', 'kyc.documents.*']])->save();

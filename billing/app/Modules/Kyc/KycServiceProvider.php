@@ -2,10 +2,10 @@
 
 namespace App\Modules\Kyc;
 
+use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Core\ClientClosed;
 use App\Events\Core\ClientMerged;
 use App\Events\Core\ClientReopened;
-use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Models\User;
 use App\Modules\Core\Support\RequestMemo;
 use App\Modules\Kyc\Actions\PruneDocuments;

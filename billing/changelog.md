@@ -14,7 +14,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   new **sensitive** permission `kyc.documents.review`: `kyc.*` does not grant it, so add it to roles explicitly, and
   opening documents and every decision ask for a recent password. The daily housekeeping stage gains
   the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
-  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read.
+  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
+  (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
+  templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
 
 - **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant
   wins (Stripe `charge.dispute.closed` with status `won`) now books a `chargeback_reversal` transaction once per
@@ -292,7 +294,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
   cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
   the daily task `kyc.prune_documents`, at most 500 per run.
-- Staff review: Admin → Clients → Identity verification (KYC_REVIEW_PLACEHOLDER).
+- Staff review: Admin → Clients → Identity verification shows summary cards (pending review, declined, verified, not
+  started), a status filter and search, so staff can find any client's verification state; the client profile links
+  to it. Numbers and images stay hidden until the staff member confirms their password for that client; they then
+  show for up to 15 minutes (never longer than the password confirmation), through signed links bound to that staff
+  member. Approve and Decline stay disabled until the documents were shown. A decline needs a reason. Every decision
+  emails the client (new editable template "Identity document decision"), with the reason for a decline and one
+  button to the verification page. Each opening, image view, approval and decline is in the activity log, without
+  the number or the image.
 
 ### Client import
 
