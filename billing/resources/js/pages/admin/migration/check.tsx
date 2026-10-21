@@ -1,8 +1,9 @@
-import { Link, setLayoutProps, usePage } from '@inertiajs/react';
+import { Link, router, setLayoutProps, usePage } from '@inertiajs/react';
 import {
     CircleAlert,
     CircleCheck,
     CircleSlash,
+    Download,
     FilePlus2,
     FileSearch,
     HelpCircle,
@@ -14,6 +15,7 @@ import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
 import { SectionCard } from '@/components/app/section-card';
+import { SelectField } from '@/components/app/select-field';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar } from '@/components/app/filter-bar';
@@ -59,13 +61,21 @@ type Row = {
     problems: { severity: string; message: string }[];
     changes: string[];
     match: { name: string; href: string } | null;
+    choices: Choice[];
+    link_login: boolean | null;
+    outcome: Outcome | null;
+    client_href: string | null;
 };
+
+type Choice = 'create' | 'link' | 'no_link' | 'update' | 'skip';
+type Outcome = 'created' | 'updated' | 'unchanged' | 'skipped' | 'failed';
 
 type Props = {
     run: ImportRun;
     counts: Record<Tab | 'tax_exempt', number>;
     rows: LaravelPaginated<Row>;
-    filters: { tab: Tab; search: string };
+    filters: { tab: Tab | Outcome; search: string };
+    errorsUrl: string | null;
     matchesByEmail: boolean;
     digest: string | null;
     report: {
@@ -90,6 +100,44 @@ const TABS: { value: Tab; label: string }[] = [
     { value: 'error', label: 'Errors' },
 ];
 
+const OUTCOME_TABS: { value: 'all' | Outcome; label: string }[] = [
+    { value: 'all', label: 'All rows' },
+    { value: 'created', label: 'Created' },
+    { value: 'updated', label: 'Updated' },
+    { value: 'unchanged', label: 'Unchanged' },
+    { value: 'skipped', label: 'Skipped' },
+    { value: 'failed', label: 'Not imported' },
+];
+
+const OUTCOMES = {
+    created: { label: 'Created', tone: 'success' },
+    updated: { label: 'Updated', tone: 'info' },
+    unchanged: { label: 'Unchanged', tone: 'neutral' },
+    skipped: { label: 'Skipped', tone: 'neutral' },
+    failed: { label: 'Not imported', tone: 'danger' },
+} as const;
+
+const CHOICE_LABELS: Record<Choice, string> = {
+    create: 'Create a new client',
+    link: 'Create and link the existing login',
+    no_link: 'Create without a login',
+    update: 'Update the matched client',
+    skip: 'Skip this row',
+};
+
+/** A create decided for an email that belongs to a login says what happens to that login. */
+function decisionLabel(row: Row): string {
+    if (row.decision === 'create' && row.link_login === true) {
+        return 'New client, login linked';
+    }
+
+    if (row.decision === 'create' && row.link_login === false) {
+        return 'New client, no login';
+    }
+
+    return row.decision ? DECISIONS[row.decision].label : '';
+}
+
 const DECISIONS = {
     create: { label: 'New client', tone: 'success' },
     update: { label: 'Update', tone: 'info' },
@@ -103,7 +151,9 @@ function Wrap({ children }: { children: React.ReactNode }) {
     return <span className="whitespace-normal">{children}</span>;
 }
 
-const columns: DataTableColumn<Row>[] = [
+const columns = (
+    decide: (row: Row, choice: string) => void,
+): DataTableColumn<Row>[] => [
     {
         key: 'row',
         header: 'Row',
@@ -137,23 +187,49 @@ const columns: DataTableColumn<Row>[] = [
     {
         key: 'result',
         header: 'Result',
-        cell: (row) =>
-            row.status === 'error' || row.decision === null ? (
-                <StatusBadge status="error" label="Error" tone="danger" />
-            ) : (
-                <StatusBadge
-                    status={row.decision}
-                    label={DECISIONS[row.decision].label}
-                    tone={DECISIONS[row.decision].tone}
-                />
-            ),
+        cell: (row) => (
+            <span className="flex flex-col items-start gap-2">
+                {row.outcome ? (
+                    <StatusBadge
+                        status={row.outcome}
+                        label={OUTCOMES[row.outcome].label}
+                        tone={OUTCOMES[row.outcome].tone}
+                    />
+                ) : row.status === 'error' || row.decision === null ? (
+                    <StatusBadge status="error" label="Error" tone="danger" />
+                ) : (
+                    <StatusBadge
+                        status={row.decision}
+                        label={decisionLabel(row)}
+                        tone={DECISIONS[row.decision].tone}
+                    />
+                )}
+                {row.choices.length > 0 && (
+                    <SelectField
+                        id={`row-${row.row}`}
+                        className="w-full sm:w-52"
+                        placeholder="Change…"
+                        options={row.choices.map((choice) => ({
+                            value: choice,
+                            label: CHOICE_LABELS[choice],
+                        }))}
+                        onValueChange={(choice) => decide(row, choice)}
+                    />
+                )}
+            </span>
+        ),
     },
     {
         key: 'notes',
         header: 'Notes',
         cell: (row) => (
             <span className="flex max-w-md flex-col gap-1 text-sm whitespace-normal">
-                {row.match && (
+                {row.client_href && (
+                    <Link href={row.client_href} className="hover:underline">
+                        Open the client
+                    </Link>
+                )}
+                {row.match && !row.client_href && (
                     <span>
                         Matches{' '}
                         <Link href={row.match.href} className="hover:underline">
@@ -191,7 +267,22 @@ export default function ImportCheck({
     matchesByEmail,
     digest,
     report,
+    errorsUrl,
 }: Props) {
+    const decide = (row: Row, decision: string) =>
+        router.put(
+            ClientImportController.decide(run.id).url,
+            { row: row.row, decision },
+            { preserveScroll: true },
+        );
+    const bulk = (url: string) =>
+        router.post(url, {}, { preserveScroll: true });
+    const tabs = report
+        ? OUTCOME_TABS.map((tab) => ({
+              ...tab,
+              count: tab.value === 'all' ? run.rows : report[tab.value],
+          }))
+        : TABS.map((tab) => ({ ...tab, count: counts[tab.value] }));
     const { apply } = useQueryParams();
     const { errors } = usePage().props as { errors: Record<string, string> };
     const [taxExempt, setTaxExempt] = useState(false);
@@ -261,11 +352,31 @@ export default function ImportCheck({
                 />
                 <ImportProgress run={run} />
 
-                {(errors.apply || errors.tax_exempt || errors.digest) && (
+                {errorsUrl && (
+                    <p className="text-sm text-muted-foreground">
+                        <a
+                            href={errorsUrl}
+                            className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                            <Download className="size-4" />
+                            Download the rows with errors
+                        </a>{' '}
+                        (CSV, with the reason and the original cells, to fix the
+                        file).
+                    </p>
+                )}
+
+                {(errors.apply ||
+                    errors.tax_exempt ||
+                    errors.digest ||
+                    errors.decision) && (
                     <Alert variant="destructive">
                         <CircleAlert />
                         <AlertDescription>
-                            {errors.apply ?? errors.tax_exempt ?? errors.digest}
+                            {errors.apply ??
+                                errors.tax_exempt ??
+                                errors.digest ??
+                                errors.decision}
                         </AlertDescription>
                     </Alert>
                 )}
@@ -380,6 +491,34 @@ export default function ImportCheck({
                                     )}
                                     data={{ digest, tax_exempt: taxExempt }}
                                 />
+                                {counts.needs_decision > 0 && (
+                                    <>
+                                        <Button
+                                            variant="outline"
+                                            onClick={() =>
+                                                bulk(
+                                                    ClientImportController.accept(
+                                                        run.id,
+                                                    ).url,
+                                                )
+                                            }
+                                        >
+                                            Accept all proposed
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() =>
+                                                bulk(
+                                                    ClientImportController.skipUndecided(
+                                                        run.id,
+                                                    ).url,
+                                                )
+                                            }
+                                        >
+                                            Skip the rows that need a decision
+                                        </Button>
+                                    </>
+                                )}
                                 {blocked && (
                                     <span className="text-sm text-muted-foreground">
                                         {blocked}
@@ -398,53 +537,57 @@ export default function ImportCheck({
 
                 {ready && (
                     <>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
-                            <StatCard
-                                label="New clients"
-                                value={count(counts.create)}
-                                icon={FilePlus2}
-                            />
-                            <StatCard
-                                label="Updates"
-                                value={count(counts.update)}
-                                icon={Pencil}
-                            />
-                            <StatCard
-                                label="Unchanged"
-                                value={count(counts.unchanged)}
-                                icon={CircleCheck}
-                            />
-                            <StatCard
-                                label="Skipped"
-                                value={count(counts.skip)}
-                                hint={<Wrap>Email already here</Wrap>}
-                                icon={CircleSlash}
-                            />
-                            <StatCard
-                                label="Needs a decision"
-                                value={count(counts.needs_decision)}
-                                icon={HelpCircle}
-                                tone={
-                                    counts.needs_decision > 0
-                                        ? 'warning'
-                                        : 'default'
-                                }
-                            />
-                            <StatCard
-                                label="Errors"
-                                value={count(counts.error)}
-                                icon={CircleAlert}
-                                tone={counts.error > 0 ? 'danger' : 'default'}
-                            />
-                            {counts.tax_exempt > 0 && (
+                        {!report && (
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-4">
                                 <StatCard
-                                    label="Tax-exempt"
-                                    value={count(counts.tax_exempt)}
-                                    hint={<Wrap>Invoiced without tax</Wrap>}
-                                    icon={Receipt}
+                                    label="New clients"
+                                    value={count(counts.create)}
+                                    icon={FilePlus2}
                                 />
-                            )}
-                        </div>
+                                <StatCard
+                                    label="Updates"
+                                    value={count(counts.update)}
+                                    icon={Pencil}
+                                />
+                                <StatCard
+                                    label="Unchanged"
+                                    value={count(counts.unchanged)}
+                                    icon={CircleCheck}
+                                />
+                                <StatCard
+                                    label="Skipped"
+                                    value={count(counts.skip)}
+                                    hint={<Wrap>Email already here</Wrap>}
+                                    icon={CircleSlash}
+                                />
+                                <StatCard
+                                    label="Needs a decision"
+                                    value={count(counts.needs_decision)}
+                                    icon={HelpCircle}
+                                    tone={
+                                        counts.needs_decision > 0
+                                            ? 'warning'
+                                            : 'default'
+                                    }
+                                />
+                                <StatCard
+                                    label="Errors"
+                                    value={count(counts.error)}
+                                    icon={CircleAlert}
+                                    tone={
+                                        counts.error > 0 ? 'danger' : 'default'
+                                    }
+                                />
+                                {counts.tax_exempt > 0 && (
+                                    <StatCard
+                                        label="Tax-exempt"
+                                        value={count(counts.tax_exempt)}
+                                        hint={<Wrap>Invoiced without tax</Wrap>}
+                                        icon={Receipt}
+                                    />
+                                )}
+                            </div>
+                        )}
 
                         {matchesByEmail && (
                             <Alert>
@@ -467,14 +610,14 @@ export default function ImportCheck({
                             }
                         >
                             <TabsList className="max-w-full justify-start overflow-x-auto [mask-image:linear-gradient(to_right,black_85%,transparent)] sm:[mask-image:none]">
-                                {TABS.map((tab) => (
+                                {tabs.map((tab) => (
                                     <TabsTrigger
                                         key={tab.value}
                                         value={tab.value}
                                     >
                                         {tab.label}
                                         <span className="ml-1.5 text-xs text-muted-foreground tabular-nums">
-                                            {count(counts[tab.value])}
+                                            {count(tab.count)}
                                         </span>
                                     </TabsTrigger>
                                 ))}
@@ -485,7 +628,7 @@ export default function ImportCheck({
 
                         <DataTable
                             caption="Checked rows"
-                            columns={columns}
+                            columns={columns(decide)}
                             rows={rows.data}
                             getRowKey={(row) => row.row}
                             empty={

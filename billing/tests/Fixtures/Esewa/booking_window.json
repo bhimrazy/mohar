@@ -1,0 +1,17 @@
+{
+    "form_posted_at_ms": 1792562390386,
+    "product_details": {
+        "amount": 100.0,
+        "taxAmount": 0.0,
+        "productServiceCharge": 0.0,
+        "productDeliveryCharge": 0.0,
+        "totalAmount": 100.0,
+        "productCode": "EPAYTEST",
+        "transactionUUID": "fixture-uuid-cancelled",
+        "productName": "EPAYTEST",
+        "productLogo": null,
+        "productType": "EPAY",
+        "bookingExpiryTime": 1792565389000,
+        "properties": {}
+    }
+}

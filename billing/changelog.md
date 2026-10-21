@@ -23,6 +23,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   (`billing.payment.late_closed_by_dispute`). Credit a win restored is taken back again by a later provider refund or
   dispute of the same charge. New webhook results: "dispute won; payment reinstated", "dispute
   won; needs staff review" and "dispute not booked yet; retry expected". No migration.
+- **eSewa attempts live 60 minutes and end on a cancel.** A captured run of eSewa's UAT sandbox (2026-10-21) showed
+  that eSewa keeps a booked session payable about 50 minutes after the form post, and that a cancel on eSewa's page
+  answers `NOT_FOUND` in the status check, not `CANCELED`. Before, the attempt expired after 15 minutes, so a
+  customer could pay another way while the eSewa session could still be paid, and a customer who cancelled stayed
+  locked out until those 15 minutes ran out. Now `payments_nepal.esewa.attempt_ttl_minutes` defaults to 60, and
+  values below 55 are raised to 55. A pending eSewa attempt whose status check says `NOT_FOUND` ends when the
+  customer comes back through the cancel URL (attempt failed; on any gateway, a cancel return that ends failed now
+  shows "Payment cancelled. You can try again or choose another way to pay.") or once it is 5 minutes old (attempt expired). `NOT_FOUND` never marks an invoice paid. An
+  attempt in staff review is not ended this way, and none is ended early unless `gateways.late_lookup_hours`
+  covers the attempt's lifetime plus two late-sweep hours (3 hours with the 60-minute eSewa attempt; default 48). A cancel return for a pending attempt may look up the status again 10 seconds after the
+  last lookup, instead of one minute. Ended attempts stay in the late-payment sweep (#130), so an old eSewa form
+  that is still paid is booked and flagged for staff. Attempts already open at the upgrade keep their 15-minute
+  expiry. No migration and no permission change. Kernel: `LookupResult` gains a trailing `sessionEnded` field (default false), and
+  `SettlePaymentAttempt::handle()` takes an optional `cancelReturn` flag.
 - **Changing a client login's email removes its verification (#184).** Every path that changes the email of a client
   login (not staff) now leaves `email_verified_at` empty unless the same save sets it (the profile page already did
   this). The client import relies on it: it links an existing login only when its email was verified 30 days ago or
@@ -40,7 +54,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   equivalent) above the figure the message gives. The shipped values (240 s) pass. The company time zone is
   now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
   still pending).
-
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
   migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
   longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
@@ -306,6 +319,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   once, after commit, and `MigrationRunPaused` when an import stops. Continue goes through the same one-at-a-time
   check as confirm, and each row is claimed under a lock, so no row is applied twice. The page shows the progress and
   the counts by outcome.
+- **Review and report**: each checked row can be switched to the choices it allows (create, update the matched client,
+  or skip; for an email that belongs to a client login, "create and link the existing login" when that login's email
+  was verified 30 days ago or more, or "create without a login"), and the counts and review digest follow without
+  reading any row payload. A refused decision shows its reason on the page. "Accept all proposed" creates the rows whose
+  company name or tax ID matched a client and leaves rows matched to a closed client, several clients or a recently
+  changed email, and rows whose email belongs to a login, for staff, saying how many. After the import the rows are
+  listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
+  errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
+  generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an
   import stopped partway and never continued loses them 30 days after its last activity and can no longer be continued.
@@ -750,6 +773,10 @@ a time: medians of three runs before and three after, on the same database, on a
 - Form-post gateways now open a full-page checkout whose CSP allows exactly the provider origin
   (`SecurityHeaders::allowFormAction()`); before, the browser blocked the eSewa form.
 - Provider logos on the pay panel and admin gateway pages; client pay requests are rate limited per user.
+- eSewa: an attempt lasts eSewa's 50-minute booking window plus a margin (60 minutes), and a cancel on eSewa's page
+  ends the attempt at once, so the customer can pay again (see the upgrade note). The eSewa "Test connection"
+  reports `ES104` as a wrong product code or secret key, and any other refusal, such as a duplicate transaction
+  uuid, as a refused test booking.
 
 ### Support
 

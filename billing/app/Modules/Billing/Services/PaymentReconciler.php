@@ -23,6 +23,9 @@ class PaymentReconciler
 {
     public const LATE_INTERVAL_MINUTES = 60;
 
+    /** How often the late sweep runs (`--only=late`, hourly in BillingServiceProvider). */
+    public const LATE_RUN_EVERY_MINUTES = 60;
+
     /** Upper bound for `gateways.late_lookup_hours`, also enforced here for values stored directly. */
     public const MAX_LATE_LOOKUP_HOURS = 168;
 
@@ -133,7 +136,30 @@ class PaymentReconciler
      */
     public function lateWindowHours(): int
     {
-        return min(self::MAX_LATE_LOOKUP_HOURS, max(0, $this->settings->int('gateways.late_lookup_hours', 48)));
+        return self::lateWindowHoursFrom($this->settings);
+    }
+
+    public static function lateWindowHoursFrom(BillingSettings $settings): int
+    {
+        return min(self::MAX_LATE_LOOKUP_HOURS, max(0, $settings->int('gateways.late_lookup_hours', 48)));
+    }
+
+    /**
+     * Whether the late sweep is sure to look up an attempt again after it was closed early, at a point when any
+     * payment made during its lifetime is already visible. The closing lookup can come as late as the attempt's
+     * expiry; the sweep then waits LATE_INTERVAL_MINUTES after that lookup, and only starts every
+     * LATE_RUN_EVERY_MINUTES. So the late window must be at least lifetime + interval + run spacing (the margin):
+     * 180 minutes for a 60-minute eSewa attempt. An attempt with no expiry is never covered.
+     */
+    public static function lateSweepCovers(PaymentAttempt $attempt, BillingSettings $settings): bool
+    {
+        if ($attempt->created_at === null || $attempt->expires_at === null) {
+            return false;
+        }
+
+        $lifetimeMinutes = (int) ceil($attempt->created_at->diffInMinutes($attempt->expires_at, true));
+
+        return self::lateWindowHoursFrom($settings) * 60 >= $lifetimeMinutes + self::LATE_INTERVAL_MINUTES + self::LATE_RUN_EVERY_MINUTES;
     }
 
     public function inLateWindow(PaymentAttempt $attempt): bool

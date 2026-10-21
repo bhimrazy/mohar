@@ -43,14 +43,21 @@ class GatewayReturnController extends Controller
         }
 
         // At most one provider lookup per attempt per minute from this anonymous route; otherwise reuse the last result.
+        // A cancel return for a still-pending attempt may look again after ten seconds, so a poll made while the
+        // customer was on the provider's page doesn't keep a cancelled payment open. The cancel flag is only a hint;
+        // the lookup decides.
         // The customer is waiting, so the lookup is a single quick try: anything inconclusive is left to the poller.
-        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt(now()->subMinute())
+        $cancelReturn = $request->boolean('cancelled');
+        $floor = $cancelReturn && $attempt->status === AttemptStatus::Pending ? now()->subSeconds(10) : now()->subMinute();
+        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($floor)
             ? $attempt->status
-            : $settle->handle($attempt, interactive: true);
+            : $settle->handle($attempt, interactive: true, cancelReturn: $cancelReturn);
 
         Inertia::flash('toast', match ($status) {
             AttemptStatus::Succeeded => ['type' => 'success', 'message' => __('Payment received. Thank you.')],
-            AttemptStatus::Failed => ['type' => 'error', 'message' => __('The payment didn\'t go through. Try again or use another method.')],
+            AttemptStatus::Failed => $cancelReturn
+                ? ['type' => 'info', 'message' => __('Payment cancelled. You can try again or choose another way to pay.')]
+                : ['type' => 'error', 'message' => __('The payment didn\'t go through. Try again or use another method.')],
             AttemptStatus::Expired => ['type' => 'warning', 'message' => __('The payment session expired. Start a new payment.')],
             default => ['type' => 'info', 'message' => __('Your payment is being confirmed. We\'ll update the invoice shortly.')],
         });
