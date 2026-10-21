@@ -10,7 +10,7 @@ enum KycStatus: string
     case NotStarted = 'not_started';
     case InProgress = 'in_progress';
     case PendingReview = 'pending_review';
-    case Rejected = 'rejected';
+    case Declined = 'declined';
     case Verified = 'verified';
 
     public function label(): string
@@ -19,7 +19,7 @@ enum KycStatus: string
             self::NotStarted => 'Not started',
             self::InProgress => 'In progress',
             self::PendingReview => 'Pending review',
-            self::Rejected => 'Rejected',
+            self::Declined => 'Declined',
             self::Verified => 'Verified',
         };
     }

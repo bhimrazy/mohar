@@ -283,14 +283,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
   phone number (numbers without a prefix get `+977`, set in `kyc.phone_country_code`), and upload two different
   documents out of Citizenship certificate, National ID (NID) and Driving licence, each with its number and a front and
-  back image. A banner on every client-area page shows the status (to do, pending review, needs attention) until the
+  back image. A banner on every client-area page shows the status (to do, pending review, declined) until the
   client is verified. Verification never blocks ordering, paying or using services.
 - Images must be JPEG, PNG or WebP by their content (SVG and PDF are refused), up to 5 MB each. Images and document
   numbers are encrypted at rest; clients see only the last four characters of a number.
-- A document waiting for review or rejected can be uploaded again, and the old images are deleted; an approved one
+- A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
   cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
   the daily task `kyc.prune_documents`, at most 500 per run.
-- Staff review (approve or reject with a reason) follows in the next pull request.
+- Staff review (approve, or decline with a reason) follows in the next pull request.
 
 ### Client import
 

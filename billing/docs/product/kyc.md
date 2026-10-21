@@ -39,17 +39,24 @@ client account.
 
 Derived, never stored, so it follows later changes (a changed email undoes the email step):
 
-| Status         | When                                                                                   |
-| -------------- | -------------------------------------------------------------------------------------- |
-| Not started    | No current document.                                                                   |
-| In progress    | Documents of fewer than two types, and nothing rejected.                               |
-| Pending review | Current documents of two or more types, at least one waiting for staff, none rejected. |
-| Rejected       | A current document was rejected; the client sees the reason and uploads it again.      |
-| Verified       | Email and phone done and two or more types approved.                                   |
+| Status         | When                                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------ |
+| Not started    | No current document.                                                                                         |
+| In progress    | Documents of fewer than two types, and nothing declined.                                                     |
+| Pending review | Current documents of two or more types, at least one waiting for staff, none declined.                       |
+| Declined       | A current document was declined; the client sees the reason and can upload a new one.                        |
+| Verified       | Email and phone done and two or more types approved (checked first: a declined extra type does not undo it). |
 
-The banner at the top of the client area shows while the status is not Verified: "Verify your identity to finish
-setting up your account" with Start verification; "Your documents are waiting for review" while pending; "A document
-needs attention" when rejected.
+The banner at the top of the client area shows while the status is not Verified, except on the verification page
+itself: "Verify your identity to finish setting up your account" with Start verification; a pending-review line while
+staff check; "A document was declined. Upload a new one when you can." when declined. Nothing says "to continue":
+verification never blocks the client. A verified client sees "Verified on <date>" and no upload prompt.
+
+One term per idea (CTO, 2026-10-21): staff **Decline** a document; its status is **Declined** in the client, staff and
+email views.
+
+The client routes answer 404 while `kyc.enabled` is off, from a route middleware that runs before validation. The
+admin review routes stay available, so staff can finish the queue after the feature is switched off.
 
 ## 5. Files
 
@@ -58,19 +65,25 @@ needs attention" when rejected.
 - Stored on the private `objects` disk, encrypted with the application key (`Crypt::encryptString`) under a random
   path. The document number is encrypted at rest too. Neither the bytes, the number nor the path ever appear in an
   Inertia prop, a log line or an audit entry; clients see the last 4 characters of the number only.
-- A document can be replaced while it waits for staff or after it was rejected; an approved one cannot. The replaced
+- A failed upload never flashes the document number to the session (excluded from old input).
+- Metadata (EXIF) is not stripped yet: re-encoding needs PHP's GD extension, which the production image has but the
+  development and CI PHP do not; tracked as a follow-up issue.
+- A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.
 
 ## 6. Retention
 
 Documents are kept while the client account exists, and deleted **90 days after the account is closed** (owner,
-2026-10-21; the issue's 30 days is superseded), and when replaced (§5). A reopened account keeps its documents.
+2026-10-21; the issue's 30 days is superseded), and when replaced (§5). A reopened account keeps its documents. An
+upload that commits after the account was closed gets its deletion date at write time. The retention listener reads
+and updates under the client's row lock (ADR 0021 order: client, then documents).
 
 The daily automation task `kyc.prune_documents` (housekeeping stage): deletes superseded documents, then documents of
 clients closed on or before today minus 90 days. Each document is deleted on its own (file, then row); one failure is
-logged without the path and retried the next day. At most 500 documents per run, the rest the next day. It reads
-`kyc_documents` through the `client_id` and `superseded_at` indexes and is idempotent.
+logged with the document id only (never the path) and retried the next day. At most 500 documents per run, the rest
+the next day. It reads `kyc_documents_delete_after_index` (superseded rows get `delete_after` = the day they are
+replaced), skips current documents whose client is no longer closed, and is idempotent.
 
 ## 7. Staff review (PR B)
 
@@ -99,7 +112,7 @@ logged without the path and retried the next day. At most 500 documents per run,
    so is an image over 5 MB.
 6. MUST: stored files and document numbers are encrypted at rest; the client page and logs never contain them.
 7. MUST: a client can only read and change their own account's verification (IDOR test).
-8. MUST: replacing a pending or rejected document deletes the old files; an approved document cannot be replaced.
+8. MUST: replacing a pending or declined document deletes the old files; an approved document cannot be replaced.
 9. MUST: the status shows pending review once two different types are uploaded.
 10. MUST: the retention task deletes documents 90 days after closure, not before, keeps those of reopened accounts,
     handles each document on its own, caps its work per run and is idempotent.

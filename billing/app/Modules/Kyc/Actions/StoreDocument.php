@@ -9,6 +9,7 @@ use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Kyc\Services\DocumentVault;
+use App\Modules\Kyc\Services\RetentionDate;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,7 +22,7 @@ use Throwable;
  */
 class StoreDocument
 {
-    public function __construct(private DocumentVault $vault, private ActivityLogger $activity, private BusinessCalendar $calendar) {}
+    public function __construct(private DocumentVault $vault, private ActivityLogger $activity, private BusinessCalendar $calendar, private RetentionDate $retention) {}
 
     /**
      * @throws ValidationException
@@ -37,7 +38,8 @@ class StoreDocument
         try {
             [$document, $replaced] = DB::transaction(function () use ($clientId, $type, $number, $stored, $userId): array {
                 $client = Client::query()->lockForUpdate()->findOrFail($clientId);
-                $replaced = KycDocument::query()->where('client_id', $client->id)->current()->where('type', $type->value)->first();
+                // Lock order (ADR 0021): the client, then its documents. DecideDocument takes the same order.
+                $replaced = KycDocument::query()->where('client_id', $client->id)->current()->where('type', $type->value)->lockForUpdate()->first();
 
                 if ($replaced?->status === DocumentStatus::Approved) {
                     throw ValidationException::withMessages(['type' => __('This document is already approved, so it cannot be replaced.')]);
@@ -55,6 +57,8 @@ class StoreDocument
                     'back_mime' => $stored[1]['mime'] ?? null,
                     'status' => DocumentStatus::Pending,
                     'uploaded_by' => $userId,
+                    // An account closed while this upload was on its way: the retention listener has already run.
+                    'delete_after' => $client->status === 'closed' ? $this->retention->deleteAfter($client) : null,
                 ]);
 
                 $this->activity->log($replaced === null ? 'Identity document uploaded' : 'Identity document replaced', $document, $client->id, ['type' => $type->value], 'kyc.document.uploaded');

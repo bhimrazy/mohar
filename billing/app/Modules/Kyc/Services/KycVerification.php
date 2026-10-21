@@ -8,6 +8,7 @@ use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Models\KycDocument;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -69,12 +70,23 @@ class KycVerification
         $types = fn (DocumentStatus ...$statuses): int => $documents->filter(fn (KycDocument $document): bool => in_array($document->status, $statuses, true))
             ->map(fn (KycDocument $document): DocumentType => $document->type)->unique()->count();
 
+        // Verified wins: a declined extra document does not undo two approved types (#228 review L1).
         return match (true) {
             $documents->isEmpty() => KycStatus::NotStarted,
-            $documents->contains('status', DocumentStatus::Rejected) => KycStatus::Rejected,
             $types(DocumentStatus::Approved) >= self::REQUIRED_TYPES && $this->emailProved($client) && $this->phoneDone($client) => KycStatus::Verified,
+            $documents->contains('status', DocumentStatus::Declined) => KycStatus::Declined,
             $types(DocumentStatus::Pending, DocumentStatus::Approved) >= self::REQUIRED_TYPES && $documents->contains('status', DocumentStatus::Pending) => KycStatus::PendingReview,
             default => KycStatus::InProgress,
         };
+    }
+
+    /**
+     * When the client became verified: the latest approval among its current documents.
+     *
+     * @param  Collection<int, KycDocument>  $documents
+     */
+    public function verifiedAt(Collection $documents): ?CarbonImmutable
+    {
+        return $documents->where('status', DocumentStatus::Approved)->max('decided_at');
     }
 }

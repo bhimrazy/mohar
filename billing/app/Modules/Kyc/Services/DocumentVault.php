@@ -40,7 +40,7 @@ class DocumentVault
             try {
                 Storage::disk(KycDocument::DISK)->delete($path);
             } catch (Throwable $exception) {
-                Log::warning('An identity image of a failed upload could not be deleted.', ['error' => $exception->getMessage()]);
+                Log::warning('An identity image of a failed upload could not be deleted.', ['error' => $exception::class]);
             }
         }
     }
@@ -60,7 +60,8 @@ class DocumentVault
 
             return true;
         } catch (Throwable $exception) {
-            Log::warning('An identity document could not be deleted; the retention task retries it.', ['document_id' => $document->id, 'error' => $exception->getMessage()]);
+            // Only the id and the exception class: storage messages carry the path (spec §5).
+            Log::warning('An identity document could not be deleted; the retention task retries it.', ['document_id' => $document->id, 'error' => $exception::class]);
 
             return false;
         }

@@ -50,8 +50,28 @@ test('with verification off (the default) there is no banner and the page answer
 
     expect(config('kyc.enabled'))->toBeFalse();
     $this->get(route('client.dashboard'))->assertInertia(fn (AssertableInertia $page) => $page->where('kyc', null));
-    $this->get(route('client.kyc.show'))->assertNotFound();
     kycSubmit(DocumentType::Citizenship)->assertNotFound();
+
+    // Every route, GET and POST/PUT, with empty bodies: 404 before any validation runs.
+    foreach (['client.kyc.show', 'client.kyc.phone', 'client.kyc.documents.store'] as $name) {
+        foreach (['get', 'post', 'put'] as $method) {
+            $status = $this->{$method}(route($name), [])->status();
+            expect($status)->toBeIn([404, 405]);
+        }
+
+    }
+});
+
+test('a failed upload never flashes the document number to the session, and uses our own messages', function () {
+    $this->from(route('client.kyc.show'))->post(route('client.kyc.documents.store'), ['type' => 'citizenship', 'number' => '27-01-74-01234'])
+        ->assertSessionHasErrors(['front' => 'Add a photo of the front of the document.', 'back' => 'Add a photo of the back of the document.'])
+        ->assertSessionMissing('_old_input.number');
+
+    $this->post(route('client.kyc.documents.store'), ['type' => 'citizenship'])->assertSessionHasErrors(['number' => 'Enter the document number.']);
+});
+
+test('the banner is not shown on the verification page itself', function () {
+    $this->get(route('client.kyc.show'))->assertInertia(fn (AssertableInertia $page) => $page->where('kyc', null));
 });
 
 test('an unverified client sees the banner on client-area pages, and it changes to pending review after two types', function () {
@@ -107,12 +127,12 @@ test('an image over 5 MB is refused, and the back image is required', function (
     expect(KycDocument::query()->count())->toBe(0);
 });
 
-test('replacing a rejected document deletes the old files, and an approved document cannot be replaced', function () {
+test('replacing a declined document deletes the old files, and an approved document cannot be replaced', function () {
     kycSubmit(DocumentType::Citizenship);
     $old = KycDocument::query()->sole();
-    $old->forceFill(['status' => DocumentStatus::Rejected, 'rejection_reason' => 'The photo is blurred.'])->save();
+    $old->forceFill(['status' => DocumentStatus::Declined, 'decline_reason' => 'The photo is blurred.'])->save();
 
-    $this->get(route('client.kyc.show'))->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.current.reason', 'The photo is blurred.')->where('status.value', 'rejected'));
+    $this->get(route('client.kyc.show'))->assertInertia(fn (AssertableInertia $page) => $page->where('documents.0.current.reason', 'The photo is blurred.')->where('status.value', 'declined'));
 
     kycSubmit(DocumentType::Citizenship, '27-01-74-05555')->assertSessionHasNoErrors();
 
@@ -184,10 +204,12 @@ test('verified needs email, phone and two different approved types; one approved
     KycDocument::factory()->approved()->type(DocumentType::Citizenship)->create(['client_id' => $this->client->id, 'superseded_at' => now()]);
     expect($kyc->status($this->client))->toBe(KycStatus::InProgress);
 
-    KycDocument::factory()->approved()->type(DocumentType::NationalId)->create(['client_id' => $this->client->id]);
-    expect($kyc->status($this->client))->toBe(KycStatus::Verified);
+    KycDocument::factory()->approved()->type(DocumentType::NationalId)->create(['client_id' => $this->client->id, 'decided_at' => '2026-10-20 08:00:00']);
+    KycDocument::factory()->declined()->type(DocumentType::DrivingLicence)->create(['client_id' => $this->client->id]);
+    expect($kyc->status($this->client))->toBe(KycStatus::Verified); // a declined third type does not undo it
+    $this->get(route('client.kyc.show'))->assertInertia(fn (AssertableInertia $page) => $page->where('status.value', 'verified')->where('status.verifiedAt', '2026-10-20T08:00:00+00:00'));
     $this->get(route('client.dashboard'))->assertInertia(fn (AssertableInertia $page) => $page->where('kyc', null));
 
     $this->client->forceFill(['phone' => null])->save();
-    expect($kyc->status($this->client))->toBe(KycStatus::InProgress);
+    expect($kyc->status($this->client))->toBe(KycStatus::Declined);
 });

@@ -54,10 +54,16 @@ test('a reopened account keeps its documents, whatever order the close and reope
     app(ScheduleDocumentRetention::class)->handle(new ClientClosed($this->client->id)); // a late close job
     expect($this->document->fresh()->delete_after)->toBeNull()
         ->and(app(PruneDocuments::class)->handle(CarbonImmutable::parse('2030-01-01')))->toBe(0);
+
+    // A reopen whose listener never ran: the prune still keeps the current documents of an open account.
+    $this->document->forceFill(['delete_after' => '2026-10-01'])->save();
+    expect(app(PruneDocuments::class)->handle(CarbonImmutable::parse('2026-10-22')))->toBe(0)
+        ->and($this->document->fresh())->not->toBeNull();
 });
 
 test('one document that cannot be deleted is kept for the next run and never stops the rest', function () {
     $second = KycDocument::factory()->create(['client_id' => $this->client->id]);
+    $this->client->forceFill(['status' => 'closed', 'closed_at' => now()])->save();
     KycDocument::query()->update(['delete_after' => '2026-10-01']);
     $disk = Mockery::mock(Storage::disk(KycDocument::DISK))->makePartial();
     $disk->shouldReceive('delete')->andReturnUsing(fn (string $path): bool => $path === $this->document->front_path ? throw new RuntimeException('storage down') : true);
@@ -71,6 +77,7 @@ test('one document that cannot be deleted is kept for the next run and never sto
 test('a run deletes at most the batch size; the rest wait for the next run', function () {
     config(['kyc.prune_batch' => 2]);
     KycDocument::factory()->count(2)->create(['client_id' => $this->client->id]);
+    $this->client->forceFill(['status' => 'closed', 'closed_at' => now()])->save();
     KycDocument::query()->update(['delete_after' => '2026-10-01']);
 
     expect(app(PruneDocuments::class)->handle(CarbonImmutable::parse('2026-10-22')))->toBe(2)

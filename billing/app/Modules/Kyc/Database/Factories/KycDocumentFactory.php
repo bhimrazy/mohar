@@ -40,8 +40,8 @@ class KycDocumentFactory extends Factory
         return $this->state(['status' => DocumentStatus::Approved]);
     }
 
-    public function rejected(string $reason = 'The photo is blurred.'): static
+    public function declined(string $reason = 'The photo is blurred.'): static
     {
-        return $this->state(['status' => DocumentStatus::Rejected, 'rejection_reason' => $reason]);
+        return $this->state(['status' => DocumentStatus::Declined, 'decline_reason' => $reason]);
     }
 }

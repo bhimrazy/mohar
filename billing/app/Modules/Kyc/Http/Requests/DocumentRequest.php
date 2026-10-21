@@ -2,7 +2,9 @@
 
 namespace App\Modules\Kyc\Http\Requests;
 
+use App\Modules\Core\Support\ClientContext;
 use App\Modules\Kyc\Enums\DocumentType;
+use App\Support\Integrations\KeepsSecretsOutOfOldInput;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -13,11 +15,23 @@ use Illuminate\Validation\Rule;
  */
 class DocumentRequest extends FormRequest
 {
+    use KeepsSecretsOutOfOldInput;
+
     public const IMAGE_TYPES = 'mimetypes:image/jpeg,image/png,image/webp';
 
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return $this->user() !== null && app(ClientContext::class)->can('profile');
+    }
+
+    /**
+     * The document number is personal data: it is never flashed to the session with the old input.
+     *
+     * @return list<string>
+     */
+    protected function secretInputPaths(): array
+    {
+        return ['number'];
     }
 
     /**
@@ -42,6 +56,14 @@ class DocumentRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'type.required' => __('Choose the document type.'),
+            'number.required' => __('Enter the document number.'),
+            'number.min' => __('Enter the full document number.'),
+            'number.max' => __('A document number has at most 40 characters.'),
+            'front.required' => __('Add a photo of the front of the document.'),
+            'back.required' => __('Add a photo of the back of the document.'),
+            'front.file' => __('Add a photo of the front of the document.'),
+            'back.file' => __('Add a photo of the back of the document.'),
             'front.mimetypes' => __('Upload a photo or scan as JPEG, PNG or WebP.'),
             'back.mimetypes' => __('Upload a photo or scan as JPEG, PNG or WebP.'),
             'front.max' => __('The image must be 5 MB or smaller.'),

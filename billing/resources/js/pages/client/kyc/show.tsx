@@ -20,7 +20,7 @@ type DocumentRow = {
     hasBack: boolean;
     current: null | {
         number: string;
-        status: 'pending' | 'approved' | 'rejected';
+        status: 'pending' | 'approved' | 'declined';
         statusLabel: string;
         reason: string | null;
         uploadedAt: string | null;
@@ -28,7 +28,7 @@ type DocumentRow = {
 };
 
 type Props = {
-    status: { value: string; label: string };
+    status: { value: string; label: string; verifiedAt: string | null };
     email: { address: string; done: boolean };
     phone: { value: string | null; done: boolean; countryCode: string };
     documents: DocumentRow[];
@@ -43,7 +43,7 @@ const STATUS_TONE: Record<
     not_started: 'neutral',
     in_progress: 'info',
     pending_review: 'warning',
-    rejected: 'danger',
+    declined: 'danger',
     verified: 'success',
     pending: 'warning',
     approved: 'success',
@@ -85,9 +85,11 @@ function StepTitle({
 function DocumentUpload({
     row,
     maxUploadMb,
+    onDone,
 }: {
     row: DocumentRow;
     maxUploadMb: number;
+    onDone?: () => void;
 }) {
     const id = (field: string) => `${row.type}-${field}`;
     const accept = 'image/jpeg,image/png,image/webp';
@@ -97,6 +99,7 @@ function DocumentUpload({
             {...VerificationController.document.form()}
             options={{ preserveScroll: true }}
             resetOnSuccess
+            onSuccess={onDone}
             className="grid gap-4 sm:grid-cols-2"
         >
             {({ errors, processing }) => (
@@ -168,13 +171,16 @@ function DocumentUpload({
 function DocumentItem({
     row,
     maxUploadMb,
+    verified,
 }: {
     row: DocumentRow;
     maxUploadMb: number;
+    verified: boolean;
 }) {
     const current = row.current;
     const [replacing, setReplacing] = useState(false);
-    const canReplace = current !== null && current.status !== 'approved';
+    const canReplace =
+        current !== null && current.status !== 'approved' && !verified;
 
     return (
         <li className="grid gap-3 py-4 first:pt-0 last:pb-0">
@@ -219,9 +225,9 @@ function DocumentItem({
                     )}
                 </div>
             </div>
-            {current?.status === 'rejected' && current.reason && (
+            {current?.status === 'declined' && current.reason && (
                 <p className="rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-sm text-danger-text">
-                    Not accepted: {current.reason} Upload it again to continue.
+                    Declined: {current.reason} Upload a new one when you can.
                 </p>
             )}
             {current?.status === 'approved' && (
@@ -230,8 +236,15 @@ function DocumentItem({
                     detail is wrong.
                 </p>
             )}
-            {(current === null || replacing) && (
-                <DocumentUpload row={row} maxUploadMb={maxUploadMb} />
+            {current === null && verified && (
+                <p className="text-sm text-muted-foreground">Not needed.</p>
+            )}
+            {((current === null && !verified) || replacing) && (
+                <DocumentUpload
+                    row={row}
+                    maxUploadMb={maxUploadMb}
+                    onDone={() => setReplacing(false)}
+                />
             )}
         </li>
     );
@@ -246,8 +259,9 @@ export default function KycShow({
     maxUploadMb,
 }: Props) {
     const uploaded = documents.filter(
-        (row) => row.current && row.current.status !== 'rejected',
+        (row) => row.current && row.current.status !== 'declined',
     ).length;
+    const verified = status.value === 'verified';
 
     return (
         <>
@@ -255,7 +269,17 @@ export default function KycShow({
             <Page size="narrow">
                 <PageHeader
                     title="Identity verification"
-                    description="Confirm your email and phone, then upload two different identity documents for our team to check. Your account works as usual while you do this."
+                    description={
+                        verified && status.verifiedAt ? (
+                            <>
+                                Verified on{' '}
+                                <DateTime value={status.verifiedAt} />. Thank
+                                you, there is nothing more to do.
+                            </>
+                        ) : (
+                            'Confirm your email and phone, then upload two different identity documents for our team to check. Your account works as usual while you do this.'
+                        )
+                    }
                     actions={
                         <StatusBadge
                             status={status.value}
@@ -328,6 +352,7 @@ export default function KycShow({
                                             name="phone"
                                             type="tel"
                                             autoComplete="tel"
+                                            key={phone.value ?? ''}
                                             defaultValue={phone.value ?? ''}
                                             placeholder={`${phone.countryCode} 98XXXXXXXX`}
                                             aria-invalid={!!errors.phone}
@@ -355,7 +380,11 @@ export default function KycShow({
                                 done={uploaded >= requiredTypes}
                             />
                         }
-                        description={`Upload at least ${requiredTypes} different documents, with a clear photo of the front and back. ${uploaded} of ${requiredTypes} uploaded.`}
+                        description={
+                            verified
+                                ? undefined
+                                : `Upload at least ${requiredTypes} different documents, with a clear photo of the front and back. ${uploaded} of ${requiredTypes} uploaded.`
+                        }
                     >
                         <ul className="divide-y">
                             {documents.map((row) => (
@@ -363,6 +392,7 @@ export default function KycShow({
                                     key={row.type}
                                     row={row}
                                     maxUploadMb={maxUploadMb}
+                                    verified={verified}
                                 />
                             ))}
                         </ul>

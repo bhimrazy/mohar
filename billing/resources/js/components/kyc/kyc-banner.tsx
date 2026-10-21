@@ -23,10 +23,10 @@ const MESSAGES: Record<
         action: 'View status',
         tone: 'warning',
     },
-    rejected: {
-        text: 'A document needs attention: our team could not accept it.',
+    declined: {
+        text: 'A document was declined. Upload a new one when you can.',
         action: 'See why',
-        tone: 'danger',
+        tone: 'warning',
     },
 };
 
