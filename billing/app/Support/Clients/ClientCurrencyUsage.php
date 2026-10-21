@@ -12,17 +12,17 @@ use InvalidArgumentException;
  *   app(ClientCurrencyUsage::class)->source('services', fn (array $clientIds): array => Service::withTrashed()
  *       ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
  *
- * A source receives a batch of client ids and returns those it holds records for. With no source registered (the
- * modules are absent) no client is in use. Sources are asked in registration order, each only for the clients not
- * found yet.
+ * A source receives a batch of client ids and returns those it holds records for (ids may repeat or come as strings).
+ * With no source registered (the modules are absent) no client is in use. Sources are asked in registration order,
+ * each only for the clients not found yet.
  */
 class ClientCurrencyUsage
 {
-    /** @var array<string, Closure(list<int>): list<int|string>> */
+    /** @var array<string, Closure(list<int>): array<int|string>> */
     private array $sources = [];
 
     /**
-     * @param  Closure(list<int>): list<int|string>  $clientsWithRecords
+     * @param  Closure(list<int>): array<int|string>  $clientsWithRecords
      */
     public function source(string $key, Closure $clientsWithRecords): void
     {
@@ -50,7 +50,7 @@ class ClientCurrencyUsage
                 break;
             }
 
-            array_push($found, ...array_map(intval(...), $source($pending)));
+            array_push($found, ...array_map(intval(...), array_values($source($pending))));
         }
 
         return array_values(array_unique(array_intersect($found, $clientIds)));

@@ -15,7 +15,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - Added `App\Enums\ImportStopReason` (`@open`, ADR 0010/0011): `ApplyFailed`. `$sourceSystem` stays a string because it
   is a registry key.
 - Added the registry `App\Support\Clients\ClientCurrencyUsage` (singleton): `source(string $key, Closure(list<int>):
-  list<int>)` and `clientsInUse(list<int>): list<int>`, the clients some module holds amounts for, so an import never
+  array<int|string>)` and `clientsInUse(list<int>): list<int>`, the clients some module holds amounts for, so an import never
   relabels their currency (spec §6.4). Billing (invoices, quotes, transactions, credit), Services, Orders and Domains
   each register a source; with none registered no client is in use.
 - `App\Data\Migration\ImportOutcome` gains a trailing `?array $before = null`: the changed fields' previous values,
