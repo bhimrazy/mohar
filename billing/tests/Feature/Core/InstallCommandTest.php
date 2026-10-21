@@ -389,12 +389,12 @@ test('a system role edited away from its definition gets its permissions back, w
 
     $results = app(ReferenceDataInstaller::class)->install();
 
-    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'services.services.view', 'support.*'])
+    expect($support->refresh()->permissions)->toBe(['core.clients.view', 'domains.domains.view', 'kyc.documents.view', 'services.services.view', 'support.*'])
         ->and($results['core_roles']['result'])->toEqual(new ReferenceDataResult(updated: 1, unchanged: 3));
 
     $log = ActivityLog::query()->where('event', 'role.updated')->sole();
     expect($log->subject_id)->toBe($support->id)
-        ->and($log->properties)->toBe(['role' => 'Support', 'added' => ['core.clients.view', 'domains.domains.view', 'services.services.view'], 'removed' => ['billing.refunds.manage']]);
+        ->and($log->properties)->toBe(['role' => 'Support', 'added' => ['core.clients.view', 'domains.domains.view', 'kyc.documents.view', 'services.services.view'], 'removed' => ['billing.refunds.manage']]);
 
     Event::assertDispatched(RoleUpdated::class, fn (RoleUpdated $event) => $event->roleId === $support->id);
 });

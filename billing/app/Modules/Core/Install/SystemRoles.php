@@ -40,8 +40,10 @@ final class SystemRoles implements InstallsReferenceData
         ],
         'support' => [
             'name' => 'Support',
-            'description' => 'Tickets plus read access to clients, services and domains.',
-            'permissions' => ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view'],
+            'description' => 'Tickets plus read access to clients, services, domains and identity documents.',
+            // kyc.documents.view is sensitive, so it is listed by its exact key; deciding (kyc.documents.review) stays with
+            // full administrators (owner decision, 2026-10-21).
+            'permissions' => ['core.clients.view', 'support.*', 'services.services.view', 'domains.domains.view', 'kyc.documents.view'],
         ],
         'sales' => [
             'name' => 'Sales',

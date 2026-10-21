@@ -85,19 +85,35 @@ logged with the document id only (never the path) and retried the next day. At m
 the next day. It reads `kyc_documents_delete_after_index` (superseded rows get `delete_after` = the day they are
 replaced), skips current documents whose client is no longer closed, and is idempotent.
 
-## 7. Staff review (PR B)
+## 7. Staff review
 
-- New permission `kyc.documents.review` ("View identity documents and approve or reject them"), registered as
-  **sensitive**: no wildcard grants it, only the exact key or `*`. Approve and reject require `password.recent`.
-- Admin → Clients → Identity verification: a queue of clients with documents waiting, oldest first, then a page per
-  client with each document's type, number, upload time and status.
-- Images open only through signed links that expire after **15 minutes**, checked again for the permission when
-  opened, streamed with `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`.
-- Approve, or reject with a reason (required, up to 500 characters). The client sees the reason and uploads again.
-  Decisions lock the document row and refuse a document that changed since the page was loaded.
-- The audit log records each document view, approval and rejection (type and decision in the properties; never the
-  number or the file).
-- The admin client profile links to the client's verification page.
+- Two new **sensitive** permissions (no wildcard grants them, only the exact key or `*`), owner decision 2026-10-21:
+  `kyc.documents.view` ("View the identity verification queue and identity documents"), seeded on the Support role,
+  and `kyc.documents.review` ("Approve or decline identity documents"), held by full administrators (`*`) only by
+  default. A reviewer can also view. Showing documents and every decision require `password.recent`. Staff without
+  the review permission see Approve and Decline disabled, with the reason.
+- Admin → Clients → Identity verification is an operational page: summary cards (pending review, declined, verified
+  = two types approved, not started = open accounts without documents), a status filter (pending review by default,
+  declined, verified, not started, all clients) and search by client name or email. Each row shows the client's
+  derived status. The admin client profile links to the client's page.
+- A client's page shows the status ("Verified on <date>" once verified), the email and phone steps and each current
+  document. Numbers and images are hidden until the staff member clicks Show documents for **that client**: a
+  password step-up, one audit entry per client, and a window that ends at the earlier of 15 minutes and the end of
+  the step-up. The page shows when the window ends. Other clients stay hidden. The page history is encrypted
+  (Inertia `encryptHistory`).
+- Images open only through signed links bound to the staff member and the document side, valid until the window
+  ends, and only while that client is unlocked; streamed with `Cache-Control: private, no-store` and
+  `X-Content-Type-Options: nosniff`, under a filename made of the type and side. A missing or unreadable file answers
+  404 and is logged with the document id only.
+- Approve, or **Decline** with a reason (required, up to 500 characters). Both stay disabled, with the reason shown,
+  until the documents were shown for that client; the server refuses a decision otherwise. A decision locks the
+  client, then the document (ADR 0021 §3, the same order as an upload), and refuses a document that changed since
+  the page loaded.
+- Every decision dispatches `App\Events\Kyc\DocumentDecided`; the Notifications module sends the editable
+  `kyc.document_decided` email to the client: the outcome, the reason for a decline, and one button to the
+  verification page. Without Notifications nothing is sent and the decision still stands.
+- The audit log records each opening, image view, approval and decline (type, side and reason in the properties;
+  never the number or the file).
 
 ## 8. Acceptance criteria
 
@@ -116,8 +132,12 @@ replaced), skips current documents whose client is no longer closed, and is idem
 9. MUST: the status shows pending review once two different types are uploaded.
 10. MUST: the retention task deletes documents 90 days after closure, not before, keeps those of reopened accounts,
     handles each document on its own, caps its work per run and is idempotent.
-11. MUST (PR B): only staff with the exact `kyc.documents.review` permission (or `*`) can open the queue, a document
-    link or a decision; `kyc.*` does not grant it; decisions need a recent password.
-12. MUST (PR B): a document link stops working after 15 minutes and opens only the document it was signed for.
-13. MUST (PR B): every view, approval and rejection writes an audit entry without the number or the file.
-14. MUST (PR B): a rejection needs a reason, the client sees it, and a decision on a document that was replaced fails.
+11. MUST: only staff with the exact `kyc.documents.view` or `kyc.documents.review` permission (or `*`) can open the
+    queue or a document link, and only `kyc.documents.review` (or `*`) can decide; Support gets 403 on a decision; `kyc.*` does not grant it; decisions need a recent password.
+12. MUST: a document link stops working when the window ends (15 minutes at most) and opens only the document, side and staff member it was signed for, for an unlocked client.
+13. MUST: every opening, view, approval and decline writes an audit entry without the number or the file.
+14. MUST: a decline needs a reason, the client sees it and is emailed, and a decision on a document that was replaced
+    fails.
+15. MUST: approve and decline are refused until the documents were shown for that client; showing one client never
+    reveals another.
+16. MUST: a decision and a re-upload of the same document never deadlock (two-process PostgreSQL test).

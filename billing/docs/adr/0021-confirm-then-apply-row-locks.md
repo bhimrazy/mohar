@@ -73,6 +73,8 @@ Dry runs read without locks and write nothing (ADR 0019).
   client after the invoice, before its row is inserted, only when it will post credit (overpayment, a deposit paid in
   full, a closed or held invoice).
 - **Import:** run rows (claim), then the migration record, then the target row (client).
+- **Identity documents (KYC):** client, then its `kyc_documents` rows. `StoreDocument` (upload or replace),
+  `DecideDocument` (staff approve or decline) and the retention listener all lock the client first.
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 
 ### 4. Test obligation
