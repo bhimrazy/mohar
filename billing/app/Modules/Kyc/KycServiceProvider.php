@@ -15,6 +15,7 @@ use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\Facades\Event;
 
@@ -37,6 +38,13 @@ class KycServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareKycBanner::class);
+
+        // A document number never reaches the session, also when an action (not the form request) refuses the upload.
+        $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
+            if (method_exists($handler, 'dontFlash')) {
+                $handler->dontFlash(['number']);
+            }
+        });
 
         Event::listen([ClientClosed::class, ClientReopened::class, ClientMerged::class], ScheduleDocumentRetention::class);
 
