@@ -20,7 +20,7 @@ final class ClientNameservers
      */
     public function forService(Service $service): array
     {
-        $server = $this->normalise($service->server?->nameservers ?? []);
+        $server = $this->normalise($service->server->nameservers ?? []);
 
         // Without a domain there is nothing to point, so only the server's own list is kept (as before).
         return $server !== [] || $service->domain === null ? $server : $this->savedDefault();
@@ -51,6 +51,6 @@ final class ClientNameservers
      */
     private function normalise(mixed $list): array
     {
-        return array_values(array_map('strtolower', SettingList::of($list)));
+        return array_map(strtolower(...), SettingList::of($list));
     }
 }
