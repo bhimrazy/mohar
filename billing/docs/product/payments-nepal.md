@@ -73,7 +73,7 @@ sequenceDiagram
   amount), `product_details[]`, and `merchant_*` extras (echoed back). Validation errors come back as
   `{field: [msg], error_key: "validation_error"}`.
 - **Return query:** `pidx, status (Completed|Pending|User canceled), transaction_id, tidx, txnId, amount,
-total_amount, mobile, purchase_order_id, purchase_order_name`. None of it is signed, so treat it all as hints.
+  total_amount, mobile, purchase_order_id, purchase_order_name`. None of it is signed, so treat it all as hints.
 - **Lookup response:** `{pidx, total_amount, status, transaction_id, fee, refunded}`. **Pitfall:** `Expired` and
   `User canceled` come back as **HTTP 400** with a normal body. Parse the body before treating it as a transport
   error.
@@ -111,7 +111,7 @@ sequenceDiagram
 - **Form URL:** `https://rc-epay.esewa.com.np/api/epay/main/v2/form` (UAT) or `https://epay.esewa.com.np/...`
   (production). The status host is `rc.esewa.com.np` (UAT) or `esewa.com.np` (production).
 - **Fields** (all required, use 0 when unused): `amount, tax_amount, product_service_charge,
-product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-]`, unique per request),
+  product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-]`, unique per request),
   `product_code`, `success_url`, `failure_url`, `signed_field_names`, `signature`, and up to 3 `properties[x]`.
   Send `amount = total_amount` and the other parts as `0`. Tax is already on our invoice, and splitting it invites
   sum mismatches.
@@ -124,7 +124,7 @@ product_delivery_charge, total_amount` (= sum), `transaction_uuid` (`[A-Za-z0-9-
       do not reproduce with this key (we checked: the sample message gives `5DZywcrT…94E=`, not the published value).
       Use our own vectors.
 - **Success return:** `data` = base64 JSON `{transaction_code, status, total_amount, transaction_uuid,
-product_code, signed_field_names, signature}`. Rebuild the message from _its_ `signed_field_names`. The list
+  product_code, signed_field_names, signature}`. Rebuild the message from _its_ `signed_field_names`. The list
   includes `signed_field_names` itself, and you use the raw strings as received. Example (fake key):
   `transaction_code=000ABCD,status=COMPLETE,total_amount=1,130.0,transaction_uuid=inv-1042-a1,product_code=EPAYTEST,signed_field_names=transaction_code,status,total_amount,transaction_uuid,product_code,signed_field_names`
   → `C9QSBh3Ovftd7ZkOZRW2g1+iCbF3NtqdeTqsEQ/RNwo=`. **Pitfall:** `total_amount` is formatted with thousands
@@ -162,8 +162,8 @@ sequenceDiagram
   confirm at onboarding). Merchants enrol through their bank and receive `MERCHANTID` (int), `APPID`, `APPNAME`,
   a password, and a signing certificate (`CREDITOR.pfx` in test).
 - **Form fields** (max lengths): `MERCHANTID(20) APPID(15) APPNAME(30) TXNID(20, unique per app)
-TXNDATE(DD-MM-YYYY, Asia/Kathmandu) TXNCRNCY(NPR) TXNAMT(paisa int) REFERENCEID(20) REMARKS(50) PARTICULARS(100)
-TOKEN(512)`.
+  TXNDATE(DD-MM-YYYY, Asia/Kathmandu) TXNCRNCY(NPR) TXNAMT(paisa int) REFERENCEID(20) REMARKS(50) PARTICULARS(100)
+  TOKEN(512)`.
 - **Token:** SHA256withRSA over
   `MERCHANTID=…,APPID=…,APPNAME=…,TXNID=…,TXNDATE=…,TXNCRNCY=…,TXNAMT=…,REFERENCEID=…,REMARKS=…,PARTICULARS=…,TOKEN=TOKEN`,
   base64-encoded. That is 11 pairs, the literal `TOKEN=TOKEN` comes last, and there is **no whitespace**.
@@ -249,7 +249,7 @@ interface HostedPaymentDriver extends GatewayDriver            // opt-in; manual
 - `RedirectInstruction{url}`, `FormPost{action, fields}` (rendered as a CSP-safe auto-submit page) and
   `QrPayload{payload, expiresAt}` are the three instruction types.
 - `LookupResult{status: succeeded|pending|failed|expired|cancelled|refunded|partially_refunded, providerTxnId,
-amount (minor), currency, fee, payerRef, raw (redacted), retryable}`.
+  amount (minor), currency, fee, payerRef, raw (redacted), retryable}`.
 - `settingsFields()` gains the types `boolean` (sandbox toggle), `select{options}`, `secret_text` (multi-line PEM),
   plus `required` and `default`. Secrets keep going into `gateways.config` (`encrypted:array`), and the admin UI
   never echoes them back (it shows "••• set", and an empty submit keeps the old value).
