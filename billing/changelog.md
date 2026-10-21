@@ -9,27 +9,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Upgrade notes
 
 - **Go-live payment fixes (#223, #212, #222, #224).**
-  - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
-    add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
-    overpayment credit, and never more than the deposit still holds. If the client already spent it, the balance
-    goes negative and shows on "Clients owing account credit". Before, the client kept the credit. Deposits refunded
-    before the upgrade are not corrected: check the add-funds invoices with status Refunded.
-  - **Stripe inquiries are no longer booked as chargebacks (#212).** Stripe sends `charge.dispute.created` for
-    inquiries too (status `warning_*`), where no money leaves the account. A dispute is now booked as a chargeback only
-    when one of its balance transactions withdrew funds. Until then it is a zero-amount `dispute_inquiry` transaction
-    on "Disputes to review" ("Inquiry: answer it at the provider"): no change to the invoice, payment or credit, and
-    the client doesn't see it. An inquiry that escalates is booked when Stripe sends
-    `charge.dispute.funds_withdrawn`, which also closes the inquiry's to-do; an inquiry that closes changes nothing.
-    **Add `charge.dispute.funds_withdrawn` to the Stripe webhook destination.** New webhook result: "dispute inquiry
-    recorded; no money moved". Inquiries booked as chargebacks before the upgrade are not corrected: check Stripe
-    chargebacks whose dispute status at Stripe starts with `warning_`.
-  - **The late-payment sweep runs every hour (#222).** Each lookup is stamped when it finishes, a few seconds after the
-    hourly run starts, so the next run skipped the attempt: closed attempts were looked up every two hours. The sweep
-    now takes attempts last looked up at least 50 minutes before the run started.
-  - **Two overpayments of one client no longer deadlock on PostgreSQL (#224).** A payment that may post account credit
-    (an overpayment, a deposit, a payment of a closed or held invoice) locks the client after the invoice and before
-    its row is inserted. A two-process test reproduced the deadlock (40P01) before the fix.
-  - No migration and no permission change. Kernel: `CallbackEvent::DISPUTE_INQUIRY`.
+    - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
+      add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
+      overpayment credit, and never more than the deposit still holds. If the client already spent it, the balance
+      goes negative and shows on "Clients owing account credit". Before, the client kept the credit. Deposits refunded
+      before the upgrade are not corrected: check the add-funds invoices with status Refunded.
+    - **Stripe inquiries are no longer booked as chargebacks (#212).** Stripe sends `charge.dispute.created` for
+      inquiries too (status `warning_*`), where no money leaves the account. A dispute is now booked as a chargeback only
+      when one of its balance transactions withdrew funds. Until then it is a zero-amount `dispute_inquiry` transaction
+      on "Disputes to review" ("Inquiry: answer it at the provider"): no change to the invoice, payment or credit, and
+      the client doesn't see it. An inquiry that escalates is booked when Stripe sends
+      `charge.dispute.funds_withdrawn`, which also closes the inquiry's to-do; an inquiry that closes changes nothing.
+      **Add `charge.dispute.funds_withdrawn` to the Stripe webhook destination.** New webhook result: "dispute inquiry
+      recorded; no money moved". Inquiries booked as chargebacks before the upgrade are not corrected: check Stripe
+      chargebacks whose dispute status at Stripe starts with `warning_`.
+    - **The late-payment sweep runs every hour (#222).** Each lookup is stamped when it finishes, a few seconds after the
+      hourly run starts, so the next run skipped the attempt: closed attempts were looked up every two hours. The sweep
+      now takes attempts last looked up at least 50 minutes before the run started.
+    - **Two overpayments of one client no longer deadlock on PostgreSQL (#224).** A payment that may post account credit
+      (an overpayment, a deposit, a payment of a closed or held invoice) locks the client after the invoice and before
+      its row is inserted. A two-process test reproduced the deadlock (40P01) before the fix.
+    - No migration and no permission change. Kernel: `CallbackEvent::DISPUTE_INQUIRY`.
 
 - **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant
   wins (Stripe `charge.dispute.closed` with status `won`) now books a `chargeback_reversal` transaction once per
