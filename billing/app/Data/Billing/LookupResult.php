@@ -37,6 +37,8 @@ final readonly class LookupResult
      * @param  int|null  $amount  minor units actually paid, as reported by the provider
      * @param  array<string, mixed>  $raw  response (redacted before storage)
      * @param  bool  $retryable  transient provider error: try again later
+     * @param  bool  $sessionEnded  with not_found: the provider says it holds no payable session for this reference
+     *                              (e.g. eSewa after a cancel), so Billing may end a pending attempt early
      */
     public function __construct(
         public string $status,
@@ -47,6 +49,7 @@ final readonly class LookupResult
         public ?string $payerRef = null,
         public array $raw = [],
         public bool $retryable = false,
+        public bool $sessionEnded = false,
     ) {}
 
     public function succeeded(): bool

@@ -532,13 +532,15 @@ merchants).
 - **Cancel answers `NOT_FOUND` (UAT capture, 2026-10-21).** After the customer confirms "cancel payment" on eSewa's
   page, eSewa redirects to our `failure_url` unchanged, and the status check answers `NOT_FOUND` with
   `ref_id: null`, never `CANCELED`. A session that was booked and not paid answers `PENDING`. An unknown uuid or a
-  different amount also answers `NOT_FOUND`. So the driver declares `NOT_FOUND_ENDS_SESSION`, and Billing ends a
+  different amount also answers `NOT_FOUND`. So the driver flags that answer `LookupResult::$sessionEnded`, and Billing ends a
   pending eSewa attempt on `NOT_FOUND` when the customer came back through the cancel URL (`cancelled=1`, a hint;
   the status check decides) or the attempt is at least 5 minutes old (the form is auto-posted on page load, so a
   younger attempt may not have reached eSewa yet). A cancel return becomes failed, an abandoned one expired. An
   attempt in staff review is never ended this way. Lookups stay open, so a stale form paid later is still booked
-  as a late payment (§3, #130). The return route lets a cancel return look again 10 seconds after the last lookup
-  instead of one minute.
+  as a late payment (§3, #130). That backstop is required: with `gateways.late_lookup_hours` below 1 (the late
+  sweep off) the attempt is not ended early and stays pending and polled as before. The return route lets a cancel
+  return for a pending attempt look again 10 seconds after the last lookup instead of one minute. eSewa also sends
+  real failures to `failure_url`; one that answers `NOT_FOUND` is treated, and worded, as a cancel.
 - **Booking window (UAT capture, 2026-10-21).** eSewa's `product_details` for a fresh booking carries
   `bookingExpiryTime`, 50 minutes after the form post, in every capture. The docs' "15 minutes after login" does not
   end the booking (the login limit itself was not tested). An eSewa attempt therefore lives 60 minutes (`attempt_ttl_minutes`, never below

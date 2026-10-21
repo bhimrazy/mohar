@@ -2,7 +2,6 @@
 
 namespace App\Modules\Billing\Actions;
 
-use App\Contracts\Billing\GatewayDriver;
 use App\Data\Billing\LookupResult;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -33,8 +32,8 @@ class SettlePaymentAttempt
     public const CREDIT_NOTE = 'Payment went to account credit (invoice already paid or cancelled, or payment held for review): check and refund if needed';
 
     /**
-     * For a driver that declares NOT_FOUND_ENDS_SESSION: how long the customer's browser has to post the provider
-     * form before a not_found answer, without a cancel return, ends the attempt. The form is auto-posted on page load.
+     * For a not_found lookup flagged sessionEnded: how long the customer's browser has to post the provider form
+     * before that answer, without a cancel return, ends the attempt. The form is auto-posted on page load.
      */
     public const NOT_FOUND_SETTLE_MINUTES = 5;
 
@@ -71,9 +70,7 @@ class SettlePaymentAttempt
         $raw = GatewayLogger::redact($result->raw);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
-        $notFoundEndsSession = $driver->supports(GatewayDriver::NOT_FOUND_ENDS_SESSION);
-
-        return DB::transaction(function () use ($attempt, $result, $raw, $notFoundEndsSession, $cancelReturn): AttemptStatus {
+        return DB::transaction(function () use ($attempt, $result, $raw, $cancelReturn): AttemptStatus {
             $attempt = PaymentAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
 
             if ($attempt->status === AttemptStatus::Succeeded) {
@@ -109,7 +106,7 @@ class SettlePaymentAttempt
                 LookupResult::EXPIRED => $attempt->status = AttemptStatus::Expired,
                 LookupResult::AMBIGUOUS => $this->review($attempt, is_string($result->raw['error'] ?? null) ? 'Provider: '.$result->raw['error'] : 'The provider could not confirm the payment yet'),
                 LookupResult::REFUNDED, LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Refunded at the provider before it was recorded here'),
-                LookupResult::NOT_FOUND => $this->notFound($attempt, $notFoundEndsSession, $cancelReturn),
+                LookupResult::NOT_FOUND => $this->notFound($attempt, $result->sessionEnded, $cancelReturn),
                 default => $this->stillPending($attempt, $result->status),
             };
 
@@ -257,16 +254,19 @@ class SettlePaymentAttempt
     }
 
     /**
-     * The provider holds no payable session. When its driver declares NOT_FOUND_ENDS_SESSION, a pending attempt ends
-     * now, so the customer can pay again at once, if the customer came back through the cancel URL or the form has had
+     * The provider holds no payable session. When the lookup says so (sessionEnded), a pending attempt ends now, so
+     * the customer can pay again at once, if the customer came back through the cancel URL or the form has had
      * NOT_FOUND_SETTLE_MINUTES to reach the provider. A younger attempt may simply not be posted yet, and one in staff
-     * review stays there. Lookups stay open: if a stale form is still paid, the late sweep books it (#130).
+     * review stays there. Lookups stay open, so if a stale form is still paid, the late sweep books it (#130). That
+     * backstop is why it needs a late window of at least an hour (the sweep's interval); without one the attempt
+     * stays pending and polled as before.
      */
-    private function notFound(PaymentAttempt $attempt, bool $endsSession, bool $cancelReturn): void
+    private function notFound(PaymentAttempt $attempt, bool $sessionEnded, bool $cancelReturn): void
     {
         $settled = ($attempt->created_at ?? now())->lte(now()->subMinutes(self::NOT_FOUND_SETTLE_MINUTES));
+        $lateSweepOn = $this->settings->int('gateways.late_lookup_hours', 48) >= 1;
 
-        if (! $endsSession || $attempt->status !== AttemptStatus::Pending || (! $cancelReturn && ! $settled)) {
+        if (! $sessionEnded || ! $lateSweepOn || $attempt->status !== AttemptStatus::Pending || (! $cancelReturn && ! $settled)) {
             $this->stillPending($attempt, LookupResult::NOT_FOUND);
 
             return;

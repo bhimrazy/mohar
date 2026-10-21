@@ -43,11 +43,13 @@ class GatewayReturnController extends Controller
         }
 
         // At most one provider lookup per attempt per minute from this anonymous route; otherwise reuse the last result.
-        // A cancel return may look again after ten seconds, so a poll made while the customer was still on the
-        // provider's page doesn't keep a cancelled payment open. The cancel flag is only a hint; the lookup decides.
+        // A cancel return for a still-pending attempt may look again after ten seconds, so a poll made while the
+        // customer was on the provider's page doesn't keep a cancelled payment open. The cancel flag is only a hint;
+        // the lookup decides.
         // The customer is waiting, so the lookup is a single quick try: anything inconclusive is left to the poller.
         $cancelReturn = $request->boolean('cancelled');
-        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($cancelReturn ? now()->subSeconds(10) : now()->subMinute())
+        $floor = $cancelReturn && $attempt->status === AttemptStatus::Pending ? now()->subSeconds(10) : now()->subMinute();
+        $status = $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt($floor)
             ? $attempt->status
             : $settle->handle($attempt, interactive: true, cancelReturn: $cancelReturn);
 

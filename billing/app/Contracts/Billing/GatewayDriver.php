@@ -41,13 +41,6 @@ interface GatewayDriver extends IntegrationDriver
 
     public const STORED_METHODS = 'stored_methods';
 
-    /**
-     * Hosted: a not_found lookup means the provider holds no payable session (the customer cancelled it, or the
-     * browser never posted the form). Billing then ends an open attempt on the customer's cancel return, or once the
-     * form has had a few minutes to reach the provider, instead of blocking the invoice until the TTL runs out.
-     */
-    public const NOT_FOUND_ENDS_SESSION = 'not_found_ends_session';
-
     /** Unique key, [a-z_]{1,50}; also the gateways.key and the callback/return URL segment. */
     public function key(): string;
 

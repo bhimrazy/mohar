@@ -71,8 +71,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
 
     public function capabilities(): array
     {
-        // After a cancel on eSewa's page the status check answers NOT_FOUND, never CANCELED (UAT, 2026-10-21).
-        return [self::REDIRECT, self::LOOKUP, self::NOT_FOUND_ENDS_SESSION];
+        return [self::REDIRECT, self::LOOKUP];
     }
 
     public function currencies(): array
@@ -216,8 +215,8 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             // "Payment is at halt state": never auto-failed; Billing keeps polling and alerts staff.
             'AMBIGUOUS' => LookupResult::AMBIGUOUS,
             // Cancelled on eSewa's page (UAT answers this, not CANCELED), never booked, or booked for another amount.
-            // Never a payment: Billing ends a pending attempt on the cancel return, or once the form had time to post
-            // (NOT_FOUND_ENDS_SESSION), and keeps looking for a late payment.
+            // Never a payment: flagged sessionEnded, so Billing ends a pending attempt on the cancel return, or once the
+            // form had time to post, and keeps looking for a late payment.
             'NOT_FOUND' => LookupResult::NOT_FOUND,
             // Documented by eSewa but not seen in UAT.
             'CANCELED', 'CANCELLED' => LookupResult::CANCELLED,
@@ -232,6 +231,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
             amount: $amount,
             currency: 'NPR',
             raw: $raw,
+            sessionEnded: $mapped === LookupResult::NOT_FOUND,
         );
     }
 
