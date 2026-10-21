@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Import;
 
+use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Migration\RecordImporter;
 use App\Data\Migration\ImportContext;
 use App\Data\Migration\ImportIssue;
@@ -9,7 +10,6 @@ use App\Data\Migration\ImportOutcome;
 use App\Data\Migration\ImportRecord;
 use App\Enums\ImportAction;
 use App\Enums\ImportSeverity;
-use App\Models\User;
 use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
@@ -23,8 +23,8 @@ use Illuminate\Support\Arr;
  * Writes imported clients (`client`, client-import spec §6). Attributes: the client fields, `client_group_name`
  * (created when no group has that name), `signup_date`, `imported_fields`, `marketing_consent` (granted|withdrawn)
  * with `marketing_consent_date` and `marketing_consent_evidence`, and `blank` (fields whose cells were empty). It
- * saves through the model, so the email records its source and when it changed; the model dispatches no domain
- * event, so nothing is mailed and no `ClientRegistered` fires.
+ * saves through the model, so a new client's email records its source; the model dispatches no domain event, so
+ * nothing is mailed and no `ClientRegistered` fires. An update never changes the email, nor any login.
  */
 class ClientImporter implements RecordImporter
 {
@@ -56,7 +56,8 @@ class ClientImporter implements RecordImporter
         $issues = [];
 
         if (($attributes['client_group_name'] ?? null) !== null) {
-            $fields['client_group_id'] = $this->group((string) $attributes['client_group_name']);
+            // A dry run creates no group: it uses one that exists, or none.
+            $fields['client_group_id'] = $this->group((string) $attributes['client_group_name'], create: ! $context->dryRun);
         }
 
         if ($existingTargetId === null && $context->dryRun) {
@@ -86,25 +87,31 @@ class ClientImporter implements RecordImporter
             $fields = [...array_fill_keys(array_intersect($blank, self::CLEARABLE), null), ...$fields];
         }
 
-        // A re-run never reopens a client closed here.
+        // A re-run never reopens a client closed here, and an import never changes an existing client's email.
         if ($client->status === 'closed') {
             unset($fields['status']);
+        }
+
+        if (isset($fields['email']) && mb_strtolower((string) $fields['email']) !== mb_strtolower($client->email)) {
+            $issues[] = new ImportIssue(ImportSeverity::Info, 'email_kept', __('Email in the file differs: kept the current one.'));
+        }
+
+        unset($fields['email']);
+
+        // Amounts are stored in the client's currency: it cannot change once the client has billing documents (§6.4).
+        if (isset($fields['currency']) && $fields['currency'] !== $client->currency && app(ClientDocuments::class)->clientsWithDocuments([$client->id]) !== []) {
+            $issues[] = new ImportIssue(ImportSeverity::Warning, 'currency_kept', __('The currency was kept: this client already has invoices, quotes, payments or credit in it.'));
+            unset($fields['currency']);
         }
 
         $changes = array_values(array_filter(array_keys($fields), fn (string $field): bool => $fields[$field] === null
             ? ! in_array($client->getAttribute($field), [null, ''], true)
             : (string) $client->getAttribute($field) !== (string) $fields[$field]));
         if ($context->dryRun) {
-            return new ImportOutcome($client->id, $changes === [] ? ImportAction::Unchanged : ImportAction::Updated, changes: $changes);
+            return new ImportOutcome($client->id, $changes === [] ? ImportAction::Unchanged : ImportAction::Updated, $issues, $changes);
         }
 
-        $oldEmail = $client->email;
-        $client->forceFill(Arr::except(Arr::only($fields, $changes), 'email'));
-
-        if (in_array('email', $changes, true)) {
-            $client->setEmailBy(EmailSource::Import, (string) $fields['email']);
-            $this->followOwnerEmail($client, $oldEmail, (string) $fields['email'], $issues);
-        }
+        $client->forceFill(Arr::only($fields, $changes));
 
         $client->imported_fields = $this->importedFields($client->imported_fields ?? [], $attributes, $context) ?: null;
 
@@ -128,10 +135,11 @@ class ClientImporter implements RecordImporter
         return 0;
     }
 
-    private function group(string $name): int
+    private function group(string $name, bool $create): ?int
     {
-        return (int) (ClientGroup::query()->whereRaw('lower(name) = ?', [mb_strtolower($name)])->orderBy('id')->value('id')
-            ?? ClientGroup::query()->create(['name' => $name])->id);
+        $id = ClientGroup::query()->whereRaw('lower(name) = ?', [mb_strtolower($name)])->orderBy('id')->value('id');
+
+        return $id !== null ? (int) $id : ($create ? ClientGroup::query()->create(['name' => $name])->id : null);
     }
 
     /**
@@ -147,29 +155,6 @@ class ClientImporter implements RecordImporter
         $incoming = array_map(fn (array $field): array => ['label' => (string) $field['label'], 'value' => (string) $field['value'], 'source' => $source], $attributes['imported_fields'] ?? []);
 
         return array_values(array_slice([...array_filter($current, fn (array $field): bool => $field['source'] !== $source), ...$incoming], 0, 50));
-    }
-
-    /**
-     * The owner login follows the new email only while it has never signed in; otherwise staff change it on the
-     * profile, which sends the usual security notice.
-     *
-     * @param  list<ImportIssue>  $issues
-     */
-    private function followOwnerEmail(Client $client, string $oldEmail, string $newEmail, array &$issues): void
-    {
-        $owner = $client->users()->wherePivot('is_owner', true)->first();
-
-        if ($owner === null || mb_strtolower($owner->email) !== mb_strtolower($oldEmail)) {
-            return;
-        }
-
-        if ($owner->last_login_at !== null || $owner->is_staff || User::query()->where('email', mb_strtolower($newEmail))->exists()) {
-            $issues[] = new ImportIssue(ImportSeverity::Warning, 'login_email_kept', __('The owner login has signed in before, so its email was not changed. Change it on the client profile.'));
-
-            return;
-        }
-
-        $owner->forceFill(['email' => $newEmail, 'email_verified_at' => null])->save();
     }
 
     /**
@@ -201,7 +186,7 @@ class ClientImporter implements RecordImporter
             'state' => $state,
             'source' => 'import_'.$context->sourceSystem,
             'evidence' => mb_substr((string) ($attributes['marketing_consent_evidence'] ?? ($date === null
-                ? __('Imported from :source on :date; the date of consent was not in the file.', ['source' => $source, 'date' => $context->importedAt->toDateString()])
+                ? __('Imported from :source; the date of consent was not in the file.', ['source' => $source])
                 : __('Imported from :source; the file gave the date of consent.', ['source' => $source]))), 0, 500),
             'consented_at' => $date,
             'recorded_at' => $context->importedAt,

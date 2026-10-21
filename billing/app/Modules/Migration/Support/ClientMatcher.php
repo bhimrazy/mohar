@@ -2,7 +2,10 @@
 
 namespace App\Modules\Migration\Support;
 
+use App\Contracts\Billing\ClientDocuments;
+use App\Models\User;
 use App\Modules\Core\Import\ClientImporter;
+use App\Modules\Core\Import\LoginImporter;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Support\Like;
@@ -44,6 +47,8 @@ final class ClientMatcher
         $survivors = $this->clients(fn (Builder $query) => $query->whereKey($byEmail->pluck('merged_into_client_id')->filter()->all()))->keyBy('id');
         $targets = $this->clients(fn (Builder $query) => $query->whereKey($mapped->pluck('target_id')->all()))->keyBy('id');
         $contacts = Contact::query()->whereIn(DB::raw('lower(email)'), $emails)->pluck('email')->map(fn (string $email): string => mb_strtolower($email))->flip();
+        $logins = User::query()->whereIn(DB::raw('lower(email)'), $emails)->get(['id', 'email', 'is_staff', 'email_verified_at'])->keyBy(fn (User $login): string => mb_strtolower($login->email));
+        $createLogins = (bool) ($options['create_logins'] ?? true);
         $companies = ($options['match_company'] ?? false) ? $this->companies($rows) : [];
         $taxIds = ($options['match_tax_id'] ?? false) ? $this->taxIds($rows) : [];
         $byEmail = $byEmail->groupBy(fn (Client $client): string => mb_strtolower($client->email));
@@ -84,9 +89,29 @@ final class ClientMatcher
                 };
             }
 
-            // A match reached through a merge keeps the survivor's own email.
-            $merged = in_array('merged', array_column($problems, 'code'), true);
-            $changes = $match instanceof Client && in_array($decision, ['update', 'unchanged'], true) ? $this->changes($row, $match, ($options['blank_cells'] ?? 'keep') === 'keep', $merged ? ['email'] : []) : [];
+            // An import never links an existing login on its own (spec §6.11): a row that may create a client needs a
+            // decision, and "link" is offered only for a login whose email was verified at least 30 days ago.
+            $login = $email === null ? null : $logins->get($email);
+            $mayCreate = $decision === 'create' || ($decision === 'needs_decision' && in_array('possible_duplicate', array_column($problems, 'code'), true));
+
+            if ($mayCreate && $createLogins && $login !== null && ($row['client']['status'] ?? 'active') !== 'closed') {
+                if ($login->is_staff) {
+                    $note('warning', 'staff_login', __('This email belongs to a staff login, so the new client gets no login.'));
+                } elseif (LoginImporter::linkable($login)) {
+                    $note('warning', 'existing_login', __('A login with this email already exists. Link the new client to it, or create the client without a login.'));
+                    $decision = 'needs_decision';
+                } else {
+                    $note('warning', 'existing_login_recent', __('A login with this email exists, but its address was verified less than 30 days ago or never, so it cannot be linked. Create the client without a login, or skip the row.'));
+                    $decision = 'needs_decision';
+                }
+            }
+
+            // An import never changes an existing client's email.
+            if ($match instanceof Client && $email !== null && mb_strtolower($match->email) !== $email) {
+                $note('info', 'email_kept', __('Email in the file differs: kept the current one.'));
+            }
+
+            $changes = $match instanceof Client && in_array($decision, ['update', 'unchanged'], true) ? $this->changes($row, $match, ($options['blank_cells'] ?? 'keep') === 'keep') : [];
             $results[] = [
                 'decision' => $decision === 'update' && $changes === [] ? 'unchanged' : $decision,
                 'match_client_id' => $match?->id,
@@ -95,7 +120,27 @@ final class ClientMatcher
             ];
         }
 
-        return $results;
+        return $this->lockCurrencies($results);
+    }
+
+    /**
+     * A currency change on a client that already has invoices, quotes, payments or credit is a row error (spec §6.4):
+     * its amounts are stored in that currency. One lookup for the chunk.
+     *
+     * @param  list<array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}>  $results
+     * @return list<array{decision: string|null, match_client_id: int|null, problems: list<array<string, mixed>>, changes: list<string>}>
+     */
+    public function lockCurrencies(array $results): array
+    {
+        $changing = array_values(array_filter(array_map(fn (array $result): ?int => in_array('currency', $result['changes'], true) ? $result['match_client_id'] : null, $results)));
+        $locked = array_flip(app(ClientDocuments::class)->clientsWithDocuments($changing));
+
+        return array_map(fn (array $result): array => in_array('currency', $result['changes'], true) && isset($locked[$result['match_client_id']]) ? [
+            ...$result,
+            'decision' => null,
+            'changes' => [],
+            'problems' => [...$result['problems'], ['severity' => 'error', 'code' => 'currency_locked', 'message' => __('The currency cannot change: this client already has invoices, quotes, payments or credit in its currency.'), 'field' => 'currency']],
+        ] : $result, $results);
     }
 
     /**
@@ -198,15 +243,14 @@ final class ClientMatcher
 
     /**
      * @param  array{client: array<string, mixed>, blank: list<string>}  $row
-     * @param  list<string>  $exclude  fields this match never changes
      * @return list<string>
      */
-    private function changes(array $row, Client $client, bool $keepBlank, array $exclude): array
+    public function changes(array $row, Client $client, bool $keepBlank): array
     {
-        // Only mapped cells: a filled one that differs, or (when blank cells clear) an empty one over a value.
+        // Only mapped cells, never the email: a filled one that differs, or (when blank cells clear) an empty one over a value.
         $blank = $keepBlank ? [] : array_intersect(array_map(fn (string $target): string => $target === 'client_group' ? 'client_group_id' : $target, $row['blank']), ClientImporter::CLEARABLE);
 
-        return array_values(array_filter(self::COMPARED, fn (string $field): bool => ! in_array($field, $exclude, true)
+        return array_values(array_filter(self::COMPARED, fn (string $field): bool => $field !== 'email'
             // A re-run never reopens a client closed here.
             && ! ($field === 'status' && $client->status === 'closed')
             && match (true) {

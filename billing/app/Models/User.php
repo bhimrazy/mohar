@@ -60,7 +60,9 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
     ];
 
     /**
-     * Changing the password records when and clears a pending forced change (admin-set temporary password).
+     * Changing the password records when and clears a pending forced change (admin-set temporary password). Changing
+     * the email of an existing login removes its verification, unless the same save sets it: "verified since" then
+     * also means "unchanged since" (the client import links a login only when that is 30 days or more).
      */
     protected static function booted(): void
     {
@@ -68,6 +70,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
             if ($user->isDirty('password')) {
                 $user->password_changed_at = now();
                 $user->must_change_password = false;
+            }
+
+            if ($user->exists && $user->isDirty('email') && ! $user->isDirty('email_verified_at')) {
+                $user->email_verified_at = null;
             }
         });
     }

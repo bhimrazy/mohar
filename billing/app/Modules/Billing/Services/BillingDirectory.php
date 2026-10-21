@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Services;
 
+use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -15,7 +16,7 @@ use App\Modules\Billing\Support\ClientPaymentOptions;
 /**
  * Read-only billing facts for other modules (checkout gateway list, invoice payment history).
  */
-class BillingDirectory implements GatewayDirectory, InvoiceQueries
+class BillingDirectory implements ClientDocuments, GatewayDirectory, InvoiceQueries
 {
     public function __construct(
         private GatewayManager $gateways,
@@ -44,5 +45,27 @@ class BillingDirectory implements GatewayDirectory, InvoiceQueries
             || Quote::query()->where('currency', $currency)->exists()
             || Transaction::query()->where('currency', $currency)->exists()
             || CreditLedgerEntry::query()->where('currency', $currency)->exists();
+    }
+
+    /**
+     * Four indexed lookups, each only for the clients not found yet.
+     */
+    public function clientsWithDocuments(array $clientIds): array
+    {
+        if ($clientIds === []) {
+            return [];
+        }
+
+        $found = [];
+
+        foreach ([Invoice::class, Quote::class, Transaction::class, CreditLedgerEntry::class] as $model) {
+            $pending = array_values(array_diff($clientIds, $found));
+
+            if ($pending !== []) {
+                array_push($found, ...$model::query()->whereIn('client_id', $pending)->distinct()->pluck('client_id')->map(fn (mixed $id): int => (int) $id)->all());
+            }
+        }
+
+        return array_values(array_unique($found));
     }
 }

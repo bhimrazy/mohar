@@ -100,12 +100,10 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
 
         $decisions = $matcher->decide($run, $rows, $hasExternalId);
         $writes = [];
-        $taxExempt = 0;
 
         foreach ($rows as $index => $row) {
             $decision = $decisions[$index];
             $severities = array_column($decision['problems'], 'severity');
-            $taxExempt += (int) (($row['client']['tax_exempt'] ?? false) && in_array($decision['decision'], ['create', 'update'], true));
             $writes[] = [
                 'migration_run_id' => $run->id,
                 'row_number' => $row['row'],
@@ -118,13 +116,16 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
                 'match_client_id' => $decision['match_client_id'],
                 'problems' => json_encode($decision['problems']),
                 'changes' => json_encode($decision['changes']),
+                'tax_exempt' => ($row['client']['tax_exempt'] ?? false) === true,
+                'link_login' => null,
+                'review_hash' => ReviewDigest::row($run, $row['row'], $decision['decision'], $row['checksum'], $decision['match_client_id'], null),
             ];
         }
 
         $last = $records->last()->row_number;
         // Write only while this check is still the run's current one: a new mapping (a new generation) may have
         // started while this chunk was being checked.
-        $current = DB::transaction(function () use ($run, $writes, $records, $taxExempt, $found): bool {
+        $current = DB::transaction(function () use ($run, $writes, $records, $found): bool {
             $locked = MigrationRun::query()->lockForUpdate()->find($run->id);
 
             if ($locked?->status !== MigrationRun::CHECKING || $locked->generation !== $this->generation) {
@@ -132,11 +133,10 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             }
 
             // One statement per chunk: 11 values per row stays far below the SQLite and PostgreSQL parameter limits.
-            MigrationRecord::query()->upsert($writes, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes']);
+            MigrationRecord::query()->upsert($writes, ['migration_run_id', 'row_number'], ['normalized', 'email_hash', 'source_id', 'checksum', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'tax_exempt', 'link_login', 'review_hash']);
 
             $locked->forceFill([
                 'checked_count' => ($this->afterRow === 0 ? 0 : $locked->checked_count) + $records->count(),
-                'tax_exempt_count' => ($this->afterRow === 0 ? 0 : $locked->tax_exempt_count) + $taxExempt,
                 'found_values' => $found,
                 'heartbeat_at' => now(),
             ])->save();
@@ -171,6 +171,7 @@ final class CheckRun implements ShouldBeEncrypted, ShouldQueue
             'decision_count' => (int) ($decisions['needs_decision'] ?? 0),
             'error_count' => (int) ($statuses['error'] ?? 0),
             'warning_count' => (int) ($statuses['warning'] ?? 0),
+            'tax_exempt_count' => $run->records()->where('tax_exempt', true)->whereIn('decision', ['create', 'update'])->count(),
             'heartbeat_at' => now(),
         ])->save();
         $run->forceFill(['review_digest' => ReviewDigest::of($run)])->save();
