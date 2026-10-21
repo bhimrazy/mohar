@@ -6,13 +6,18 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
-### Client import, PR B1a (client-import spec §15, ADR 0019)
+### Client import, PR B1a (client-import spec §15, ADR 0019 accepted)
 
-- Added the event `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, bool $failed, array
-$counts)`, with `$counts` keyed by entity (`created`, `updated`, `unchanged`, `skipped`, `failed`), dispatched once
-  when an import run finishes applying.
-- Core registers the `client` and `user` importers in the kernel `ImportRegistry`; both honour dry runs. Core's single
-  dev worker (`composer dev`, #164) also reads `Queues::IMPORTS`, so the Migration module no longer registers its own.
+- Added `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed
+  by entity, each with `created`, `updated`, `unchanged`, `skipped` and `failed`; dispatched after commit, once per run,
+  on the applying → completed transition. Added `MigrationRunPaused(int $runId, string $reasonCode)`, dispatched after
+  commit when an import stops (`apply_failed`). Both implement `ShouldDispatchAfterCommit`.
+- Added `App\Contracts\Billing\ClientDocuments::clientsWithDocuments(list<int>)`: the clients with any invoice,
+  quote, transaction or credit entry, so an import never relabels their currency (spec §6.4). Billing implements it;
+  Core binds a null default.
+- Core registers the `client` and `user` importers in the kernel `ImportRegistry`; both honour dry runs, including
+  client groups (looked up, never created) and links to clients the dry run did not create. Core's single dev worker
+  (`composer dev`, #164) also reads `Queues::IMPORTS`, so the Migration module no longer registers its own.
 
 ### Registrar prerequisites (#164)
 
