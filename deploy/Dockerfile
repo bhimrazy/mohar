@@ -1,7 +1,7 @@
 # One image for web, queue workers, scheduler and migrations (billing/docs/devops/deployment-options.md).
 #   docker build -f deploy/Dockerfile --target prod -t billing:local .     (from the repository root)
 # The context is the repository root, narrowed by deploy/Dockerfile.dockerignore to billing/ and the runtime
-# files under deploy/. Targets: prod (default, last stage) and dev.
+# files under deploy/. Targets: prod (default, last stage), dev and release (the tree for non-Docker hosts).
 #
 # Every base image is <name>:<tag>@sha256:<digest> and at least 7 days old (ADR 0007); the dependency check
 # (`composer deps:check`) scans the FROM and COPY --from lines of this file.
@@ -129,6 +129,14 @@ ENV SERVER_NAME=:8080
 # The source tree is bind-mounted at /app; compose.dev.yaml runs it as the host user.
 ENTRYPOINT []
 CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile", "--adapter", "caddyfile"]
+
+# ------------------------------------------------------------------ release: the app tree for hosts without Docker
+# The source with production vendor/ and the built public/build, nothing else: the release tarball for the
+# non-Docker install (install.md) and cPanel cron mode (cpanel.md). Export it with
+#   docker build -f deploy/Dockerfile --target release --output type=tar,dest=release.tar .
+FROM scratch AS release
+COPY --from=vendor /app /billing
+COPY --from=assets /app/public/build /billing/public/build
 
 # ------------------------------------------------------------------ prod: the runtime image
 FROM runtime AS prod

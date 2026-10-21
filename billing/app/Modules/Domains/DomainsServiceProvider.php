@@ -87,7 +87,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->registerListeners();
 
         // A domain's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
-        $this->app->make(ClientCurrencyUsage::class)->source('domains', fn (array $clientIds): array => Domain::withTrashed()
+        $this->app->make(ClientCurrencyUsage::class)->register('domains', fn (array $clientIds): array => Domain::withTrashed()
             ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         $this->registerAutomation();

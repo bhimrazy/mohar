@@ -135,6 +135,7 @@ stored:
 | `payment_intent.payment_failed`                                                                                                               | —             | acknowledged and logged; Checkout shows the failure and the customer can retry there                                          |
 | `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded`, unless our own refund row already recorded it (below); else ignored                         |
 | `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
+| `charge.dispute.closed`                                                                                                                       | dispute       | when the dispute's status is `won`: the chargeback is reversed (billing.md §4.8); any other close is ignored                  |
 | anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
 
 - **Closed attempts:** an event for an attempt we already closed (expired, failed or cancelled) is verified and

@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# Test of cPanel "cron mode" (billing/docs/devops/cpanel.md) without a cPanel account: install the release tarball
+# into a throwaway home directory the way the guide says, serve public/ with PHP's built-in server (Apache's
+# document root on a shared host), then run every line of deploy/cpanel/crontab.example as cron would, once a
+# minute, and check that the scheduler's heartbeat appears and that queued jobs on two pools are processed.
+#
+#   eval "$(scripts/pg.sh cron-sim)"     # a PostgreSQL database (any reachable PostgreSQL 18 works)
+#   deploy/cpanel/simulate-cron [release.tar.gz]
+#
+# Without a tarball it builds one from the checkout (docker build --target release). PHP is the image's own PHP 8.4
+# CLI with the app's extensions (the Dockerfile's `php` stage), run with host networking, standing in for the host's
+# ea-php84; CRON_SIM_HOST_PHP=1 uses the `php` on PATH instead. pcntl is reported, not required.
+# Ticks: CRON_TICKS (default 3). The database named by DB_DATABASE is wiped first.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+tarball="${1:-}"
+ticks="${CRON_TICKS:-3}"
+port="${CRON_SIM_PORT:-18090}"
+work="$(mktemp -d)"
+home="$work/home"
+app="$home/billing"
+php_bin="$(command -v php)"
+server_pid=""
+
+pass() { printf 'PASS %s\n' "$*"; }
+fail() { printf 'FAIL %s\n' "$*" >&2; [ -f "$app/storage/logs/cron.log" ] && tail -30 "$app/storage/logs/cron.log" >&2; exit 1; }
+artisan() { (cd "$app" && "$php_bin" artisan "$@"); }
+cleanup() { [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null || true; rm -rf "$work"; }
+trap cleanup EXIT
+
+for var in DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD; do
+    [ -n "${!var:-}" ] || fail "$var is not set (eval \"\$(scripts/pg.sh cron-sim)\")"
+done
+
+echo "== release tarball"
+if [ -z "$tarball" ]; then
+    tarball="$work/release.tar.gz"
+    docker build -f "$root/deploy/Dockerfile" --target release --output "type=tar,dest=$work/release.tar" "$root" >/dev/null
+    gzip -n "$work/release.tar"
+fi
+
+if [ "${CRON_SIM_INSIDE:-0}" != 1 ] && [ "${CRON_SIM_HOST_PHP:-0}" != 1 ]; then
+    echo "== re-running inside PHP 8.4 with the app's extensions (deploy/Dockerfile, target php)"
+    docker build -f "$root/deploy/Dockerfile" --target php -t mohar-cron-sim-php "$root" >/dev/null
+    set +e
+    docker run --rm --network host -e CRON_SIM_INSIDE=1 -e CRON_TICKS="$ticks" -e CRON_SIM_PORT="$port" \
+        -e DB_HOST -e DB_PORT -e DB_DATABASE -e DB_USERNAME -e DB_PASSWORD \
+        -v "$root:/repo:ro" -v "$tarball:/release.tar.gz:ro" --entrypoint bash \
+        mohar-cron-sim-php /repo/deploy/cpanel/simulate-cron /release.tar.gz
+    status=$?
+    set -e
+    [ "${CRON_SIM_KEEP_IMAGE:-0}" = 1 ] || docker image rm mohar-cron-sim-php >/dev/null 2>&1 || true
+    exit "$status"
+fi
+mkdir -p "$home"
+tar -xzf "$tarball" -C "$home"
+[ -f "$app/artisan" ] && [ -d "$app/vendor" ] && [ -f "$app/public/build/manifest.json" ] || fail "the tarball has no billing/ tree with vendor/ and public/build"
+pass "extracted $(du -sh "$tarball" | cut -f1) into ~/billing ($(du -sh "$app" | cut -f1)): vendor/ and public/build included"
+
+echo "== PHP"
+# The module list is read once: `php -m | grep -q` lets grep exit early, PHP gets SIGPIPE and pipefail fails.
+modules="$("$php_bin" -m)"
+missing=""
+for ext in pdo_pgsql pgsql intl gd bcmath zip mbstring openssl curl; do
+    grep -qix "$ext" <<< "$modules" || missing="$missing $ext"
+done
+[ -z "$missing" ] || fail "PHP $("$php_bin" -r 'echo PHP_VERSION;') lacks:$missing"
+pcntl="$(grep -qix pcntl <<< "$modules" && echo present || echo 'absent (job timeouts do not apply)')"
+pass "PHP $("$php_bin" -r 'echo PHP_VERSION;') with the required extensions; pcntl $pcntl"
+
+echo "== install as the guide says (.env, key, migrate, app:install, optimize)"
+cat > "$app/.env" <<ENV
+APP_NAME="Cron Mode Host"
+APP_ENV=production
+APP_DEBUG=false
+APP_KEY=
+APP_URL=http://127.0.0.1:${port}
+LOG_CHANNEL=single
+LOG_LEVEL=info
+DB_CONNECTION=pgsql
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_DATABASE=${DB_DATABASE}
+DB_USERNAME=${DB_USERNAME}
+DB_PASSWORD=${DB_PASSWORD}
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+SESSION_DRIVER=database
+OBJECTS_DRIVER=local
+MAIL_MAILER=log
+ENV
+chmod 600 "$app/.env"
+step_log="$work/install.log"
+install_step() { artisan "$@" --no-interaction >>"$step_log" 2>&1 || { tail -30 "$step_log" >&2; fail "php artisan $1"; }; }
+install_step key:generate --force
+# Not a guide step: empty the test database first. Destructive commands are refused in production, so this one
+# runs as `testing`; everything else runs in production as on a real host.
+APP_ENV=testing artisan db:wipe --force --no-interaction >>"$step_log" 2>&1 || { tail -30 "$step_log" >&2; fail "db:wipe"; }
+install_step migrate --force
+install_step app:install --admin-name='Cron Admin' --admin-email=cron-admin@example.com
+install_step optimize
+pass "migrated, administrator created, configuration cached"
+
+echo "== web (public/ as the document root)"
+(cd "$app/public" && exec "$php_bin" -S "127.0.0.1:${port}" "$app/public/index.php" >"$work/web.log" 2>&1) &
+server_pid=$!
+for _ in $(seq 40); do curl -fsS -o /dev/null "http://127.0.0.1:${port}/up" 2>/dev/null && break; sleep 0.25; done
+for path in /up /login; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}${path}")"
+    [ "$code" = 200 ] || fail "GET $path = $code"
+done
+pass "GET /up and /login = 200"
+
+echo "== cron: every line of crontab.example, once a minute, $ticks times"
+mapfile -t lines < <(grep -E '^\* \* \* \* \* ' "$root/deploy/cpanel/crontab.example" | sed -E 's/^(\S+\s+){5}//')
+[ "${#lines[@]}" = 5 ] || fail "expected 5 cron lines, found ${#lines[@]}"
+# One job per pool, each a no-op on a fresh install: Run now on the automation line, a price conversion on default,
+# and a webhook delivery that no longer exists on notifications,webhooks.
+artisan tinker --execute 'App\Modules\Platform\Jobs\RunAutomationJob::dispatch(); App\Modules\Platform\Jobs\ConvertPricesAfterRateChange::dispatch([]); App\Modules\Notifications\Jobs\DeliverWebhook::dispatch(0);' >/dev/null \
+    || fail "could not queue the three jobs"
+queued="$(artisan tinker --execute 'echo DB::table("jobs")->count();' | tail -1)"
+[ "$queued" -ge 3 ] || fail "expected 3 queued jobs, found $queued"
+
+# flock: while a pool's previous run still holds its lock, the next minute's start of that pool exits at once.
+default_line="${lines[3]//\/opt\/cpanel\/ea-php84\/root\/usr\/bin\/php/$php_bin}"
+(cd "$app" && exec flock storage/framework/cron-default.lock sleep 4) &
+holder=$!
+sleep 0.5
+set +e
+HOME="$home" timeout 3 sh -c "$default_line"
+skipped=$?
+set -e
+wait "$holder"
+[ "$skipped" = 1 ] || fail "a second default-pool worker started while the first held the lock (exit $skipped)"
+[ "$(artisan tinker --execute 'echo DB::table("jobs")->count();' | tail -1)" = "$queued" ] || fail "the skipped run took a job"
+pass "flock: a second start of a busy pool exits at once and takes no job"
+for tick in $(seq "$ticks"); do
+    started=$(date +%s)
+    pids=()
+    for line in "${lines[@]}"; do
+        # cron runs each entry with /bin/sh and the account's HOME; the ea-php84 path becomes this host's php.
+        HOME="$home" sh -c "${line//\/opt\/cpanel\/ea-php84\/root\/usr\/bin\/php/$php_bin}" &
+        pids+=($!)
+    done
+    for pid in "${pids[@]}"; do wait "$pid" || fail "a cron line exited with an error (tick $tick)"; done
+    elapsed=$(( $(date +%s) - started ))
+    [ "$elapsed" -le 60 ] || fail "tick $tick took ${elapsed}s, more than the minute"
+    pending="$(artisan tinker --execute 'echo DB::table("jobs")->count();' | tail -1)"
+    printf '   tick %s: %ss, %s job(s) pending\n' "$tick" "$elapsed" "$pending"
+    [ "$tick" -lt "$ticks" ] && sleep $(( 60 - elapsed > 0 ? 60 - elapsed : 0 ))
+done
+pending="$(artisan tinker --execute 'echo DB::table("jobs")->count();' | tail -1)"
+failed_jobs="$(artisan tinker --execute 'echo DB::table("failed_jobs")->count();' | tail -1)"
+heartbeat="$(artisan tinker --execute 'echo app(App\Modules\Core\Support\AutomationStatus::class)->heartbeatAt()?->diffInSeconds(now()) ?? "none";' | tail -1)"
+[ "$pending" = 0 ] || fail "$pending job(s) still pending after $ticks ticks"
+[ "$failed_jobs" = 0 ] || fail "failed_jobs = $failed_jobs"
+[ "$heartbeat" != none ] && [ "${heartbeat%.*}" -lt 120 ] || fail "no scheduler heartbeat in the last 2 minutes ($heartbeat)"
+for job in RunAutomationJob ConvertPricesAfterRateChange DeliverWebhook; do
+    grep -qE "${job} .*DONE" "$app/storage/logs/cron.log" || fail "no cron worker finished $job"
+done
+pass "$queued queued jobs processed by the automation, default and notifications cron workers, failed_jobs = 0; scheduler heartbeat ${heartbeat%.*}s old"
+echo "== all checks passed"

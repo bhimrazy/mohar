@@ -95,7 +95,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
 
         // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
-        $this->app->make(ClientCurrencyUsage::class)->source('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
+        $this->app->make(ClientCurrencyUsage::class)->register('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
