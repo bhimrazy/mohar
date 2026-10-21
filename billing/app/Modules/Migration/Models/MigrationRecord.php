@@ -25,6 +25,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $match_client_id
  * @property list<array{severity: string, code: string, message: string, field?: string|null, row?: int|null}>|null $problems
  * @property list<string>|null $changes
+ * @property bool $tax_exempt whether the row sets tax exemption
+ * @property bool|null $link_login staff chose to link (true) or not link (false) an existing login
+ * @property string|null $review_hash this row's part of the run's review digest
  * @property string|null $outcome created|updated|unchanged|skipped|failed, once applied
  * @property int|null $target_id the client the row created or updated
  * @property array<string, mixed>|null $before the changed fields' previous values (for undo)
@@ -45,6 +48,8 @@ class MigrationRecord extends Model
             'problems' => 'array',
             'changes' => 'array',
             'before' => 'encrypted:array',
+            'tax_exempt' => 'boolean',
+            'link_login' => 'boolean',
             'applied_at' => 'immutable_datetime',
         ];
     }

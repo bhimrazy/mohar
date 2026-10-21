@@ -6,6 +6,7 @@ use App\Data\Migration\ImportRecord;
 use App\Enums\ImportAction;
 use App\Events\Core\ClientRegistered;
 use App\Events\Migration\MigrationRunCompleted;
+use App\Events\Migration\MigrationRunPaused;
 use App\Models\User;
 use App\Modules\Core\Enums\ClientOrigin;
 use App\Modules\Core\Enums\EmailSource;
@@ -62,8 +63,10 @@ test('confirming needs the execute permission, a recent password and the reviewe
         ->assertSessionHasErrors('password_confirmation');
 
     confirmPassword();
-    $run->records()->where('row_number', 2)->update(['decision' => 'skip']);
-    $this->post(route('admin.migration.imports.apply', $run), ['digest' => $run->review_digest])
+    // A new check (here with another option) changes the rows staff reviewed, and so the digest.
+    $reviewed = $run->review_digest;
+    ClientCsv::check($run, ['on_match' => 'update']);
+    $this->post(route('admin.migration.imports.apply', $run), ['digest' => $reviewed])
         ->assertSessionHasErrors(['apply' => 'The rows changed since you reviewed them. Review the import again.']);
 
     expect($run->fresh()->status)->toBe(MigrationRun::READY)->and(Client::query()->count())->toBe(0);
@@ -71,6 +74,10 @@ test('confirming needs the execute permission, a recent password and the reviewe
 
 test('applying creates imported clients and owner logins that cannot sign in, and sends nothing', function () {
     Event::fake([ClientRegistered::class, MigrationRunCompleted::class]);
+    $domainEvents = [];
+    Event::listen('App\\Events\\*', function (string $name) use (&$domainEvents): void {
+        $domainEvents[] = $name;
+    });
     Mail::fake();
     Notification::fake();
     $header = [...ClientCsv::HEADER, 'Date Created', 'Newsletter'];
@@ -100,27 +107,27 @@ test('applying creates imported clients and owner logins that cannot sign in, an
 
     Event::assertNotDispatched(ClientRegistered::class);
     Event::assertDispatchedTimes(MigrationRunCompleted::class, 1);
+    // Quiet import: no other domain event fires, model observers included.
+    expect(array_values(array_diff(array_unique($domainEvents), [ClientRegistered::class, MigrationRunCompleted::class])))->toBe([]);
     Mail::assertNothingOutgoing();
     Notification::assertNothingSent();
 });
 
-test('a re-run with an External ID updates a changed email and the owner login only when it never signed in', function () {
-    $source = ClientCsv::apply(ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com'), ClientCsv::row('2', 'b@example.com')]))))->migration_source_id;
-    User::query()->where('email', 'b@example.com')->update(['last_login_at' => now()]);
+test('a re-run with an External ID never changes a client\'s email or its login; it updates the rest and says so', function () {
+    $source = ClientCsv::apply(ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')]))))->migration_source_id;
     $this->travel(1)->hours();
 
-    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a.new@example.com'), ClientCsv::row('2', 'b.new@example.com')]), ['source_id' => $source]));
-    expect($run->update_count)->toBe(2);
-    $run = ClientCsv::apply($run);
-    $rows = $run->records()->orderBy('row_number')->get();
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a.new@example.com', last: 'Changed')]), ['source_id' => $source]));
+    expect($run->update_count)->toBe(1)
+        ->and(array_column($run->records()->sole()->problems, 'message'))->toContain('Email in the file differs: kept the current one.');
+    $record = ClientCsv::apply($run)->records()->sole();
+    $client = Client::query()->findOrFail($record->target_id);
 
-    expect(Client::query()->find($rows[0]->target_id))->email->toBe('a.new@example.com')->email_changed_at->not->toBeNull()
-        ->and(User::query()->where('email', 'a.new@example.com')->exists())->toBeTrue()
-        ->and(User::query()->where('email', 'b@example.com')->exists())->toBeTrue()
-        ->and(array_column($rows[1]->problems, 'code'))->toContain('login_email_kept')
-        ->and($rows[0]->changes)->toBe(['email'])
-        ->and($rows[0]->before)->toBe(['email' => 'a@example.com'])
-        ->and((string) DB::table('migration_records')->where('id', $rows[0]->id)->value('before'))->not->toContain('a@example.com');
+    expect($client)->email->toBe('a@example.com')->last_name->toBe('Changed')->email_changed_at->toBeNull()
+        ->and($client->users()->sole()->email)->toBe('a@example.com')
+        ->and($record->changes)->toBe(['last_name'])
+        ->and($record->before)->toBe(['last_name' => 'Rai'])
+        ->and((string) DB::table('migration_records')->where('id', $record->id)->value('before'))->not->toContain('Rai');
 });
 
 test('a re-run of the same file is unchanged everywhere and leaves updated_at alone', function () {
@@ -149,6 +156,7 @@ test('a client added by hand after the review makes that row fail; the other row
 });
 
 test('a chunk that stops halfway is continued without creating any client, login or id-map row twice', function () {
+    Event::fake([MigrationRunPaused::class, MigrationRunCompleted::class]);
     FlakyClientImporter::$calls = 0;
     app(ImportRegistry::class)->register('client', FlakyClientImporter::class, replace: true);
     $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com'), ClientCsv::row('2', 'b@example.com'), ClientCsv::row('3', 'c@example.com')])));
@@ -161,6 +169,21 @@ test('a chunk that stops halfway is continued without creating any client, login
     expect($run->fresh())->status->toBe(MigrationRun::COMPLETED)->created_count->toBe(3)
         ->and(Client::query()->count())->toBe(3)->and(User::query()->where('is_staff', false)->count())->toBe(3)
         ->and(MigrationIdMap::query()->count())->toBe(3);
+    Event::assertDispatchedTimes(MigrationRunPaused::class, 1);
+    Event::assertDispatchedTimes(MigrationRunCompleted::class, 1);
+});
+
+test('an import stopped partway and never continued loses its row details after 30 days and cannot be continued', function () {
+    $run = ClientCsv::check(ClientCsv::upload(ClientCsv::file([ClientCsv::row('1', 'a@example.com')])));
+    $run->forceFill(['status' => MigrationRun::FAILED, 'applied_at' => now(), 'heartbeat_at' => now()])->save();
+
+    $this->travel(MigrationRun::STOPPED_PURGE_DAYS + 1)->days();
+    $this->artisan('automation:run', ['--only' => 'migration.purge'])->assertSuccessful();
+    confirmPassword();
+
+    expect($run->fresh())->status->toBe(MigrationRun::FAILED)->purged_at->not->toBeNull()
+        ->and($run->records()->whereNotNull('normalized')->count())->toBe(0);
+    $this->post(route('admin.migration.imports.resume', $run))->assertSessionHasErrors(['apply' => 'This import cannot be continued.']);
 });
 
 test('an email that belongs to a staff login creates the client without a login, with a note', function () {
@@ -231,7 +254,7 @@ test('a password reset reaches an imported login only through its own mailbox', 
 
     $this->post(route('password.email'), ['email' => 'asha@example.com'])->assertSessionHasNoErrors();
 
-    expect(DB::table('password_reset_tokens')->where('email', 'asha@example.com')->exists())->toBeTrue();
+    expect(DB::table('password_reset_tokens')->pluck('email')->all())->toBe(['asha@example.com']);
 });
 
 test('the dev worker reads the imports queue', function () {

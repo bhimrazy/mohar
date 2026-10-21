@@ -86,6 +86,9 @@ class MigrationRun extends Model
 
     public const EXPIRED = 'expired';
 
+    /** Days after its last activity that an import stopped partway, and never continued, loses its row details. */
+    public const STOPPED_PURGE_DAYS = 30;
+
     /** Minutes without progress after which a running step is reported as stalled. */
     public const STALLED_MINUTES = 10;
 
@@ -161,7 +164,7 @@ class MigrationRun extends Model
     public function claimStopped(string $status): bool
     {
         $claimed = self::query()->whereKey($this->id)->where(fn (Builder $query) => $query->where('status', self::FAILED)
-            ->orWhere(fn (Builder $query) => $query->whereIn('status', [self::UPLOADED, self::STAGING, self::CHECKING, self::APPLYING])
+            ->orWhere(fn (Builder $query) => $query->whereIn('status', [self::UPLOADED, self::STAGING, self::CHECKING])
                 ->where('heartbeat_at', '<', CarbonImmutable::now()->subMinutes(self::STALLED_MINUTES))))
             ->update(['status' => $status, 'error' => null, 'heartbeat_at' => CarbonImmutable::now()]);
 

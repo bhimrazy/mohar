@@ -3,6 +3,7 @@
 namespace App\Modules\Core;
 
 use App\Contracts\Auth\AuthMailer;
+use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Branding\BrandProvider;
@@ -34,6 +35,7 @@ use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
+use App\Modules\Core\Support\NullClientDocuments;
 use App\Modules\Core\Support\NullClientServiceDirectory;
 use App\Modules\Core\Support\NullEmailTemplates;
 use App\Modules\Core\Support\NullGatewayDirectory;
@@ -81,6 +83,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(ProvisioningDrivers::class, NullProvisioningDrivers::class);
         $this->app->bindIf(ClientServiceDirectory::class, NullClientServiceDirectory::class);
         $this->app->bindIf(PaymentGuard::class, NullPaymentGuard::class);
+        $this->app->bindIf(ClientDocuments::class, NullClientDocuments::class);
         $this->app->bindIf(GatewayDirectory::class, NullGatewayDirectory::class);
         $this->app->bindIf(InvoiceQueries::class, NullInvoiceQueries::class);
         $this->app->bindIf(BrandProvider::class, DefaultBrandProvider::class);
