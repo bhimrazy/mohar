@@ -41,7 +41,9 @@ Rules:
 - Add a `billing/changelog.md` entry under `[Unreleased]`: what users and operators get, plus upgrade notes when
   behaviour, permissions or schema change. Facts only.
 - Commit small Conventional Commits and push at least every 30 minutes (`wip(<scope>): … [skip ci]`; the final head
-  without `[skip ci]`), so a codespace restart loses nothing. Chain every `cd` with `&&`. Dev servers on the port
+  without `[skip ci]`), so a codespace restart loses nothing. Bring in `develop` with `git merge origin/develop`; squash only
+  against a fixed SHA you recorded, never `git reset --soft origin/develop` while `develop` moves (on 10-21 that
+  swept other PRs' merges into a squash commit). Never force-push a branch with an open PR unless the CTO asks. Chain every `cd` with `&&`. Dev servers on the port
   range in your brief; stop them by port PID, never `pkill -f`.
 - Screenshots under `billing/docs/screenshots/<module>/`, through `npm run images:optimize -- <paths>` (CI fails on
   images over 500 KB).
