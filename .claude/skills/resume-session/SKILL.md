@@ -70,12 +70,16 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
      exact state found in step 3 and that processes it had running were stopped.
    - Restart the session's background shell jobs: the resource monitor (step 2), the storage cleanup loop
      (`scripts/storage-cleanup.sh --apply` every 30 minutes) and, if the owner was using it, the preview server
-     on port 8000:
+     on port 8000, detached so it survives a Claude Code restart (not a codespace reboot):
 
      ```bash
      cd billing && XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite \
-       APP_URL=https://$CODESPACE_NAME-8000.app.github.dev php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+       APP_URL=https://$CODESPACE_NAME-8000.app.github.dev setsid nohup php artisan serve --host=0.0.0.0 \
+       --port=8000 --no-reload > /workspaces/whmcs/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &
      ```
+
+     Long-running watchers (such as `.worktrees/_review/merge-when-green.sh`) live in `.worktrees/_review/`, not
+     `/tmp`, which a reboot clears.
    - New device, or the id is unknown: launch a fresh agent of the right type from `.claude/agents/`
      with the brief template in the `run-workstream` skill, pointing at the existing branch, PR and
      review comments. Tell it to read the branch's commits before writing anything.

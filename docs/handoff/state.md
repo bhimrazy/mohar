@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-21 08:10 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-21 18:20 UTC by the CTO session. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -11,7 +11,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
   errors CSV; #160–#163 earlier), `.np` registered by clients with the host's nameservers (#199), Nepal-first install
   defaults (#215), billing reversals and the client lock order (#211), eSewa fixes from a REA capture of the UAT
-  sandbox (#213), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
+  sandbox (#213), deployment D4 (#167), ADR 0021 row locks (#227), billing go-live fixes (#229), the e2e fix (#234), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
   dependency changes (#210, #214), and the process review (#204). Details: `billing/docs/progress.md`.
 - Owner decisions in force:
   - **Nepal is the main market.** Clients register `.np` themselves; Mohar shows the host's nameservers.
@@ -20,7 +20,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   - Subagents run on Opus (money, auth, kernel, security, re-checks) or Sonnet (docs, mechanical fixes) by task
     (10-21; Fable's weekly limit resets 10-25).
   - Security audits block only dependency changes; no nightly audit while `main` is the default branch (10-21).
-  - KYC (#197): staff approve documents; off by default; documents deleted 90 days after the account closes (10-21).
+  - KYC (#197): Owner and Admin approve documents; off by default; documents deleted 90 days after the account
+    closes (10-21).
   - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
     accountant's answer (10-21).
 - Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
@@ -41,20 +42,19 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open pull requests
 
-| PR   | Workstream                                            | Status (2026-10-21 08:10 UTC)                                  |
+| PR   | Workstream                                            | Status (2026-10-21 18:20 UTC)                                  |
 | ---- | ----------------------------------------------------- | -------------------------------------------------------------- |
-| #167 | Deployment D4: image build workflow, cPanel cron mode | Ready; board items fixed and verified; merges when CI is green |
 | #188 | Local merge gate script                               | Draft. Needed only while the repository is private.            |
 | #112 | Sign-in PR 0                                          | Draft. To be cut to the ADR 0018 §4 fix, or closed.            |
 | #128 | Gateway expansion spec (connectIPS, Fonepay, cards)   | Draft. Owner questions in the PR.                              |
 
-## Running now (2026-10-21 08:10 UTC; budget: load below 8, 2 GB free, disk below 85%)
+## Running now (2026-10-21 18:20 UTC; budget: load below 8, 2 GB free, disk below 85%)
 
-- Code: KYC (#197); billing go-live fixes (#223 deposit refund, #212 Stripe inquiries, #222 late sweep spacing, #224
-  overpayment deadlock probe); ADR 0021 and the 0012 and 0018 addenda with the registry rename (#219).
-- Queue, in order: #218 (Core client edit changes the currency of a client with records, go-live); importer B2
+- Code: KYC fix round (#228 part 1, #231 part 2; security re-check before merge); #218 client currency
+  locked once the client has records (go-live).
+- Queue, in order: importer B2
   (invitations, opening balances, tax-ID warnings); Khalti and eSewa simulators from captures (#208, low); #112 cut;
-  kernel PR C before ResellerClub; #190 Redactor gaps; #216, #217, #221, #225 follow-ups; the tail-latency
+  kernel PR C before ResellerClub; #190 Redactor gaps; #235 (e2e default currency), #216, #217, #221, #225, #230, #232 follow-ups; the tail-latency
   performance work (#205).
 
 ## Open owner questions
@@ -69,7 +69,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open issues worth knowing
 
-99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit, #223 deposit refund, #190
+99 open. Go-live (label `go-live`): #25 key rotation, #218 client currency edit, #190
 Redactor gaps, the 40-user tail latency (#205). Full list: `gh issue list --label go-live`.
 
 ## Scheduled
