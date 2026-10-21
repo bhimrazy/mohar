@@ -153,3 +153,13 @@ test('a service with a domain shows the nameservers to set at the registry: its 
     $this->get(route('client.services.show', $onServer->id))->assertInertia(fn (Assert $page) => $page->where('nameservers', ['ns1.host.test', 'ns2.host.test']));
     $this->get(route('client.services.show', $withoutServer->id))->assertInertia(fn (Assert $page) => $page->where('nameservers', ['ns1.fallback.test', 'ns2.fallback.test']));
 });
+
+test('staff are asked to set nameservers until a server or the default setting has real ones', function () {
+    $todo = fn (): int => (int) (collect(app(Dashboard::class)->resolveTodos('admin', actingAsStaff(['services.servers.view'])))->firstWhere('key', 'services.nameservers')['count'] ?? 0);
+    app(Settings::class)->set('domains.default_nameservers', config('domains.default_nameservers')); // the form saved unchanged
+
+    expect($todo())->toBe(1);
+
+    app(Settings::class)->set('domains.default_nameservers', 'ns1.real.test, ns2.real.test');
+    expect($todo())->toBe(0);
+});

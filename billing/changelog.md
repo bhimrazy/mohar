@@ -569,7 +569,10 @@ a time: medians of three runs before and three after, on the same database, on a
   registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"
   preselected. Checkout accepts `.np` names only under the registry's second levels (`.com.np`, `.org.np`, `.edu.np`
   and the rest) and creates no registrar order. The client's hosting service shows the nameservers to set at the
-  registry (the server's, else the default nameservers). The demo marks `.com.np`, `.org.np`, `.edu.np` and `.net.np`
+  registry, with a Copy button: the server's, else the default nameservers an admin saved (never the shipped
+  placeholder). Until real nameservers exist, staff get the to-do "Set your nameservers so clients with their own
+  domain know where to point it." A bare `.np` name in the search explains the second levels instead of offering
+  "I already have it". The demo marks `.com.np`, `.org.np`, `.edu.np` and `.net.np`
   this way.
 - TLD catalog with per-term register/transfer/renew prices per currency and client-group slab (no silent currency
   conversion), grace/redemption periods and fees, renew windows, EPP requirement and registrar assignment.
