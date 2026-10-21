@@ -25,7 +25,10 @@ class ShareKycBanner
             $context = app(ClientContext::class);
             $kyc = app(KycVerification::class);
 
-            if (! str_starts_with((string) $request->route()?->getName(), 'client.') || ! $context->isResolved() || ! $kyc->enabled() || ! $context->can('profile')) {
+            $route = (string) $request->route()?->getName();
+
+            // Not on the verification page itself, which already shows every step.
+            if (! str_starts_with($route, 'client.') || $route === 'client.kyc.show' || ! $context->isResolved() || ! $kyc->enabled() || ! $context->can('profile')) {
                 return null;
             }
 

@@ -6,14 +6,14 @@ enum DocumentStatus: string
 {
     case Pending = 'pending';
     case Approved = 'approved';
-    case Rejected = 'rejected';
+    case Declined = 'declined';
 
     public function label(): string
     {
         return match ($this) {
             self::Pending => 'Waiting for review',
             self::Approved => 'Approved',
-            self::Rejected => 'Rejected',
+            self::Declined => 'Declined',
         };
     }
 }

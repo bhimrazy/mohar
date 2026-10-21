@@ -8,33 +8,38 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Kyc\Actions\DecideDocument;
 use App\Modules\Kyc\Enums\DocumentStatus;
+use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Kyc\Services\KycVerification;
 use App\Modules\Kyc\Services\PhoneNumber;
+use App\Modules\Kyc\Services\ReviewQueue;
+use App\Modules\Kyc\Services\ReviewUnlocks;
 use Carbon\CarbonImmutable;
-use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\Response as HttpResponse;
+use Throwable;
 
 /**
  * Staff review of identity documents (spec §7). Every action needs kyc.documents.review, a sensitive permission.
- * Images are shown only after a password step-up (unlock) and only through signed links that expire in 15 minutes.
+ * Numbers and images show only for a client the staff member unlocked (password step-up, audited), and images only
+ * through signed links bound to that staff member, inside the same window.
  */
 class ReviewController extends Controller
 {
     public const PERMISSION = 'kyc.documents.review';
 
-    /** Minutes a signed image link, and an unlock, stay valid. */
-    public const LINK_MINUTES = 15;
+    public function __construct(private KycVerification $kyc, private ReviewUnlocks $unlocks) {}
 
-    public function index(Request $request): Response|RedirectResponse
+    public function index(Request $request, ReviewQueue $queue): Response|RedirectResponse
     {
         $this->authorize(self::PERMISSION);
 
@@ -42,81 +47,104 @@ class ReviewController extends Controller
             return to_route('admin.kyc.show', $request->integer('client'));
         }
 
-        // kyc_documents_queue_index: status + superseded_at, ordered by the oldest waiting upload.
-        $queue = KycDocument::query()->current()->where('status', DocumentStatus::Pending->value)
-            ->groupBy('client_id')->selectRaw('client_id, min(created_at) as waiting_since, count(*) as waiting')
-            ->orderBy('waiting_since')->orderBy('client_id')->paginate(25)->withQueryString();
-        $clients = Client::query()->whereIn('id', $queue->pluck('client_id'))->get()->keyBy('id');
+        $filter = in_array($request->query('status'), ReviewQueue::FILTERS, true) ? (string) $request->query('status') : 'pending_review';
+        $search = trim($request->string('q')->toString());
+        $clients = $queue->clients($filter)->search($search === '' ? null : $search)->orderByDesc('id')->paginate(25)->withQueryString();
+        $documents = KycDocument::query()->whereIn('client_id', $clients->pluck('id'))->current()->orderBy('id')->get()->groupBy('client_id');
 
         return Inertia::render('admin/kyc/index', [
-            'queue' => $queue->through(fn (KycDocument $row): array => [
-                'client' => ['id' => (int) $row->client_id, ...$clients->has((int) $row->client_id) ? ['name' => $clients->get((int) $row->client_id)->display_name, 'email' => $clients->get((int) $row->client_id)->email] : ['name' => '', 'email' => null]],
-                'waiting' => (int) $row->getAttribute('waiting'),
-                'waitingSince' => $row->getAttribute('waiting_since') === null ? null : CarbonImmutable::parse((string) $row->getAttribute('waiting_since'), 'UTC')->toIso8601String(),
-            ]),
+            'counts' => $queue->counts(),
+            'filters' => ['status' => $filter, 'q' => $search],
+            'clients' => $clients->through(function (Client $client) use ($documents): array {
+                $own = $documents->get($client->id, collect());
+                $status = $this->kyc->status($client, $own);
+                $waiting = $own->where('status', DocumentStatus::Pending);
+
+                return [
+                    'id' => $client->id,
+                    'name' => $client->display_name,
+                    'email' => $client->email,
+                    'status' => ['value' => $status->value, 'label' => $status->label()],
+                    'waiting' => $waiting->count(),
+                    'waitingSince' => $waiting->min('created_at')?->toIso8601String(),
+                ];
+            }),
         ]);
     }
 
-    public function show(Request $request, Client $client, KycVerification $kyc): Response
+    public function show(Request $request, Client $client): Response
     {
         $this->authorize(self::PERMISSION);
-        $documents = $kyc->documents($client);
-        $unlocked = (int) $request->session()->get('kyc.unlocked_until', 0) > now()->getTimestamp();
-        $status = $kyc->status($client, $documents);
+        Inertia::encryptHistory();
+        $documents = $this->kyc->documents($client);
+        $until = $this->unlocks->until($request, $client->id);
+        $status = $this->kyc->status($client, $documents);
 
         return Inertia::render('admin/kyc/show', [
-            'client' => ['id' => $client->id, 'name' => $client->display_name, 'email' => $client->email, 'phone' => PhoneNumber::normalise($client->phone, $kyc->phoneCountryCode()) ?? $client->phone],
-            'status' => ['value' => $status->value, 'label' => $status->label()],
-            'steps' => ['email' => $kyc->emailProved($client), 'phone' => $kyc->phoneDone($client)],
-            'unlocked' => $unlocked,
+            'client' => ['id' => $client->id, 'name' => $client->display_name, 'email' => $client->email, 'phone' => PhoneNumber::normalise($client->phone, $this->kyc->phoneCountryCode()) ?? $client->phone],
+            'status' => [
+                'value' => $status->value,
+                'label' => $status->label(),
+                'verifiedAt' => $status === KycStatus::Verified ? $this->kyc->verifiedAt($documents)?->toIso8601String() : null,
+            ],
+            'steps' => ['email' => $this->kyc->emailProved($client), 'phone' => $this->kyc->phoneDone($client)],
+            'unlockedUntil' => $until?->toIso8601String(),
             'documents' => $documents->map(fn (KycDocument $document): array => [
                 'id' => $document->id,
                 'type' => $document->type->label(),
                 'status' => $document->status->value,
                 'statusLabel' => $document->status->label(),
-                'reason' => $document->rejection_reason,
+                'reason' => $document->decline_reason,
                 'uploadedAt' => $document->created_at?->toIso8601String(),
                 'decidedAt' => $document->decided_at?->toIso8601String(),
                 'version' => DecideDocument::version($document),
-                // The number and images only after the step-up; images only through short-lived signed links.
-                'number' => $unlocked ? $document->number : null,
-                'images' => $unlocked ? $this->images($document) : [],
+                // The number and images only for an unlocked client; images only through short-lived signed links.
+                'number' => $until !== null ? $document->number : null,
+                'images' => $until !== null ? $this->images($request, $document, $until) : [],
             ])->values()->all(),
         ]);
     }
 
     /**
-     * Step-up (password.recent on the route), then show the numbers and images for LINK_MINUTES.
+     * Step-up (password.recent on the route), then show this client's numbers and images until the window ends.
      */
     public function unlock(Request $request, Client $client, ActivityLogger $activity): RedirectResponse
     {
         $this->authorize(self::PERMISSION);
-        $request->session()->put('kyc.unlocked_until', now()->addMinutes(self::LINK_MINUTES)->getTimestamp());
+        $this->unlocks->unlock($request, $client->id);
         $activity->log('Identity documents opened for review', $client, $client->id, event: 'kyc.documents.opened');
 
         return to_route('admin.kyc.show', $client);
     }
 
     /**
-     * Stream one decrypted image. The link is signed and expires; the permission and step-up are checked again here.
+     * Stream one decrypted image: the signature (bound to this staff member), the permission and this client's unlock
+     * are all checked here.
      */
-    public function image(KycDocument $document, string $side, ActivityLogger $activity): HttpResponse
+    public function image(Request $request, KycDocument $document, string $side, ActivityLogger $activity): HttpResponse
     {
         $this->authorize(self::PERMISSION);
+        abort_unless((int) $request->query('staff') === (int) $request->user()?->getAuthIdentifier(), 403);
+        abort_if($this->unlocks->until($request, $document->client_id) === null, 403, __('Open the documents again to see this image.'));
         $path = $side === 'back' ? $document->back_path : $document->front_path;
         abort_if($path === null, 404);
 
         try {
-            $contents = Crypt::decryptString((string) Storage::disk(KycDocument::DISK)->get($path));
-        } catch (DecryptException) {
-            abort(410, __('This image can no longer be decrypted (the application key changed). Ask the client to upload it again.'));
+            $stored = Storage::disk(KycDocument::DISK)->get($path);
+            $contents = $stored === null ? null : Crypt::decryptString($stored);
+        } catch (Throwable $exception) {
+            // The document id only: storage messages carry the path (spec §5).
+            Log::warning('An identity image could not be read.', ['document_id' => $document->id, 'error' => $exception::class]);
+            $contents = null;
         }
+
+        abort_if($contents === null, 404, __('This image could not be opened. Ask the client to upload the document again.'));
 
         $activity->log('Identity document viewed', $document, $document->client_id, ['type' => $document->type->value, 'side' => $side], 'kyc.document.viewed');
 
         return response($contents, 200, [
             'Content-Type' => $side === 'back' ? (string) $document->back_mime : $document->front_mime,
-            'Content-Disposition' => 'inline; filename="document-'.$document->id.'-'.$side.'"',
+            'Content-Disposition' => 'inline; filename="'.Str::slug($document->type->label()).'-'.$side.'"',
             'Cache-Control' => 'private, no-store',
             'X-Content-Type-Options' => 'nosniff',
         ]);
@@ -126,17 +154,24 @@ class ReviewController extends Controller
     {
         $this->authorize(self::PERMISSION);
         $data = $request->validate([
-            'decision' => ['required', Rule::in(['approve', 'reject'])],
-            'reason' => ['nullable', 'required_if:decision,reject', 'string', 'max:500'],
+            'decision' => ['required', Rule::in(['approve', 'decline'])],
+            'reason' => ['nullable', 'required_if:decision,decline', 'string', 'max:500'],
             'version' => ['required', 'string', 'max:64'],
+        ], [
+            'reason.required_if' => __('Tell the client why, so they know what to fix.'),
+            'reason.max' => __('Keep the reason under 500 characters.'),
         ]);
         $staff = $request->user();
         abort_unless($staff instanceof User, 403);
 
+        if ($this->unlocks->until($request, $document->client_id) === null) {
+            return back()->withErrors(['document' => __('Open the documents first, then decide.')]);
+        }
+
         $decided = $decide->handle($document->id, $data['version'], $data['decision'] === 'approve', isset($data['reason']) ? trim((string) $data['reason']) : null, $staff);
         Inertia::flash('toast', ['type' => 'success', 'message' => $data['decision'] === 'approve'
-            ? __(':document approved.', ['document' => $decided->type->label()])
-            : __(':document rejected. The client sees your reason and can upload it again.', ['document' => $decided->type->label()])]);
+            ? __(':document approved. We emailed the client.', ['document' => $decided->type->label()])
+            : __(':document declined. We emailed the client the reason.', ['document' => $decided->type->label()])]);
 
         return to_route('admin.kyc.show', $decided->client_id);
     }
@@ -144,19 +179,15 @@ class ReviewController extends Controller
     /**
      * @return list<array{side: string, label: string, url: string}>
      */
-    private function images(KycDocument $document): array
+    private function images(Request $request, KycDocument $document, CarbonImmutable $until): array
     {
-        $images = [['side' => 'front', 'label' => 'Front', 'url' => $this->link($document, 'front')]];
+        $link = fn (string $side): string => URL::temporarySignedRoute('admin.kyc.image', $until, ['document' => $document->id, 'side' => $side, 'staff' => (int) $request->user()?->getAuthIdentifier()]);
+        $images = [['side' => 'front', 'label' => 'Front', 'url' => $link('front')]];
 
         if ($document->back_path !== null) {
-            $images[] = ['side' => 'back', 'label' => 'Back', 'url' => $this->link($document, 'back')];
+            $images[] = ['side' => 'back', 'label' => 'Back', 'url' => $link('back')];
         }
 
         return $images;
-    }
-
-    private function link(KycDocument $document, string $side): string
-    {
-        return URL::temporarySignedRoute('admin.kyc.image', now()->addMinutes(self::LINK_MINUTES), ['document' => $document->id, 'side' => $side]);
     }
 }

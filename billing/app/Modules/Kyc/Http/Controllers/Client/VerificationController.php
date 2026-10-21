@@ -9,6 +9,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
 use App\Modules\Kyc\Actions\StoreDocument;
 use App\Modules\Kyc\Enums\DocumentType;
+use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Http\Requests\DocumentRequest;
 use App\Modules\Kyc\Services\KycVerification;
 use App\Modules\Kyc\Services\PhoneNumber;
@@ -33,7 +34,11 @@ class VerificationController extends Controller
         $documents = $this->kyc->documents($client);
 
         return Inertia::render('client/kyc/show', [
-            'status' => ['value' => ($status = $this->kyc->status($client, $documents))->value, 'label' => $status->label()],
+            'status' => [
+                'value' => ($status = $this->kyc->status($client, $documents))->value,
+                'label' => $status->label(),
+                'verifiedAt' => $status === KycStatus::Verified ? $this->kyc->verifiedAt($documents)?->toIso8601String() : null,
+            ],
             'email' => [
                 'address' => $client->email,
                 'done' => $this->kyc->emailProved($client),
@@ -51,7 +56,7 @@ class VerificationController extends Controller
                     'number' => $document->maskedNumber(),
                     'status' => $document->status->value,
                     'statusLabel' => $document->status->label(),
-                    'reason' => $document->rejection_reason,
+                    'reason' => $document->decline_reason,
                     'uploadedAt' => $document->created_at?->toIso8601String(),
                 ],
             ], DocumentType::cases()),
@@ -94,7 +99,6 @@ class VerificationController extends Controller
 
     private function client(): Client
     {
-        abort_unless($this->kyc->enabled(), 404);
         $this->context->authorize('profile');
 
         return $this->context->client();

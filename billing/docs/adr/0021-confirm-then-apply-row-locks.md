@@ -69,6 +69,8 @@ Dry runs read without locks and write nothing (ADR 0019).
   for an existing client before the order row. This does not contradict the money order: the new invoice is not yet
   visible, so no other transaction can hold it.
 - **Import:** run rows (claim), then the migration record, then the target row (client).
+- **Identity documents (KYC):** client, then its `kyc_documents` rows. `StoreDocument` (upload or replace),
+  `DecideDocument` (staff approve or decline) and the retention listener all lock the client first.
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 
 ### 4. Test obligation

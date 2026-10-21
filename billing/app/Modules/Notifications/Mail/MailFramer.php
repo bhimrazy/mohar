@@ -37,6 +37,7 @@ final class MailFramer
             $family === 'domain' => $this->domain($key, $context),
             $family === 'ticket' => $this->ticket($key, $context),
             $family === 'auth' => $this->account($key, $context),
+            $key === 'kyc.document_decided' => new MailFrame(label: self::text('Identity verification'), statusTone: data_get($context, 'kyc.approved') ? 'success' : 'warning', statusLabel: data_get($context, 'kyc.approved') ? self::text('Approved') : self::text('Declined')),
             $key === 'client.welcome' => new MailFrame(label: self::text('Your account'), statusTone: 'success', statusLabel: self::text('Ready')),
             $family === 'affiliate' => new MailFrame(label: self::text('Affiliate programme'), statusTone: 'success', statusLabel: $key === 'affiliate.withdrawal_processed' ? self::text('Paid out') : self::text('Active')),
             $family === 'staff' => $this->staff($key, $context),

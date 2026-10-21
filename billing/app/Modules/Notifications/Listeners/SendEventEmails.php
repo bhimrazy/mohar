@@ -25,6 +25,7 @@ use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\DomainTransferred;
 use App\Events\Domains\FreeDomainRenewalBlocked;
 use App\Events\Domains\RegistrarActionFailed;
+use App\Events\Kyc\DocumentDecided;
 use App\Events\Notifications\WebhookEndpointDisabled;
 use App\Events\Orders\OrderMarkedFraud;
 use App\Events\Orders\OrderPlaced;
@@ -115,6 +116,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
         TicketNoteAdded::class => 'ticketNoteAdded',
         TicketDepartmentChanged::class => 'ticketDepartmentChanged',
         TicketClosed::class => 'ticketClosed',
+        DocumentDecided::class => 'kycDocumentDecided',
         InboundEmailBounced::class => 'inboundBounced',
         AffiliateActivated::class => 'affiliateActivated',
         AffiliateWithdrawalRequested::class => 'affiliateWithdrawalRequested',
@@ -165,6 +167,7 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
                 $event instanceof TicketNoteAdded => $this->ticketNoteAdded($event),
                 $event instanceof TicketDepartmentChanged => $this->ticketDepartmentChanged($event),
                 $event instanceof TicketClosed => $this->ticketClosed($event),
+                $event instanceof DocumentDecided => $this->kycDocumentDecided($event),
                 $event instanceof InboundEmailBounced => $this->inboundBounced($event),
                 $event instanceof AffiliateActivated => $this->affiliateActivated($event),
                 $event instanceof AffiliateWithdrawalRequested => $this->affiliateWithdrawalRequested($event),
@@ -506,6 +509,14 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     public function ticketDepartmentChanged(TicketDepartmentChanged $event): void
     {
         $this->staffMail('staff.ticket_department_changed', StaffCategory::Support, $this->context->ticket($event->ticketId), $event, null, 'ticket', $event->ticketId, 'support.tickets.view');
+    }
+
+    /**
+     * Every staff decision on an identity document reaches the client, with the reason when declined (KYC spec §7).
+     */
+    public function kycDocumentDecided(DocumentDecided $event): void
+    {
+        $this->clientMail('kyc.document_decided', $event->clientId, EmailCategory::General, ['kyc' => $this->context->resolve('kyc_document', $event->documentId)], $event, 'kyc_document', $event->documentId);
     }
 
     public function ticketClosed(TicketClosed $event): void

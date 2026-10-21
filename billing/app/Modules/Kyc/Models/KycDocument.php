@@ -28,7 +28,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $back_path
  * @property string|null $back_mime
  * @property DocumentStatus $status
- * @property string|null $rejection_reason
+ * @property string|null $decline_reason
  * @property int|null $uploaded_by
  * @property int|null $decided_by
  * @property CarbonImmutable|null $decided_at

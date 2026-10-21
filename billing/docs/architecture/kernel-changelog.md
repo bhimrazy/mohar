@@ -6,6 +6,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client identity verification (#231)
+
+- New event `App\Events\Kyc\DocumentDecided(clientId, documentId)` (compatible addition): staff approved or
+  declined an identity document. Dispatched after commit by the Kyc module; details come from the `kyc_document`
+  merge-field resolver (outcome, type, reason, link; never the number or images). Notifications maps it to the
+  editable `kyc.document_decided` client email. With Notifications absent nothing listens.
+
 ### ADR 0021 and the 0012/0018 addenda (#219)
 
 - `App\Support\Clients\ClientCurrencyUsage::source(string $key, Closure)` is renamed

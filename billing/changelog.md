@@ -285,19 +285,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
   phone number (numbers without a prefix get `+977`, set in `kyc.phone_country_code`), and upload two different
   documents out of Citizenship certificate, National ID (NID) and Driving licence, each with its number and a front and
-  back image. A banner on every client-area page shows the status (to do, pending review, needs attention) until the
+  back image. A banner on every client-area page shows the status (to do, pending review, declined) until the
   client is verified. Verification never blocks ordering, paying or using services.
 - Images must be JPEG, PNG or WebP by their content (SVG and PDF are refused), up to 5 MB each. Images and document
   numbers are encrypted at rest; clients see only the last four characters of a number.
-- A document waiting for review or rejected can be uploaded again, and the old images are deleted; an approved one
+- A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
   cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
   the daily task `kyc.prune_documents`, at most 500 per run.
-- Staff review: Admin → Clients → Identity verification lists clients with documents waiting, oldest first (with a
-  sidebar count), and the client profile links to the client's page. Numbers and images are hidden until the staff
-  member confirms their password; images then open through signed links that expire after 15 minutes. Staff approve a
-  document, or reject it with a reason the client sees. A decision on a document that was replaced or changed after the
-  page loaded is refused. Each opening, image view, approval and rejection is in the activity log, without the number
-  or the image.
+- Staff review: Admin → Clients → Identity verification (KYC_REVIEW_PLACEHOLDER).
 
 ### Client import
 

@@ -60,6 +60,7 @@ class SampleContext
                     ['description' => 'Domain registration — example.com', 'amount' => 999, 'cycle' => null],
                 ],
             ],
+            'kyc' => ['document' => 'Citizenship certificate', 'approved' => false, 'verified' => false, 'reason' => 'The photo of the back is blurred, so the issue date cannot be read.', 'url' => url('/client/verification')],
             'quote' => ['number' => 'Q-2026-0007', 'subject' => 'Website migration', 'total' => '$480.00', 'valid_until' => $due, 'url' => url('/client/quotes/7')],
             'invoice' => [
                 'id' => 2101, 'number' => 'INV-2026-0101', 'status' => 'Unpaid', 'currency' => 'USD', 'total' => '$28.98',

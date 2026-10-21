@@ -18,7 +18,7 @@ return new class extends Migration
             $table->string('back_path', 100)->nullable();
             $table->string('back_mime', 20)->nullable();
             $table->string('status', 20)->default('pending');
-            $table->string('rejection_reason', 500)->nullable();
+            $table->string('decline_reason', 500)->nullable();
             $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('decided_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('decided_at')->nullable();
