@@ -31,10 +31,13 @@ use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
 use App\Modules\Billing\Actions\ApplyPayment;
 use App\Modules\Billing\Actions\PaymentBatches;
+use App\Modules\Billing\Actions\Quotes;
+use App\Modules\Billing\Actions\SaveDraftInvoice;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PaymentBatch;
+use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Enums\EmailSource;
 use App\Modules\Core\Models\Client;
@@ -91,6 +94,17 @@ if ($mode === 'checkout') {
     });
 } elseif ($mode === 'currency') {
     Client::updating(fn () => usleep((int) $pause * 1000));
+} elseif ($mode === 'quote-save' || $mode === 'draft' || $mode === 'quote-new') {
+    // PR #237 probes: <pause ms> is spent before the quote / draft row is written, after the client's share lock.
+    $pauseOnce = (int) $pause;
+    $sleep = function () use (&$pauseOnce): void {
+        usleep($pauseOnce * 1000);
+        $pauseOnce = 0;
+    };
+    Quote::saving($sleep);
+    Invoice::saving($sleep);
+} elseif ($mode === 'quote-convert') {
+    // PR #237 probe: nothing to pause; convert locks the quote, then IssueInvoice locks the client.
 } else {
     app()->instance(PaymentGuard::class, new class((int) $pause) implements PaymentGuard
     {
@@ -144,6 +158,42 @@ try {
         $issued = microtime(true);
         DB::commit();
         $print(['status' => $status, 'message' => $message, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
+    if ($mode === 'quote-save' || $mode === 'quote-convert') {
+        // PR #237 probe: <client or invoice id> is the quote id.
+        $quote = Quote::query()->findOrFail((int) $clientId);
+
+        try {
+            if ($mode === 'quote-save') {
+                app(Quotes::class)->save(['client_id' => $quote->client_id, 'subject' => 'Edited by '.$label, 'items' => [['description' => 'Edited', 'quantity' => 1, 'unit_amount' => (int) $amount]]], $quote);
+                $status = 'saved';
+            } else {
+                app(Quotes::class)->convert($quote);
+                $status = 'converted';
+            }
+        } catch (BillingException $e) {
+            DB::rollBack();
+            $print(['status' => 'refused', 'message' => $e->getMessage(), 'issued' => microtime(true), 'ended' => microtime(true)]);
+            exit(0);
+        }
+
+        $issued = microtime(true);
+        DB::commit();
+        $print(['invoice' => $quote->id, 'status' => $status, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
+    if ($mode === 'draft' || $mode === 'quote-new') {
+        // PR #237 probe: a new draft invoice / quote for the client, in the currency the action reads.
+        $data = ['client_id' => (int) $clientId, 'subject' => 'Probe', 'items' => [['description' => 'Hosting', 'quantity' => 1, 'unit_amount' => (int) $amount]]];
+        $row = $mode === 'draft'
+            ? app(SaveDraftInvoice::class)->handle($data)
+            : app(Quotes::class)->save($data);
+        $issued = microtime(true);
+        DB::commit();
+        $print(['invoice' => $row->id, 'status' => 'saved', 'currency' => $row->currency, 'issued' => $issued, 'ended' => microtime(true)]);
         exit(0);
     }
 
