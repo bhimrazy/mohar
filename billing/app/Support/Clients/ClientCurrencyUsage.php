@@ -3,34 +3,48 @@
 namespace App\Support\Clients;
 
 use Closure;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use LogicException;
 
 /**
  * Which clients already have amounts stored in their currency, so the currency cannot be relabelled (client-import
  * spec §6.4). Each module that stores amounts per client registers a source in bootModule():
  *
- *   app(ClientCurrencyUsage::class)->source('services', fn (array $clientIds): array => Service::withTrashed()
+ *   app(ClientCurrencyUsage::class)->register('services', fn (array $clientIds): array => Service::withTrashed()
  *       ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
  *
  * A source receives a batch of client ids and returns those it holds records for (ids may repeat or come as strings).
  * With no source registered (the modules are absent) no client is in use. Sources are asked in registration order,
- * each only for the clients not found yet.
+ * each only for the clients not found yet. The key is the registering module's key (ADR 0012 addendum).
+ *
+ * @api
  */
 class ClientCurrencyUsage
 {
+    private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
+
     /** @var array<string, Closure(list<int>): array<int|string>> */
     private array $sources = [];
 
     /**
-     * @param  Closure(list<int>): array<int|string>  $clientsWithRecords
+     * @param  Closure(list<int>): array<int|string>  $source  the clients among the given ids this module holds amounts for
      */
-    public function source(string $key, Closure $clientsWithRecords): void
+    public function register(string $key, Closure $source, bool $replace = false): void
     {
-        if (isset($this->sources[$key])) {
-            throw new InvalidArgumentException("A client currency usage source [{$key}] is already registered.");
+        if (preg_match(self::KEY_PATTERN, $key) !== 1) {
+            throw new InvalidArgumentException("Invalid client currency usage key [{$key}]: use 1 to 50 lowercase letters, digits or underscores.");
         }
 
-        $this->sources[$key] = $clientsWithRecords;
+        if (isset($this->sources[$key])) {
+            if (! $replace) {
+                throw new LogicException("A client currency usage source is already registered as [{$key}]; pass replace: true to override it.");
+            }
+
+            Log::info('Client currency usage source replaced.', ['key' => $key]);
+        }
+
+        $this->sources[$key] = $source;
     }
 
     /**
@@ -57,6 +71,8 @@ class ClientCurrencyUsage
     }
 
     /**
+     * Registered keys, in registration order.
+     *
      * @return list<string>
      */
     public function keys(): array

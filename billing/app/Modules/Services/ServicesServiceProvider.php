@@ -82,7 +82,7 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
         // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
-        $this->app->make(ClientCurrencyUsage::class)->source('services', fn (array $clientIds): array => Service::withTrashed()
+        $this->app->make(ClientCurrencyUsage::class)->register('services', fn (array $clientIds): array => Service::withTrashed()
             ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);

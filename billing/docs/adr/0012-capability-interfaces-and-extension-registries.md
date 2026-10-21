@@ -77,3 +77,42 @@ shapes are documented next to the method (ADR 0010).
   knowing which modules are installed.
 - Five dead gateway constants are deprecated rather than deleted. Removal waits for 2.0, or happens sooner within the
   pre-1.0 window if no external gateway exists by then.
+
+## Addendum (2026-10-21, client importer #184): registries that combine answers
+
+The registries above are lookups: one item per key, read with `get(key)`. An **aggregating registry** asks every
+registered module the same question and combines the answers: `App\Support\Clients\ClientCurrencyUsage` (which
+clients hold amounts in their currency) and `ClientMergeRegistry` (what a client merge touches, and vetoes). Use one
+when a question about a kernel-owned record is answered by several modules' tables, which Core must not read. It is
+not a service contract: no single module owns the answer.
+
+**Shape.**
+
+- `register(string $key, Closure $source, bool $replace = false): void`, on a concrete `@api` class in
+  `app/Support/<Area>/` bound as a singleton in `AppServiceProvider`. `register()` stores the closure and calls
+  nothing. If a source ever needs a second method, the registry accepts `class-string<Source>|Closure` (ADR 0010).
+- **Keys** are the registering module's key (`billing`), or `<module>_<part>` when a module registers several, and
+  match `[a-z0-9_]{1,50}`. A duplicate throws `LogicException` unless `$replace` is set; a replacement is logged. A key
+  names the contributor for replacement, tests and logs, and never selects a source at read time.
+- **Batch input.** A source gets a list of ids, once per batch (ADR 0020), and returns the subset it holds. The
+  registry normalises the result (integers, unique, limited to the ids asked).
+- **Combination** does not depend on registration order, which only affects display and cost.
+- **Sources** are read-only, one indexed query each. They may run in the caller's transaction, under its row locks
+  (ADR 0021).
+
+**No source registered.** The registry returns the answer that is true for an install without those modules: no
+client in use, no participants, no blockers. Callers never treat an empty registry as an error or read `keys()` to
+choose behaviour. Removing a module from `MODULES=` while its tables hold data is not an uninstall path.
+
+**Tests.** Each aggregating registry has:
+
+1. a registry test: keys, duplicate and `replace`, combination (`tests/Feature/Core/ClientCurrencyUsageTest.php`);
+2. a registration test with every module loaded: `keys()` equals the expected set and each source answers for a
+   record it owns, soft-deleted ones included where they count (B3 in `ImportApplyReReviewProbesTest`). A module that
+   starts storing per-client data adds its key there;
+3. a siblings-absent test in `tests/Extensions`: without the contributing modules `keys()` is empty and the caller's
+   flow works on the empty answer (`MigrationAloneTest`).
+
+**Alignment.** `ClientCurrencyUsage::source()` is renamed `register()` (#219). `ClientMergeRegistry::participant()`
+has dotted keys (`core.contacts`) and no duplicate check; it moves to this shape in a follow-up, under the pre-1.0
+window (ADR 0010).
