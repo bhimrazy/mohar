@@ -115,9 +115,9 @@ jobs:
                       fi
                   fi
                   # Advisory audits (owner decision 2026-10-21): they block only a change to a manifest, a lockfile,
-                  # .npmrc or the workflow files; a new advisory against an unchanged lockfile is caught by the
-                  # nightly security-audit workflow instead of turning every open PR red. With no file list (manual
-                  # run, new branch) the audits run.
+                  # .npmrc or the workflow files, so a new advisory against an unchanged lockfile no longer turns
+                  # every open PR red; it surfaces on the next dependency change or a manual `composer deps:check`.
+                  # With no file list (manual run, new branch) the audits run.
                   if [ -n "$files" ]; then
                       audit_paths='^(billing/(composer\.(json|lock)|package(-lock)?\.json)|docs-site/package(-lock)?\.json|(.*/)?\.npmrc|\.github/workflows/.+)$'
                       if grep -qE "$audit_paths" <<< "$files"; then audit=true; else audit=false; fi
@@ -169,8 +169,7 @@ jobs:
               if: steps.changes.outputs.code == 'true' || steps.changes.outputs.deps == 'true'
               run: composer validate --no-check-publish
 
-            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above); the nightly
-            # security-audit workflow covers new advisories against unchanged lockfiles.
+            # Only when a manifest, lockfile, .npmrc or workflow file changed (detect step above).
             - name: Security audits (before install)
               if: steps.changes.outputs.audit == 'true'
               run: |
