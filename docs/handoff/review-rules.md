@@ -57,4 +57,5 @@ Recurring defect classes (found four days running; check them first):
 - scheduled or automation queries with no named index and no cap on work per run;
 - an email address treated as proof of ownership when it was not set by a verified owner login, staff, or an import;
 - deploy scripts changed without the `tests/Unit/Deploy` probes;
-- PostgreSQL-only failures (column lengths, time-zone displacement) in code tested only on SQLite.
+- PostgreSQL-only failures (column lengths, time-zone displacement) in code tested only on SQLite;
+- a driver changed without its simulator and `tools/simulators/tests` following it.

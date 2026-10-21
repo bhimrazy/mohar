@@ -49,6 +49,12 @@ Living status board. Each workstream updates its row when it opens a PR for revi
   apply (#184) and review decisions, report and errors CSV (#201): **clients can now be imported**, billing reversals:
   won disputes, credit netting and the client lock order for renewals and checkouts (#211), eSewa fixes found by a REA
   capture of the UAT sandbox: cancel answers `NOT_FOUND`, booking window 50 minutes (#213).
+- Afternoon merges: deployment D4, image build workflow and cPanel cron mode (#167); ADR 0021, confirm-then-apply row
+  locks in the order payment → invoice → client (#227); billing go-live fixes: deposit refunds, Stripe dispute
+  inquiries, late-sweep spacing, overpayment lock order (#229, closing #223, #212, #222, #224); the end-to-end hosting
+  scenario green again (#234, follow-up #235).
+- Owner decisions: KYC documents are reviewed by Owner and Admin only; approve and decline stay disabled until the
+  documents are opened.
 - Branch and issue cleanup: 107 stale remote branches removed (34 archived as tags), 10 issues closed with evidence.
 
 ### 2026-10-20

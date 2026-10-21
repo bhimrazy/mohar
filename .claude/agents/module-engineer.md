@@ -37,6 +37,8 @@ Rules:
 - Pest feature tests per capability and important failure mode; no padding. Run the tests you touched plus
   `tests/Arch` locally (SQLite, and PostgreSQL via `scripts/pg.sh` when you change queries or migrations). CI runs
   the full suite. Heavy commands through `/workspaces/whmcs/scripts/heavy.sh` with `export XDEBUG_MODE=off`.
+- When you change a driver that has a simulator (Stripe, WHM), run `tools/simulators/tests` too and update the
+  simulator to match the real service; CI runs that suite (on 10-21 a Stripe dispute change broke it).
 - When a reviewer pushes probes to `review/pr-<n>-probes` (or names a probe file), adopt them as tests in the fix push.
 - Add a `billing/changelog.md` entry under `[Unreleased]`: what users and operators get, plus upgrade notes when
   behaviour, permissions or schema change. Facts only.
