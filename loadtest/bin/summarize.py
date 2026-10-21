@@ -19,7 +19,9 @@ PAGES_SHOWN = [
     'admin_invoice', 'admin_services', 'admin_tickets', 'admin_ticket', 'admin_transactions', 'admin_orders',
     'api_admin_search', 'api_client_search', 'api_store_quote',
 ]
-# The comfortable limit used for "fits": p95 of all requests under this, and under 1% errors.
+# The comfortable limit used for "fits": p95 of all requests under this, and under 1% errors. The sizing guide
+# (billing/docs/devops/sizing.md) uses this line for its "fits" verdicts and reports the stricter per-page target,
+# p95 under 200 ms, separately.
 P95_LIMIT_MS = 1000
 ERROR_LIMIT = 0.01
 

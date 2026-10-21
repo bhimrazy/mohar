@@ -57,14 +57,15 @@ Cloud plans, so that needs either one of those or a self-hosted runner.
 
 `run.php --volume=tiny|small|medium|large` (or `--clients=N --services=M`) adds:
 
-| volume | clients | services | staff | invoices (about) |
+| volume | clients | services | staff | invoices         |
 | ------ | ------: | -------: | ----: | ---------------: |
 | tiny   |     200 |      400 |     2 |            1,300 |
 | small  |   5,000 |   10,000 |     5 |           35,000 |
-| medium |  20,000 |   40,000 |    10 |          140,000 |
-| large  |  50,000 |  100,000 |    20 |          350,000 |
+| medium |  20,000 |   40,000 |    10 |    about 140,000 |
+| large  |  50,000 |  100,000 |    20 |          359,665 |
 
-The invoice counts are from seeding on 2026-10-19: tiny and small measured, medium and large extrapolated from small.
+Tiny and small were measured on 2026-10-19 and large on the runner run of 2026-10-21 (run 39472898451); medium has
+not been seeded yet, so its count is an estimate from small.
 
 - **Clients:** 60% USD (US, UK, Canada, Australia, Germany), 25% INR, 15% NPR. Each client has one login,
   `client<n>@loadtest.example.com`. Staff log in as `staff<n>@loadtest.example.com`. Every login uses the run's
