@@ -1,7 +1,7 @@
 # Manual build of the production image (deploy/Dockerfile, target prod): always a downloadable OCI artifact with an
 # SBOM and provenance, a size report, and the release tarball for hosts without Docker (install.md, cpanel.md).
 # Pushing to GHCR is an option of the run: it copies the very OCI archive that was built, digest for digest.
-# Never part of the normal CI job; runs only from Actions -> Build image -> Run workflow (on the default branch).
+# Never part of the normal CI job; runs only from Actions -> Build image -> Run workflow (pushing to GHCR only from the default branch; the cache is scoped to the built ref).
 name: Build image
 
 on:
@@ -88,8 +88,8 @@ jobs:
                   outputs: type=oci,dest=${{ runner.temp }}/image.tar
                   provenance: mode=max
                   sbom: true
-                  cache-from: type=gha,scope=build-image
-                  cache-to: type=gha,mode=max,scope=build-image
+                  cache-from: type=gha,scope=build-image-${{ inputs.ref }}
+                  cache-to: type=gha,mode=max,scope=build-image-${{ inputs.ref }}
 
             - name: Build the release tarball (linux/amd64; the tree is architecture-independent)
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -101,7 +101,7 @@ jobs:
                   outputs: type=tar,dest=${{ runner.temp }}/release.tar
                   provenance: false
                   sbom: false
-                  cache-from: type=gha,scope=build-image
+                  cache-from: type=gha,scope=build-image-${{ inputs.ref }}
 
             - name: Size report
               env:
@@ -174,7 +174,9 @@ jobs:
     push:
         name: Push to GHCR
         needs: build
-        if: inputs.push_to_ghcr
+        # The Actions UI offers any branch that contains this file; only a run started from the default branch may
+        # hold `packages: write`.
+        if: inputs.push_to_ghcr && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         permissions:
