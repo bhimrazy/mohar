@@ -36,10 +36,10 @@ the WHMCS side.
   add our egress IP under _Setup → General Settings → Security → API IP Access Restriction_ (or set an API access key), and allow the
   credential's admin user API access.
 - **Read-only allowlist** (hard-coded; any other action throws `ForbiddenActionException` before any network call): `WhmcsDetails,
-GetCurrencies, GetPaymentMethods, GetClientGroups, GetClients, GetClientsDetails, GetContacts, GetUsers, GetUserPermissions, GetAdminUsers,
-GetProducts, GetServers, GetRegistrars, GetTLDPricing, GetPromotions, GetOrders, GetClientsProducts, GetClientsAddons, GetClientsDomains,
-GetPayMethods, GetInvoices, GetInvoice, GetTransactions, GetCredits, GetQuotes, GetSupportDepartments, GetSupportStatuses, GetTickets,
-GetTicket, GetTicketNotes, GetTicketAttachment, GetAnnouncements, GetAffiliates`. Write actions, `DecryptPassword`, `GetClientPassword` and
+  GetCurrencies, GetPaymentMethods, GetClientGroups, GetClients, GetClientsDetails, GetContacts, GetUsers, GetUserPermissions, GetAdminUsers,
+  GetProducts, GetServers, GetRegistrars, GetTLDPricing, GetPromotions, GetOrders, GetClientsProducts, GetClientsAddons, GetClientsDomains,
+  GetPayMethods, GetInvoices, GetInvoice, GetTransactions, GetCredits, GetQuotes, GetSupportDepartments, GetSupportStatuses, GetTickets,
+  GetTicket, GetTicketNotes, GetTicketAttachment, GetAnnouncements, GetAffiliates`. Write actions, `DecryptPassword`, `GetClientPassword` and
   registrar-touching actions such as `DomainGetNameservers` are **never** called.
 - Pagination: `limitstart`/`limitnum` (default page size is 25 at the source; `migration.whmcs.page_size: 100`). Where `orderby` exists
   (`GetClients`, `GetInvoices`), use `orderby=id&order=asc`. After each pass, check that the number of unique ids matches `totalresults`.
@@ -98,23 +98,23 @@ KB articles have no documented API and are **out of scope** for the API connecto
 ## 4. Data model (Migration module, prefix proposal `98xxxx`)
 
 - `migration_sources: id, driver ('whmcs'), name, base_url, credentials (encrypted json: identifier, secret, access_key), source_timezone,
-options (json: page_size, max_rps, flags), whmcs_version, status (draft|connected|importing|cut_over|archived), cutover_at, purged_at, timestamps`
+  options (json: page_size, max_rps, flags), whmcs_version, status (draft|connected|importing|cut_over|archived), cutover_at, purged_at, timestamps`
 - `migration_id_map: id, migration_source_id (fk), source_type (e.g. 'whmcs.invoice'), source_id (string; composite keys allowed, e.g.
-'com:USD'), target_type ('billing.invoice'), target_id (bigint), checksum (char 64, sha256 of the canonical normalised record), first_run_id,
-last_run_id, synced_at, target_fingerprint (char 64, hash of the target's `updated_at` + version at sync time), source_state
-(present|missing), timestamps`. Unique `(migration_source_id, source_type, source_id)`; index `(target_type, target_id)`. **MUST**
+  'com:USD'), target_type ('billing.invoice'), target_id (bigint), checksum (char 64, sha256 of the canonical normalised record), first_run_id,
+  last_run_id, synced_at, target_fingerprint (char 64, hash of the target's `updated_at` + version at sync time), source_state
+  (present|missing), timestamps`. Unique `(migration_source_id, source_type, source_id)`; index `(target_type, target_id)`. **MUST**
 - `migration_records` (staging): `migration_source_id, source_type, source_id, payload (encrypted json, raw), normalized (encrypted json),
-checksum, fetched_at, validation (ok|warning|error)`; unique on the source key. Purged after `migration.staging_retention_days: 30` from cutover.
+  checksum, fetched_at, validation (ok|warning|error)`; unique on the source key. Purged after `migration.staging_retention_days: 30` from cutover.
 - `migration_runs: id, migration_source_id, mode (dry_run|commit|delta|final_delta), status (queued|running|paused|failed|completed|cancelled),
-only (json types), started_by, started_at, finished_at, report (json)`
+  only (json types), started_by, started_at, finished_at, report (json)`
 - `migration_run_steps` (checkpoints): `run_id, type, phase, cursor (json, e.g. {limitstart, client_id}), source_total, fetched, staged, committed,
-unchanged, skipped, failed, status, last_error, updated_at`; unique `(run_id, type, phase)`.
+  unchanged, skipped, failed, status, last_error, updated_at`; unique `(run_id, type, phase)`.
 - `migration_issues: run_id, severity (info|warning|error|blocking), code, source_type, source_id, message, context (json, redacted)`
 - `migration_value_maps: migration_source_id, kind (gateway|product|product_group|addon|server|registrar|department|staff_role|module|
-status.<entity>|cycle|invoice_item_type|config_option_type|client_custom_field|product_custom_field), source_value, target_value, auto (bool)`;
+  status.<entity>|cycle|invoice_item_type|config_option_type|client_custom_field|product_custom_field), source_value, target_value, auto (bool)`;
   unique `(source, kind, source_value)`. Exportable/importable as JSON.
 - Target modules add (in their own migrations) `imported_at` (timestamp, nullable) on aggregate roots (`clients, services, service_addons,
-domains, invoices, transactions, orders, tickets, quotes`), and `import_hold` (bool, default false) on `services, service_addons, domains` (§7).
+  domains, invoices, transactions, orders, tickets, quotes`), and `import_hold` (bool, default false) on `services, service_addons, domains` (§7).
 
 ## 5. Mapping rules
 

@@ -149,7 +149,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - `ProvisioningContext::$configOptions` is empty in PR B; PR B2 fills it by module key from
   `PriceBook::moduleInputs()`. Install-specific option ids are never sent to drivers.
 - **Breaking (module SPI removed):** `App\Modules\Services\Drivers\Provisioning\{ProvisioningDriver, ServiceContext,
-DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
+  DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an
   arch rule keeps the old names out.
 - `DriverMetadata` gains `?int $commandTimeoutSeconds` and `?UsernamePolicy $usernamePolicy` (cPanel K9 and K6;
