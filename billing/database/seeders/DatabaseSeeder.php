@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Providers\ModulesServiceProvider;
 use Illuminate\Database\Seeder;
 
@@ -18,6 +19,9 @@ class DatabaseSeeder extends Seeder
      */
     public function run(ReferenceDataInstaller $installer): void
     {
+        // The demo has always run in US dollars with no regional settings stored.
+        app(RegionalDefaults::class)->keepBuiltInDefaults();
+
         $installer->install();
 
         if (app()->isProduction()) {

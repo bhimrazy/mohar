@@ -33,7 +33,7 @@ test('installers run by order, then in registration order, with Core first', fun
     $registry->register('test_default_a', fn () => referenceInstaller('test_default_a'));
     $registry->register('test_default_b', fn () => referenceInstaller('test_default_b'));
 
-    expect(array_slice($registry->keys(), 0, 2))->toBe(['core_currencies', 'core_roles'])
+    expect(array_slice($registry->keys(), 0, 3))->toBe(['core_regional', 'core_currencies', 'core_roles'])
         ->and(array_values(array_filter($registry->keys(), fn (string $key) => str_starts_with($key, 'test_'))))->toBe(['test_default_a', 'test_default_b', 'test_late']);
 });
 
