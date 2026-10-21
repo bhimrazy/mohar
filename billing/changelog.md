@@ -995,6 +995,16 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### DevOps
 
+- Deployment, part 4 (D4): the manual "Build image" workflow (`workflow_dispatch` only) builds the image for amd64,
+  arm64 or both as an OCI artifact with SBOM and provenance (7 days), reports each platform's compressed size against
+  a limit, packs the release tarball for hosts without Docker (new Dockerfile target `release`), and optionally pushes
+  the very same archive to GHCR (`skopeo copy --preserve-digests`, `packages: write` only in that job). cPanel shared
+  hosting is supported in cron mode (`docs/devops/cpanel.md`, `deploy/cpanel/crontab.example`), tested by
+  `deploy/cpanel/simulate-cron`. The cron worker lines are those of `Queues::workerCommands()` (a Deploy probe
+  fails on drift), so client imports are worked in cron mode. Cron mode has no catch-up for daily entries: the
+  automation time must be a multiple of the cron interval (`docs/devops/cpanel.md`). The GHCR push runs only from the
+  default branch and the build cache is scoped to the built ref.
+
 - CI security audits only on dependency changes (owner decision 2026-10-21). `composer audit` and `npm audit` now
   block a PR or push only when it changes a Composer or npm manifest or lockfile, an `.npmrc` or a workflow file, so a
   newly published advisory no longer turns every open PR red. A new advisory against unchanged lockfiles shows up on
