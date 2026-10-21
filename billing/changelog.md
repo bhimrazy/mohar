@@ -9,7 +9,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Upgrade notes
 
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
-migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
+  migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
   longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
   New setting: `domains.self_registration_url` ("How to register" link, default the registry's guide).
 - **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
