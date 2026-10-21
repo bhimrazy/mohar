@@ -27,6 +27,7 @@ use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\ActivityLogger;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -66,6 +67,7 @@ class GatewayCallbackHandler
         private SettlePaymentAttempt $settle,
         private CreditLedgerService $credit,
         private RecordDisputeWon $disputeWon,
+        private ActivityLogger $activity,
     ) {}
 
     /**
@@ -441,9 +443,20 @@ class GatewayCallbackHandler
      */
     private function closeDisputedCheck(array $parents, string $disputeId): void
     {
-        PaymentAttempt::toCheck([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT])
+        $attempts = PaymentAttempt::toCheck([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT])
             ->whereIn('transaction_id', array_map(fn (Transaction $parent): int => $parent->id, $parents))
-            ->update(['late_checked_at' => now(), 'review_reason' => mb_substr('Disputed at the provider ('.$disputeId.')', 0, 191)]);
+            ->lockForUpdate()->get();
+
+        foreach ($attempts as $attempt) {
+            $note = 'disputed at the provider ('.$disputeId.')';
+            $attempt->update([
+                'late_checked_at' => now(),
+                'review_reason' => mb_substr($attempt->review_reason === null ? ucfirst($note) : $attempt->review_reason.'; '.$note, 0, 191),
+            ]);
+            $this->activity->log('Flagged gateway payment closed by a dispute', $attempt, $attempt->client_id, [
+                'reference' => $attempt->reference, 'gateway' => $attempt->gateway, 'check_reason' => $attempt->check_reason, 'dispute' => $disputeId,
+            ], 'billing.payment.late_closed_by_dispute');
+        }
     }
 
     /**
@@ -544,8 +557,10 @@ class GatewayCallbackHandler
             ->where(fn ($lines) => $lines->where(fn ($own) => $own->whereIn('transaction_id', $ids)->where('reason', CreditReason::Overpayment))
                 ->orWhere(fn ($refunded) => $refunded->whereIn('transaction_id', $refunds)->where('reason', CreditReason::RefundToCredit)))
             ->sum('amount');
+        // Net of every provider-tagged line on these payments: take-backs, and the restores of won disputes (#191), so
+        // credit a win gave back can be taken back again by a later refund or dispute.
         $reversed = -(int) CreditLedgerEntry::query()->where('currency', $payment->currency)->whereIn('transaction_id', $ids)
-            ->whereNotNull('gateway')->where('amount', '<', 0)->sum('amount');
+            ->whereNotNull('gateway')->sum('amount');
         $taken = min($remaining, max(0, $placed - $reversed));
 
         if ($taken > 0) {

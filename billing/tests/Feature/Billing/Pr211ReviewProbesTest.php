@@ -2,11 +2,15 @@
 
 use App\Contracts\Billing\CreditLedger;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
+use App\Support\Money;
+use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
 require_once __DIR__.'/WebhookHelpers.php';
+require_once __DIR__.'/Support/race.php';
 
 /**
  * Review probes for PR #211 (#191 won disputes). Each test states the behaviour the review expects.
@@ -44,7 +48,9 @@ test('probe A: with reversal.set_collections off, a won dispute still pays the i
 
     $reversal = Transaction::query()->where('type', 'chargeback_reversal')->sole();
     expect($reversal->review_amount)->toBeNull()
-        ->and(Transaction::query()->where('gateway_txn_id', 'ch_pa')->sole()->refundable_remaining)->toBe(5_000);
+        ->and(Transaction::query()->where('gateway_txn_id', 'ch_pa')->sole()->refundable_remaining)->toBe(5_000)
+        ->and(Invoice::query()->findOrFail($invoiceId))->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and(p211Balance($client))->toBe(3_000);
 });
 
 test('probe B: a provider refund after a won dispute takes back the credit the win restored', function () {
@@ -61,41 +67,33 @@ test('probe B: a provider refund after a won dispute takes back the credit the w
     expect(p211Balance($client))->toBe(0);
 });
 
-describe('probe C (PostgreSQL): two checkouts of one client that insert a client row before issuing with credit', function () {
+describe('probe C (PostgreSQL): two checkouts of one client applying its credit', function () {
     beforeEach(function () {
-        if (Illuminate\Support\Facades\DB::connection()->getDriverName() !== 'pgsql') {
+        if (DB::connection()->getDriverName() !== 'pgsql') {
             $this->markTestSkipped('Needs separate committed sessions on one server database (PostgreSQL).');
         }
     });
 
-    // PlaceOrder inserts the order (a key-share lock on the client) before IssueInvoice locks the client FOR UPDATE.
-    // Two such transactions of one client each hold a key share and wait for the other's: 40P01. The review expects
-    // both to finish (one paid by credit, one unpaid), as for the renewal path.
+    // PlaceOrder inserted the order (a key-share lock on the client) before IssueInvoice locked the client FOR UPDATE.
+    // Two such checkouts of one client each held a key share and waited for the other's: 40P01. Adopted with the
+    // real PlaceOrder in place of the probe's raw insert; it now locks the client before inserting anything.
     test('neither checkout fails with a deadlock', function () {
         $this->useSeededDatabase('p211_checkout', function (): void {
             $client = billingClient(['email' => 'p211@example.test']);
-            app(CreditLedger::class)->credit($client->id, App\Support\Money::of(1_000, 'USD'), 'Goodwill');
+            app(CreditLedger::class)->credit($client->id, Money::of(1_000, 'USD'), 'Goodwill');
         });
         $client = Client::query()->where('email', 'p211@example.test')->sole();
-        $script = __DIR__.'/Support/pr211-checkout-worker.php';
-        $processes = [];
+        $database = DB::connection()->getDatabaseName();
 
-        // The first inserts its order row and pauses 1 s before issuing; the second starts 0.3 s later and issues at once.
-        foreach ([[0, 1_000], [300, 0]] as [$delay, $childPause]) {
-            $command = [PHP_BINARY, $script, Illuminate\Support\Facades\DB::connection()->getDatabaseName(), (string) $client->id, '1000', (string) $delay, '0', '0', '1', (string) $childPause];
-            $processes[] = [proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes), $pipes];
-        }
+        // "slow" inserts its order and pauses 1 s before issuing; "fast" starts 0.3 s later and issues at once.
+        $results = runRaceWorkers([
+            'slow' => ['checkout', $database, (string) $client->id, '1000', '0', '1000'],
+            'fast' => ['checkout', $database, (string) $client->id, '1000', '300', '0'],
+        ]);
 
-        $outputs = [];
-
-        foreach ($processes as [$process, $pipes]) {
-            $outputs[] = trim(stream_get_contents($pipes[1]).' '.stream_get_contents($pipes[2]));
-            proc_close($process);
-        }
-
-        foreach ($outputs as $out) {
-            expect($out)->not->toContain('40P01');
-            expect($out)->not->toStartWith('error');
-        }
+        $sorted = collect($results)->sortBy('issued')->values();
+        expect([$sorted[0]['status'], $sorted[0]['applied']])->toBe(['paid', 1_000])
+            ->and([$sorted[1]['status'], $sorted[1]['applied']])->toBe(['unpaid', 0])
+            ->and(p211Balance($client))->toBe(0);
     });
 });

@@ -10,7 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant
   wins (Stripe `charge.dispute.closed` with status `won`) now books a `chargeback_reversal` transaction once per
-  dispute: the invoice is paid again up to what it still owes, the payment can be refunded again by that much, and
+  dispute, under either `billing.reversal.set_collections` setting: the invoice is paid again up to what it still
+  owes, the payment can be refunded again by that much, and
   the account credit the dispute took back is restored, which clears the negative balance and the "Clients owing
   account credit" to-do it caused. Money the invoice can no longer take (it was paid again or cancelled since the
   dispute) goes to "Disputes to review", never to credit. Add `charge.dispute.closed` to the Stripe webhook
@@ -18,7 +19,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   restores the credit again: check those clients after the upgrade. Partial provider refunds and disputes now take
   back the credit the payment placed before they reduce the invoice (before: invoice first), so a partial refund of
   an overpaid payment leaves the invoice paid. A disputed payment flagged "Late payments to check" leaves that to-do,
-  with "Disputed at the provider" on the attempt. New webhook results: "dispute won; payment reinstated", "dispute
+  keeping its review note with "disputed at the provider" added, and an activity entry
+  (`billing.payment.late_closed_by_dispute`). Credit a win restored is taken back again by a later provider refund or
+  dispute of the same charge. New webhook results: "dispute won; payment reinstated", "dispute
   won; needs staff review" and "dispute not booked yet; retry expected". No migration.
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
   migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
@@ -636,10 +639,11 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Billing
 
-- **Renewals no longer fail when the client's credit is spent at the same time** (#192). Issuing an invoice that
-  applies account credit locks the client first, so on PostgreSQL two invoices of one client applying credit no longer
-  deadlock (one of them used to fail), and the credit applied is read under that lock: credit spent meanwhile lowers
-  it, and with none left the invoice is issued unpaid.
+- **Renewals and checkouts no longer fail when the client's credit is spent at the same time** (#192). Issuing an
+  invoice that applies account credit, and placing an order, lock the client before inserting anything for it. On
+  PostgreSQL two renewals, or two checkouts, of one client applying credit no longer deadlock (one of them used to
+  fail). The credit applied is read under that lock: credit spent meanwhile lowers it, and with none left the invoice
+  is issued unpaid. Checkouts of one client now run one after the other.
 - **Fewer database queries per issued invoice** (renewal runs, and every other invoice):
     - On 20,000 clients a billing day's 4,251 renewals took 42.7 queries each, now 34.7. On this shared host that was
       138 → 126 ms per renewal (medians of three alternating runs).

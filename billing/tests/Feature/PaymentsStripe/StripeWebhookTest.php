@@ -354,14 +354,19 @@ function closedStripeAttempt(AttemptStatus $closedAs = AttemptStatus::Expired, a
 test('a disputed late payment leaves "Late payments to check" and says it was disputed (#194)', function () {
     [, $attempt] = closedStripeAttempt();
     postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk()->assertJson(['result' => 'late payment recorded']);
+    $reason = $attempt->fresh()->review_reason;
+    expect($reason)->not->toBeNull();
     $todo = fn (): int => collect(app(Dashboard::class)->resolveTodos('admin', billingStaff()))->firstWhere('key', 'billing.late_payments')['count'] ?? 0;
     expect($todo())->toBe(1);
     Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response(stripeFixture('dispute'))]);
 
     postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0010'))->assertOk()->assertJson(['result' => 'chargeback recorded']);
 
+    // The original reason stays, the note is added, and the close is in the activity log like a staff "Mark checked".
     expect($todo())->toBe(0)
-        ->and($attempt->fresh())->late_checked_at->not->toBeNull()->review_reason->toBe('Disputed at the provider (du_1MoharDispute0001)');
+        ->and($attempt->fresh())->late_checked_at->not->toBeNull()->review_reason->toBe($reason.'; disputed at the provider (du_1MoharDispute0001)')
+        ->and(ActivityLog::query()->where('event', 'billing.payment.late_closed_by_dispute')->sole())
+        ->client_id->toBe($attempt->client_id)->properties->toMatchArray(['dispute' => 'du_1MoharDispute0001']);
 });
 
 function lateActivity(): ActivityLog

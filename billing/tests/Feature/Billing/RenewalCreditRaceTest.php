@@ -12,6 +12,7 @@ use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
+require_once __DIR__.'/Support/race.php';
 
 /**
  * #192: a renewal that applies account credit reads the credit again under the client lock. Credit spent by another
@@ -73,42 +74,41 @@ describe('two invoices for one client applying its credit in real concurrent tra
         }
     });
 
-    test('the second waits for the first, finds the credit gone and is issued unpaid instead of failing', function () {
+    test('neither fails: one is paid by the credit, the other waits for it and is issued unpaid', function () {
         // Committed data the worker processes can see, on its own database: a client with 1,000 of credit.
         $this->useSeededDatabase('credit_race', function (): void {
             $client = billingClient(['email' => 'race@example.test']);
             app(CreditLedger::class)->credit($client->id, Money::of(1_000, 'USD'), 'Goodwill');
         });
         $client = Client::query()->where('email', 'race@example.test')->sole();
-        $script = __DIR__.'/Support/credit-worker.php';
-        $processes = [];
+        $database = DB::connection()->getDatabaseName();
 
-        // The first pauses 1.5 s between publishing (it holds the number) and applying the credit; the second starts
-        // 0.5 s later. Before #192 the second inserted its invoice (a key-share lock on the client row), queued for the
-        // number, and the first's credit lock on the client then deadlocked with it: one renewal failed outright.
-        foreach ([[0, 1_500, 0], [500, 0, 0]] as [$delay, $pause, $hold]) {
-            $command = [PHP_BINARY, $script, DB::connection()->getDatabaseName(), (string) $client->id, '1000', (string) $delay, (string) $pause, (string) $hold];
-            $processes[] = [proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes), $pipes];
-        }
+        // "slow" pauses 1.5 s between publishing (it holds the number) and applying the credit; "fast" starts 0.5 s
+        // later. Before #192 "fast" inserted its invoice (a key-share lock on the client row), queued for the number,
+        // and the credit lock of "slow" on the client then deadlocked with it: one renewal failed outright (40P01).
+        $results = runRaceWorkers([
+            'slow' => ['issue', $database, (string) $client->id, '1000', '0', '1500'],
+            'fast' => ['issue', $database, (string) $client->id, '1000', '500', '0'],
+        ]);
 
-        $results = [];
-
-        foreach ($processes as [$process, $pipes]) {
-            $out = stream_get_contents($pipes[1]);
-            $err = stream_get_contents($pipes[2]);
-            proc_close($process);
-            expect($out)->not->toStartWith('error', $out.$err);
-            [$id, $status, $applied, $issued, $ended] = explode(' ', trim($out));
-            $results[] = ['id' => (int) $id, 'status' => $status, 'applied' => (int) $applied, 'issued' => (float) $issued, 'ended' => (float) $ended];
-        }
-
-        [$first, $second] = $results;
-
-        expect([$first['status'], $first['applied']])->toBe(['paid', 1_000])
-            ->and([$second['status'], $second['applied']])->toBe(['unpaid', 0])
-            ->and($second['issued'])->toBeGreaterThanOrEqual($first['ended'] - 0.05)
-            ->and(Invoice::query()->whereKey($second['id'])->sole()->balance)->toBe(1_000)
-            ->and(app(CreditLedger::class)->balance($client->id, 'USD')->amount)->toBe(0)
-            ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->where('balance_after', '<', 0)->exists())->toBeFalse();
+        expectCreditSpentOnce($results, $client);
     });
 });
+
+/**
+ * Whichever worker got the credit first: one invoice paid by all 1,000, the other issued after it committed, unpaid.
+ *
+ * @param  array<string, array<string, mixed>>  $results
+ */
+function expectCreditSpentOnce(array $results, Client $client): void
+{
+    $sorted = collect($results)->sortBy('issued')->values();
+    [$first, $second] = [$sorted[0], $sorted[1]];
+
+    expect([$first['status'], $first['applied']])->toBe(['paid', 1_000])
+        ->and([$second['status'], $second['applied']])->toBe(['unpaid', 0])
+        ->and($second['issued'])->toBeGreaterThanOrEqual($first['ended'] - 0.05)
+        ->and(Invoice::query()->whereKey($second['invoice'])->sole()->balance)->toBe(1_000)
+        ->and(app(CreditLedger::class)->balance($client->id, 'USD')->amount)->toBe(0)
+        ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->where('balance_after', '<', 0)->exists())->toBeFalse();
+}

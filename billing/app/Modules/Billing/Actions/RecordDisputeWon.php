@@ -24,7 +24,9 @@ use Illuminate\Support\Facades\DB;
  * undid is put back, once per dispute id.
  *
  * - The invoice part goes back on the invoice, up to what it still owes, and the payment can be refunded again by
- *   that much; an invoice it brings to zero is paid again. An add-funds invoice gets its deposit credit back.
+ *   that much; an invoice it brings to zero is paid again. That holds under either `reversal.set_collections`
+ *   setting: with it off the chargeback left the invoice Paid with the amount owing. An add-funds invoice gets its
+ *   deposit credit back.
  * - The credit the dispute took back (its `(gateway, dispute id)` ledger line) is restored, exactly that line.
  * - A rest nobody could cover is cleared from staff review, since that money came back too.
  * - What the invoice can no longer take (it was paid again, or cancelled, since the dispute) is never turned into
@@ -97,7 +99,10 @@ class RecordDisputeWon
                     continue;
                 }
 
-                $applied = $invoice !== null && $invoice->status->isPayable() ? min($portion, max(0, $invoice->balance)) : 0;
+                // Payable (the chargeback moved it to Collections), or still Paid with the chargeback's amount owing
+                // (reversal.set_collections off): either way the chargeback reduced what it holds, so that comes back.
+                $takesBack = $invoice !== null && ($invoice->status->isPayable() || $invoice->status === InvoiceStatus::Paid);
+                $applied = $takesBack ? min($portion, max(0, $invoice->balance)) : 0;
                 $review += $portion - $applied;
 
                 if ($applied > 0) {
@@ -170,6 +175,7 @@ class RecordDisputeWon
 
         $invoice->save();
 
+        // A Paid invoice (set_collections off) stays Paid; settle() moves only a payable one.
         if (! $this->settlement->settle($invoice)) {
             AfterCommit::dispatch(new InvoiceModified($invoice->id, $invoice->client_id));
         }
