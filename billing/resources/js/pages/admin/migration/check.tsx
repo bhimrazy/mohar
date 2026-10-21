@@ -62,11 +62,12 @@ type Row = {
     changes: string[];
     match: { name: string; href: string } | null;
     choices: Choice[];
+    link_login: boolean | null;
     outcome: Outcome | null;
     client_href: string | null;
 };
 
-type Choice = 'create' | 'update' | 'skip';
+type Choice = 'create' | 'link' | 'no_link' | 'update' | 'skip';
 type Outcome = 'created' | 'updated' | 'unchanged' | 'skipped' | 'failed';
 
 type Props = {
@@ -118,9 +119,24 @@ const OUTCOMES = {
 
 const CHOICE_LABELS: Record<Choice, string> = {
     create: 'Create a new client',
+    link: 'Create and link the existing login',
+    no_link: 'Create without a login',
     update: 'Update the matched client',
     skip: 'Skip this row',
 };
+
+/** A create decided for an email that belongs to a login says what happens to that login. */
+function decisionLabel(row: Row): string {
+    if (row.decision === 'create' && row.link_login === true) {
+        return 'New client, login linked';
+    }
+
+    if (row.decision === 'create' && row.link_login === false) {
+        return 'New client, no login';
+    }
+
+    return row.decision ? DECISIONS[row.decision].label : '';
+}
 
 const DECISIONS = {
     create: { label: 'New client', tone: 'success' },
@@ -184,7 +200,7 @@ const columns = (
                 ) : (
                     <StatusBadge
                         status={row.decision}
-                        label={DECISIONS[row.decision].label}
+                        label={decisionLabel(row)}
                         tone={DECISIONS[row.decision].tone}
                     />
                 )}
@@ -350,11 +366,17 @@ export default function ImportCheck({
                     </p>
                 )}
 
-                {(errors.apply || errors.tax_exempt || errors.digest) && (
+                {(errors.apply ||
+                    errors.tax_exempt ||
+                    errors.digest ||
+                    errors.decision) && (
                     <Alert variant="destructive">
                         <CircleAlert />
                         <AlertDescription>
-                            {errors.apply ?? errors.tax_exempt ?? errors.digest}
+                            {errors.apply ??
+                                errors.tax_exempt ??
+                                errors.digest ??
+                                errors.decision}
                         </AlertDescription>
                     </Alert>
                 )}

@@ -153,13 +153,14 @@ class ClientImportController extends Controller
     }
 
     /**
-     * Staff choose what one row does (DecideRows): create, update the matched client, or skip.
+     * Staff choose what one row does (DecideRows): create (and link, or not, a login that has the email), update the matched
+     * client, or skip.
      */
     public function decide(Request $request, MigrationRun $run, DecideRows $decide): RedirectResponse
     {
         $this->authorize('migration.runs.execute');
 
-        $data = $request->validate(['row' => ['required', 'integer', 'min:1'], 'decision' => ['required', Rule::in(['create', 'update', 'skip'])]]);
+        $data = $request->validate(['row' => ['required', 'integer', 'min:1'], 'decision' => ['required', Rule::in(['create', 'link', 'no_link', 'update', 'skip'])]]);
         $decide->one($run, (int) $data['row'], (string) $data['decision']);
 
         return back();
@@ -174,7 +175,7 @@ class ClientImportController extends Controller
 
         ['accepted' => $accepted, 'left' => $left] = $decide->acceptProposed($run);
         Inertia::flash('toast', ['type' => $left > 0 ? 'info' : 'success', 'message' => trim(trans_choice('{0} No proposal to accept.|{1} 1 proposed row accepted.|[2,*] :count proposed rows accepted.', $accepted, ['count' => number_format($accepted)])
-            .' '.trans_choice('{0}|{1} 1 row is left for you: its match is closed, shared by several clients or changed email recently.|[2,*] :count rows are left for you: their matches are closed, shared by several clients or changed email recently.', $left, ['count' => number_format($left)]))]);
+            .' '.trans_choice('{0}|{1} 1 row is left for you: its match is closed, shared by several clients or changed email recently, or its email belongs to a login.|[2,*] :count rows are left for you: their matches are closed, shared by several clients or changed email recently, or their emails belong to logins.', $left, ['count' => number_format($left)]))]);
 
         return back();
     }
@@ -281,7 +282,7 @@ class ClientImportController extends Controller
                 : $query->where('email_hash', MigrationRecord::emailHash($search)))
             ->with('matchedClient:id,first_name,last_name,company_name')
             ->orderBy('row_number')
-            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'outcome', 'target_id'])
+            ->paginate(self::PER_PAGE, ['id', 'migration_run_id', 'row_number', 'normalized', 'status', 'decision', 'match_client_id', 'problems', 'changes', 'link_login', 'outcome', 'target_id'])
             ->withQueryString()
             ->through(fn (MigrationRecord $record): array => [
                 'row' => $record->row_number,
@@ -294,6 +295,7 @@ class ClientImportController extends Controller
                 'changes' => array_map(fn (string $field): string => ClientColumns::TARGETS[$field === 'client_group_id' ? 'client_group' : $field] ?? $field, $record->changes ?? []),
                 'match' => $record->matchedClient === null ? null : ['name' => $record->matchedClient->display_name, 'href' => route('admin.clients.show', $record->matchedClient)],
                 'choices' => $run->status === MigrationRun::READY ? DecideRows::choices($record) : [],
+                'link_login' => $record->link_login,
                 'outcome' => $record->outcome,
                 'client_href' => in_array($record->outcome, ['created', 'updated'], true) && $record->target_id !== null ? route('admin.clients.show', $record->target_id) : null,
             ]);

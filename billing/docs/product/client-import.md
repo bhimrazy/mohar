@@ -215,7 +215,8 @@ Summary cards first, then the rows (product standards: summary, then detail):
 
 Tabs carry the same counts. Rows show the file row number ("Row 1,204"), the name, the email, the decision, the notes and,
 for a match, the matched client's name (linked), never a database id. Search covers row number, and exact email via
-`email_hash`. Per row, staff can switch the decision (create, update, skip) where it is allowed. "Accept all proposed"
+`email_hash`. Per row, staff can switch the decision (create, update, skip; for an email that belongs to a client login, "create and
+link the existing login" or "create without a login", §6.11) where it is allowed; a refused decision shows its reason. "Accept all proposed"
 leaves flagged rows unticked and says how many it left (the cPanel import's rule for a recent email change).
 
 Errors can be downloaded as a CSV of row number, column and reason, plus the original cells so the file can be fixed
