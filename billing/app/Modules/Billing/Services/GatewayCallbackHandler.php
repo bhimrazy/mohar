@@ -267,7 +267,16 @@ class GatewayCallbackHandler
         // can't leave the credit in place while the provider's retry is answered "duplicate".
         try {
             return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
+                $parents = $this->lockParents($parents);
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
+
+                // Credit first, then the invoice: the reverse of how the money arrived, since only the surplus went to
+                // account credit (#194). The credit is what those payments placed: an overpayment, a payment of a
+                // closed invoice, a refund to credit (#172, and #152 for flagged attempts).
+                $taken = $event->txnId !== ''
+                    ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::CreditRemoved, __('Refunded at the gateway (:refund)', ['refund' => $event->txnId]))
+                    : 0;
+                $remaining -= $taken;
                 $txnId = $event->txnId;
                 $first = null;
 
@@ -283,16 +292,11 @@ class GatewayCallbackHandler
                     $txnId = null;
                 }
 
-                if ($remaining === 0) {
+                if ($taken === 0 && $remaining === 0) {
                     return $this->outcome($gatewayKey, 200, 'refund recorded', $event->raw, $parents[0]->invoice_id);
                 }
 
-                // Money that went to account credit (an overpayment, a payment of a closed invoice, a refund to
-                // credit) is taken back from the credit those payments placed (#172, and #152 for flagged attempts).
-                $taken = $event->txnId !== ''
-                    ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::CreditRemoved, __('Refunded at the gateway (:refund)', ['refund' => $event->txnId]))
-                    : 0;
-                $left = $remaining - $taken;
+                $left = $remaining;
                 $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $left];
                 $flagged = $this->flaggedAttempt($parents);
 
@@ -364,7 +368,14 @@ class GatewayCallbackHandler
 
         try {
             return DB::transaction(function () use ($gatewayKey, $event, $parents): array {
+                $parents = $this->lockParents($parents);
                 $remaining = $this->amounts->toDocument($parents[0], $event->amount, $event->currency);
+
+                // Credit first, then the invoice, as for refunds (#194).
+                $taken = $event->txnId !== ''
+                    ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::Reversal, __('Credit reversed (chargeback :dispute)', ['dispute' => $event->txnId]))
+                    : 0;
+                $remaining -= $taken;
                 $first = null;
 
                 foreach ($parents as $index => $parent) {
@@ -378,22 +389,21 @@ class GatewayCallbackHandler
                     $chargeback = $this->chargeback->handle($parent, $portion, $index === 0 ? $event->txnId : null, GatewayLogger::redact($event->raw));
 
                     if ($index === 0 && ! $chargeback->wasRecentlyCreated) {
-                        // A concurrent delivery of this dispute committed first.
-                        return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parent->invoice_id);
+                        // A delivery of this dispute committed first: roll back the credit taken above too.
+                        throw new ReversalAlreadyRecorded;
                     }
 
                     $first ??= $chargeback;
                     $remaining -= $chargeback->amount_out;
                 }
 
-                if ($remaining === 0) {
+                $this->closeDisputedCheck($parents, $event->txnId);
+
+                if ($taken === 0 && $remaining === 0) {
                     return $this->outcome($gatewayKey, 200, 'chargeback recorded', $event->raw, $parents[0]->invoice_id);
                 }
 
-                $taken = $event->txnId !== ''
-                    ? $this->reverseCredit($gatewayKey, $event->txnId, $parents, $remaining, CreditReason::Reversal, __('Credit reversed (chargeback :dispute)', ['dispute' => $event->txnId]))
-                    : 0;
-                $left = $remaining - $taken;
+                $left = $remaining;
                 $this->finishReversal($first, $taken, $left, review: true);
                 $payload = [...$event->raw, 'credit_taken_back' => $taken, 'unallocated' => $left];
 
@@ -405,6 +415,35 @@ class GatewayCallbackHandler
         } catch (UniqueConstraintViolationException|ReversalAlreadyRecorded) {
             return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
         }
+    }
+
+    /**
+     * Lock the payments, then their invoices, before any credit moves (the order every money path uses), and read the
+     * payments again under the lock: what they can still return is decided on fresh rows.
+     *
+     * @param  list<Transaction>  $parents
+     * @return list<Transaction>
+     */
+    private function lockParents(array $parents): array
+    {
+        $ids = array_map(fn (Transaction $parent): int => $parent->id, $parents);
+        $locked = Transaction::query()->whereIn('id', $ids)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        Invoice::query()->whereIn('id', $locked->pluck('invoice_id')->filter()->unique())->orderBy('id')->lockForUpdate()->get();
+
+        return array_map(fn (int $id): Transaction => $locked->get($id) ?? throw new BillingException(__('The payment no longer exists.')), $ids);
+    }
+
+    /**
+     * A flagged late or credited payment that is disputed leaves "Late payments to check": the dispute reversed it, and
+     * what is still open is on the dispute's own to-dos (#194). The attempt says why.
+     *
+     * @param  list<Transaction>  $parents
+     */
+    private function closeDisputedCheck(array $parents, string $disputeId): void
+    {
+        PaymentAttempt::toCheck([PaymentAttempt::CHECK_LATE, PaymentAttempt::CHECK_CREDIT])
+            ->whereIn('transaction_id', array_map(fn (Transaction $parent): int => $parent->id, $parents))
+            ->update(['late_checked_at' => now(), 'review_reason' => mb_substr('Disputed at the provider ('.$disputeId.')', 0, 191)]);
     }
 
     /**
