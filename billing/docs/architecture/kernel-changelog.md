@@ -6,6 +6,14 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### ADR 0021 and the 0012/0018 addenda (#219)
+
+- `App\Support\Clients\ClientCurrencyUsage::source(string $key, Closure)` is renamed
+  `register(string $key, Closure $source, bool $replace = false)`, the aggregating-registry shape of the ADR 0012
+  addendum. Keys must match `[a-z0-9_]{1,50}`; a duplicate key throws `LogicException` unless `$replace` is set, and a
+  replacement is logged. Breaking, under the pre-1.0 window: the four in-repo callers (Billing, Services, Orders,
+  Domains) are updated in the same PR, and no external package used the method.
+
 ### Client import, PR B1a (client-import spec §15, ADR 0019 accepted)
 
 - Added `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed

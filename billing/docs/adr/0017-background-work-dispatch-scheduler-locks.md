@@ -55,6 +55,8 @@ assumptions about that topology without writing them down:
     - The `app:install` pre-flight and the health check fail when `cache.default` resolves to `array` or `null`.
     - The `file` driver is accepted only for a single-host, single-container install, and the pre-flight warns.
     - Locks are taken through `Cache::lock` on the default store, never on a named local store.
+    - **Amended by ADR 0021 (2026-10-21):** this rule covers locks that span work outside one database transaction.
+      Row locks taken inside a transaction (`lockForUpdate()`) follow ADR 0021, including its lock order.
 5. **Queue names are constants** (`App\Support\Queues`, ADR 0014). The worker hints in `InstallCommand`,
    `install.md` and `deploy/` are generated from, or tested against, those constants.
 
