@@ -9,6 +9,8 @@ use App\Data\Migration\ImportOutcome;
 use App\Data\Migration\ImportRecord;
 use App\Enums\ImportAction;
 use App\Events\Migration\MigrationRunCompleted;
+use App\Events\Migration\MigrationRunPaused;
+use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
@@ -22,7 +24,6 @@ use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Throwable;
 
@@ -72,10 +73,18 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
         $pending = $records->whereNull('outcome');
         $emails = $pending->where('decision', 'create')->map(fn (MigrationRecord $record): string => (string) ($record->normalized['client']['email'] ?? ''))->filter()->values()->all();
         $taken = array_fill_keys(Client::query()->whereIn(DB::raw('lower(email)'), $emails)->pluck('email')->map(fn (string $email): string => mb_strtolower($email))->all(), true);
-        $before = Client::query()->whereKey($pending->where('decision', 'update')->pluck('match_client_id')->filter()->all())->get()->keyBy('id');
+        $actor = $run->applied_by === null ? null : User::query()->find($run->applied_by);
 
         foreach ($pending as $record) {
-            DB::transaction(fn () => $this->applyRow($run, $record, $context, $clients, $logins, $taken, $before, $audit));
+            DB::transaction(function () use ($run, $record, $context, $clients, $logins, $taken, $audit, $actor): void {
+                // Claim the row: another job for this run (a redelivery, a Continue) may have applied it meanwhile.
+                $claimed = MigrationRecord::query()->whereKey($record->id)->whereNull('outcome')->lockForUpdate()->exists()
+                    && MigrationRun::query()->whereKey($run->id)->where('status', MigrationRun::APPLYING)->exists();
+
+                if ($claimed) {
+                    $this->applyRow($run, $record, $context, $clients, $logins, $taken, $audit, $actor);
+                }
+            });
         }
 
         $this->count($run);
@@ -84,15 +93,18 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
 
     public function failed(?Throwable $exception): void
     {
-        MigrationRun::query()->whereKey($this->runId)->where('status', MigrationRun::APPLYING)
+        $stopped = MigrationRun::query()->whereKey($this->runId)->where('status', MigrationRun::APPLYING)
             ->update(['status' => MigrationRun::FAILED, 'error' => __('Importing stopped before the end. Continue to import the rest; rows already imported are not imported again.')]);
+
+        if ($stopped === 1) {
+            MigrationRunPaused::dispatch($this->runId, 'apply_failed');
+        }
     }
 
     /**
      * @param  array<string, true>  $taken  emails clients hold now
-     * @param  Collection<int, Client>  $before
      */
-    private function applyRow(MigrationRun $run, MigrationRecord $record, ImportContext $context, RecordImporter $clients, ?RecordImporter $logins, array $taken, Collection $before, ActivityLogger $audit): void
+    private function applyRow(MigrationRun $run, MigrationRecord $record, ImportContext $context, RecordImporter $clients, ?RecordImporter $logins, array $taken, ActivityLogger $audit, ?User $actor): void
     {
         $normalized = $record->normalized ?? [];
         $client = $normalized['client'] ?? [];
@@ -109,9 +121,9 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
 
         $creating = $record->decision === 'create';
         // A new client takes the defaults for what the file does not map; an update changes only mapped fields, and
-        // a match reached through a merge keeps the survivor's own email.
-        $fields = $creating ? [...($normalized['defaults'] ?? []), ...$client]
-            : (in_array('merged', array_column($record->problems ?? [], 'code'), true) ? Arr::except($client, 'email') : $client);
+        // never the email (the importer refuses it too).
+        $fields = $creating ? [...($normalized['defaults'] ?? []), ...$client] : Arr::except($client, 'email');
+        $previous = $creating ? null : Client::query()->find($record->match_client_id);
         $outcome = $clients->upsert(new ImportRecord('client', $run->source_system, (string) $record->source_id, [
             ...Arr::except($fields, 'client_group_create'),
             'client_group_name' => $client['client_group_create'] ?? null,
@@ -128,16 +140,17 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
             $issues = [...$issues, ...$logins->upsert(new ImportRecord('user', $run->source_system, (string) $record->source_id, [
                 'email' => $client['email'], 'name' => trim(($client['first_name'] ?? '').' '.($client['last_name'] ?? '')),
                 'verified' => ($run->options['trust_verified'] ?? false) && ($extra['email_verified'] ?? null) === true,
+                'link_existing' => $record->link_login === true,
             ], ['client_id' => $outcome->targetId]), $context, null)->issues];
         }
 
         $this->map($run, $record, $outcome);
         $audit->log($outcome->action === ImportAction::Created ? 'Client created by import' : 'Client updated by import', null, $outcome->targetId,
-            ['run' => $run->id, 'row' => $record->row_number, 'changes' => $outcome->changes], 'migration.client_'.$outcome->action->value);
+            ['run' => $run->id, 'row' => $record->row_number, 'changes' => $outcome->changes], 'migration.client_'.$outcome->action->value, $actor);
         $record->forceFill([
             'outcome' => $outcome->action->value,
             'target_id' => $outcome->targetId,
-            'before' => $record->decision === 'update' ? $before->get((int) $record->match_client_id)?->only(array_diff($outcome->changes, ['imported_fields'])) : null,
+            'before' => $previous?->only($outcome->changes),
             'problems' => [...($record->problems ?? []), ...array_map(fn (ImportIssue $issue): array => ['severity' => $issue->severity->value, 'code' => $issue->code, 'message' => $issue->message], $issues)],
             'changes' => $outcome->changes,
             'applied_at' => now(),
@@ -168,15 +181,28 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
         ])->save();
     }
 
+    /**
+     * The applying → completed transition, once: of two jobs that reach the end, only the one whose conditional update
+     * changed the run writes the audit entry and dispatches the event, after the commit.
+     */
     private function finish(MigrationRun $run, ActivityLogger $audit, int $undoDays): void
     {
-        $this->count($run);
-        $unchanged = $run->records()->where('outcome', 'unchanged')->count();
-        $undoUntil = now()->addDays($undoDays);
-        $run->forceFill(['status' => MigrationRun::COMPLETED, 'undo_until' => $undoUntil, 'expires_at' => $undoUntil])->save();
-        $audit->log('Client import applied', $run, properties: ['file' => $run->file_name, 'created' => $run->created_count, 'updated' => $run->updated_count, 'failed' => $run->failed_count], event: 'migration.completed');
-        MigrationRunCompleted::dispatch($run->id, $run->source_system, false, [$run->entity => [
-            'created' => $run->created_count, 'updated' => $run->updated_count, 'unchanged' => $unchanged, 'skipped' => $run->skipped_count, 'failed' => $run->failed_count,
-        ]]);
+        DB::transaction(function () use ($run, $audit, $undoDays): void {
+            $this->count($run);
+            $undoUntil = now()->addDays($undoDays);
+            $completed = MigrationRun::query()->whereKey($run->id)->where('status', MigrationRun::APPLYING)
+                ->update(['status' => MigrationRun::COMPLETED, 'undo_until' => $undoUntil, 'expires_at' => $undoUntil]);
+
+            if ($completed !== 1) {
+                return;
+            }
+
+            $run->refresh();
+            $audit->log('Client import applied', $run, properties: ['file' => $run->file_name, 'created' => $run->created_count, 'updated' => $run->updated_count, 'failed' => $run->failed_count], event: 'migration.completed');
+            MigrationRunCompleted::dispatch($run->id, $run->source_system, [$run->entity => [
+                'created' => $run->created_count, 'updated' => $run->updated_count, 'unchanged' => $run->records()->where('outcome', 'unchanged')->count(),
+                'skipped' => $run->skipped_count, 'failed' => $run->failed_count,
+            ]]);
+        });
     }
 }

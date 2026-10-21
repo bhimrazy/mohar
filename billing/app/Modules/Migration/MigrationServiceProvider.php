@@ -57,22 +57,25 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     /**
      * Client-import spec §5.8: a run's file and row payloads are removed when it expires: 7 days after upload when it was
-     * never applied, at the end of the undo window when it was. Idempotent.
+     * never applied, at the end of the undo window when it was, and STOPPED_PURGE_DAYS after the last activity of an
+     * import that stopped partway and was never continued (it keeps its status; it can no longer be continued).
+     * Idempotent.
      */
     private function purgeExpired(): int
     {
         $purged = 0;
 
-        MigrationRun::query()->whereNull('purged_at')->where('expires_at', '<=', now())
-            // A run stopped partway through applying keeps its rows until staff finish it.
-            ->where(fn ($query) => $query->whereNull('applied_at')->orWhere('status', MigrationRun::COMPLETED))
+        MigrationRun::query()->whereNull('purged_at')->where(fn ($query) => $query
+            ->where(fn ($query) => $query->where('expires_at', '<=', now())->where(fn ($query) => $query->whereNull('applied_at')->orWhere('status', MigrationRun::COMPLETED)))
+            ->orWhere(fn ($query) => $query->whereNotNull('applied_at')->whereIn('status', [MigrationRun::FAILED, MigrationRun::APPLYING])
+                ->where('heartbeat_at', '<=', now()->subDays(MigrationRun::STOPPED_PURGE_DAYS))))
             ->lazyById(100)->each(function (MigrationRun $run) use (&$purged): void {
                 if ($run->file_key !== null) {
                     Storage::disk('objects')->delete($run->file_key);
                 }
 
                 MigrationRecord::query()->where('migration_run_id', $run->id)->update(['raw' => null, 'normalized' => null, 'before' => null]);
-                $run->forceFill(['status' => $run->status === MigrationRun::COMPLETED ? MigrationRun::COMPLETED : MigrationRun::EXPIRED, 'file_key' => null, 'header' => null, 'found_values' => null, 'purged_at' => now()])->save();
+                $run->forceFill(['status' => $run->applied_at !== null ? ($run->status === MigrationRun::APPLYING ? MigrationRun::FAILED : $run->status) : MigrationRun::EXPIRED, 'file_key' => null, 'header' => null, 'found_values' => null, 'purged_at' => now()])->save();
                 app(ActivityLogger::class)->log('Client import rows purged', $run, properties: ['file' => $run->file_name, 'rows' => $run->row_count], event: 'migration.purged');
                 $purged++;
             });

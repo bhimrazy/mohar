@@ -10,7 +10,6 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Migration\Actions\ApplyRun;
 use App\Modules\Migration\Actions\StartCheck;
 use App\Modules\Migration\Actions\UploadClientFile;
-use App\Modules\Migration\Jobs\ApplyChunk;
 use App\Modules\Migration\Jobs\CheckRun;
 use App\Modules\Migration\Jobs\StageCsvRun;
 use App\Modules\Migration\Models\MigrationRecord;
@@ -149,21 +148,23 @@ class ClientImportController extends Controller
     /**
      * Continue a step that failed or stalled, from where it stopped.
      */
-    public function resume(MigrationRun $run): RedirectResponse
+    public function resume(MigrationRun $run, ApplyRun $apply): RedirectResponse
     {
         $this->authorize('migration.runs.execute');
 
-        [$status, $job] = match (true) {
-            $run->file_key !== null => [MigrationRun::STAGING, new StageCsvRun($run->id)],
-            $run->applied_at !== null => [MigrationRun::APPLYING, new ApplyChunk($run->id)],
-            default => [MigrationRun::CHECKING, new CheckRun($run->id, $run->generation, $run->checked_count)],
-        };
+        if ($run->applied_at !== null) {
+            // Applying goes through the one place that keeps imports one at a time.
+            $apply->resume($run);
+        } else {
+            $staging = $run->file_key !== null;
 
-        if (! $run->claimStopped($status)) {
-            throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
+            if ($run->purged_at !== null || ! $run->claimStopped($staging ? MigrationRun::STAGING : MigrationRun::CHECKING)) {
+                throw ValidationException::withMessages(['run' => __('This import is not stopped.')]);
+            }
+
+            dispatch($staging ? new StageCsvRun($run->id) : new CheckRun($run->id, $run->generation, $run->checked_count));
         }
 
-        dispatch($job);
         Inertia::flash('toast', ['type' => 'info', 'message' => __('Continuing :file where it stopped.', ['file' => $run->file_name])]);
 
         return to_route('admin.migration.imports.show', $run);
@@ -264,6 +265,7 @@ class ClientImportController extends Controller
             'running' => $run->isRunning(),
             'stalled' => $run->isStalled(),
             'error' => $run->error,
+            'purged' => $run->purged_at !== null,
             'queue' => Queues::IMPORTS,
             'requested_by' => $run->requester?->name,
             'uploaded_at' => $run->created_at?->toIso8601String(),

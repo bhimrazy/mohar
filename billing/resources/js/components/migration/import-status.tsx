@@ -28,6 +28,7 @@ export type ImportRun = {
     running: boolean;
     stalled: boolean;
     error: string | null;
+    purged: boolean;
     queue: string;
     requested_by: string | null;
     uploaded_at: string | null;
@@ -117,11 +118,13 @@ export function ImportProgress({ run }: { run: ImportRun }) {
                 </AlertTitle>
                 <AlertDescription>
                     <span>
-                        {run.stalled
-                            ? `No worker has reported for 10 minutes. Check that a queue worker runs the "${run.queue}" queue, then continue.`
-                            : run.error}
+                        {run.purged
+                            ? 'Row details were removed; continue is no longer possible.'
+                            : run.stalled
+                              ? `No worker has reported for 10 minutes. Check that a queue worker runs the "${run.queue}" queue, then continue.`
+                              : run.error}
                     </span>
-                    {resume}
+                    {!run.purged && resume}
                 </AlertDescription>
             </Alert>
         );
