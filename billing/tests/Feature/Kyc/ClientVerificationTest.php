@@ -14,6 +14,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Inertia\Testing\AssertableInertia;
 
 beforeEach(function () {
@@ -33,7 +34,7 @@ function kycUpload(string $name, ?string $bytes = null): UploadedFile
     return new UploadedFile($path, $name, null, null, true);
 }
 
-function kycSubmit(DocumentType $type, string $number = '27-01-74-01234', array $overrides = []): Illuminate\Testing\TestResponse
+function kycSubmit(DocumentType $type, string $number = '27-01-74-01234', array $overrides = []): TestResponse
 {
     return test()->post(route('client.kyc.documents.store'), [
         'type' => $type->value,

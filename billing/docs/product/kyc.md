@@ -39,13 +39,13 @@ client account.
 
 Derived, never stored, so it follows later changes (a changed email undoes the email step):
 
-| Status       | When                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------ |
-| Not started  | No current document.                                                                       |
-| In progress  | Documents of fewer than two types, and nothing rejected.                                   |
-| Pending review | Current documents of two or more types, at least one waiting for staff, none rejected.  |
-| Rejected     | A current document was rejected; the client sees the reason and uploads it again.          |
-| Verified     | Email and phone done and two or more types approved.                                       |
+| Status         | When                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------- |
+| Not started    | No current document.                                                                   |
+| In progress    | Documents of fewer than two types, and nothing rejected.                               |
+| Pending review | Current documents of two or more types, at least one waiting for staff, none rejected. |
+| Rejected       | A current document was rejected; the client sees the reason and uploads it again.      |
+| Verified       | Email and phone done and two or more types approved.                                   |
 
 The banner at the top of the client area shows while the status is not Verified: "Verify your identity to finish
 setting up your account" with Start verification; "Your documents are waiting for review" while pending; "A document

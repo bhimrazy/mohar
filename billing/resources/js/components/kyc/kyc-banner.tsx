@@ -4,7 +4,10 @@ import { toneSurface } from '@/components/app/status-badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const MESSAGES: Record<string, { text: string; action: string; tone: 'info' | 'warning' | 'danger' }> = {
+const MESSAGES: Record<
+    string,
+    { text: string; action: string; tone: 'info' | 'warning' | 'danger' }
+> = {
     not_started: {
         text: 'Verify your identity to finish setting up your account.',
         action: 'Start verification',

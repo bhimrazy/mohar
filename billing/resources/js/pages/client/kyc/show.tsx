@@ -36,7 +36,10 @@ type Props = {
     maxUploadMb: number;
 };
 
-const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'neutral'> = {
+const STATUS_TONE: Record<
+    string,
+    'success' | 'warning' | 'danger' | 'info' | 'neutral'
+> = {
     not_started: 'neutral',
     in_progress: 'info',
     pending_review: 'warning',
@@ -46,13 +49,25 @@ const STATUS_TONE: Record<string, 'success' | 'warning' | 'danger' | 'info' | 'n
     approved: 'success',
 };
 
-function StepTitle({ number, title, done }: { number: number; title: string; done: boolean }) {
+function StepTitle({
+    number,
+    title,
+    done,
+}: {
+    number: number;
+    title: string;
+    done: boolean;
+}) {
     const Icon = done ? CheckCircle2 : Circle;
 
     return (
         <span className="flex items-center gap-2">
             <Icon
-                className={done ? 'size-5 text-success-text' : 'size-5 text-muted-foreground'}
+                className={
+                    done
+                        ? 'size-5 text-success-text'
+                        : 'size-5 text-muted-foreground'
+                }
                 aria-hidden="true"
             />
             <span>
@@ -67,7 +82,13 @@ function StepTitle({ number, title, done }: { number: number; title: string; don
     );
 }
 
-function DocumentUpload({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: number }) {
+function DocumentUpload({
+    row,
+    maxUploadMb,
+}: {
+    row: DocumentRow;
+    maxUploadMb: number;
+}) {
     const id = (field: string) => `${row.type}-${field}`;
     const accept = 'image/jpeg,image/png,image/webp';
 
@@ -112,7 +133,11 @@ function DocumentUpload({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: n
                         />
                     </Field>
                     {row.hasBack && (
-                        <Field htmlFor={id('back')} label="Back" error={errors.back}>
+                        <Field
+                            htmlFor={id('back')}
+                            label="Back"
+                            error={errors.back}
+                        >
                             <Input
                                 id={id('back')}
                                 name="back"
@@ -124,7 +149,9 @@ function DocumentUpload({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: n
                         </Field>
                     )}
                     {errors.type && (
-                        <p className="text-sm text-danger-text sm:col-span-2">{errors.type}</p>
+                        <p className="text-sm text-danger-text sm:col-span-2">
+                            {errors.type}
+                        </p>
                     )}
                     <div className="sm:col-span-2">
                         <Button type="submit" disabled={processing}>
@@ -138,7 +165,13 @@ function DocumentUpload({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: n
     );
 }
 
-function DocumentItem({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: number }) {
+function DocumentItem({
+    row,
+    maxUploadMb,
+}: {
+    row: DocumentRow;
+    maxUploadMb: number;
+}) {
     const current = row.current;
     const [replacing, setReplacing] = useState(false);
     const canReplace = current !== null && current.status !== 'approved';
@@ -154,7 +187,8 @@ function DocumentItem({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: num
                             {current.uploadedAt && (
                                 <>
                                     {' '}
-                                    · uploaded <DateTime value={current.uploadedAt} />
+                                    · uploaded{' '}
+                                    <DateTime value={current.uploadedAt} />
                                 </>
                             )}
                         </p>
@@ -168,10 +202,18 @@ function DocumentItem({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: num
                             tone={STATUS_TONE[current.status]}
                         />
                     ) : (
-                        <StatusBadge status="none" label="Not uploaded" tone="neutral" />
+                        <StatusBadge
+                            status="none"
+                            label="Not uploaded"
+                            tone="neutral"
+                        />
                     )}
                     {canReplace && !replacing && (
-                        <Button size="sm" variant="outline" onClick={() => setReplacing(true)}>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setReplacing(true)}
+                        >
                             Upload again
                         </Button>
                     )}
@@ -184,7 +226,8 @@ function DocumentItem({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: num
             )}
             {current?.status === 'approved' && (
                 <p className="text-sm text-muted-foreground">
-                    Approved documents cannot be changed. Contact support if a detail is wrong.
+                    Approved documents cannot be changed. Contact support if a
+                    detail is wrong.
                 </p>
             )}
             {(current === null || replacing) && (
@@ -194,8 +237,17 @@ function DocumentItem({ row, maxUploadMb }: { row: DocumentRow; maxUploadMb: num
     );
 }
 
-export default function KycShow({ status, email, phone, documents, requiredTypes, maxUploadMb }: Props) {
-    const uploaded = documents.filter((row) => row.current && row.current.status !== 'rejected').length;
+export default function KycShow({
+    status,
+    email,
+    phone,
+    documents,
+    requiredTypes,
+    maxUploadMb,
+}: Props) {
+    const uploaded = documents.filter(
+        (row) => row.current && row.current.status !== 'rejected',
+    ).length;
 
     return (
         <>
@@ -214,17 +266,33 @@ export default function KycShow({ status, email, phone, documents, requiredTypes
                 />
 
                 <div className="flex flex-col gap-6">
-                    <SectionCard title={<StepTitle number={1} title="Email" done={email.done} />}>
+                    <SectionCard
+                        title={
+                            <StepTitle
+                                number={1}
+                                title="Email"
+                                done={email.done}
+                            />
+                        }
+                    >
                         {email.done ? (
                             <p className="text-sm">
                                 <strong>{email.address}</strong> is confirmed.
                             </p>
                         ) : (
                             <p className="text-sm text-muted-foreground">
-                                Your account email <strong className="text-foreground">{email.address}</strong> is
-                                not confirmed yet. It counts once the account owner signs in with this address and
-                                confirms it. You can also change it to the owner&apos;s sign-in email in{' '}
-                                <Link href={AccountController.edit()} className="underline underline-offset-4">
+                                Your account email{' '}
+                                <strong className="text-foreground">
+                                    {email.address}
+                                </strong>{' '}
+                                is not confirmed yet. It counts once the account
+                                owner signs in with this address and confirms
+                                it. You can also change it to the owner&apos;s
+                                sign-in email in{' '}
+                                <Link
+                                    href={AccountController.edit()}
+                                    className="underline underline-offset-4"
+                                >
                                     Account details
                                 </Link>
                                 .
@@ -232,7 +300,15 @@ export default function KycShow({ status, email, phone, documents, requiredTypes
                         )}
                     </SectionCard>
 
-                    <SectionCard title={<StepTitle number={2} title="Phone number" done={phone.done} />}>
+                    <SectionCard
+                        title={
+                            <StepTitle
+                                number={2}
+                                title="Phone number"
+                                done={phone.done}
+                            />
+                        }
+                    >
                         <Form
                             {...VerificationController.phone.form()}
                             options={{ preserveScroll: true }}
@@ -258,7 +334,11 @@ export default function KycShow({ status, email, phone, documents, requiredTypes
                                             aria-describedby="phone-description"
                                         />
                                     </Field>
-                                    <Button type="submit" disabled={processing} className="sm:mb-7">
+                                    <Button
+                                        type="submit"
+                                        disabled={processing}
+                                        className="sm:mb-7"
+                                    >
                                         {processing && <Spinner />}
                                         Save phone
                                     </Button>
@@ -279,7 +359,11 @@ export default function KycShow({ status, email, phone, documents, requiredTypes
                     >
                         <ul className="divide-y">
                             {documents.map((row) => (
-                                <DocumentItem key={row.type} row={row} maxUploadMb={maxUploadMb} />
+                                <DocumentItem
+                                    key={row.type}
+                                    row={row}
+                                    maxUploadMb={maxUploadMb}
+                                />
                             ))}
                         </ul>
                     </SectionCard>
@@ -290,5 +374,7 @@ export default function KycShow({ status, email, phone, documents, requiredTypes
 }
 
 KycShow.layout = {
-    breadcrumbs: [{ title: 'Identity verification', href: VerificationController.show() }],
+    breadcrumbs: [
+        { title: 'Identity verification', href: VerificationController.show() },
+    ],
 };
