@@ -26,8 +26,10 @@ use App\Data\Billing\InvoiceLineData;
 use App\Data\Services\ServiceDraft;
 use App\Enums\BillableType;
 use App\Modules\Billing\Actions\ApplyPayment;
+use App\Modules\Billing\Actions\PaymentBatches;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentBatch;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Models\Client;
 use App\Modules\Orders\Actions\PlaceOrder;
@@ -68,7 +70,7 @@ if ($mode === 'checkout') {
             return crc32($this->label) % 1_000_000 + parent::createPending($draft);
         }
     });
-} elseif ($mode === 'pay') {
+} elseif ($mode === 'pay' || $mode === 'batch') {
     $pauseOnce = (int) $pause;
     Transaction::created(function () use (&$pauseOnce): void {
         usleep($pauseOnce * 1000);
@@ -93,6 +95,17 @@ usleep((int) $delay * 1000);
 DB::beginTransaction();
 
 try {
+    if ($mode === 'batch') {
+        // PR #229 probe: a combined payment of the batch <id> settles each invoice through ApplyPayment in one
+        // transaction; <pause ms> is spent after the first invoice's payment row is inserted.
+        $batch = PaymentBatch::query()->findOrFail((int) $clientId);
+        app(PaymentBatches::class)->settle($batch, 'bank_transfer', 'race-'.$label, (int) $amount);
+        $issued = microtime(true);
+        DB::commit();
+        $print(['invoice' => $batch->id, 'status' => (string) $batch->fresh()?->status, 'applied' => (int) $amount, 'issued' => $issued, 'ended' => microtime(true)]);
+        exit(0);
+    }
+
     if ($mode === 'pay') {
         $invoice = Invoice::query()->findOrFail((int) $clientId);
         app(ApplyPayment::class)->handle($invoice, new PaymentData((int) $amount, 'bank_transfer', 'race-'.$label));
