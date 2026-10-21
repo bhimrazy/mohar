@@ -101,7 +101,7 @@ then every recording is `source: docs`.
     - With no override, the endpoint is the default and its options are `[]`: behaviour is byte-for-byte the current
       behaviour.
     - With an override (https only, no credentials, query or fragment), the options add `verify => <scenario CA
-bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
+      bundle>`, so TLS and hostname checks stay on. The destination is also resolved and pinned through
       `OutboundAddressGuard`, so loopback is reachable only when `OUTBOUND_ALLOW_LOOPBACK` allows it.
 - **Fail closed.** Overrides are honoured only when the app runs as `local` or `testing` (S0 review on #77). In every
   other environment, including `production`, `staging`, an empty or an unknown name, `Endpoints` ignores every

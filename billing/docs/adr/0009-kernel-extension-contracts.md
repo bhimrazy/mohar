@@ -92,7 +92,7 @@ is marked sensitive.
     - `ManagesIdProtection`
     - `SyncsDomains`
     - `ReconcilesSubmissions` (C2: `findSubmission(RegistrarConfig, DomainRef, string $command, CarbonImmutable
-$submittedAt): SubmissionLookup`)
+      $submittedAt): SubmissionLookup`)
     - `TestsRegistrarConnection`
 
     The `.np` manual driver implements only the core interface.
