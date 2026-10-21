@@ -37,6 +37,7 @@ Checks before the PR: confirm-then-apply flows act on a digest-bound snapshot re
 queries name their index and cap work per run; email ownership only from a verified login, staff or an import;
 touched tests plus tests/Arch on SQLite and PostgreSQL; phpstan, pint, tsc, vp check through scripts/heavy.sh.
 Draft PR, no `ci` label; `[skip ci]` on WIP commits, not on the final head.
+Merge origin/develop (no rebase); squash only against a fixed SHA, never a moving origin/develop.
 ```
 
 ## 3. Review
