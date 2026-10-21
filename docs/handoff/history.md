@@ -131,7 +131,7 @@ Open follow-up issues: #11–#16, #18, #20, #21. Closed: #2 (tinypool advisory, 
 
 ## Agent roster and how it performed
 
-The agent log was retired on 2026-10-21 (220 launches by then, counted from the subagent metadata under `~/.claude/projects/-workspaces-whmcs/`). The evaluation below covers the first 52.
+The agent log was retired on 2026-10-21 (232 launches by 05:54 UTC, counted from the subagent metadata under `~/.claude/projects/-workspaces-whmcs/`). The evaluation below covers the first 52.
 
 All 52 subagents ran on `claude-opus-5-5` (checked in each subagent transcript); review agents set `model: opus`
 explicitly, the others inherited the session model. 51 were spawned during the build plus this historian; about 83

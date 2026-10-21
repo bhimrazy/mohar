@@ -8,8 +8,8 @@ fix report in the brief. Do not trust the report: verify each blocking and mediu
 reading code, running the targeted tests and re-running the original probes where there were any.
 
 Follow `docs/handoff/review-rules.md`. Run the tests for the touched areas and the adopted probe files on SQLite and
-on PostgreSQL; CI runs the full suite at merge. Confirm the adopted probes match the reviewer's and still fail when
-the fix is reverted in your head (one quick `git stash`-free check: read the test and the fix together).
+on PostgreSQL; CI runs the full suite at merge. Confirm the adopted probes match the reviewer's and that each one
+asserts the behaviour the fix introduced, so it would fail without the fix (read the test next to the fix).
 
 Heading: `## Re-review — <Ready to merge | Changes requested>`, then a table `| Item | Status (fixed / not fixed /
 partially) | Evidence |` and a section "New issues introduced by the fixes". Reply to the CTO in under 150 words.

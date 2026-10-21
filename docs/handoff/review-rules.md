@@ -6,8 +6,9 @@ checklist; this file holds what they have in common. The brief gives the PR numb
 
 ## Conduct
 
-- Read-only on the branch: do not modify, commit or push product code. Probes and review bodies live in a scratch
-  directory; `git status` in the worktree is clean when you finish.
+- Read-only on the branch under review: do not modify, commit or push its code. The exceptions are a product sweep or
+  database audit whose brief names a fix branch; those fixes go only to that branch. Probes and review bodies live in
+  a scratch directory; `git status` in the worktree is clean when you finish.
 - Never run commands in the main checkout `/workspaces/whmcs/billing` and never touch port 8000 (the owner's
   preview). Chain every `cd` with `&&`.
 - Heavy commands (`npm ci`, builds, phpstan, test suites) go through `/workspaces/whmcs/scripts/heavy.sh` with

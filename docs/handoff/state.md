@@ -16,8 +16,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Merged since 2026-10-20 16:00: client importer A0–A3 (#160–#163: kernel contracts, upload, mapping, review),
   registrar prerequisites (#164), the chargeback credit fix (#181, H1 from the security round), renewals
   performance (#189), the simulator port race (#198, closes #182), worktrees from a fresh `origin/develop` (#200),
-  the run-locally docs page (#202), Admin > Website (#99), plus docs: state after merges (#193), review round 3 (#173),
-  `main` landing page (#179), process docs (#180, #186, #187).
+  the run-locally docs page (#202), Admin > Website (#99), and the state-after-merges docs (#193). Earlier on 10-20:
+  review round 3 (#173), the `main` landing page (#179), process docs (#180, #186, #187).
 - Load test on the GitHub runner (small profile, 2 vCPU / 4 GB, 50k clients; #108 comment 2026-10-21): p95 102 ms at
   5 VUs, 424 ms at 40 VUs, billing day 285 s, renewals 39/s, queue drain 11,525 jobs in 64 s, no errors. Tail latency
   at 40 VUs (dashboard p95 5.1 s, sign-in p50 2.4 s) is the remaining performance finding.
@@ -39,7 +39,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 | ---- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
 | #184 | Client importer B1a: confirm and apply                 | Draft. Engineer finishing the combined-review fixes (account-takeover rules, one lock, event). |
 | #201 | Client importer: review decisions, report, errors CSV  | Draft, stacked on #184. Same engineer.                                                        |
-| #199 | `.np` registered by the client; nameservers; search    | Draft. Fixes pushed with probes adopted (0a4fbbb5); re-check running.                         |
+| #199 | `.np` registered by the client; nameservers; search    | Ready. Re-check passed at 0a4fbbb5; CI blocked by the npm audit advisory (fix in progress).   |
 | #108 | Load test harness, host profiles, sizing guide         | Draft. Board: changes requested (missing `sizing.md`, drift guards); DevOps engineer fixing.  |
 | #188 | Local merge gate script                                | Draft. Needed only while the repository is private.                                           |
 | #167 | Deployment D4: image build workflow, cPanel cron mode  | Draft. Queued for review.                                                                     |

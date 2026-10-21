@@ -45,7 +45,8 @@ account, so reviews are posted as comments and the verdict line is the gate.
 5. **Fix.** Resume the same engineer (SendMessage to its id) with all requested changes in one message. Reviewer
    probes are adopted as tests in the fix push.
 6. **Re-check.** `re-reviewer` for money, auth, permission and migration PRs; the CTO verifies from the diff for the
-   rest, and may do so for the former only when every adopted probe passes at the head.
+   rest, and may do so for money, auth, permission and migration PRs too, but only when every adopted probe passes at
+   the head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
    naming each blocking item and its evidence, `gh pr merge --merge`. Remove the worktree and branch.
 8. **Record.** `state.md`, `billing/docs/progress.md`, `billing/changelog.md`. Non-blocking items become issues.
@@ -107,8 +108,8 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
 
 - **Public (current, since 2026-10-20 evening):** Actions minutes are free. CI (`.github/workflows/ci.yml`, one job,
   about 10 minutes) runs on every non-draft PR and on pushes to `develop` and `main`; drafts run only with the `ci`
-  label; the docs fast path runs only `vp check`. Deploy smoke (`deploy-smoke` label), load test (`load-test` label,
-  #108) and the E2E simulator job (`e2e` label) run only on an explicit CTO decision. Before each switch to public,
+  label; the docs fast path runs only `vp check`. Deploy smoke (`deploy-smoke` label), load test (`load-test` label, once
+  #108 merges) and the E2E simulator job (`e2e` label) run only on an explicit CTO decision. Before each switch to public,
   re-run the secret and workflow check: no secrets in history, no `pull_request_target` with a PR-head checkout,
   least `permissions:`, label-triggered jobs startable only by maintainers.
 - **Private:** minutes are capped (3,000 a month, reached 90% on 2026-10-20). Merges are then gated locally by
