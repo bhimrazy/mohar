@@ -103,6 +103,11 @@ test('secrets inside JSON strings, query strings, form bodies and header text ar
     ]);
 });
 
+test('a secret pair behind a label is masked, as registrar errors quote their request (registrars.md C5)', function () {
+    expect((new Redactor)->maskValues('Rejected: api-key=K123&passwd=P456 (domain: a.com.np)', []))
+        ->toBe('Rejected: api-key=[redacted]&passwd=[redacted] (domain: a.com.np)');
+});
+
 test('module logs keep timestamps and long ids; only payment payloads scrub card numbers', function () {
     expect((new Redactor)->redact(['captured_ms' => '1700000000000', 'order' => '4242424242424242']))
         ->toBe(['captured_ms' => '1700000000000', 'order' => '4242424242424242']);

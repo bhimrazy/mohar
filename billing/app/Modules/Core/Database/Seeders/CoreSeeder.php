@@ -4,6 +4,7 @@ namespace App\Modules\Core\Database\Seeders;
 
 use App\Models\User;
 use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
@@ -18,8 +19,24 @@ class CoreSeeder extends DemoSeeder
 {
     public function run(DefaultCurrencies $currencies, SystemRoles $roles): void
     {
+        app(RegionalDefaults::class)->keepBuiltInDefaults();
         DB::transaction(fn () => $currencies->install());
         DB::transaction(fn () => $roles->install());
+
+        // A clearly fictional host, so the demo's public site, mail and invoices speak for a host, never for the
+        // product or a real company. Only empty settings are filled: re-seeding keeps a developer's own values.
+        $this->fillEmptySettings([
+            'core.company_name' => 'Example Hosting',
+            'core.company_email' => 'billing@example.com',
+            'core.support_email' => 'support@example.com',
+            'core.default_country' => 'NP',
+            'core.support_hours' => 'Sunday–Friday, 9:00–18:00 (Nepal time). Tickets every day.',
+            'core.whatsapp' => '+977 9800000000',
+            'core.registration_number' => '123456/078/079',
+            'core.social_facebook' => 'https://example.com/facebook',
+            'core.social_instagram' => 'https://example.com/instagram',
+            'core.social_linkedin' => 'https://example.com/linkedin',
+        ]);
 
         $admin = Role::query()->where('key', SystemRoles::FULL_ADMINISTRATOR)->sole();
 

@@ -98,6 +98,11 @@ class ClientController extends Controller
                     ],
                 ]),
             'links' => $navigation->clientLinks($client->id, $user),
+            // Columns an import kept as they were (client-import spec §6.13), with when the client was imported.
+            'imported' => $client->imported_at === null ? null : [
+                'at' => $client->imported_at->toIso8601String(),
+                'fields' => array_map(fn (array $field): array => ['label' => $field['label'], 'value' => $field['value'], 'source' => $field['source']], $client->imported_fields ?? []),
+            ],
             // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.
             'activity' => $can('core.activity_log.view')
                 ? ActivityLog::query()->where('client_id', $client->id)->with(['user:id,name', 'impersonator:id,name'])->latest('id')->limit(15)->get()

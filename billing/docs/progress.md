@@ -39,6 +39,10 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ### 2026-10-20
 
+- Afternoon: the repository went public (owner; licence all rights reserved, `main` a readme-and-licence page, #179,
+  #180, #186, #187). Merged #166 (dashboard and search on the 50k-client hot paths), #165, #94 (storefront home page
+  and public layout) and #99 (Admin > Website). Reviews: #181 and #164 changes requested, #189 approve with fixes.
+
 - Merged: CI speed-up (#91), import-page re-review fixes (#119), local DB options (#125), automation redelivery fix
   (#122, closes #82), CI minutes budget (#131), cPanel import step 3b-1 (#95, tick, review and a queued import with a
   per-account report; 50k-account stop in 6.8 s on PostgreSQL).

@@ -38,8 +38,10 @@ use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -52,7 +54,6 @@ use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
-use Illuminate\Foundation\DevCommands;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
@@ -80,12 +81,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
 
+        // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
+        $this->app->make(ClientCurrencyUsage::class)->source('services', fn (array $clientIds): array => Service::withTrashed()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
+
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);
         Event::listen(OrderPlaced::class, RecordOrderInvoice::class);
-
-        // Driver commands run on the "provisioning" queue; the dev runner must consume it too.
-        DevCommands::artisan('queue:listen --queue=provisioning,default --tries=1 --timeout=0', 'queue');
 
         // Account import: ticking rows and confirming an import count separately, per staff member.
         RateLimiter::for('services-import-select', fn (Request $request): Limit => Limit::perMinute(120)->by('import-select:'.$request->user()?->id));
@@ -157,6 +159,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
         ], 'services.module_log.view', 32, mirrorsTodo: true);
+
+        $dashboard->todo('admin', 'services.nameservers', fn (?User $user): array => [
+            'label' => 'Set your nameservers so clients with their own domain know where to point it.',
+            'count' => $this->app->make(ClientNameservers::class)->configured() ? 0 : 1,
+            'href' => route('admin.services.servers.index'),
+            'tone' => 'warning',
+        ], 'services.servers.view', 35);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Services waiting for provisioning',

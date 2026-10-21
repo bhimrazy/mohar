@@ -36,9 +36,10 @@ class TransactionController extends Controller
             'type' => ['nullable', Rule::enum(TransactionType::class)],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date'],
+            'review' => ['nullable', 'boolean'],
         ]);
 
-        $transactions = Transaction::query()
+        $transactions = (($filters['review'] ?? false) ? Transaction::toReview() : Transaction::query())
             ->with(['client:id,first_name,last_name,company_name', 'invoice:id,number,proforma_number'])
             ->when($filters['search'] ?? null, fn ($query, $term) => $query->where(fn ($query) => $query->whereLike('gateway_txn_id', "%{$term}%")->orWhereLike('description', "%{$term}%")))
             ->when($filters['client'] ?? null, fn ($query, $client) => $query->where('client_id', $client))
@@ -63,6 +64,7 @@ class TransactionController extends Controller
             'can' => [
                 'manage' => $request->user()?->hasPermission('billing.transactions.manage') ?? false,
                 'refunds' => $request->user()?->hasPermission('billing.refunds.manage') ?? false,
+                'review' => $request->user()?->hasPermission('billing.payments.manage') ?? false,
             ],
         ]);
     }
@@ -107,6 +109,25 @@ class TransactionController extends Controller
             'payment' => $transaction->id, 'amount' => $refundRow->amount_out, 'mode' => $request->string('mode')->toString(), 'reverse_effects' => $request->boolean('reverse_effects'),
         ]);
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Refund recorded.')]);
+
+        return back();
+    }
+
+    /**
+     * Staff dealt with a chargeback or provider refund that nothing could absorb (e.g. contested the dispute).
+     */
+    public function reviewed(Transaction $transaction): RedirectResponse
+    {
+        $this->authorize('billing.payments.manage');
+        abort_if($transaction->review_amount === null, 404);
+
+        if (Transaction::toReview()->whereKey($transaction->id)->update(['reviewed_at' => now()]) === 1) {
+            $this->activity->log('Gateway reversal reviewed', $transaction, $transaction->client_id, [
+                'type' => $transaction->type->value, 'gateway' => $transaction->gateway, 'reference' => $transaction->gateway_txn_id, 'review_amount' => $transaction->review_amount,
+            ], 'billing.reversal.reviewed');
+        }
+
+        Inertia::flash('toast', ['type' => 'success', 'message' => __('Marked as reviewed.')]);
 
         return back();
     }

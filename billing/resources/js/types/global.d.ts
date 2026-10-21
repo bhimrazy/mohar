@@ -1,5 +1,6 @@
 import type { CurrencyFormat } from '@/lib/money';
 import type { Auth } from '@/types/auth';
+import type { Site } from '@/types/storefront';
 import type { Brand, SharedTheme } from '@/types/ui';
 import type {
     ClientAccount,
@@ -29,6 +30,8 @@ declare module '@inertiajs/core' {
             clientAccounts: ClientAccount[];
             currentClientId: number | null;
             currencyFormats: CurrencyFormat[];
+            /** Public layout data; present on public pages when the Storefront module is installed. */
+            site?: Site;
             impersonation?: {
                 staff: string;
                 user: string;

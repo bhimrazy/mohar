@@ -40,8 +40,9 @@ final class Scenario
     /**
      * @param  class-string<Simulator>  $simulator
      * @param  int|null  $owner  the process whose end stops the scenario (a test run); null for a detached one
+     * @param  array{api: int, backend: int, control: int}|null  $ports  null picks three free ones
      */
-    public static function create(string $simulator, ?int $owner = null): self
+    public static function create(string $simulator, ?int $owner = null, ?array $ports = null): self
     {
         self::ensureRoot();
         $id = (new $simulator)->key().'-'.bin2hex(random_bytes(4));
@@ -51,13 +52,14 @@ final class Scenario
             throw new RuntimeException("Could not create {$directory}.");
         }
 
+        $ports ??= array_combine(['api', 'backend', 'control'], self::freePorts(3));
         $scenario = new self($directory, [
             'id' => $id,
             'simulator' => $simulator,
             'token' => bin2hex(random_bytes(24)),
-            'api_port' => self::freePort(),
-            'backend_port' => self::freePort(),
-            'control_port' => self::freePort(),
+            'api_port' => $ports['api'],
+            'backend_port' => $ports['backend'],
+            'control_port' => $ports['control'],
             'pids' => [],
             'owner' => $owner,
         ]);
@@ -180,23 +182,37 @@ final class Scenario
     }
 
     /**
-     * An ephemeral port on 127.0.0.1, never a forbidden one.
+     * Distinct ephemeral ports on 127.0.0.1, never a forbidden one. Each is held until all are chosen, so they differ;
+     * another process can still take one before the simulator binds it, which Processes::start() retries.
+     *
+     * @return list<int>
      */
-    public static function freePort(): int
+    public static function freePorts(int $count): array
     {
-        do {
-            $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+        $sockets = [];
+        $ports = [];
 
-            if ($socket === false) {
-                throw new RuntimeException("No free port: {$errorMessage}");
+        try {
+            while (count($ports) < $count) {
+                $socket = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+
+                if ($socket === false) {
+                    throw new RuntimeException("No free port: {$errorMessage}");
+                }
+
+                $sockets[] = $socket;
+                $name = (string) stream_socket_get_name($socket, false);
+                $port = (int) substr($name, strrpos($name, ':') + 1);
+
+                if (! in_array($port, self::FORBIDDEN_PORTS, true)) {
+                    $ports[] = $port;
+                }
             }
+        } finally {
+            array_map(fclose(...), $sockets);
+        }
 
-            $name = (string) stream_socket_get_name($socket, false);
-            fclose($socket);
-            $port = (int) substr($name, strrpos($name, ':') + 1);
-        } while (in_array($port, self::FORBIDDEN_PORTS, true));
-
-        return $port;
+        return $ports;
     }
 
     /**

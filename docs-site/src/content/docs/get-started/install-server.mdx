@@ -73,8 +73,13 @@ release, as the user that runs PHP.
     php artisan app:install
     ```
 
-    The installer checks the environment, adds reference data (currencies and staff roles) and asks for the first
-    administrator's name, email and password.
+    The installer checks the environment, including that each queue connection's `retry_after` is above the longest
+    job timeout, adds reference data (currencies and staff roles) and asks for the first administrator's name, email
+    and password. It starts with Nepal's defaults: country Nepal, currency NPR, time zone Asia/Kathmandu, a 13% VAT
+    rule (tax stays off until you enable it) and dates like `1 Jan 2026`. In a terminal it asks for the country,
+    currency and time zone first; without one, pass `--country`, `--currency` and `--timezone`. All of it can be
+    changed later in Settings → Company and Setup → Currencies, and a later run never changes an existing
+    installation.
 
 6. Point the web server's document root at `billing/public`, send every request that is not a file to `index.php`,
    and serve HTTPS only. Then cache the configuration:

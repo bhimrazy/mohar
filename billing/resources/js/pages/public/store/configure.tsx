@@ -71,6 +71,8 @@ type Props = {
         domain_name: string | null;
         addon_ids: number[];
     } | null;
+    /** A domain the visitor already owns (from the domain search), preselected as "Use a domain I own". */
+    existing_domain: string | null;
 };
 
 type DomainMode = '' | 'register' | 'transfer' | 'existing';
@@ -185,6 +187,7 @@ export default function Configure({
     addons,
     custom_fields: customFields,
     editing,
+    existing_domain: existingDomain,
 }: Props) {
     const form = useForm<FormData>({
         cycle: editing?.cycle ?? cycles[0]?.cycle ?? 'monthly',
@@ -198,8 +201,12 @@ export default function Configure({
         addon_ids: editing?.addon_ids ?? [],
         domain_mode:
             (editing?.domain_mode as DomainMode) ??
-            (product.requires_domain ? 'register' : ''),
-        domain_name: editing?.domain_name ?? '',
+            (existingDomain
+                ? 'existing'
+                : product.requires_domain
+                  ? 'register'
+                  : ''),
+        domain_name: editing?.domain_name ?? existingDomain ?? '',
         epp_code: '',
     });
     const errors = form.errors as Record<string, string | undefined>;

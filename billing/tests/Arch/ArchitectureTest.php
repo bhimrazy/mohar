@@ -19,7 +19,7 @@ const READ_MODEL_MODULES = ['Reports'];
  */
 const PLANNED_MODULES = [
     'Catalog', 'Orders', 'Billing', 'Services', 'Domains', 'Support',
-    'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal', 'PaymentsStripe',
+    'Notifications', 'Affiliates', 'Platform', 'Ai', 'Migration', 'Themes', 'PaymentsNepal', 'PaymentsStripe', 'Storefront',
 ];
 
 /** Every planned module plus every module directory on this branch, except Core and the read models. */

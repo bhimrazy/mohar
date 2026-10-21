@@ -107,15 +107,30 @@ php artisan app:install
 `app:install` runs in three stages and prints what it did:
 
 1. **Pre-flight checks.** A missing or invalid `APP_KEY`, an unreachable database or pending migrations stop the
-   install before anything is written, and the message says which command fixes it. A `sync` or `null` queue, no
+   install before anything is written, and the message says which command fixes it. On a first install so does a queue connection whose
+   `retry_after` is not above the longest job timeout (200 s for the provider pool and for the Services cap plus its
+   lock slack, 3,600 s on the `automation` connection): a queue hands a running job to a second worker once
+   `retry_after` has passed, so the message names the connection, the timeout and the setting to raise
+   (`DB_QUEUE_RETRY_AFTER`, `REDIS_QUEUE_RETRY_AFTER`, `BEANSTALKD_QUEUE_RETRY_AFTER`). On an installation that already has currencies (the re-run after an upgrade) it only warns, so a deploy is not blocked. On SQS the check warns, because
+   the visibility timeout is set on the queue. A `sync` or `null` queue, no
    scheduler heartbeat yet, an object disk that rejects a test file, and in production `APP_DEBUG=true` or a `log`
    or `array` mailer are reported as warnings; the install goes on.
 2. **Reference data** from every installed module, each in its own transaction:
 
-    | Installer         | Creates                                                                                                                                                                                                    |
-    | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-    | `core_currencies` | USD (the default), INR and NPR with their symbols, formats and starting rates, on the first install only (while no currency exists). Later runs never re-create a deleted currency or change an edited one |
-    | `core_roles`      | the system roles Full Administrator, Billing, Support and Sales, found by a stable key and reset to their built-in permissions (names staff chose are kept)                                                |
+    | Installer              | Creates                                                                                                                                                                                                        |
+    | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `core_regional`        | the company's country (Nepal, `NP`), time zone (`Asia/Kathmandu`) and date format (`1 Jan 2026`), stored on the first install only                                                                             |
+    | `core_currencies`      | NPR (the default), USD and INR with their symbols, formats and starting rates, on the first install only (while no currency exists). Later runs never re-create a deleted currency or change an edited one     |
+    | `core_roles`           | the system roles Full Administrator, Billing, Support and Sales, found by a stable key and reset to their built-in permissions (names staff chose are kept)                                                    |
+    | `billing_regional_tax` | on the same first install: the seller's tax country, and for Nepal a VAT rule of 13%, invoice numbers `INV-00001` and nothing else. Tax stays off until staff turn on "Enable tax" in Settings → Billing → Tax |
+
+    **Regional defaults.** Nepal is the default market. In a terminal the install asks for the country, the default
+    currency (NPR, USD or INR) and the time zone, with Nepal's values pre-selected. Without a terminal, pass
+    `--country=NP --currency=NPR --timezone=Asia/Kathmandu` (all three optional). Any other country gets its own
+    tax country and no VAT rule. Every value stays editable: country, time zone and date format in Admin → Settings →
+    Company, currencies in Setup → Currencies, tax in Settings → Billing → Tax. Dates are Gregorian; the Bikram Sambat
+    calendar is not supported. The choices apply only while no currency exists. On an existing installation they are
+    ignored, with a note, and nothing is changed.
 
     Settings, the daily automation time, theme presets and staff permissions need no rows: they are built-in defaults
     in code and configuration until staff change them. Support departments are not created, because each needs a
@@ -169,7 +184,7 @@ are in `App\Support\Queues` (ADR 0014):
 ```bash
 php artisan queue:work --queue=payments,provisioning,registrar --tries=3 --timeout=200
 php artisan queue:work --queue=notifications,webhooks --tries=3
-php artisan queue:work --queue=default --tries=3
+php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256
 php artisan queue:work automation --queue=automation --tries=1 --timeout=3600
 ```
 
@@ -179,6 +194,10 @@ or after the driver's declared command timeout up to `services.module.max_job_ti
 `--timeout` (200 s) must be at least that cap, and the cap plus the 20 s lock slack must stay below the queue
 connection's `retry_after` (240 s by default, `DB_QUEUE_RETRY_AFTER` / `REDIS_QUEUE_RETRY_AFTER`), or a slow job is started twice. On SQS, set
 the visibility timeout of each queue the same way. `--tries=3` is only the fallback for jobs that do not set their own `$tries`.
+The third pool also works the `imports` queue (client imports) after `default`, so a large import delays `default` work
+by at most one import job. Import jobs stop after 120 s; the pool's `--timeout` (150 s) covers that and stays below
+`retry_after`, and `--memory=256` lets a worker finish an import job (up to 192 MB) without restarting after it. On
+SQS, give the `imports` queue a visibility timeout of at least 150 s.
 
 The fourth worker runs **Run now** from Admin → Automation. A run can last longer than the pools' `retry_after` (a
 billing day for 50,000 clients took 546 s in load testing), and a worker hands a reserved job to a second worker once
@@ -294,7 +313,9 @@ It adds reference data a new release introduces and resets the permissions of th
 added in the release reaches them. The system roles are found by a stable key, so a name staff gave one is kept, and a
 custom role is never changed, even one named like a system role. Each reset is in the activity log
 (`role.updated`). Permission changes staff made to a system role are lost: copy it into a custom role if you need
-different permissions. Currencies are never re-created or changed after the first install.
+different permissions. Currencies and the regional defaults (country, time zone, date format, tax country, VAT rule) are written on the first
+install only: an upgrade never changes them, including settings that were never stored and still follow the built-in
+defaults.
 
 Email templates follow the shipped wording where staff never edited them: `app:install` replaces their text with
 the new default and records each change in the activity log (`notifications.template_default_updated`). Edited

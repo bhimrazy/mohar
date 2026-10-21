@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Install;
 
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Support\Integrations\Endpoints;
@@ -38,6 +39,7 @@ final class EnvironmentChecks
             $database,
             $migrations,
             $this->queue(),
+            $this->queueTimeouts(),
             $migrations->failed() || $migrations->status === CheckStatus::Skipped
                 ? new EnvironmentCheck('Scheduler', CheckStatus::Skipped, 'Needs a migrated database.')
                 : $this->scheduler(),
@@ -110,6 +112,27 @@ final class EnvironmentChecks
         }
 
         return new EnvironmentCheck('Queue', CheckStatus::Ok, "{$connection} ({$driver}). Workers must be running: see the next steps.");
+    }
+
+    private function queueTimeouts(): EnvironmentCheck
+    {
+        $problems = (new QueueTimeouts)->problems();
+
+        if ($problems !== []) {
+            // A first install stops, so the value is fixed before any job runs. `app:install` is also the re-run after
+            // an upgrade, where a stop would block a deploy over a value the operator already lives with: warn there.
+            $firstInstall = ! rescue(fn (): bool => Currency::query()->exists(), false, report: false);
+
+            return new EnvironmentCheck('Queue timeouts', $firstInstall ? CheckStatus::Failed : CheckStatus::Warning, implode(' ', $problems));
+        }
+
+        $connection = (string) config('queue.default');
+
+        if ((string) config("queue.connections.{$connection}.driver") === 'sqs') {
+            return new EnvironmentCheck('Queue timeouts', CheckStatus::Warning, 'SQS has no retry_after: set the visibility timeout of each queue above the longest job timeout (see docs/devops/install.md §6).');
+        }
+
+        return new EnvironmentCheck('Queue timeouts', CheckStatus::Ok, 'retry_after is above the longest job timeout.');
     }
 
     private function scheduler(): EnvironmentCheck

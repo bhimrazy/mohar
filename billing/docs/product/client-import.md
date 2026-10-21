@@ -61,7 +61,8 @@ The per-client "Export Client Data" tool produces JSON for one client and is not
 
 We ship a mapping **preset** named "WHMCS clients export" that recognises likely headers. The exact column headers of that
 export are not in the public docs: **verify** against a sample export with fake data (Q11). The preset only suggests
-mappings; staff can change each one.
+mappings; staff can change each one. **Status (2026-10-20, #162): the preset's headers are unverified until a sample
+export arrives.** It maps `ID` to External ID and otherwise relies on the generic header words.
 
 ### 3.2 The WHMCS External API (phase 2a, MUST)
 
@@ -203,18 +204,19 @@ alert when no worker has reported for 10 minutes (as the cPanel import does).
 
 Summary cards first, then the rows (product standards: summary, then detail):
 
-| Card             | Meaning                                                                                        |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| New clients      | Rows that will create a client                                                                 |
-| Updates          | Rows that will change an existing client; the review lists the fields                          |
-| Unchanged        | Rows that match a client already imported from this source with the same data                  |
-| Needs a decision | Possible duplicates, a match whose email changed in the last 30 days, a closed or merged match |
-| Errors           | Rows that cannot be imported; each shows the reason and the cell                               |
-| Tax-exempt       | New or updated rows that set tax exemption (shown only when above zero)                        |
+| Card             | Meaning                                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| New clients      | Rows that will create a client                                                                                                                     |
+| Updates          | Rows that will change an existing client; the review lists the fields                                                                              |
+| Unchanged        | Rows that match a client already imported from this source with the same data                                                                      |
+| Needs a decision | Possible duplicates, a match whose email changed in the last 30 days, a closed or merged match, an email that belongs to an existing login (§6.11) |
+| Errors           | Rows that cannot be imported; each shows the reason and the cell                                                                                   |
+| Tax-exempt       | New or updated rows that set tax exemption (shown only when above zero)                                                                            |
 
 Tabs carry the same counts. Rows show the file row number ("Row 1,204"), the name, the email, the decision, the notes and,
 for a match, the matched client's name (linked), never a database id. Search covers row number, and exact email via
-`email_hash`. Per row, staff can switch the decision (create, update, skip) where it is allowed. "Accept all proposed"
+`email_hash`. Per row, staff can switch the decision (create, update, skip; for an email that belongs to a client login, "create and
+link the existing login" or "create without a login", §6.11) where it is allowed; a refused decision shows its reason. "Accept all proposed"
 leaves flagged rows unticked and says how many it left (the cPanel import's rule for a recent email change).
 
 Errors can be downloaded as a CSV of row number, column and reason, plus the original cells so the file can be fixed
@@ -256,8 +258,10 @@ A crashed chunk is retried; rows already applied are recorded and skipped, so a 
 ### 5.8 Retention
 
 The file is deleted when staging ends. Staging payloads (`raw`, `normalized`, `before`) are nulled when the undo window
-ends, or 7 days after upload for a run never applied (`expires_at`). Counts, outcomes, target ids, problem codes and the
-id map stay. The housekeeping automation stage does the purge and is idempotent.
+ends, 7 days after upload for a run never applied (`expires_at`), or 30 days after the last activity of an import that
+stopped partway and was never continued (the run keeps its status, is marked purged and can no longer be continued).
+Counts, outcomes, target ids, problem codes and the id map stay. The housekeeping automation stage does the purge and is
+idempotent.
 
 ## 6. Field rules
 
@@ -269,12 +273,11 @@ when mapped, becomes `created_at`; otherwise `created_at` is the import time. `i
 
 ### 6.2 Email and `email_changed_at`
 
-Lowercased and validated as an address with no display name. On **create**, `email_changed_at` stays null (the hook does
-not fire for new rows). On **update**, when the email changes, the importer sets `email_changed_at = now()` itself:
-importers write with `saveQuietly()`, which skips the model's `saving` hook that sets it, and the cPanel import relies on
-that column to stop bulk-ticking a client whose email moved recently. The owner login's email follows only when that login
-has never signed in; otherwise the row is flagged "login email not changed" and staff change it on the profile, which
-sends the usual security notice.
+Lowercased and validated as an address with no display name. On **create**, the client's email source is `import` and
+`email_changed_at` stays null. **An import never changes the email of an existing client or of any login (CTO rule,
+2026-10-21):** on update, email is not a writable field, whatever matched the row. A difference shows in the review and
+the report as "Email in the file differs: kept the current one"; staff change an address on the profile, which sends
+the usual security notice.
 
 ### 6.3 Address, phone, language
 
@@ -286,8 +289,9 @@ otherwise the default with a warning.
 ### 6.4 Currency
 
 ISO code of an enabled currency; blank means the default currency. On update, a currency change is refused when the
-client already has invoices, services, credit or orders (merge-participant counts above zero): amounts are stored per
-currency and cannot be re-labelled.
+client already has invoices, quotes, payments, credit, services, orders or domains: amounts are stored per currency
+and cannot be re-labelled. Each module that stores such amounts answers through the kernel registry
+`ClientCurrencyUsage`; a module that is not installed holds none.
 
 ### 6.5 Client group
 
@@ -336,10 +340,10 @@ Users and Client Accounts, read 2026-10-20); in Mohar it does, because our link 
 
 ### 6.9 Passwords
 
-- **CSV:** never. Password-like columns are dropped at staging (§5.2). Logins are created without a password
-  (`users.password` null, ADR 0018 §5, PR #112) and get an invitation. Today's invitation path instead stores a
-  random 32-character password, which costs one bcrypt hash per login: about 3 hours of CPU for 50,000 logins at
-  Laravel's default cost. The import must not do that, so PR 3 depends on #112.
+- **CSV:** never. Password-like columns are dropped at staging (§5.2). As built (PR B1a, #184), a new login gets the
+  bcrypt hash of a random 64-character secret that is discarded, one hash per chunk of 200 rows, so no password signs
+  in until the invitation sets one and 50,000 logins cost 250 hashes, not 50,000. It does not wait for #112's nullable
+  password. A password reset is possible and acceptable: its link goes only to the login's own address.
 - **WHMCS API:** no hashes are available for 8.x logins. Same as CSV.
 - **Gap reader (only if Q1 and Q2 are approved):** WHMCS has hashed client passwords with bcrypt since 6.3 (community
   posts citing the 6.3 release notes; the deprecated `GetClientPassword` example shows a `$2y$10$` value). Carrying such
@@ -375,9 +379,11 @@ data. WHMCS supports time-based tokens, Duo and YubiKey for clients (WHMCS docs,
   `is_owner` and area permissions (`billing`, `services`, `domains`, `support`, `profile`, `contacts`). WHMCS 8.0
   replaced sub-accounts with users that can own or access several accounts, one owner per account (WHMCS docs, read
   2026-10-20), so the two models line up.
-- CSV phase 1: one owner login per new client, with the client's email, when the option is on. If a login with that email
-  exists: a **staff** login is never linked (row warning, no login); a client login is linked as owner of the new client
-  unless its email changed in the last 30 days, which makes the row "needs a decision".
+- CSV phase 1: one owner login per new client, with the client's email, when the option is on. **An import never links an
+  existing login on its own (CTO rule, 2026-10-21).** If a login with that email exists: a **staff** login is never
+  linked (row warning, no login); a client login makes the row "needs a decision": "Link to existing login" (allowed
+  only when that login's email was verified at least 30 days ago, and behind step-up) or "Don't link" (the client is
+  created without an owner login; the invitation handles it later). Apply checks the rule again.
 - WHMCS 8.0+ (phase 2a): each user becomes a login (matched by email); each `clients[{id, isOwner}]` link becomes a
   `client_user` row. Permissions map as follows; anything unlisted is dropped and counted:
 
@@ -419,19 +425,21 @@ notes.
 
 ## 7. Duplicate detection
 
-| Check                                   | Result                                                                                                                                                             |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Same email twice in the file            | The later row is an error naming the first ("Same email as row 88")                                                                                                |
-| Same External ID twice in the file      | Error                                                                                                                                                              |
-| External ID in the id map               | Update or unchanged (by checksum), whatever the email                                                                                                              |
-| Email matches one Mohar client          | Skip or update, by the run option                                                                                                                                  |
-| Email matches several Mohar clients     | Needs a decision; the staff member picks one or skips                                                                                                              |
-| Match was merged into another client    | Follows `merged_into_client_id` to the surviving client, with a note                                                                                               |
-| Match is closed                         | Needs a decision; never updated in bulk                                                                                                                            |
-| Match changed email in the last 30 days | Needs a decision; never ticked by "Accept all proposed"                                                                                                            |
-| Company name matches (option)           | Needs a decision: create, link to the match, or skip. Names are compared case-folded, without punctuation and common legal suffixes (Pvt Ltd, Ltd, LLC, Inc, GmbH) |
-| Tax id matches (option)                 | Needs a decision, same choices                                                                                                                                     |
-| Email belongs to a contact of a client  | Warning only                                                                                                                                                       |
+| Check                                   | Result                                                                                                                                                                           |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Same email twice in the file            | The later row is an error naming the first ("Same email as row 88")                                                                                                              |
+| Same External ID twice in the file      | Error                                                                                                                                                                            |
+| External ID in the id map               | Update or unchanged (by checksum), whatever the email                                                                                                                            |
+| Email matches one Mohar client          | Skip or update, by the run option                                                                                                                                                |
+| Email matches several Mohar clients     | Needs a decision; the staff member picks one or skips                                                                                                                            |
+| Match was merged into another client    | Follows `merged_into_client_id` to the surviving client, with a note                                                                                                             |
+| Match is closed                         | Needs a decision; never updated in bulk                                                                                                                                          |
+| Match changed email in the last 30 days | Needs a decision; never ticked by "Accept all proposed"                                                                                                                          |
+| Company name matches (option)           | Needs a decision: create, link to the match, or skip. Names are compared case-folded, without punctuation and common legal suffixes (Pvt Ltd, Ltd, LLC, Inc, GmbH)               |
+| Tax id matches (option)                 | Needs a decision, same choices                                                                                                                                                   |
+| Email belongs to a contact of a client  | Warning only                                                                                                                                                                     |
+| Email belongs to a client login         | Needs a decision: link the new client to that login (only when its email was verified 30 days ago or more, behind step-up) or create it without a login; never linked on its own |
+| Email belongs to a staff login          | Warning; the client gets no login                                                                                                                                                |
 
 **Better:** WHMCS's ImportAssist treats a matching email as the same client and merges the incoming currency, status,
 group and items into it without asking (WHMCS docs, ImportAssist, read 2026-10-20). HostBill skips duplicate emails
@@ -498,7 +506,7 @@ The load test (#108) seeds 50,000 clients; the import must work at that size on 
 - Streaming everywhere: the CSV is read row by row from a decrypting stream; staging inserts 500 rows per statement;
   checks and applies work on fixed chunks (1,000 and 200 rows) by `row_number` range, never by loading the run.
 - One query per chunk for each lookup (emails, id map, groups, currencies, logins), never one per row.
-- No password hashing during apply: logins are created with a null password (§6.9).
+- One password hash per chunk during apply, never one per login (§6.9).
 - Each job sets `$timeout` (120 s) and `$tries`, and is sized to finish in under 60 s on the small profile, below the
   `imports` queue's `retry_after` (ADR 0017 §3).
 - Targets on the small profile, one `imports` worker, PostgreSQL: staging 50,000 rows in under 2 minutes, checking in
@@ -525,9 +533,11 @@ Consistent with the cPanel import pages (`admin/services/servers/import`, `impor
 
 Emitted (all `App\Events\Migration`, ADR 0011 shape: final, `DomainEvent`, after commit, ids and scalars only):
 
-- `MigrationRunCompleted(runId, sourceKind, entity, status, created, updated, unchanged, skipped, failed)`
+- `MigrationRunCompleted(runId, sourceSystem, counts)`, counts keyed by entity (created, updated, unchanged, skipped,
+  failed). Dispatched once, on the applying → completed transition, after commit; a stopped run never dispatches it.
 - `MigrationRunUndone(runId, reverted, kept)` (new)
-- `MigrationRunPaused(runId, reason)` (from `migration.md`)
+- `MigrationRunPaused(runId, reasonCode)` (from `migration.md`), when an import stops and waits for staff
+  (`apply_failed`).
 
 Notifications may send staff a summary from these; nothing goes to clients. No per-client domain event is dispatched.
 
@@ -536,21 +546,21 @@ Consumed: `App\Events\Core\ClientMerged` (re-point id map rows to the surviving 
 ## 16. Integration and contract changes (ADR 0008, 0010, 0011, 0014)
 
 The Migration module imports only kernel namespaces and `App\Modules\Core\*` (architecture rule 1). Core registers the
-`core.client_group`, `core.client`, `core.contact` and `core.user` importers; Billing registers `billing.credit_balance`.
+`client_group`, `client`, `contact` and `user` importers; Billing registers `credit_balance`.
 Platform owns invitations, so Migration reaches them through a contract.
 
-| Id  | Change                                                                                                                                                                                                                                                                                                                         | Why                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
-| C1  | Kernel `App\Contracts\Migration\{RecordImporter, ImportRegistry, ImportIdResolver}`, `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}`, enums `ImportAction`, `ImportSeverity` (as `migration.md` §12), with `ImportOutcome::$changes` and `ImportContext::$actorId` as trailing defaulted fields | First consumer; A8                  |
-| C2  | `App\Support\Queues::IMPORTS = 'imports'`, in the dev worker after `default`, its own `retry_after` (ADR 0014 amendment)                                                                                                                                                                                                       | A1; keeps 50k imports off `default` |
-| C3  | `App\Contracts\Core\ClientLoginInvitations::invite(int $clientId, int $userId): InvitationOutcome` (Sent, Skipped, Refused, Unavailable). Core null default returns Unavailable; Platform binds its invitation flow                                                                                                            | Migration cannot import Platform    |
-| C4  | Events `Migration\MigrationRunCompleted`, `MigrationRunUndone`, `MigrationRunPaused`                                                                                                                                                                                                                                           | §15                                 |
-| C5  | Core schema: `clients.imported_at`, `clients.imported_fields`, `client_marketing_consents`; `users.password_imported_at` only if Q2                                                                                                                                                                                            | §4                                  |
-| C6  | Core-internal: shared client validation rules (form and importer), `ActivityLogger::logMany()`                                                                                                                                                                                                                                 | §5.4, §11                           |
-| C7  | Undo reads `ClientMergeRegistry` participant counts as a client's footprint (no API change; the architect may prefer a renamed registry)                                                                                                                                                                                       | §5.7                                |
-| C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                             | §6.12                               |
-| C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                       | Every mail has an editable template |
-| C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                       | §6.2                                |
+| Id  | Change                                                                                                                                                                                                                                                                                                                                                                                                                                  | Why                                 |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| C1  | Kernel `App\Contracts\Migration\{RecordImporter, ImportIdResolver}`, the final registry `App\Support\Migration\ImportRegistry` (ADR 0012, keys `client`, `client_group`, `user`), `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}`, enums `ImportAction` (open), `ImportSeverity`, with `ImportOutcome::$changes` and `ImportContext::$actorId` as trailing defaulted fields (as built in #160; ADR 0019) | First consumer; A8                  |
+| C2  | `App\Support\Queues::IMPORTS = 'imports'`, in the dev worker after `default`, worked by the default pool (ADR 0014 amendment)                                                                                                                                                                                                                                                                                                           | A1; keeps 50k imports off `default` |
+| C3  | `App\Contracts\Core\ClientLoginInvitations::invite(int $clientId, int $userId): InvitationOutcome` (Sent, Skipped, Refused, Unavailable). Core null default returns Unavailable; Platform binds its invitation flow                                                                                                                                                                                                                     | Migration cannot import Platform    |
+| C4  | Events `Migration\MigrationRunCompleted`, `MigrationRunUndone`, `MigrationRunPaused`, each added with the code that dispatches it (ADR 0019 shapes)                                                                                                                                                                                                                                                                                     | §15                                 |
+| C5  | Core schema: `clients.imported_at`, `clients.imported_fields`, `client_marketing_consents`; `users.password_imported_at` only if Q2                                                                                                                                                                                                                                                                                                     | §4                                  |
+| C6  | Core-internal: shared client validation rules (form and importer), `ActivityLogger::logMany()`                                                                                                                                                                                                                                                                                                                                          | §5.4, §11                           |
+| C7  | Undo reads `ClientMergeRegistry` participant counts as a client's footprint (no API change; the architect may prefer a renamed registry)                                                                                                                                                                                                                                                                                                | §5.7                                |
+| C8  | Billing-internal: `CreditReason::Import` and the `billing.credit_balance` importer                                                                                                                                                                                                                                                                                                                                                      | §6.12                               |
+| C9  | Notifications template key `client.migration_invitation`                                                                                                                                                                                                                                                                                                                                                                                | Every mail has an editable template |
+| C10 | `clients.email_changed_at` shared with cPanel 3b-2 (#95)                                                                                                                                                                                                                                                                                                                                                                                | §6.2                                |
 
 ## 17. Edge cases
 
@@ -620,8 +630,8 @@ SQLite and PostgreSQL.
 
 **Kernel (PR 0)**
 
-1. MUST: `ImportRegistry::ordered()` returns `core.client_group` before `core.client` before `core.contact` and
-   `core.user`, and throws on a cycle or an unknown dependency.
+1. MUST: `ImportRegistry::ordered()` returns `client_group` before `client` before `contact` and `user`, and throws
+   on a cycle or an unknown dependency in the chains asked for.
 2. MUST: an arch test fails when a class in `App\Modules\*\Import` uses the `Event`, `Mail` or `Notification` facades,
    an `App\Events` namespace other than `Migration`, or a driver contract.
 3. MUST: with Platform absent, `ClientLoginInvitations::invite()` returns Unavailable and sends nothing.
@@ -664,12 +674,12 @@ SQLite and PostgreSQL.
 
 23. MUST: confirm with a digest that no longer matches (a row decision changed after the review) is refused with "Review
     the import again".
-24. MUST: apply creates clients with `imported_at` set, owner logins with a null password, and no `ClientRegistered`, no
+24. MUST: apply creates clients with `imported_at` set, owner logins with no usable password (§6.9), and no `ClientRegistered`, no
     mail and no notification (`Event::fake`, `Mail::fake`, `Notification::fake`).
 25. MUST: running the same file again into the same source produces only "unchanged" outcomes, and no client's
     `updated_at` changes.
-26. MUST: with an External ID column, a second run whose row has a new email updates that client's email and sets
-    `email_changed_at`; the owner login's email changes only if it never signed in.
+26. MUST: with an External ID column, a second run whose row has a new email keeps the client's and the login's email
+    and says so; the other mapped fields update (CTO rule, §6.2).
 27. MUST: a client created by hand with a row's email after the review makes that row fail with its reason; the other
     rows apply.
 28. MUST: a chunk that throws after half its rows is retried and creates no duplicate client, login or id-map row.

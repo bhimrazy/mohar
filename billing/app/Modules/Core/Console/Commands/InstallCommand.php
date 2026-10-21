@@ -6,10 +6,13 @@ use App\Contracts\Branding\BrandProvider;
 use App\Models\User;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\CheckStatus;
+use App\Modules\Core\Install\DefaultCurrencies;
 use App\Modules\Core\Install\EnvironmentCheck;
 use App\Modules\Core\Install\EnvironmentChecks;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
+use App\Modules\Core\Models\Currency;
 use App\Support\Queues;
 use App\Support\Security\PasswordPolicy;
 use Illuminate\Console\Attributes\Description;
@@ -20,6 +23,7 @@ use Illuminate\Support\Facades\Validator;
 use Symfony\Component\Console\Output\OutputInterface;
 
 use function Laravel\Prompts\password;
+use function Laravel\Prompts\select;
 use function Laravel\Prompts\text;
 
 /**
@@ -30,13 +34,20 @@ use function Laravel\Prompts\text;
 #[Signature('app:install
     {--admin-name= : Name of the full administrator to create}
     {--admin-email= : Create the full administrator without prompts, with a generated one-time password printed once}
-    {--additional-admin : Create a full administrator even though one already exists}')]
+    {--additional-admin : Create a full administrator even though one already exists}
+    {--country= : Two-letter country code for a first install (default NP, Nepal)}
+    {--currency= : Default currency for a first install: NPR, USD or INR (default NPR)}
+    {--timezone= : Company time zone for a first install (default Asia/Kathmandu)}')]
 #[Description('Check the environment, install reference data and create the first full administrator')]
 class InstallCommand extends Command
 {
-    public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators): int
+    public function handle(EnvironmentChecks $environment, ReferenceDataInstaller $installer, FirstAdministrator $administrators, RegionalDefaults $regional): int
     {
         if (! $this->preflight($environment->run())) {
+            return self::FAILURE;
+        }
+
+        if (! $this->regional($regional)) {
             return self::FAILURE;
         }
 
@@ -54,6 +65,56 @@ class InstallCommand extends Command
         }
 
         return $status;
+    }
+
+    /**
+     * The country, currency and time zone of a first install: Nepal's by default, changed by options or, in a
+     * terminal, by prompts. An existing installation (it already has currencies) keeps what it uses.
+     */
+    private function regional(RegionalDefaults $regional): bool
+    {
+        $given = [$this->option('country'), $this->option('currency'), $this->option('timezone')];
+
+        if (Currency::query()->exists()) {
+            if (array_filter($given) !== []) {
+                $this->components->warn('This installation already has currencies, so --country, --currency and --timezone were ignored. Change them in Admin → Settings → Company and Setup → Currencies.');
+            }
+
+            return true;
+        }
+
+        $country = trim((string) $this->option('country'));
+        $currency = trim((string) $this->option('currency'));
+        $timezone = trim((string) $this->option('timezone'));
+
+        if ($this->input->isInteractive() && array_filter($given) === []) {
+            $this->components->info('Regional defaults (change any of them later in Admin).');
+            $country = text('Country (two-letter code)', default: RegionalDefaults::COUNTRY, required: true, validate: fn (string $value): ?string => RegionalDefaults::isCountry(trim($value)) ? null : 'Use a two-letter ISO country code, such as NP.');
+            $currency = select('Default currency', array_keys(DefaultCurrencies::CURRENCIES), default: RegionalDefaults::CURRENCY);
+            $timezone = text('Company time zone', default: RegionalDefaults::TIMEZONE, required: true, validate: fn (string $value): ?string => RegionalDefaults::isTimezone(trim($value)) ? null : 'Use a time zone name such as Asia/Kathmandu.');
+        }
+
+        $country = $country === '' ? RegionalDefaults::COUNTRY : $country;
+        $currency = $currency === '' ? RegionalDefaults::CURRENCY : strtoupper((string) $currency);
+        $timezone = $timezone === '' ? RegionalDefaults::TIMEZONE : $timezone;
+
+        $error = match (true) {
+            ! RegionalDefaults::isCountry($country) => "--country must be a two-letter ISO country code, such as NP; got \"{$country}\".",
+            ! array_key_exists($currency, DefaultCurrencies::CURRENCIES) => '--currency must be one of '.implode(', ', array_keys(DefaultCurrencies::CURRENCIES)).". Add other currencies in Setup → Currencies after the install; got \"{$currency}\".",
+            ! RegionalDefaults::isTimezone($timezone) => "--timezone must be a time zone name such as Asia/Kathmandu; got \"{$timezone}\".",
+            default => null,
+        };
+
+        if ($error !== null) {
+            $this->components->error($error);
+
+            return false;
+        }
+
+        $regional->choose($country, $currency, $timezone);
+        $this->line('  <fg=gray>Country '.strtoupper((string) $country).', default currency '.$currency.', time zone '.$timezone.'.</>');
+
+        return true;
     }
 
     /**

@@ -45,6 +45,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->middleware('password.recent')->name('transactions.store');
     Route::post('transactions/{transaction}/refund', [TransactionController::class, 'refund'])->middleware('password.recent')->name('transactions.refund');
+    Route::post('transactions/{transaction}/reviewed', [TransactionController::class, 'reviewed'])->middleware('password.recent')->name('transactions.reviewed');
 
     Route::resource('quotes', AdminQuoteController::class);
     Route::post('quotes/{quote}/deliver', [AdminQuoteController::class, 'deliver'])->name('quotes.deliver');

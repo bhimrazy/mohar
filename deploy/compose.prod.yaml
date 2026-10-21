@@ -137,11 +137,13 @@ x-worker-default: &worker-default
             'php',
             'artisan',
             'queue:work',
-            '--queue=default',
+            '--queue=default,imports',
             '--tries=3',
+            '--timeout=150',
+            '--memory=256',
             '--max-time=3600',
         ]
-    stop_grace_period: 70s
+    stop_grace_period: 160s
     deploy:
         resources:
             limits:

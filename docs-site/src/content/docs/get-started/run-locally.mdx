@@ -1,0 +1,142 @@
+---
+title: Run it on your computer
+description: Try the app or work on it locally, with Docker only or with PHP and Node installed.
+---
+
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Use this to try the app or to work on it. It runs with demo data on `localhost`, sends no real email and keeps files on
+disk. For a server that clients will use, follow [Install with Docker Compose](../install-docker/) or
+[Install on a server](../install-server/) instead.
+
+<Aside type="caution">
+    This setup is for your own computer only. It uses development settings, demo accounts with the password
+    `password`, and no TLS.
+</Aside>
+
+You need Git and the source code:
+
+```bash
+git clone <repository URL> billing-app && cd billing-app
+```
+
+Then pick one of the two ways below.
+
+<Tabs>
+<TabItem label="Docker only">
+
+You need Docker with Docker Compose v2.23 or later. PHP and Node run inside the container, so you don't install them.
+Run every command from the root of the repository.
+
+<Steps>
+
+1. Create the settings file and keep uploaded files on disk:
+
+    ```bash
+    cp billing/.env.example billing/.env
+    sed -i.bak 's/^OBJECTS_DRIVER=s3/OBJECTS_DRIVER=local/' billing/.env && rm billing/.env.bak
+    touch billing/database/database.sqlite
+    ```
+
+2. Run the containers as your own user, so the files they write stay yours. Set this in every terminal you use:
+
+    ```bash
+    export HOST_UID=$(id -u) HOST_GID=$(id -g)
+    ```
+
+3. Build the development image and install the dependencies:
+
+    ```bash
+    docker compose -f deploy/compose.dev.yaml build app
+    docker compose -f deploy/compose.dev.yaml run --rm --no-deps app composer install
+    docker compose -f deploy/compose.dev.yaml run --rm --no-deps app npm ci
+    ```
+
+4. Create the application key and the demo data:
+
+    ```bash
+    docker compose -f deploy/compose.dev.yaml run --rm --no-deps app php artisan key:generate
+    docker compose -f deploy/compose.dev.yaml run --rm --no-deps app php artisan migrate:fresh --seed
+    ```
+
+5. Start the app and Vite:
+
+    ```bash
+    docker compose -f deploy/compose.dev.yaml up -d app vite
+    ```
+
+    Open [http://localhost:8080](http://localhost:8080).
+
+6. Background jobs (emails, provisioning, imports, automation) run only while workers are running. Start them in
+   two more terminals when you need them:
+
+    ```bash
+    docker compose -f deploy/compose.dev.yaml exec app php artisan queue:work --queue=payments,provisioning,registrar,notifications,webhooks,default,imports
+    docker compose -f deploy/compose.dev.yaml exec app php artisan queue:work automation --queue=automation
+    ```
+
+</Steps>
+
+To stop, run `docker compose -f deploy/compose.dev.yaml down`. Your data stays in `billing/database/database.sqlite`.
+To start again from fresh demo data, repeat the `migrate:fresh --seed` command from step 4.
+
+</TabItem>
+<TabItem label="PHP and Node on your computer">
+
+You need PHP 8.4 (with the `pdo_sqlite`, `mbstring`, `openssl`, `curl`, `dom` and `zlib` extensions), Composer 2 and
+Node 24 with npm. Docker is optional here: you only need it for PostgreSQL or S3-compatible storage.
+
+<Steps>
+
+1. Install the dependencies and create the settings file:
+
+    ```bash
+    cd billing
+    composer install && npm ci
+    cp -n .env.example .env && php artisan key:generate
+    sed -i.bak 's/^OBJECTS_DRIVER=s3/OBJECTS_DRIVER=local/' .env && rm .env.bak
+    touch database/database.sqlite
+    ```
+
+2. Create the demo data:
+
+    ```bash
+    php artisan migrate:fresh --seed
+    ```
+
+3. Start the app server, the queue workers and Vite together:
+
+    ```bash
+    composer dev
+    ```
+
+    Open [http://localhost:8000](http://localhost:8000). `php artisan dev:list` shows what it runs.
+
+</Steps>
+
+To use PostgreSQL and S3-compatible storage like production, start them with `docker compose up -d --wait` in
+`billing/`. Then set the `DB_` block from `.env.example` and `OBJECTS_DRIVER=s3` in `.env`, and run
+`php artisan objects:ensure-bucket` and `php artisan migrate:fresh --seed`.
+
+</TabItem>
+</Tabs>
+
+## Sign in
+
+The demo data creates two accounts, both with the password `password`:
+
+- `admin@example.com`, a staff administrator, at `/admin`;
+- `demo@example.com`, a client.
+
+Emails are written to the log instead of being sent (`MAIL_MAILER=log`), so password-reset and invitation links appear
+in `billing/storage/logs/laravel.log`.
+
+## If something goes wrong
+
+- **"Vite manifest not found"** or a blank page: Vite isn't running. Start the `vite` service (Docker) or
+  `composer dev` (on your computer).
+- **Permission errors on `storage/` or `vendor/`** with Docker: `HOST_UID` and `HOST_GID` weren't set when the files
+  were created. Set them, then run `sudo chown -R $(id -u):$(id -g) billing`.
+- **Port 8080 or 8000 already in use**: set `APP_PORT` (Docker), or stop the other program.
+
+Developers will find the test commands and every CI check in `billing/docs/devops/local-setup.md` in the repository.
