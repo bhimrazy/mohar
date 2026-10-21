@@ -80,9 +80,9 @@ function step(string $what): void
 function installAndConfigure(): Product
 {
     $test = test();
-    step('app:install without demo data');
+    step('app:install without demo data, choosing USD as the default currency (the install default is NPR; Stripe and the product here are priced in USD)');
     $test->artisan('migrate:fresh', ['--force' => true])->assertSuccessful();
-    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => E2E_OWNER, '--admin-name' => 'Olga Owner']))->toBe(0);
+    expect(Artisan::call('app:install', ['--no-interaction' => true, '--admin-email' => E2E_OWNER, '--admin-name' => 'Olga Owner', '--currency' => 'USD']))->toBe(0);
     preg_match('/one-time password\..*\R+  (\S{24})\R/', Artisan::output(), $oneTime);
     $admin = User::query()->where('email', E2E_OWNER)->sole();
 
