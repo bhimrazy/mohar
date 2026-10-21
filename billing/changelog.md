@@ -896,6 +896,11 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### DevOps
 
+- CI security audits only on dependency changes (owner decision 2026-10-21). `composer audit` and `npm audit` now
+  block a PR or push only when it changes a Composer or npm manifest or lockfile, an `.npmrc` or a workflow file, so a
+  newly published advisory no longer turns every open PR red. A new `security-audit` workflow runs the same audits
+  every night (02:17 UTC) and on demand, and opens an issue labelled `security` and `go-live`, or comments on the
+  open one, when it finds an advisory. Lockfile sync and the dependency cooldown check still run on every PR.
 - `vite-plus` 0.3.3 → 1.1.0 (and the `vite` alias/override `@voidzero-dev/vite-plus-core` 0.3.3 → 1.1.0). The
   core bundled `launch-editor` 2.14.1, affected by GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw and GHSA-587h-7wmj-h5pm
   (published 2026-10-20; `npm audit --audit-level=high` failed CI); 1.1.0 is the first fixed release and bundles
