@@ -210,9 +210,10 @@ class DomainPricingService implements DomainPricing
 
     private function offers(Tld $tld, string $action): bool
     {
+        // A TLD the client registers at the registry is never registered or transferred here (only renewed records).
         return match ($action) {
-            'register' => $tld->allow_register,
-            'transfer' => $tld->allow_transfer,
+            'register' => $tld->allow_register && ! $tld->registered_by_client,
+            'transfer' => $tld->allow_transfer && ! $tld->registered_by_client,
             'renew' => true,
             default => false,
         };

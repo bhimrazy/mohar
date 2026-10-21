@@ -18,6 +18,8 @@ import type { PriceRow, StoreGroup, StoreProduct } from '@/types/orders';
 type Props = {
     groups: StoreGroup[];
     currency: string;
+    /** A domain the visitor already owns, carried from the domain search into "Use a domain I own". */
+    existingDomain: string | null;
 };
 
 /** Percentage saved against paying monthly for the same period (0 when not cheaper). */
@@ -38,9 +40,11 @@ function savingFor(rows: PriceRow[], row: PriceRow): number {
 function ProductCard({
     product,
     currency,
+    existingDomain,
 }: {
     product: StoreProduct;
     currency: string;
+    existingDomain: string | null;
 }) {
     const cheapest = lowestMonthly(product.pricing);
     const setup = product.pricing.find((row) => row.setup > 0);
@@ -130,7 +134,14 @@ function ProductCard({
             <div className="mt-auto pt-6">
                 {product.in_stock ? (
                     <Button asChild className="w-full">
-                        <Link href={store.products.show.url(product.id)}>
+                        <Link
+                            href={store.products.show.url(
+                                product.id,
+                                existingDomain
+                                    ? { query: { domain: existingDomain } }
+                                    : undefined,
+                            )}
+                        >
                             Configure and order
                         </Link>
                     </Button>
@@ -144,7 +155,11 @@ function ProductCard({
     );
 }
 
-export default function StoreIndex({ groups, currency }: Props) {
+export default function StoreIndex({
+    groups,
+    currency,
+    existingDomain,
+}: Props) {
     const visible = groups.filter((group) => group.products.length > 0);
 
     return (
@@ -229,6 +244,7 @@ export default function StoreIndex({ groups, currency }: Props) {
                                     key={product.id}
                                     product={product}
                                     currency={currency}
+                                    existingDomain={existingDomain}
                                 />
                             ))}
                         </div>

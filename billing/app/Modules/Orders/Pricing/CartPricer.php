@@ -183,6 +183,13 @@ class CartPricer
         $tld = strtolower($parts[1]);
         $price = $this->domainPricing->price($tld, $action === 'transfer' ? 'transfer' : 'register', $years, $currency, $clientId);
 
+        if ($price === null && $this->domainPricing->terms($tld, $action === 'transfer' ? 'transfer' : 'register', $currency) === []) {
+            // Not sold here at all, e.g. .np, which clients register at the registry themselves.
+            $priced->errors[] = __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld]);
+
+            return;
+        }
+
         if ($price === null) {
             $priced->errors[] = __(':tld domains cannot be ordered for :years year(s) in :currency.', ['tld' => $tld, 'years' => $years, 'currency' => $currency]);
 
