@@ -304,6 +304,78 @@ test('a dispute Stripe closes as won reinstates the payment once; one closed as 
     'lost' => ['lost', 'ignored event type', InvoiceStatus::Collections],
 ]);
 
+/** An inquiry as Stripe returns it: status warning_*, no balance transaction withdrew money (#212). */
+function stripeInquiry(string $status = 'warning_needs_response'): array
+{
+    $inquiry = stripeFixture('dispute', ['status' => $status, 'reason' => 'general']);
+    $inquiry['balance_transactions'] = [];
+
+    return $inquiry;
+}
+
+test('an inquiry that opens and closes moves no money and stays a staff to-do (#212)', function () {
+    Event::fake([PaymentReversed::class]);
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    $payment = Transaction::query()->where('type', TransactionType::Payment)->sole();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::sequence()
+        ->push(stripeInquiry())->push(stripeInquiry())->push(stripeInquiry('warning_closed'))]);
+
+    $opened = stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0010');
+    postStripeWebhook($opened)->assertOk()->assertJson(['result' => 'dispute inquiry recorded; no money moved']);
+    postStripeWebhook($opened)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    $inquiry = Transaction::query()->where('type', TransactionType::DisputeInquiry)->sole();
+    expect($inquiry)->amount_in->toBe(0)->amount_out->toBe(0)->gateway_txn_id->toBe('du_1MoharDispute0001')
+        ->and(Transaction::toReview()->sole()->id)->toBe($inquiry->id)
+        ->and(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse()
+        ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and($payment->fresh()->refundable_remaining)->toBe($payment->refundable_remaining)
+        ->and(CreditLedgerEntry::query()->exists())->toBeFalse();
+
+    postStripeWebhook(stripeEvent('charge.dispute.closed', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0011'))->assertOk()->assertJson(['result' => 'ignored event type']);
+
+    expect(Transaction::query()->count())->toBe(2)
+        ->and($invoice->fresh())->status->toBe(InvoiceStatus::Paid)->balance->toBe(0)
+        ->and(CreditLedgerEntry::query()->exists())->toBeFalse();
+    Event::assertNotDispatched(PaymentReversed::class);
+
+    // The client doesn't see the inquiry on the invoice.
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->has('transactions', 1));
+});
+
+test('an inquiry that escalates is booked as a chargeback once, when Stripe withdraws the funds (#212)', function () {
+    Event::fake([PaymentReversed::class]);
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::sequence()
+        ->push(stripeInquiry())->push(stripeFixture('dispute'))->push(stripeFixture('dispute'))]);
+
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0012'))->assertOk()->assertJson(['result' => 'dispute inquiry recorded; no money moved']);
+    $withdrawn = stripeEvent('charge.dispute.funds_withdrawn', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0013');
+    postStripeWebhook($withdrawn)->assertOk()->assertJson(['result' => 'chargeback recorded']);
+    postStripeWebhook($withdrawn)->assertOk()->assertJson(['result' => 'duplicate']);
+
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->sole()->amount_out)->toBe(2_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections)
+        // The chargeback replaces the inquiry's to-do.
+        ->and(Transaction::query()->where('type', TransactionType::DisputeInquiry)->sole()->reviewed_at)->not->toBeNull()
+        ->and(Transaction::toReview()->count())->toBe(0);
+    Event::assertDispatchedTimes(PaymentReversed::class, 1);
+});
+
+test('a dispute Stripe has not withdrawn funds for is not booked as a chargeback, whatever its status (#212)', function () {
+    paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    $pending = stripeFixture('dispute');
+    $pending['balance_transactions'] = [];
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response($pending)]);
+
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0014'))->assertOk()->assertJson(['result' => 'dispute inquiry recorded; no money moved']);
+
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->exists())->toBeFalse();
+});
+
 test('a dispute of a payment made by another integration on the account is acknowledged, not retried', function () {
     paidStripeAttempt();
     Http::fake([STRIPE_API.'disputes/du_1MoharDispute0002*' => Http::response(stripeFixture('dispute', ['id' => 'du_1MoharDispute0002', 'payment_intent' => ['id' => 'pi_3SomeoneElse00001', 'metadata' => ['mohar_reference' => null]]]))]);
