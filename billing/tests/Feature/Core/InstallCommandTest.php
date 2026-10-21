@@ -481,7 +481,7 @@ test('two installs started at the same time create exactly one full administrato
             ->and($race->table('users')->where('is_staff', true)->count())->toBe(1);
     } finally {
         // Everything the committed installs wrote, so later tests in this process start from an empty database.
-        foreach (['activity_log', 'users', 'roles', 'currencies', 'email_template_translations', 'email_templates'] as $table) {
+        foreach (['activity_log', 'users', 'roles', 'currencies', 'email_template_translations', 'email_templates', 'settings', 'tax_rules'] as $table) {
             $race->table($table)->delete();
         }
 
