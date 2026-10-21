@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\GatewayDriver;
 use App\Data\Billing\LookupResult;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -31,6 +32,12 @@ class SettlePaymentAttempt
 
     public const CREDIT_NOTE = 'Payment went to account credit (invoice already paid or cancelled, or payment held for review): check and refund if needed';
 
+    /**
+     * For a driver that declares NOT_FOUND_ENDS_SESSION: how long the customer's browser has to post the provider
+     * form before a not_found answer, without a cancel return, ends the attempt. The form is auto-posted on page load.
+     */
+    public const NOT_FOUND_SETTLE_MINUTES = 5;
+
     /** The provider's answer to the last lookup this instance made (null when it made none). */
     public ?LookupResult $lastResult = null;
 
@@ -44,8 +51,9 @@ class SettlePaymentAttempt
 
     /**
      * @param  bool  $interactive  a customer's browser is waiting (return route): one quick provider try, no retries
+     * @param  bool  $cancelReturn  the browser came back through the attempt's cancel URL (a hint: only the lookup decides)
      */
-    public function handle(PaymentAttempt $attempt, bool $interactive = false): AttemptStatus
+    public function handle(PaymentAttempt $attempt, bool $interactive = false, bool $cancelReturn = false): AttemptStatus
     {
         $this->lastResult = null;
 
@@ -63,7 +71,9 @@ class SettlePaymentAttempt
         $raw = GatewayLogger::redact($result->raw);
         $this->log->log($attempt->gateway, 'response', 'lookup '.$result->status, ['reference' => $attempt->reference, ...$raw], $attempt->invoice_id);
 
-        return DB::transaction(function () use ($attempt, $result, $raw): AttemptStatus {
+        $notFoundEndsSession = $driver->supports(GatewayDriver::NOT_FOUND_ENDS_SESSION);
+
+        return DB::transaction(function () use ($attempt, $result, $raw, $notFoundEndsSession, $cancelReturn): AttemptStatus {
             $attempt = PaymentAttempt::query()->lockForUpdate()->findOrFail($attempt->id);
 
             if ($attempt->status === AttemptStatus::Succeeded) {
@@ -99,6 +109,7 @@ class SettlePaymentAttempt
                 LookupResult::EXPIRED => $attempt->status = AttemptStatus::Expired,
                 LookupResult::AMBIGUOUS => $this->review($attempt, is_string($result->raw['error'] ?? null) ? 'Provider: '.$result->raw['error'] : 'The provider could not confirm the payment yet'),
                 LookupResult::REFUNDED, LookupResult::PARTIALLY_REFUNDED => $this->review($attempt, 'Refunded at the provider before it was recorded here'),
+                LookupResult::NOT_FOUND => $this->notFound($attempt, $notFoundEndsSession, $cancelReturn),
                 default => $this->stillPending($attempt, $result->status),
             };
 
@@ -243,6 +254,28 @@ class SettlePaymentAttempt
         }
 
         $this->review($attempt, 'Still pending at the provider after the grace period');
+    }
+
+    /**
+     * The provider holds no payable session. When its driver declares NOT_FOUND_ENDS_SESSION, a pending attempt ends
+     * now, so the customer can pay again at once, if the customer came back through the cancel URL or the form has had
+     * NOT_FOUND_SETTLE_MINUTES to reach the provider. A younger attempt may simply not be posted yet, and one in staff
+     * review stays there. Lookups stay open: if a stale form is still paid, the late sweep books it (#130).
+     */
+    private function notFound(PaymentAttempt $attempt, bool $endsSession, bool $cancelReturn): void
+    {
+        $settled = ($attempt->created_at ?? now())->lte(now()->subMinutes(self::NOT_FOUND_SETTLE_MINUTES));
+
+        if (! $endsSession || $attempt->status !== AttemptStatus::Pending || (! $cancelReturn && ! $settled)) {
+            $this->stillPending($attempt, LookupResult::NOT_FOUND);
+
+            return;
+        }
+
+        $attempt->status = $cancelReturn ? AttemptStatus::Failed : AttemptStatus::Expired;
+        $attempt->review_reason = $cancelReturn
+            ? 'Cancelled by the customer: the provider has no payable session'
+            : 'Abandoned: the provider has no payable session';
     }
 
     private function fail(PaymentAttempt $attempt, LookupResult $result): void
