@@ -72,12 +72,13 @@ clients closed on or before today minus 90 days. Each document is deleted on its
 logged without the path and retried the next day. At most 500 documents per run, the rest the next day. It reads
 `kyc_documents` through the `client_id` and `superseded_at` indexes and is idempotent.
 
-## 7. Staff review (PR B)
+## 7. Staff review
 
 - New permission `kyc.documents.review` ("View identity documents and approve or reject them"), registered as
   **sensitive**: no wildcard grants it, only the exact key or `*`. Approve and reject require `password.recent`.
 - Admin → Clients → Identity verification: a queue of clients with documents waiting, oldest first, then a page per
-  client with each document's type, number, upload time and status.
+  client with each document's type, upload time and status. The number and images show only after a password
+  step-up (`password.recent`, audited), for 15 minutes.
 - Images open only through signed links that expire after **15 minutes**, checked again for the permission when
   opened, streamed with `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`.
 - Approve, or reject with a reason (required, up to 500 characters). The client sees the reason and uploads again.

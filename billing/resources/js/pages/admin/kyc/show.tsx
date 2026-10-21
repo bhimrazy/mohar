@@ -134,7 +134,7 @@ export default function KycReview({
 
     return (
         <>
-            <Head title={`Identity verification: ${client.name}`} />
+            <Head title={client.name} />
             <Page>
                 <PageHeader
                     title={client.name}

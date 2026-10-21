@@ -10,7 +10,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
-  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). The daily housekeeping stage gains
+  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Reviewing documents needs the
+  new **sensitive** permission `kyc.documents.review`: `kyc.*` does not grant it, so add it to roles explicitly, and
+  opening documents and every decision ask for a recent password. The daily housekeeping stage gains
   the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
   old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read.
 
@@ -290,7 +292,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A document waiting for review or rejected can be uploaded again, and the old images are deleted; an approved one
   cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
   the daily task `kyc.prune_documents`, at most 500 per run.
-- Staff review (approve or reject with a reason) follows in the next pull request.
+- Staff review: Admin → Clients → Identity verification lists clients with documents waiting, oldest first (with a
+  sidebar count), and the client profile links to the client's page. Numbers and images are hidden until the staff
+  member confirms their password; images then open through signed links that expire after 15 minutes. Staff approve a
+  document, or reject it with a reason the client sees. A decision on a document that was replaced or changed after the
+  page loaded is refused. Each opening, image view, approval and rejection is in the activity log, without the number
+  or the image.
 
 ### Client import
 
