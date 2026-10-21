@@ -4,6 +4,7 @@ namespace App\Modules\Core\Database\Seeders;
 
 use App\Models\User;
 use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Role;
@@ -18,6 +19,7 @@ class CoreSeeder extends DemoSeeder
 {
     public function run(DefaultCurrencies $currencies, SystemRoles $roles): void
     {
+        app(RegionalDefaults::class)->keepBuiltInDefaults();
         DB::transaction(fn () => $currencies->install());
         DB::transaction(fn () => $roles->install());
 

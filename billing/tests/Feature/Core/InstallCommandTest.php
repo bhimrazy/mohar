@@ -9,6 +9,7 @@ use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Install\AdministratorRefused;
 use App\Modules\Core\Install\FirstAdministrator;
 use App\Modules\Core\Install\ReferenceDataInstaller;
+use App\Modules\Core\Install\RegionalDefaults;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
@@ -95,10 +96,10 @@ test('an install on an empty database creates the reference data and one full ad
         ->and($match)->toHaveCount(2)
         ->and(Hash::check($match[1], $admin->password))->toBeTrue();
 
-    expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => false, 'USD' => true])
+    expect(Currency::query()->orderBy('code')->pluck('is_default', 'code')->all())->toBe(['INR' => false, 'NPR' => true, 'USD' => false])
         ->and(Role::query()->where('is_system', true)->orderBy('key')->pluck('name', 'key')->all())->toBe(['billing' => 'Billing', 'full_administrator' => 'Full Administrator', 'sales' => 'Sales', 'support' => 'Support'])
         ->and(Role::query()->count())->toBe(4)
-        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'users']);
+        ->and(tablesWithRows())->toBe(['activity_log', 'currencies', 'email_template_translations', 'email_templates', 'migrations', 'roles', 'settings', 'tax_rules', 'users']);
 
     $log = ActivityLog::query()->sole();
     expect($log->event)->toBe('staff.created')
@@ -186,6 +187,9 @@ test('the interactive install creates the administrator with the chosen password
     Http::fake(['api.pwnedpasswords.com/range/*' => Http::response("0000000000000000000000000000000000A:3\n")]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'Ada@Example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -203,6 +207,9 @@ test('the interactive install applies the production password rules in every env
     expect(app()->isProduction())->toBeFalse();
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', $password)
@@ -221,6 +228,9 @@ test('the interactive install rejects a password found in a known breach', funct
     Http::fake(['api.pwnedpasswords.com/range/'.substr($hash, 0, 5) => Http::response(substr($hash, 5).":42\n")]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -234,6 +244,9 @@ test('the interactive install rejects a confirmation that does not match', funct
     Http::fake(['api.pwnedpasswords.com/range/*' => Http::response('')]);
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)
@@ -312,6 +325,7 @@ test('in production db:seed installs the reference data and no demo data', funct
 });
 
 test('the demo seed installs exactly the reference data an install creates, through the same registry', function () {
+    app(RegionalDefaults::class)->keepBuiltInDefaults();
     app(ReferenceDataInstaller::class)->install();
     $installed = referenceSnapshot();
     Role::query()->delete();
@@ -357,6 +371,7 @@ test('currencies are created on the first install only, so an existing list is l
 });
 
 test('a currency staff deleted is not re-created by a later run, and an edited one keeps its rate', function () {
+    app(RegionalDefaults::class)->keepBuiltInDefaults();
     app(ReferenceDataInstaller::class)->install();
     Currency::query()->where('code', 'INR')->delete();
     Currency::query()->where('code', 'NPR')->update(['exchange_rate' => 140.25]);
@@ -489,6 +504,9 @@ test('a chosen password is accepted when the breach API cannot be reached', func
     Exceptions::fake();
 
     $this->artisan('app:install')
+        ->expectsQuestion('Country (two-letter code)', 'NP')
+        ->expectsQuestion('Default currency', 'NPR')
+        ->expectsQuestion('Company time zone', 'Asia/Kathmandu')
         ->expectsQuestion('Administrator name', 'Ada Admin')
         ->expectsQuestion('Administrator email', 'ada@example.test')
         ->expectsQuestion('Password', STRONG_PASSWORD)

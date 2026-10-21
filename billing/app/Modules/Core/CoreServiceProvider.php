@@ -16,6 +16,8 @@ use App\Contracts\Services\ClientServiceDirectory;
 use App\Contracts\Services\ProvisioningDrivers;
 use App\Models\User;
 use App\Modules\Core\Install\DefaultCurrencies;
+use App\Modules\Core\Install\RegionalDefaults;
+use App\Modules\Core\Install\RegionalSettings;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
@@ -62,6 +64,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->scoped(CurrencyRollup::class);
 
         $this->app->singleton(Settings::class);
+        $this->app->singleton(RegionalDefaults::class);
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);
@@ -115,6 +118,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         });
 
         $reference = $this->app->make(ReferenceDataRegistry::class);
+        $reference->register(RegionalSettings::KEY, RegionalSettings::class, order: 5);
         $reference->register(DefaultCurrencies::KEY, DefaultCurrencies::class, order: 10);
         $reference->register(SystemRoles::KEY, SystemRoles::class, order: 20);
 
@@ -128,6 +132,7 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
             new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
+            new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates, overdue days and the daily run. Changing it shifts the next run.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
         ], 'core.settings.update');
