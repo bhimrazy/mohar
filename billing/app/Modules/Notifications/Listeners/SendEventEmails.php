@@ -512,10 +512,16 @@ class SendEventEmails implements ShouldHandleEventsAfterCommit
     }
 
     /**
-     * Every staff decision on an identity document reaches the client, with the reason when declined (KYC spec §7).
+     * Every staff decision on an identity document reaches the client, with the reason when declined (KYC spec §7), while
+     * identity verification is on.
      */
     public function kycDocumentDecided(DocumentDecided $event): void
     {
+        // While identity verification is off its client page answers 404, so the email's only link would be dead.
+        if (! (bool) $this->settings->get('kyc.enabled', false)) {
+            return;
+        }
+
         $this->clientMail('kyc.document_decided', $event->clientId, EmailCategory::General, ['kyc' => $this->context->resolve('kyc_document', $event->documentId)], $event, 'kyc_document', $event->documentId);
     }
 

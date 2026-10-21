@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Actions\DecideDocument;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
@@ -13,6 +14,7 @@ require_once __DIR__.'/helpers.php';
 beforeEach(function () {
     Mail::fake();
     seedEmailTemplates();
+    app(Settings::class)->set('kyc.enabled', true);
     $this->client = Client::factory()->create(['email' => 'owner@example.test', 'first_name' => 'Olive']);
     $this->staff = User::factory()->staff(['kyc.documents.review'])->create();
     $this->decide = fn (KycDocument $document, bool $approve, ?string $reason = null) => app(DecideDocument::class)
@@ -43,4 +45,14 @@ it('emails an approval, and says when the client is now verified', function () {
     $message = EmailMessage::query()->where('template_key', 'kyc.document_decided')->sole();
     expect($message->subject)->toBe('Your Citizenship certificate is approved')
         ->and($message->body_html)->toContain('Your identity is now verified')->toContain('View your verification');
+});
+
+it('sends no decision email while identity verification is off, because its link would not open', function () {
+    app(Settings::class)->set('kyc.enabled', false);
+    $document = KycDocument::factory()->create(['client_id' => $this->client->id]);
+
+    ($this->decide)($document, false, 'The back is blurred.');
+
+    expect($document->fresh()->decline_reason)->toBe('The back is blurred.')
+        ->and(EmailMessage::query()->where('template_key', 'kyc.document_decided')->count())->toBe(0);
 });
