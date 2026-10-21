@@ -95,7 +95,7 @@ class InstallCommand extends Command
         }
 
         $country = $country === '' ? RegionalDefaults::COUNTRY : $country;
-        $currency = $currency === '' ? RegionalDefaults::CURRENCY : strtoupper($currency);
+        $currency = $currency === '' ? RegionalDefaults::CURRENCY : strtoupper((string) $currency);
         $timezone = $timezone === '' ? RegionalDefaults::TIMEZONE : $timezone;
 
         $error = match (true) {
@@ -112,7 +112,7 @@ class InstallCommand extends Command
         }
 
         $regional->choose($country, $currency, $timezone);
-        $this->line('  <fg=gray>Country '.strtoupper($country).', default currency '.$currency.', time zone '.$timezone.'.</>');
+        $this->line('  <fg=gray>Country '.strtoupper((string) $country).', default currency '.$currency.', time zone '.$timezone.'.</>');
 
         return true;
     }

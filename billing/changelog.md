@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Nepal-first install defaults (#170) and a queue timeout check (#195).** Nothing changes on an existing
+  installation: `app:install` writes the regional defaults only while no currency exists, so a database upgraded
+  from an earlier release keeps the US dollar default, US as default country, UTC as company time zone and the
+  built-in date and tax settings it already used, whether or not they were ever stored. A **new** install now
+  starts with country Nepal, NPR as the default currency (USD and INR are added with rates relative to it), time
+  zone Asia/Kathmandu, dates like `1 Jan 2026`, a VAT rule of 13% for Nepal, the seller tax country set to Nepal
+  and invoice numbers `INV-00001`. Tax stays off until you enable it in Settings → Billing → Tax. The install
+  now also **fails** when a queue connection's `retry_after` is not above the longest job timeout (200 s on the
+  default connection, 3,600 s on `automation`): raise `DB_QUEUE_RETRY_AFTER` (or the Redis or Beanstalkd
+  equivalent) above the figure the message gives. The shipped values (240 s) pass. The company time zone is
+  now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
+  still pending).
+
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
   after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit

@@ -65,6 +65,8 @@ class CoreServiceProvider extends ModuleServiceProvider
 
         $this->app->singleton(Settings::class);
         $this->app->singleton(RegionalDefaults::class);
+        // The company time zone (ADR 0013) follows the application's until staff set one; the settings form needs a value.
+        config(['system.timezone' => config('system.timezone', config('app.timezone', 'UTC'))]);
         $this->app->singleton(ActivityLogger::class);
         $this->app->scoped(ClientContext::class);
         $this->app->singleton(MergeFieldRegistry::class, InMemoryMergeFieldRegistry::class);

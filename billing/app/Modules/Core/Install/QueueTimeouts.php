@@ -96,6 +96,10 @@ final class QueueTimeouts
         foreach (glob(app_path('Modules/*/Jobs/*.php')) ?: [] as $file) {
             $class = 'App\\Modules\\'.basename(dirname($file, 2)).'\\Jobs\\'.basename($file, '.php');
 
+            if (! class_exists($class)) {
+                continue;
+            }
+
             try {
                 $defaults = (new ReflectionClass($class))->getDefaultProperties();
             } catch (Throwable) {
