@@ -76,7 +76,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);
 
         // An order's amounts are stored in its client's currency (client-import spec §6.4).
-        $this->app->make(ClientCurrencyUsage::class)->source('orders', fn (array $clientIds): array => Order::query()
+        $this->app->make(ClientCurrencyUsage::class)->register('orders', fn (array $clientIds): array => Order::query()
             ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(Login::class, MergeCartOnLogin::class);

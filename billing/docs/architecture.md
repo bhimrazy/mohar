@@ -245,6 +245,7 @@ database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops
 5. Strict `GROUP BY`; no SQLite-only functions (`strftime`, `ifnull`, `julianday`); no backticks.
 6. Validate string lengths against column sizes (PostgreSQL rejects overlong values).
 7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
+   Row locks, the lock order and the two-process race test: ADR 0021.
 8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
 9. Booleans as `where('flag', true)`; no explicit ids in seeders.
 10. Dashboard and report figures are summed in SQL (one row per currency or group; a conditional `sum(case …)` per
