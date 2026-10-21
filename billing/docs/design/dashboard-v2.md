@@ -264,13 +264,13 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
 - **chart series** may also carry `slot` (fixed `--chart-n`, so a category keeps its colour when others are
   absent) and `tone` (`success|danger|warning|neutral`, for series that are themselves a status).
 - **New type `breakdown`:** `{title, description?, rows: [{key, label, code?, money|value|display, share}], notes?:
-[{label, money}] , empty?}`.
+  [{label, money}] , empty?}`.
 - **list** items gain optional `money` and `avatar` (a name shown as initials); lists gain optional `group`,
   `groupTitle` and `tabTitle`.
 - **todo** items gain optional `icon` and `hint` (the client already renders them).
 - **New aggregated registry `health()`** (like `todo()`):
   `$dashboard->health('admin', 'services.provisioning', fn ($user) => ['label', 'detail', 'value', 'tone',
-'icon', 'href'?], 'services.module_log.view', order: 20)`; `resolveHealth()` returns visible checks in order.
+  'icon', 'href'?], 'services.module_log.view', order: 20)`; `resolveHealth()` returns visible checks in order.
 - `Dashboard::TYPES` gains `breakdown`.
 
 ## 8. Data rules
@@ -298,7 +298,7 @@ header shows "⌘K" because the command palette exists. Hidden when the user has
   `CompanyClock`; Billing and Core sign-ups through Core's `BusinessCalendar` (local today; local midnight
   converted to UTC for query bounds). Billing sums income per currency and local day in SQL with literal
   per-driver SQL and the zone as a bound parameter: PostgreSQL `date((occurred_at at time zone 'UTC') at time
-zone ?)` (exact, DST included), MySQL `convert_tz` and SQLite a `date(col, ?)` modifier (today's offset),
+  zone ?)` (exact, DST included), MySQL `convert_tz` and SQLite a `date(col, ?)` modifier (today's offset),
   grouped by position (`GROUP BY 1, 2`). Due dates and automation run dates are calendar dates already.
 - **Shared counts.** A nav badge and its Needs attention item read one count per request through Core's
   `RequestMemo` (stored on the request, so nothing leaks between requests): pending orders, open cancellation
