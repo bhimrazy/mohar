@@ -175,6 +175,10 @@ class AddProductToCart
             throw ValidationException::withMessages(['domain_name' => __('Enter a valid domain name, for example example.com.')]);
         }
 
+        if (($error = DomainGuard::registryLevelError($name)) !== null) {
+            throw ValidationException::withMessages(['domain_name' => $error]);
+        }
+
         return (string) $mode;
     }
 

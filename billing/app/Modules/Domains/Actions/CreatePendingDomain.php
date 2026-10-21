@@ -5,13 +5,13 @@ namespace App\Modules\Domains\Actions;
 use App\Data\Domains\DomainDraft;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\SettingList;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Support\DomainName;
 use App\Modules\Domains\Support\Nameservers;
-use App\Modules\Domains\Support\SettingList;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -46,6 +46,11 @@ class CreatePendingDomain
 
         if ($parts === null || $tld === null) {
             throw ValidationException::withMessages(['domain' => 'We do not offer this domain extension.']);
+        }
+
+        // The client registers these at the registry: never a registration or transfer here, whoever asks.
+        if ($tld->registered_by_client) {
+            throw ValidationException::withMessages(['domain' => __(':tld domains are not sold here. If you already own one, choose "Use a domain I own".', ['tld' => $tld->extension])]);
         }
 
         if (($draft->action === 'register' && ! $tld->allow_register) || ($draft->action === 'transfer' && ! $tld->allow_transfer)) {

@@ -261,6 +261,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.suggestion_limit', 'Maximum suggestions', 'integer', rules: ['min:0', 'max:50']),
             new SettingDefinition('domains.lookup_rate_limit', 'Lookups per minute per IP', 'integer', rules: ['min:1', 'max:600']),
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
+            new SettingDefinition('domains.self_registration_url', '"How to register" link for domains clients register at the registry', 'string', 'Shown in domain search for extensions marked "registered by the client", such as .np.', rules: ['nullable', 'url:https', 'max:255']),
             new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
 

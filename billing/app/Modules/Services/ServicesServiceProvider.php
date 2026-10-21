@@ -38,6 +38,7 @@ use App\Modules\Services\Services\EloquentCatalogUsage;
 use App\Modules\Services\Services\EloquentClientServiceDirectory;
 use App\Modules\Services\Services\EloquentServiceRegistry;
 use App\Modules\Services\Services\RegistryProvisioningDrivers;
+use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
@@ -158,6 +159,13 @@ class ServicesServiceProvider extends ModuleServiceProvider
             'href' => route('admin.services.module-log.index', ['tab' => 'queue']),
             'icon' => 'Activity',
         ], 'services.module_log.view', 32, mirrorsTodo: true);
+
+        $dashboard->todo('admin', 'services.nameservers', fn (?User $user): array => [
+            'label' => 'Set your nameservers so clients with their own domain know where to point it.',
+            'count' => $this->app->make(ClientNameservers::class)->configured() ? 0 : 1,
+            'href' => route('admin.services.servers.index'),
+            'tone' => 'warning',
+        ], 'services.servers.view', 35);
 
         $dashboard->todo('admin', 'services.pending', fn (?User $user): array => [
             'label' => 'Services waiting for provisioning',
