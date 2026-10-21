@@ -10,9 +10,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
-  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Reviewing documents needs the
-  new **sensitive** permission `kyc.documents.review`: `kyc.*` does not grant it, so add it to roles explicitly, and
-  opening documents and every decision ask for a recent password. The daily housekeeping stage gains
+  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
+  permissions, which `kyc.*` does not grant: `kyc.documents.view` (queue and documents) and `kyc.documents.review`
+  (approve or decline). `php artisan app:install` resets the system roles, so the Support role gains
+  `kyc.documents.view` (with an audit entry); deciding stays with full administrators unless a role is given the review
+  permission. Opening documents and every decision ask for a recent password. The daily housekeeping stage gains
   the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
   old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
   (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing

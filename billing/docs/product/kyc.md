@@ -87,9 +87,11 @@ replaced), skips current documents whose client is no longer closed, and is idem
 
 ## 7. Staff review
 
-- New permission `kyc.documents.review` ("View identity documents and approve or decline them"), registered as
-  **sensitive**: no wildcard grants it, only the exact key or `*`. Showing documents and every decision require
-  `password.recent`.
+- Two new **sensitive** permissions (no wildcard grants them, only the exact key or `*`), owner decision 2026-10-21:
+  `kyc.documents.view` ("View the identity verification queue and identity documents"), seeded on the Support role,
+  and `kyc.documents.review` ("Approve or decline identity documents"), held by full administrators (`*`) only by
+  default. A reviewer can also view. Showing documents and every decision require `password.recent`. Staff without
+  the review permission see Approve and Decline disabled, with the reason.
 - Admin → Clients → Identity verification is an operational page: summary cards (pending review, declined, verified
   = two types approved, not started = open accounts without documents), a status filter (pending review by default,
   declined, verified, not started, all clients) and search by client name or email. Each row shows the client's
@@ -130,8 +132,8 @@ replaced), skips current documents whose client is no longer closed, and is idem
 9. MUST: the status shows pending review once two different types are uploaded.
 10. MUST: the retention task deletes documents 90 days after closure, not before, keeps those of reopened accounts,
     handles each document on its own, caps its work per run and is idempotent.
-11. MUST: only staff with the exact `kyc.documents.review` permission (or `*`) can open the queue, a document
-    link or a decision; `kyc.*` does not grant it; decisions need a recent password.
+11. MUST: only staff with the exact `kyc.documents.view` or `kyc.documents.review` permission (or `*`) can open the
+    queue or a document link, and only `kyc.documents.review` (or `*`) can decide; Support gets 403 on a decision; `kyc.*` does not grant it; decisions need a recent password.
 12. MUST: a document link stops working when the window ends (15 minutes at most) and opens only the document, side and staff member it was signed for, for an unlocked client.
 13. MUST: every opening, view, approval and decline writes an audit entry without the number or the file.
 14. MUST: a decline needs a reason, the client sees it and is emailed, and a decision on a document that was replaced
