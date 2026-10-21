@@ -34,6 +34,7 @@ use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -73,6 +74,10 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->bindDemoContracts();
 
         $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);
+
+        // An order's amounts are stored in its client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->source('orders', fn (array $clientIds): array => Order::query()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(Login::class, MergeCartOnLogin::class);
         Event::listen(ServiceActivated::class, TrackItemActivation::class);

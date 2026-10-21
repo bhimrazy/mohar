@@ -41,6 +41,7 @@ use App\Modules\Services\Services\RegistryProvisioningDrivers;
 use App\Modules\Services\Support\ClientNameservers;
 use App\Modules\Services\Support\ServicesDashboard;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -79,6 +80,10 @@ class ServicesServiceProvider extends ModuleServiceProvider
         $drivers->register('none', NoneDriver::class);
         $drivers->register('log', LogDriver::class);
         $drivers->register(CpanelDriver::KEY, CpanelDriver::class);
+
+        // A service's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
+        $this->app->make(ClientCurrencyUsage::class)->source('services', fn (array $clientIds): array => Service::withTrashed()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(InvoicePaid::class, ApplyPaidInvoice::class);
         Event::listen(InvoiceCancelled::class, SyncCancelledInvoice::class);

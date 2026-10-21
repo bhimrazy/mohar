@@ -17,14 +17,18 @@ export type ImportRun = {
         | 'mapping'
         | 'checking'
         | 'ready'
+        | 'applying'
+        | 'completed'
         | 'failed'
         | 'expired';
     rows: number;
     staged: number;
     checked: number;
+    applied: number;
     running: boolean;
     stalled: boolean;
     error: string | null;
+    purged: boolean;
     queue: string;
     requested_by: string | null;
     uploaded_at: string | null;
@@ -114,11 +118,13 @@ export function ImportProgress({ run }: { run: ImportRun }) {
                 </AlertTitle>
                 <AlertDescription>
                     <span>
-                        {run.stalled
-                            ? `No worker has reported for 10 minutes. Check that a queue worker runs the "${run.queue}" queue, then continue.`
-                            : run.error}
+                        {run.purged
+                            ? 'Row details were removed; continue is no longer possible.'
+                            : run.stalled
+                              ? `No worker has reported for 10 minutes. Check that a queue worker runs the "${run.queue}" queue, then continue.`
+                              : run.error}
                     </span>
-                    {resume}
+                    {!run.purged && resume}
                 </AlertDescription>
             </Alert>
         );
@@ -128,18 +134,20 @@ export function ImportProgress({ run }: { run: ImportRun }) {
         return null;
     }
 
-    const checking = run.status === 'checking';
-    const done = checking ? run.checked : run.staged;
+    const [title, done, verb] =
+        run.status === 'checking'
+            ? ['Checking the rows', run.checked, 'checked']
+            : run.status === 'applying'
+              ? ['Importing the clients', run.applied, 'imported']
+              : ['Reading the file', run.staged, 'read'];
 
     return (
         <Alert>
             <Spinner />
-            <AlertTitle>
-                {checking ? 'Checking the rows' : 'Reading the file'}
-            </AlertTitle>
+            <AlertTitle>{title}</AlertTitle>
             <AlertDescription>
-                {count(done)} of {count(run.rows)} rows{' '}
-                {checking ? 'checked' : 'read'}. This page updates as it goes.
+                {count(done)} of {count(run.rows)} rows {verb}. This page
+                updates as it goes.
             </AlertDescription>
         </Alert>
     );

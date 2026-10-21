@@ -1,4 +1,4 @@
-import { Link, setLayoutProps } from '@inertiajs/react';
+import { Link, setLayoutProps, usePage } from '@inertiajs/react';
 import {
     CircleAlert,
     CircleCheck,
@@ -9,7 +9,11 @@ import {
     Pencil,
     Receipt,
 } from 'lucide-react';
+import { useState } from 'react';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
+import { DateTime } from '@/components/app/date';
+import { SectionCard } from '@/components/app/section-card';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { EmptyState } from '@/components/app/empty-state';
 import { FilterBar } from '@/components/app/filter-bar';
@@ -29,9 +33,11 @@ import {
 import type { ImportRun } from '@/components/migration/import-status';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ClientImportController from '@/actions/App/Modules/Migration/Http/Controllers/Admin/ClientImportController';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
+import { cn } from '@/lib/utils';
 import type { LaravelPaginated } from '@/types/app';
 
 type Tab =
@@ -61,6 +67,17 @@ type Props = {
     rows: LaravelPaginated<Row>;
     filters: { tab: Tab; search: string };
     matchesByEmail: boolean;
+    digest: string | null;
+    report: {
+        created: number;
+        updated: number;
+        unchanged: number;
+        skipped: number;
+        failed: number;
+        applied_by: string | null;
+        applied_at: string;
+        undo_until: string | null;
+    } | null;
 };
 
 const TABS: { value: Tab; label: string }[] = [
@@ -172,9 +189,19 @@ export default function ImportCheck({
     rows,
     filters,
     matchesByEmail,
+    digest,
+    report,
 }: Props) {
     const { apply } = useQueryParams();
-    const ready = run.status === 'ready';
+    const { errors } = usePage().props as { errors: Record<string, string> };
+    const [taxExempt, setTaxExempt] = useState(false);
+    const ready = ['ready', 'applying', 'completed'].includes(run.status);
+    const blocked =
+        counts.needs_decision > 0
+            ? `Decide what to do with the ${count(counts.needs_decision)} ${counts.needs_decision === 1 ? 'row that needs' : 'rows that need'} a decision first.`
+            : counts.create + counts.update === 0
+              ? 'No row creates or updates a client.'
+              : null;
 
     setLayoutProps({
         breadcrumbs: [
@@ -193,24 +220,181 @@ export default function ImportCheck({
                         href: ClientImportController.index(),
                         label: 'Import clients',
                     }}
-                    title={ready ? 'Check results' : 'Checking the rows'}
+                    title={
+                        report
+                            ? 'Import report'
+                            : ready
+                              ? 'Check results'
+                              : 'Checking the rows'
+                    }
                     meta={<ImportMeta run={run} />}
-                    description="Every row checked against the client form's rules and your existing clients. Nothing has been imported."
+                    description={
+                        report
+                            ? 'Every row of the file, as it was checked before the import.'
+                            : "Every row checked against the client form's rules and your existing clients. Nothing has been imported."
+                    }
                     actions={
-                        <Button variant="outline" asChild>
-                            <Link
-                                href={ClientImportController.show(run.id, {
-                                    query: { step: 'map' },
-                                })}
-                            >
-                                <Pencil />
-                                Change mapping
-                            </Link>
-                        </Button>
+                        !report && (
+                            <Button variant="outline" asChild>
+                                <Link
+                                    href={ClientImportController.show(run.id, {
+                                        query: { step: 'map' },
+                                    })}
+                                >
+                                    <Pencil />
+                                    Change mapping
+                                </Link>
+                            </Button>
+                        )
                     }
                 />
-                <ImportSteps current={2} />
+                <ImportSteps
+                    current={
+                        run.status === 'completed'
+                            ? 5
+                            : run.status === 'ready'
+                              ? 3
+                              : run.applied > 0 || report
+                                ? 4
+                                : 2
+                    }
+                />
                 <ImportProgress run={run} />
+
+                {(errors.apply || errors.tax_exempt || errors.digest) && (
+                    <Alert variant="destructive">
+                        <CircleAlert />
+                        <AlertDescription>
+                            {errors.apply ?? errors.tax_exempt ?? errors.digest}
+                        </AlertDescription>
+                    </Alert>
+                )}
+
+                {report && (
+                    <SectionCard
+                        title={
+                            run.status === 'completed'
+                                ? 'Import finished'
+                                : 'Import in progress'
+                        }
+                        description={
+                            <>
+                                Confirmed{' '}
+                                <DateTime
+                                    value={report.applied_at}
+                                    format="datetime"
+                                />
+                                {report.applied_by &&
+                                    ` by ${report.applied_by}`}
+                                .{' '}
+                                {report.undo_until && (
+                                    <>
+                                        Row details are kept until{' '}
+                                        <DateTime value={report.undo_until} />.
+                                    </>
+                                )}
+                            </>
+                        }
+                    >
+                        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
+                            {(
+                                [
+                                    ['Created', report.created],
+                                    ['Updated', report.updated],
+                                    ['Unchanged', report.unchanged],
+                                    ['Skipped', report.skipped],
+                                    ['Not imported', report.failed],
+                                ] as const
+                            ).map(([label, value]) => (
+                                <div key={label}>
+                                    <dt className="text-muted-foreground">
+                                        {label}
+                                    </dt>
+                                    <dd
+                                        className={cn(
+                                            'text-2xl font-semibold tabular-nums',
+                                            label === 'Not imported' &&
+                                                value > 0 &&
+                                                'text-destructive',
+                                        )}
+                                    >
+                                        {count(value)}
+                                    </dd>
+                                </div>
+                            ))}
+                        </dl>
+                    </SectionCard>
+                )}
+
+                {run.status === 'ready' && digest && (
+                    <SectionCard
+                        title="Import the checked rows"
+                        footer={
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <ConfirmDialog
+                                    trigger={
+                                        <Button disabled={blocked !== null}>
+                                            Import {count(counts.create)} new
+                                            and {count(counts.update)} updated
+                                            clients
+                                        </Button>
+                                    }
+                                    title="Import these clients?"
+                                    description={
+                                        <span className="flex flex-col gap-3">
+                                            <span>
+                                                Create {count(counts.create)}{' '}
+                                                clients and update{' '}
+                                                {count(counts.update)}. No email
+                                                is sent. Rows with errors, and
+                                                rows that are skipped or
+                                                unchanged, are left as they are.
+                                            </span>
+                                            {counts.tax_exempt > 0 && (
+                                                <label className="flex items-start gap-2">
+                                                    <Checkbox
+                                                        checked={taxExempt}
+                                                        onCheckedChange={(
+                                                            checked,
+                                                        ) =>
+                                                            setTaxExempt(
+                                                                checked ===
+                                                                    true,
+                                                            )
+                                                        }
+                                                    />
+                                                    {count(counts.tax_exempt)}{' '}
+                                                    {counts.tax_exempt === 1
+                                                        ? 'client'
+                                                        : 'clients'}{' '}
+                                                    will be invoiced without
+                                                    tax.
+                                                </label>
+                                            )}
+                                        </span>
+                                    }
+                                    confirmLabel="Import clients"
+                                    destructive={false}
+                                    action={ClientImportController.apply(
+                                        run.id,
+                                    )}
+                                    data={{ digest, tax_exempt: taxExempt }}
+                                />
+                                {blocked && (
+                                    <span className="text-sm text-muted-foreground">
+                                        {blocked}
+                                    </span>
+                                )}
+                            </div>
+                        }
+                    >
+                        <p className="text-sm text-muted-foreground">
+                            Imported clients get no welcome email and no
+                            invoice. Each new client gets an owner login with no
+                            usable password until you send invitations.
+                        </p>
+                    </SectionCard>
+                )}
 
                 {ready && (
                     <>
@@ -262,17 +446,16 @@ export default function ImportCheck({
                             )}
                         </div>
 
-                        <Alert>
-                            <FileSearch />
-                            <AlertDescription>
-                                {matchesByEmail
-                                    ? 'No External ID column is mapped, so re-running this import matches clients by email. '
-                                    : ''}
-                                Reviewing the rows and importing them is the
-                                next step; until then nothing changes in your
-                                clients.
-                            </AlertDescription>
-                        </Alert>
+                        {matchesByEmail && (
+                            <Alert>
+                                <FileSearch />
+                                <AlertDescription>
+                                    No External ID column is mapped, so
+                                    re-running this import matches clients by
+                                    email.
+                                </AlertDescription>
+                            </Alert>
+                        )}
 
                         <Tabs
                             value={filters.tab}
