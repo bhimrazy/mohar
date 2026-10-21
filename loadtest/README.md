@@ -25,11 +25,12 @@ PostgreSQL queries, the PDF bench, the automation log and the queue drain. It ne
 passwords stay in a temporary directory that is deleted at the end. To compare several runs, download their
 artifacts and run `python3 loadtest/bin/summarize.py --combine <out> <run dir> ...`.
 
-A private repository's standard runner has 2 CPUs and 8 GB of memory (GitHub docs, "GitHub-hosted runners"), which
-only fits the small profile. By default the workflow skips medium and large on that runner, because the numbers
-would describe the runner, not the profile. To measure them, pass a larger runner label in `runner`. GitHub's larger
-runners are offered to organisations on the Team or Enterprise Cloud plans, so this repository needs either that or
-a self-hosted runner.
+The standard `ubuntu-24.04` runner has 4 vCPUs and 16 GB of memory for a public repository and 2 vCPUs and 8 GB for a
+private one (GitHub docs, "GitHub-hosted runners"). This repository is public: the run of 2026-10-20 saw 4 CPUs and
+15,983 MB, which fits the small and medium profiles but not large (8 vCPU, 16 GB). By default the workflow skips a
+profile larger than the runner, because the numbers would describe the runner, not the profile. To measure large, pass
+a larger runner label in `runner`. GitHub's larger runners are offered to organisations on the Team or Enterprise
+Cloud plans, so that needs either one of those or a self-hosted runner.
 
 ## What a run does (`bin/run`)
 

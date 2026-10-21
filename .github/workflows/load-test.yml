@@ -7,9 +7,10 @@
 # - Actions -> Load test -> Run workflow (available once this file is on the default branch), or
 # - adding the `load-test` label to a pull request: small profile, large volume (remove and re-add it to run again).
 #
-# A private repository's standard Linux runner has 2 CPUs and 8 GB, which fits only the small profile; medium and
-# large are skipped there unless `allow_smaller_runner` is set (then the numbers describe the runner, and the
-# summary says so). Point `runner` at a larger runner label to measure them for real.
+# The standard Linux runner has 4 CPUs and 16 GB for a public repository (2 CPUs and 8 GB for a private one), which
+# fits the small and medium profiles. A profile larger than the runner is skipped unless `allow_smaller_runner` is
+# set (then the numbers describe the runner, and the summary says so). Point `runner` at a larger runner label to
+# measure large for real.
 name: Load test
 
 on:
