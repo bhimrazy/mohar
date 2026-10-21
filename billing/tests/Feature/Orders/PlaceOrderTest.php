@@ -485,3 +485,15 @@ it('emits OrderPlaced with the created items and the referral code', function ()
             ['type' => 'domain', 'id' => array_key_first($this->fakes->domains->created), 'product_id' => null],
         ]);
 });
+
+it('refuses an order whose client currency changed after the checkout was priced (#218)', function () {
+    Currency::factory()->npr()->create();
+    $this->fakes->catalog->addProduct(1, 'Starter Hosting', ['monthly' => [1000, 0]]);
+    $checkout = OrdersFakes::checkout($this->client, [OrdersFakes::productItem(1)]);
+    // Gateways and any staff price override were chosen in USD; the client row is NPR by the time the lock is taken.
+    Client::query()->whereKey($this->client->id)->update(['currency' => 'NPR']);
+
+    expect(fn () => app(PlaceOrder::class)->handle($checkout))
+        ->toThrow(ValidationException::class, 'The account currency changed while this order was placed.');
+    expect(Order::query()->where('client_id', $this->client->id)->exists())->toBeFalse();
+});

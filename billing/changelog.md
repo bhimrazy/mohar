@@ -15,8 +15,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   anyway gets the same message on the currency field. Before, the change was saved and amounts stored in the old
   currency were read in the new one. A client with no records can still change currency, and saving other details
   with the same currency works as before. The check runs under the client's row lock; invoices, draft invoices and
-  quotes now read the client under a share lock and checkout prices in the currency read under its client lock, so
-  a change and a client's first invoice or order can't cross. Clients changed before the upgrade are not corrected:
+  quotes now read the client under a share lock, and a checkout whose client currency changed after the cart was
+  priced is refused ("The account currency changed while this order was placed."), so a change and a client's first
+  invoice or order can't cross. Account credit (staff adjustments, manual payments without invoices) is refused when
+  its amount is not in the client's currency. Saving a quote now locks the quote first and checks its stage again, so
+  an edit can no longer overwrite a quote accepted or converted at the same moment. Clients changed before the upgrade are not corrected:
   look for clients whose invoices are in another currency than the client's. No migration and no permission change.
   Kernel: `ClientCurrencyUsage::sourcesFor()`.
 

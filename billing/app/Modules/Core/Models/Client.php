@@ -83,7 +83,6 @@ class Client extends Model
      * A currency change is checked under the same lock (#218): a module that copies the client's currency into a new
      * row reads it under a share lock, so its row is either visible here and blocks the change, or reads the new one.
      *
-     *
      * @param  array<string, mixed>  $data  validated fields
      * @return array{0: self, 1: array<string, mixed>} the saved client, and the values of $data's fields before
      *

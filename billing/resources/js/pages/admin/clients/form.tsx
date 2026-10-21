@@ -204,7 +204,7 @@ export default function ClientForm({
                                         error={errors.currency}
                                         hint={
                                             currencyLock ??
-                                            "Can't be changed once the client has invoices, payments, services, orders or domains."
+                                            "Can't be changed once the client has invoices, quotes, payments, account credit, services, orders or domains."
                                         }
                                     >
                                         <SelectField

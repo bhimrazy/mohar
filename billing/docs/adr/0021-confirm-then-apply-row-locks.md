@@ -72,7 +72,10 @@ Dry runs read without locks and write nothing (ADR 0019).
   `FOR UPDATE`, then asks `ClientCurrencyUsage` and writes, all under that lock. A row that copies the client's currency
   reads the client under a lock first: `FOR UPDATE` where the path above already takes it (`IssueInvoice` with credit,
   `PlaceOrder`, which prices the order in the currency of the locked row), `FOR SHARE` otherwise (`IssueInvoice`
-  without credit, `SaveDraftInvoice`, `Quotes::save`). `SaveDraftInvoice` locks an existing draft before the client.
+  without credit, `SaveDraftInvoice`, `Quotes::save`). `SaveDraftInvoice` locks an existing draft, and `Quotes::save`
+  an existing quote, before the client (quote, then client, the order `Quotes::convert` and `accept` take through
+  `IssueInvoice`); each checks the row's state again under its lock. `CreditLedgerService::post` refuses an amount in
+  another currency than the client row it locks.
   Test: `ClientCurrencyChangeRaceTest`.
 - **Multi-invoice payments (#224):** a payment of several invoices in one transaction (`PaymentBatches::settle`,
   `RecordManualTransaction`) locks all of them up front, in id order, before any client lock. `ApplyPayment` locks the
