@@ -20,15 +20,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
       on "Disputes to review" ("Inquiry: answer it at the provider"): no change to the invoice, payment or credit, and
       the client doesn't see it. An inquiry that escalates is booked when Stripe sends
       `charge.dispute.funds_withdrawn`, which also closes the inquiry's to-do; an inquiry that closes changes nothing.
-      **Add `charge.dispute.funds_withdrawn` to the Stripe webhook destination.** New webhook result: "dispute inquiry
+      Without that event, the chargeback is booked when the dispute closes as lost (`charge.dispute.closed`), once per
+      dispute. Adding `charge.dispute.funds_withdrawn` to the Stripe webhook destination is recommended, so the
+      chargeback is booked when the money leaves, not weeks later. New webhook result: "dispute inquiry
       recorded; no money moved". Inquiries booked as chargebacks before the upgrade are not corrected: check Stripe
       chargebacks whose dispute status at Stripe starts with `warning_`.
     - **The late-payment sweep runs every hour (#222).** Each lookup is stamped when it finishes, a few seconds after the
       hourly run starts, so the next run skipped the attempt: closed attempts were looked up every two hours. The sweep
       now takes attempts last looked up at least 50 minutes before the run started.
     - **Two overpayments of one client no longer deadlock on PostgreSQL (#224).** A payment that may post account credit
-      (an overpayment, a deposit, a payment of a closed or held invoice) locks the client after the invoice and before
-      its row is inserted. A two-process test reproduced the deadlock (40P01) before the fix.
+      (an overpayment, a deposit paid in full, a payment of a closed or held invoice) locks the client after the
+      invoice and before its row is inserted. A combined payment and a manual payment of several invoices lock all of
+      them first, in id order. Two-process tests reproduced both deadlocks (40P01) before the fix.
     - No migration and no permission change. Kernel: `CallbackEvent::DISPUTE_INQUIRY`.
 
 - **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant

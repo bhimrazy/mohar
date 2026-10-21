@@ -301,7 +301,8 @@ test('a dispute Stripe closes as won reinstates the payment once; one closed as 
         ->and(Transaction::query()->where('type', TransactionType::ChargebackReversal)->count())->toBe($status === 'won' ? 1 : 0);
 })->with([
     'won' => ['won', 'dispute won; payment reinstated', InvoiceStatus::Paid],
-    'lost' => ['lost', 'ignored event type', InvoiceStatus::Collections],
+    // The lost close is passed on as the chargeback already booked: a duplicate.
+    'lost' => ['lost', 'duplicate', InvoiceStatus::Collections],
 ]);
 
 /** An inquiry as Stripe returns it: status warning_*, no balance transaction withdrew money (#212). */
@@ -363,6 +364,36 @@ test('an inquiry that escalates is booked as a chargeback once, when Stripe with
         ->and(Transaction::toReview()->count())->toBe(0);
     Event::assertDispatchedTimes(PaymentReversed::class, 1);
 });
+
+test('an escalated inquiry is booked once as a chargeback by the lost close when funds_withdrawn never arrives, in either order (#212)', function (array $order) {
+    Event::fake([PaymentReversed::class]);
+    [$invoice] = paidStripeAttempt();
+    postStripeWebhook(stripeEvent('payment_intent.succeeded', STRIPE_INTENT))->assertOk();
+    $lost = stripeFixture('dispute', ['status' => 'lost']);
+    Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::sequence()->push(stripeInquiry())
+        ->push($lost)->push($lost)->push($lost)->push($lost)]);
+    postStripeWebhook(stripeEvent('charge.dispute.created', 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent0020'))->assertOk()->assertJson(['result' => 'dispute inquiry recorded; no money moved']);
+
+    $results = [];
+
+    foreach ($order as $index => $type) {
+        $event = stripeEvent($type, 'du_1MoharDispute0001', eventId: 'evt_1MoharEvent002'.($index + 1));
+        $results[] = postStripeWebhook($event)->assertOk()->json('result');
+        // Stripe's own retry of the same event.
+        $results[] = postStripeWebhook($event)->assertOk()->json('result');
+    }
+
+    expect($results[0])->toBe('chargeback recorded')
+        ->and(array_slice($results, 1))->each->toBe('duplicate')
+        ->and(Transaction::query()->where('type', TransactionType::Chargeback)->sole()->amount_out)->toBe(2_500)
+        ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Collections)
+        ->and(Transaction::toReview()->count())->toBe(0);
+    Event::assertDispatchedTimes(PaymentReversed::class, 1);
+})->with([
+    'closed only' => [['charge.dispute.closed']],
+    'closed, then a late funds_withdrawn' => [['charge.dispute.closed', 'charge.dispute.funds_withdrawn']],
+    'funds_withdrawn, then closed' => [['charge.dispute.funds_withdrawn', 'charge.dispute.closed']],
+]);
 
 test('a dispute Stripe has not withdrawn funds for is not booked as a chargeback, whatever its status (#212)', function () {
     paidStripeAttempt();

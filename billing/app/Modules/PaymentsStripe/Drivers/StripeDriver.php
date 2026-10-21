@@ -559,9 +559,10 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
      * too (status `warning_*`), where no money leaves the account (#212). The retrieved dispute's
      * `balance_transactions` list the funds withdrawn and reinstated, so a chargeback is passed on only once one of
      * them withdrew money; until then the dispute is an inquiry: a to-do without money movement. An inquiry that
-     * escalates sends `charge.dispute.funds_withdrawn`, which books the chargeback then. Only a closed dispute that
-     * Stripe reports as won, with funds withdrawn, is passed on; any other close (lost, or an inquiry closed as
-     * `warning_closed`) is acknowledged and changes nothing.
+     * escalates sends `charge.dispute.funds_withdrawn`, which books the chargeback then. A close with funds withdrawn
+     * is passed on: `won` as the win, `lost` as the chargeback (the backstop for an install not subscribed to
+     * funds_withdrawn; one chargeback per dispute id). Any other close (an inquiry closed as `warning_closed`) is
+     * acknowledged and changes nothing.
      */
     private function disputeEvent(GatewayConfig $gateway, WebhookContext $context, bool $closed = false): CallbackEvent|CallbackRejection
     {
@@ -584,18 +585,18 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $context->ignored('dispute without an amount');
         }
 
-        if ($closed && ($dispute['status'] ?? null) !== 'won') {
-            return $context->ignored('dispute closed without a win');
-        }
-
+        $status = $dispute['status'] ?? null;
         $withdrawn = self::fundsWithdrawn($dispute);
 
-        if ($closed && ! $withdrawn) {
-            return $context->ignored('dispute closed with no funds withdrawn');
+        if ($closed && (! in_array($status, ['won', 'lost'], true) || ! $withdrawn)) {
+            return $context->ignored($status === 'warning_closed' ? 'inquiry closed' : 'dispute closed with no funds withdrawn');
         }
 
         return new CallbackEvent(
             type: match (true) {
+                // A lost dispute is passed on as its chargeback: booked here when `charge.dispute.funds_withdrawn`
+                // never arrived (not subscribed), otherwise answered "duplicate" (one chargeback per dispute id).
+                $closed && $status === 'lost' => CallbackEvent::CHARGEBACK,
                 $closed => CallbackEvent::DISPUTE_WON,
                 $withdrawn => CallbackEvent::CHARGEBACK,
                 default => CallbackEvent::DISPUTE_INQUIRY,
