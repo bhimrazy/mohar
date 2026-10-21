@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Install;
 
+use App\Support\Countries;
 use DateTimeZone;
 
 /**
@@ -85,7 +86,7 @@ final class RegionalDefaults
 
     public static function isCountry(string $value): bool
     {
-        return preg_match('/^[A-Za-z]{2}$/', $value) === 1;
+        return Countries::exists($value);
     }
 
     public static function isTimezone(string $value): bool

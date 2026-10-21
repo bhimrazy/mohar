@@ -146,7 +146,7 @@ class CoreServiceProvider extends ModuleServiceProvider
             new SettingDefinition('core.company_name', 'Company name', rules: ['required', 'max:150']),
             new SettingDefinition('core.company_email', 'Billing email address', 'email', 'Shown on invoices and used as the reply-to for client email.', rules: ['required']),
             new SettingDefinition('core.default_country', 'Default country', help: 'Two-letter ISO code pre-selected for new clients.', rules: ['required', 'size:2', 'alpha']),
-            new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates, overdue days and the daily run. Changing it shifts the next run.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
+            new SettingDefinition('system.timezone', 'Company time zone', 'select', 'What "today" means for due dates and overdue days, and the time zone dates and times are shown in. The daily run still starts at the server time set below. Changing it moves the day boundary once.', options: array_combine(RegionalDefaults::timezones(), RegionalDefaults::timezones()), rules: ['timezone:all']),
             new SettingDefinition('core.date_format', 'Date format', 'select', options: DateFormats::OPTIONS),
             new SettingDefinition('core.automation_time', 'Daily automation time', help: 'Server time (HH:MM) when the daily automation pipeline runs.', rules: ['required', 'date_format:H:i']),
             // Shown in the public site footer (Storefront); legal name, address, phone and tax numbers are the invoice seller details.

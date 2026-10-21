@@ -106,11 +106,11 @@ php artisan app:install
 `app:install` runs in three stages and prints what it did:
 
 1. **Pre-flight checks.** A missing or invalid `APP_KEY`, an unreachable database or pending migrations stop the
-   install before anything is written, and the message says which command fixes it. So does a queue connection whose
+   install before anything is written, and the message says which command fixes it. On a first install so does a queue connection whose
    `retry_after` is not above the longest job timeout (200 s for the provider pool and for the Services cap plus its
    lock slack, 3,600 s on the `automation` connection): a queue hands a running job to a second worker once
    `retry_after` has passed, so the message names the connection, the timeout and the setting to raise
-   (`DB_QUEUE_RETRY_AFTER`, `REDIS_QUEUE_RETRY_AFTER`, `BEANSTALKD_QUEUE_RETRY_AFTER`). On SQS the check warns, because
+   (`DB_QUEUE_RETRY_AFTER`, `REDIS_QUEUE_RETRY_AFTER`, `BEANSTALKD_QUEUE_RETRY_AFTER`). On an installation that already has currencies (the re-run after an upgrade) it only warns, so a deploy is not blocked. On SQS the check warns, because
    the visibility timeout is set on the queue. A `sync` or `null` queue, no
    scheduler heartbeat yet, an object disk that rejects a test file, and in production `APP_DEBUG=true` or a `log`
    or `array` mailer are reported as warnings; the install goes on.

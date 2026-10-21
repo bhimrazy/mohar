@@ -15,12 +15,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   starts with country Nepal, NPR as the default currency (USD and INR are added with rates relative to it), time
   zone Asia/Kathmandu, dates like `1 Jan 2026`, a VAT rule of 13% for Nepal, the seller tax country set to Nepal
   and invoice numbers `INV-00001`. Tax stays off until you enable it in Settings → Billing → Tax. The install
-  now also **fails** when a queue connection's `retry_after` is not above the longest job timeout (200 s on the
+  now also **fails a first install** (and only warns on an installation that already has currencies, such as the re-run after an upgrade) when a queue connection's `retry_after` is not above the longest job timeout (200 s on the
   default connection, 3,600 s on `automation`): raise `DB_QUEUE_RETRY_AFTER` (or the Redis or Beanstalkd
   equivalent) above the figure the message gives. The shipped values (240 s) pass. The company time zone is
   now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
   still pending).
-
 
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
   migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no

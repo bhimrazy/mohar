@@ -89,7 +89,7 @@ class InstallCommand extends Command
 
         if ($this->input->isInteractive() && array_filter($given) === []) {
             $this->components->info('Regional defaults (change any of them later in Admin).');
-            $country = text('Country (two-letter code)', default: RegionalDefaults::COUNTRY, required: true, validate: fn (string $value): ?string => RegionalDefaults::isCountry(trim($value)) ? null : 'Use a two-letter country code, such as NP.');
+            $country = text('Country (two-letter code)', default: RegionalDefaults::COUNTRY, required: true, validate: fn (string $value): ?string => RegionalDefaults::isCountry(trim($value)) ? null : 'Use a two-letter ISO country code, such as NP.');
             $currency = select('Default currency', array_keys(DefaultCurrencies::CURRENCIES), default: RegionalDefaults::CURRENCY);
             $timezone = text('Company time zone', default: RegionalDefaults::TIMEZONE, required: true, validate: fn (string $value): ?string => RegionalDefaults::isTimezone(trim($value)) ? null : 'Use a time zone name such as Asia/Kathmandu.');
         }
@@ -99,7 +99,7 @@ class InstallCommand extends Command
         $timezone = $timezone === '' ? RegionalDefaults::TIMEZONE : $timezone;
 
         $error = match (true) {
-            ! RegionalDefaults::isCountry($country) => "--country must be a two-letter code, such as NP; got \"{$country}\".",
+            ! RegionalDefaults::isCountry($country) => "--country must be a two-letter ISO country code, such as NP; got \"{$country}\".",
             ! array_key_exists($currency, DefaultCurrencies::CURRENCIES) => '--currency must be one of '.implode(', ', array_keys(DefaultCurrencies::CURRENCIES)).". Add other currencies in Setup → Currencies after the install; got \"{$currency}\".",
             ! RegionalDefaults::isTimezone($timezone) => "--timezone must be a time zone name such as Asia/Kathmandu; got \"{$timezone}\".",
             default => null,

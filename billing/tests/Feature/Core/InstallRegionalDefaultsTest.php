@@ -1,8 +1,12 @@
 <?php
 
 use App\Modules\Billing\Models\TaxRule;
+use App\Modules\Core\Install\QueueTimeouts;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
+use App\Modules\Notifications\Jobs\DeliverWebhook;
+use App\Modules\Notifications\Jobs\SendEmailMessage;
+use App\Modules\Platform\Jobs\RunAutomationJob;
 use App\Support\Queues;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Support\Facades\Artisan;
@@ -64,7 +68,7 @@ test('an invalid country, currency or time zone stops the install before anythin
         ->and($output)->toContain($message)
         ->and(Currency::query()->count())->toBe(0);
 })->with([
-    'country' => [['--country' => 'Nepal'], '--country must be a two-letter code'],
+    'country' => [['--country' => 'Nepal'], '--country must be a two-letter ISO country code'],
     'currency' => [['--currency' => 'EUR'], '--currency must be one of USD, INR, NPR'],
     'time zone' => [['--timezone' => 'Mars/Olympus'], '--timezone must be a time zone name'],
 ]);
@@ -118,9 +122,60 @@ test('the install check also covers the automation connection and a raised Servi
     expect(installRegion()[1])->toContain('a job may run for 320 s (services.module.max_job_timeout_seconds plus the lock slack)');
 });
 
-test('the shipped queue configuration passes the check', function () {
+test('the shipped database queue configuration passes the check', function () {
+    // phpunit runs the sync queue, which the check skips; use the connection production uses, with its shipped retry_after.
+    config(['queue.default' => 'database']);
+    expect((int) config('queue.connections.database.retry_after'))->toBe(240);
+
     [$status, $output] = installRegion();
 
     expect($status)->toBe(0)
-        ->and($output)->toContain('Queue timeouts');
+        ->and($output)->toMatch('/Queue timeouts \.+ OK/');
 });
+
+test('a job declaring a longer timeout than retry_after makes the check fail', function () {
+    config(['queue.default' => 'database']);
+    $probe = new QueueTimeouts([QueueTimeoutProbeJob::class]);
+
+    expect($probe->longest()['default']['seconds'])->toBe(400)
+        ->and($probe->problems())->toHaveCount(1)
+        ->and($probe->problems()[0])->toContain('retry_after 240 s, but a job may run for 400 s (QueueTimeoutProbeJob::$timeout)');
+});
+
+test('the scan finds the timeouts that real jobs declare', function () {
+    $declared = (new QueueTimeouts)->declaredJobTimeouts();
+
+    expect($declared)->toHaveKey(SendEmailMessage::class, 60)
+        ->and($declared)->toHaveKey(DeliverWebhook::class, 30)
+        ->and($declared)->toHaveKey(RunAutomationJob::class, Queues::AUTOMATION_TIMEOUT_SECONDS);
+});
+
+test('a low retry_after stops a first install but only warns on an existing installation', function () {
+    config(['queue.default' => 'database', 'queue.connections.database.retry_after' => 120]);
+
+    [$status] = installRegion();
+    expect($status)->toBe(1);
+
+    expect(Currency::query()->count())->toBe(0);
+
+    // An installation that already has currencies: this is the re-run after an upgrade.
+    Currency::factory()->create(['code' => 'USD', 'is_default' => true]);
+    [$status, $output] = installRegion();
+
+    expect($status)->toBe(0)
+        ->and($output)->toMatch('/Queue timeouts \.+ WARNING/')
+        ->and($output)->toContain('retry_after 120 s');
+});
+
+test('a country code that is not an ISO 3166-1 code is refused', function () {
+    [$status, $output] = installRegion(['--country' => 'ZZ']);
+
+    expect($status)->toBe(1)
+        ->and($output)->toContain('--country must be a two-letter ISO country code')
+        ->and(Currency::query()->count())->toBe(0);
+});
+
+class QueueTimeoutProbeJob
+{
+    public int $timeout = 400;
+}

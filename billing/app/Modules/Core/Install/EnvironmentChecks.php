@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Install;
 
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Support\Integrations\Endpoints;
@@ -118,7 +119,11 @@ final class EnvironmentChecks
         $problems = (new QueueTimeouts)->problems();
 
         if ($problems !== []) {
-            return new EnvironmentCheck('Queue timeouts', CheckStatus::Failed, implode(' ', $problems));
+            // A first install stops, so the value is fixed before any job runs. `app:install` is also the re-run after
+            // an upgrade, where a stop would block a deploy over a value the operator already lives with: warn there.
+            $firstInstall = ! rescue(fn (): bool => Currency::query()->exists(), false, report: false);
+
+            return new EnvironmentCheck('Queue timeouts', $firstInstall ? CheckStatus::Failed : CheckStatus::Warning, implode(' ', $problems));
         }
 
         $connection = (string) config('queue.default');

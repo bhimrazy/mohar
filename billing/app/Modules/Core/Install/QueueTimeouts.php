@@ -3,6 +3,9 @@
 namespace App\Modules\Core\Install;
 
 use App\Support\Queues;
+use FilesystemIterator;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use ReflectionClass;
 use Throwable;
 
@@ -18,6 +21,11 @@ use Throwable;
  */
 final class QueueTimeouts
 {
+    /**
+     * @param  list<class-string>|null  $classes  job classes to read instead of scanning app/ (tests)
+     */
+    public function __construct(private ?array $classes = null) {}
+
     /** Without --timeout a worker stops a job after this many seconds (the framework default). */
     private const WORKER_DEFAULT_TIMEOUT_SECONDS = 60;
 
@@ -87,15 +95,17 @@ final class QueueTimeouts
     }
 
     /**
-     * @return array<class-string, int> job class => the timeout its declaration sets (jobs that set it in the constructor are covered by the Services cap)
+     * Every class in a `Jobs` directory under app/ (app/Jobs and any depth below a module) that declares a timeout.
+     * Jobs that set it in the constructor are covered by the Services cap.
+     *
+     * @return array<class-string, int> job class => the timeout its declaration sets
      */
-    private function declaredJobTimeouts(): array
+    public function declaredJobTimeouts(): array
     {
         $found = [];
+        $classes = $this->classes ?? $this->discover();
 
-        foreach (glob(app_path('Modules/*/Jobs/*.php')) ?: [] as $file) {
-            $class = 'App\\Modules\\'.basename(dirname($file, 2)).'\\Jobs\\'.basename($file, '.php');
-
+        foreach ($classes as $class) {
             if (! class_exists($class)) {
                 continue;
             }
@@ -112,5 +122,26 @@ final class QueueTimeouts
         }
 
         return $found;
+    }
+
+    /**
+     * @return list<class-string>
+     */
+    private function discover(): array
+    {
+        $classes = [];
+        $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(app_path(), FilesystemIterator::SKIP_DOTS));
+
+        foreach ($files as $file) {
+            $path = str_replace(DIRECTORY_SEPARATOR, '/', $file->getPathname());
+
+            if ($file->getExtension() === 'php' && str_contains($path, '/Jobs/')) {
+                /** @var class-string $class */
+                $class = 'App\\'.str_replace('/', '\\', substr($path, strlen(str_replace(DIRECTORY_SEPARATOR, '/', app_path())) + 1, -4));
+                $classes[] = $class;
+            }
+        }
+
+        return $classes;
     }
 }
