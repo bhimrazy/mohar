@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **eSewa attempts live 60 minutes and end on a cancel.** A captured run of eSewa's UAT sandbox (2026-10-21) showed
+  that eSewa keeps a booked session payable about 50 minutes after the form post, and that a cancel on eSewa's page
+  answers `NOT_FOUND` in the status check, not `CANCELED`. Before, the attempt expired after 15 minutes, so a
+  customer could pay another way while the eSewa session could still be paid, and a customer who cancelled stayed
+  locked out until those 15 minutes ran out. Now `payments_nepal.esewa.attempt_ttl_minutes` defaults to 60, and
+  values below 55 are raised to 55. A pending eSewa attempt whose status check says `NOT_FOUND` ends when the
+  customer comes back through the cancel URL (attempt failed; on any gateway, a cancel return that ends failed now
+  shows "Payment cancelled. You can try again or choose another way to pay.") or once it is 5 minutes old (attempt expired). `NOT_FOUND` never marks an invoice paid. An
+  attempt in staff review is not ended this way. A cancel return may look up the status again 10 seconds after the
+  last lookup, instead of one minute. Ended attempts stay in the late-payment sweep (#130), so an old eSewa form
+  that is still paid is booked and flagged for staff. Attempts already open at the upgrade keep their 15-minute
+  expiry. No migration and no permission change. Kernel: `GatewayDriver::NOT_FOUND_ENDS_SESSION` capability, and
+  `SettlePaymentAttempt::handle()` takes an optional `cancelReturn` flag.
 - **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
   migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
   longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
@@ -692,6 +705,10 @@ a time: medians of three runs before and three after, on the same database, on a
 - Form-post gateways now open a full-page checkout whose CSP allows exactly the provider origin
   (`SecurityHeaders::allowFormAction()`); before, the browser blocked the eSewa form.
 - Provider logos on the pay panel and admin gateway pages; client pay requests are rate limited per user.
+- eSewa: an attempt lasts eSewa's 50-minute booking window plus a margin (60 minutes), and a cancel on eSewa's page
+  ends the attempt at once, so the customer can pay again (see the upgrade note). The eSewa "Test connection"
+  reports `ES104` as a wrong product code or secret key, and any other refusal, such as a duplicate transaction
+  uuid, as a refused test booking.
 
 ### Support
 
