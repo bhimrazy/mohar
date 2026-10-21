@@ -34,7 +34,9 @@ use App\Modules\PaymentsStripe\Support\StripeException;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Money;
+use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
+use Illuminate\Support\Carbon;
 use Illuminate\Console\Scheduling\Event as ScheduledEvent;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Client\Request as ProviderRequest;
@@ -54,6 +56,9 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
 {
     /** @var array<string, LookupResult> provider-side status per reference */
     public static array $provider = [];
+
+    /** Seconds each lookup takes (the clock moves on by this much), to model a sweep's provider round trips. */
+    public static int $lookupSeconds = 0;
 
     public function key(): string
     {
@@ -106,6 +111,10 @@ class FakeNprWalletDriver extends AbstractGatewayDriver implements HostedPayment
 
     public function lookup(GatewayConfig $gateway, PaymentAttemptRef $attempt): LookupResult
     {
+        if (self::$lookupSeconds > 0) {
+            Carbon::setTestNow(now()->addSeconds(self::$lookupSeconds));
+        }
+
         return self::$provider[$attempt->reference] ?? new LookupResult(LookupResult::NOT_FOUND, raw: ['key' => $gateway->setting('secret_key') ? '[redacted]' : null]);
     }
 }
@@ -239,6 +248,7 @@ function forgedSuccessReturn(string $key, string $reference): array
 
 beforeEach(function () {
     FakeNprWalletDriver::$provider = [];
+    FakeNprWalletDriver::$lookupSeconds = 0;
     app(GatewayRegistry::class)->register(new FakeNprWalletDriver);
     Gateway::query()->create(['key' => 'fake_wallet', 'display_name' => 'Wallet', 'is_active' => true, 'show_on_order_form' => true, 'config' => ['secret_key' => 'super-secret-wallet-key']]);
 });
@@ -712,6 +722,25 @@ test('the late sweep leaves a gateway alone for the run after its first error an
     $this->artisan('billing:reconcile-payments', ['--only' => 'late'])->assertSuccessful();
 
     expect($first->fresh()->lookup_count)->toBe(1)->and($second->fresh()->lookup_count)->toBe(0);
+});
+
+test('the hourly late sweep looks up a closed attempt on every run, although each lookup is stamped after the run starts (#222)', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 10:00:00', 'Asia/Kathmandu'));
+    [$attempt] = closedWalletAttempts(1);
+    FakeNprWalletDriver::$lookupSeconds = 3;
+
+    foreach (['10:00:00', '11:00:00', '12:00:00'] as $index => $run) {
+        $this->travelTo(CarbonImmutable::parse('2026-10-21 '.$run, 'Asia/Kathmandu'));
+        $this->artisan('billing:reconcile-payments', ['--only' => 'late'])->assertSuccessful();
+
+        expect($attempt->fresh()->lookup_count)->toBe($index + 1);
+    }
+
+    // A run never looks the same attempt up twice, and two runs inside one hour don't either.
+    $this->travelTo(CarbonImmutable::parse('2026-10-21 12:30:00', 'Asia/Kathmandu'));
+    $this->artisan('billing:reconcile-payments', ['--only' => 'late'])->assertSuccessful();
+
+    expect($attempt->fresh()->lookup_count)->toBe(3);
 });
 
 test('a closed attempt the provider reports as expired or cancelled is not swept again', function (string $status) {
