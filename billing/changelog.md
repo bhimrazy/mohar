@@ -33,7 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
   hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
   scheduler process no longer calls registrars itself. The provider pool (`queue:work
---queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  --queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
   there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
   go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
   queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
@@ -103,7 +103,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     match to it be proposed, and re-opens the gap this closes.
 
 - **PostgreSQL: the `pg_trgm` extension and 12 search indexes.** Four migrations run `create extension if not exists
-pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
+  pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
   (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
   (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
   and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
@@ -321,7 +321,7 @@ a time: medians of three runs before and three after, on the same database, on a
   CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
   commit, a reset before commit, certificate rotation) and signed callbacks. The first provider simulator is `whm`;
   `stripe` follows. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
---no-dev` build contains neither the commands nor the package (checked in CI).
+  --no-dev` build contains neither the commands nor the package (checked in CI).
 - Developers get a `whm` simulator (`php artisan simulate:start whm`), a stateful cPanel & WHM server. Point a cPanel
   server at it (host 127.0.0.1, the printed port and token), run Test connection and trust its certificate, and the
   real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
@@ -974,6 +974,6 @@ a time: medians of three runs before and three after, on the same database, on a
   npm `resolved`/`integrity` and Composer `dist`/`source` must match the registry for the checked name@version;
   offline unit tests for these rules run in `npm test`. Policy checks run before `composer install`/`npm ci`;
   push runs diff against `github.event.before`; `security-exception` waives only `Security-Exception:
-name@version` items listed in the PR body (job summary lists them). Vitest (`npm test`) in CI and `composer ci`.
+  name@version` items listed in the PR body (job summary lists them). Vitest (`npm test`) in CI and `composer ci`.
   No workflow `paths-ignore` (image/docs-only PRs take the in-job fast path). Follow-up #11: framework 13.36.x +
   Wayfinder 0.1.22 after 2026-10-22.
