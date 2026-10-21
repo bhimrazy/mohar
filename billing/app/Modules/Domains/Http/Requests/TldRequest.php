@@ -52,6 +52,8 @@ class TldRequest extends FormRequest
             'max_years' => ['required', 'integer', 'min:1', 'max:10', 'gte:min_years'],
             'allow_register' => ['required', 'boolean'],
             'allow_transfer' => ['required', 'boolean'],
+            // Empty on create takes the extension's default (on for .np and its second levels).
+            'registered_by_client' => ['nullable', 'boolean'],
             'grace_days' => ['required', 'integer', 'min:0', 'max:365'],
             'grace_fee' => ['required', 'integer', 'min:0'],
             'redemption_days' => ['required', 'integer', 'min:0', 'max:365'],

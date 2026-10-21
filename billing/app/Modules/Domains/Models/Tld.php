@@ -22,6 +22,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $max_years
  * @property bool $allow_register
  * @property bool $allow_transfer
+ * @property bool $registered_by_client the client registers it at the registry; it is never sold here
  * @property int $grace_days
  * @property int $grace_fee
  * @property int $redemption_days
@@ -41,7 +42,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[UseFactory(TldFactory::class)]
 #[Fillable([
     'extension', 'display_unicode', 'registrar_key', 'auto_register', 'epp_required', 'min_years', 'max_years',
-    'allow_register', 'allow_transfer', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
+    'allow_register', 'allow_transfer', 'registered_by_client', 'grace_days', 'grace_fee', 'redemption_days', 'redemption_fee',
     'renew_window_days', 'addon_dns', 'addon_id_protection', 'addon_email_forwarding', 'is_spotlight', 'badge',
     'additional_fields', 'sort_order', 'is_active',
 ])]
@@ -52,6 +53,39 @@ class Tld extends Model
 
     public const BADGES = ['hot', 'new', 'sale'];
 
+    /**
+     * Whether the client registers names under this extension at the registry themselves. On by default for .np
+     * and its second levels (com.np, org.np …), whose registry registers names only for their owners.
+     */
+    public static function registeredByClientByDefault(string $extension): bool
+    {
+        return $extension === '.np' || str_ends_with($extension, '.np');
+    }
+
+    /** Second levels the .np registry issues names under (register.com.np/np-ccTLDs, 2026-10-20). */
+    public const NP_SECOND_LEVELS = ['com', 'coop', 'edu', 'gov', 'info', 'mil', 'name', 'net', 'org'];
+
+    /**
+     * Why the .np registry cannot have issued this name (it registers only under its second levels), or null.
+     */
+    public static function registryLevelHint(string $domain): ?string
+    {
+        $labels = explode('.', strtolower($domain));
+
+        if (end($labels) !== 'np' || (count($labels) >= 3 && in_array($labels[count($labels) - 2], self::NP_SECOND_LEVELS, true))) {
+            return null;
+        }
+
+        return __('.np names are registered under .com.np, .org.np and the other second levels. Search for yourname.com.np.');
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (Tld $tld): void {
+            $tld->registered_by_client ??= self::registeredByClientByDefault((string) $tld->extension);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -61,6 +95,7 @@ class Tld extends Model
             'max_years' => 'integer',
             'allow_register' => 'boolean',
             'allow_transfer' => 'boolean',
+            'registered_by_client' => 'boolean',
             'grace_days' => 'integer',
             'grace_fee' => 'integer',
             'redemption_days' => 'integer',

@@ -253,17 +253,15 @@ executes it. Using two phases gives us a remote order id _before_ money moves. I
   _Decision 2026-10-20: drivers do not assume the host has a fixed IP. Every API driver ships the `http_proxy` setting
   (secret) and the registrar page shows the detected egress IP; both land with the first API driver (ResellerClub).
   Before its first live sandbox run the owner provides a fixed IPv4: the hosting's static egress or a fixed-IP proxy.
-  `np_manual` sends nothing and needs neither._
+  The `.np` flow (§9) makes no registrar calls and needs neither._
 - Rotating keys: RC and Namecheap invalidate the old key **immediately**, so rotation is "regenerate → paste → test
   connection" in one sitting.
 - TLS verification always on. OpenSRS signs with MD5, which is acceptable only over TLS. Webhook signatures are verified
   with a constant-time compare.
 - EPP codes: prefer `emailed` flows (OpenSRS `send_authcode`). When a code is returned (RC `domsecret`) it is shown
   once and never stored. The transfer-in `epp_code` stays encrypted and is wiped on completion (already implemented).
-- .np documents (citizenship/passport scans) are high-sensitivity PII: private disk, encrypted at rest, staff-only
-  signed URLs, deleted 30 days after approval/rejection (`domains.np_document_retention_days`).
 
-## 9. Nepal `.np` — manual-workflow driver (`np_manual`)
+## 9. Nepal `.np` — registered by the client (owner decision, 2026-10-20)
 
 **How .np actually works (register.com.np, Mercantile Communications).** Registration is **free**. Names are first-come-first-served,
 and the name must match the applicant: for a person, their name as it appears on citizenship/passport/driving licence/voter card
@@ -279,34 +277,39 @@ hostmaster@. There is no EPP code, lock or privacy. .com.np has never expired, b
 (non-responders are parked/released) and has started recording renewal dates, emailing the admin **15 days before expiry**.
 .gov.np goes through NITC (set `allow_register=false`). IDNs are not offered (min 3 chars).
 
-**Driver.** `NpManualRegistrar` with capabilities `['register', 'renew', 'nameservers', 'contacts', 'info', 'sync']`
-(no availability: lookup reports `unknown` with a "check at register.com.np" hint; staff confirm during review).
-Calls never leave the app. `register()` creates the workflow and returns `RegistrarResult('pending')`, so the domain moves to
-`pending_registration` through the existing path. Settings: `handling_fee_note`, `review_cycle_years` (default 1),
-`client_reminder_days` (`[1,3,7]`), `staff_sla_business_days` (4), `hostmaster_email`.
+**Flow (built 2026-10-20).** The client registers `.np` names at the registry themselves; the host only gives them
+its nameservers. There is no `.np` registrar driver, document upload, staff review, letter or to-do. (A staff-run
+workflow, `np_manual`, was built in #168/#185 and closed unmerged; its branches are kept in case a host asks for it.)
 
-**Workflow** (`registrar_meta.np.stage` + timestamps; each change writes activity log + staff todo):
-
-| Stage                | Who                                                                                                                                                                 | Exit                                                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `awaiting_documents` | Client uploads ID / company certificate + letter (letter template provided, pre-filled with name, purpose, NS)                                                      | All required docs present → `documents_review`                                                                                                                                                     |
-| `documents_review`   | Staff checklist: name matches doc · correct extension for the category · docs readable · letterhead+stamp+signature · NS are FQDN and resolve · admin email = owner | Pass → `ready_to_submit`; fail → back to `awaiting_documents` with reasons (rejection-cause codes 1–14)                                                                                            |
-| `ready_to_submit`    | Client creates or uses their register.com.np account (or staff assists with the client's email). Staff submit in the portal                                         | Staff click "Submitted" (records submission date) → `submitted`                                                                                                                                    |
-| `submitted`          | Waiting for the registry                                                                                                                                            | "Approved" (staff enter the registry renewal date if one is shown) → domain `active`. "Rejected" (reason code) → domain `pending`, stage `awaiting_documents`, **resubmit within 2 business days** |
-| `active` follow-ups  | NS change → `setNameservers()` returns `pending` + staff todo "apply in portal" (twice-daily processing). Contact change → staff todo with fresh documents          | Staff confirm → cached values updated                                                                                                                                                              |
-
-**Reminders** (scheduler, idempotent like `domain_reminders`): client document nudges on `client_reminder_days`.
-Staff SLA alert when `submitted` exceeds `staff_sla_business_days`. Urgent alert when `rejected` is older than 2 business
-days (the registry drops it after 3–4). On each review cycle, `renew()` returns `completed` locally, extends the review date by
-`review_cycle_years` and opens a staff todo "confirm status / reverification in the portal". `sync()` returns the cached state
-(nothing remote). It flags `needs_review` if the review date has passed with no staff confirmation. Billing: since the registry
-is free, the TLD price is our handling/management fee, and renewal invoices cover our service, not a registry charge.
+- **TLD setting.** A TLD can be marked "registered by the client at the registry" (`tlds.registered_by_client`), on
+  by default for `.np` and its second levels. Such TLDs are never registered or transferred here: pricing offers no
+  register or transfer terms, so the cart refuses them with "`.com.np` domains are not sold here. If you already own
+  one, choose "Use a domain I own"."
+- **Domain search.** A `.np` result says, in full sentences, that the client registers it at the registry, free for
+  Nepali citizens and organisations, and then points it to our nameservers. "How to register" opens
+  `domains.self_registration_url` (default https://register.com.np/how-to-register-np-domain, the guide of the `.np`
+  registry, run by Mercantile Communications per IANA's root zone database). "I already have it" opens the store
+  with the name carried into "Use a domain I own". A name the registry cannot issue (`asha.np`) gets the reason
+  instead: ".np names are registered under .com.np, .org.np and the other second levels. Search for
+  yourname.com.np." Self-registered TLDs are never sent to the registrar, for lookups or suggestions.
+- **Checkout.** "Use a domain I own" accepts `.np` names only under the registry's second levels, verified at
+  register.com.np/np-ccTLDs on 2026-10-20: `.com.np`, `.coop.np`, `.edu.np`, `.gov.np`, `.info.np`, `.mil.np`,
+  `.name.np`, `.net.np`, `.org.np`. No domain record and no registrar order are created for it. The domain registry
+  contract refuses a registration or transfer under such a TLD, whoever asks.
+- **Client area.** A hosting service shows its server's nameservers; a service with a domain but no server
+  nameservers shows the default nameservers an admin saved. The shipped placeholder is never shown, so the card is
+  absent until real nameservers exist. A Copy button copies the list; with a domain the card says "Set these at your
+  registry if your domain is registered elsewhere, such as a .np domain."
+- **For hosts.** Mark any other extension the same way in Admin → Domains → TLD pricing → (TLD) → "Registered by the
+  client at the registry". Put your nameservers on each server (Admin → Servers) or in the default nameservers setting;
+  until one of them has real nameservers, the admin dashboard lists the to-do "Set your nameservers so clients with
+  their own domain know where to point it."
 
 ## 10. Recommended implementation order
 
 1. **Prereqs PR** (blocks all real drivers): C3 stale-claim sweep (issue #12), C2 `findSubmission` + `SubmissionLookup`,
    C1 remote ids, C5 redaction, the shared contract test harness, and the egress-IP decision.
-2. **`np_manual`** — no external dependency, unblocks the Nepal market, and exercises the async/pending paths end to end.
+2. ~~**`np_manual`**~~ — replaced by the client-registered flow in §9 (owner, 2026-10-20).
 3. **ResellerClub** — the main wholesale source for India/Nepal hosts and the best `.in` coverage. Needs C4 (`registrar_refs`).
 4. **Namecheap** — the US market. Simple inline contacts and a good sandbox. Ships without `epp`/`suggestions`.
 5. **OpenSRS** — on demand. Use the save→process two-phase register. Webhooks later. Enom is skipped.
