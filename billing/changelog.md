@@ -292,6 +292,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   once, after commit, and `MigrationRunPaused` when an import stops. Continue goes through the same one-at-a-time
   check as confirm, and each row is claimed under a lock, so no row is applied twice. The page shows the progress and
   the counts by outcome.
+- **Review and report**: each checked row can be switched to the choices it allows (create, update the matched client,
+  or skip; for an email that belongs to a client login, "create and link the existing login" when that login's email
+  was verified 30 days ago or more, or "create without a login"), and the counts and review digest follow without
+  reading any row payload. A refused decision shows its reason on the page. "Accept all proposed" creates the rows whose
+  company name or tax ID matched a client and leaves rows matched to a closed client, several clients or a recently
+  changed email, and rows whose email belongs to a login, for staff, saying how many. After the import the rows are
+  listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
+  errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
+  generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an
   import stopped partway and never continued loses them 30 days after its last activity and can no longer be continued.
