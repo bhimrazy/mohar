@@ -17,7 +17,7 @@ beforeEach(function () {
     stripeGateway();
 });
 
-function probeStripePaid(): void
+function pr229StripePaid(): void
 {
     [, $invoice, $attempt] = startStripe();
     $metadata = ['mohar_reference' => $attempt->reference, 'mohar_invoice_id' => (string) $invoice->id];
@@ -30,7 +30,7 @@ function probeStripePaid(): void
 
 test('probe S1: created already carrying the withdrawal, then funds_withdrawn, books one chargeback', function (array $order) {
     Event::fake([PaymentReversed::class]);
-    probeStripePaid();
+    pr229StripePaid();
     Http::fake([STRIPE_API.'disputes/du_1MoharDispute0001*' => Http::response(stripeFixture('dispute'))]);
 
     foreach ($order as $index => $type) {
