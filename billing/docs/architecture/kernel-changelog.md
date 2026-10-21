@@ -6,6 +6,12 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client currency lock (#218)
+
+- `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys
+  of every source that holds amounts for one client, in registration order. Unlike `clientsInUse()` it asks every
+  source, so Core's client edit can name what blocks a currency change. `register()` and `clientsInUse()` are unchanged.
+
 ### Billing go-live fixes (#229)
 
 - `App\Data\Billing\CallbackEvent::DISPUTE_INQUIRY` (new constant): a dispute the provider has not withdrawn funds

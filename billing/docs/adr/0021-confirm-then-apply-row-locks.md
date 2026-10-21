@@ -68,6 +68,12 @@ Dry runs read without locks and write nothing (ADR 0019).
   `FOR UPDATE`, locks the client before the insert: `IssueInvoice` when the invoice may take credit, and `PlaceOrder`
   for an existing client before the order row. This does not contradict the money order: the new invoice is not yet
   visible, so no other transaction can hold it.
+- **Client currency (#218):** a currency change (`Client::updateDetails`, the admin client edit) locks the client
+  `FOR UPDATE`, then asks `ClientCurrencyUsage` and writes, all under that lock. A row that copies the client's currency
+  reads the client under a lock first: `FOR UPDATE` where the path above already takes it (`IssueInvoice` with credit,
+  `PlaceOrder`, which prices the order in the currency of the locked row), `FOR SHARE` otherwise (`IssueInvoice`
+  without credit, `SaveDraftInvoice`, `Quotes::save`). `SaveDraftInvoice` locks an existing draft before the client.
+  Test: `ClientCurrencyChangeRaceTest`.
 - **Multi-invoice payments (#224):** a payment of several invoices in one transaction (`PaymentBatches::settle`,
   `RecordManualTransaction`) locks all of them up front, in id order, before any client lock. `ApplyPayment` locks the
   client after the invoice, before its row is inserted, only when it will post credit (overpayment, a deposit paid in
@@ -100,4 +106,6 @@ A PR that adds a multi-row lock path, or changes an order above, ships a two-pro
     - the claim's lock set grows with every purged `failed` run; one install-wide row would bound it;
     - `CheckRun` writes the digest in a second save after the `ready` transition;
     - service and domain creation do not lock the client, so a service created at the same instant as an apply can
-      miss the currency check. This is accepted for imports.
+      miss the currency check. This is accepted for imports. Services and domains created by a checkout are covered
+      by `PlaceOrder`'s client lock (#218); the server account import (`ImportServerAccounts`) and a manual payment
+      without invoices (`RecordManualTransaction`) still read the client's currency without a lock.

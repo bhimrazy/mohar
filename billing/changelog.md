@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
+  on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
+  domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
+  "This client has billing records and services in NPR, so the currency can't be changed.", and a save that tries
+  anyway gets the same message on the currency field. Before, the change was saved and amounts stored in the old
+  currency were read in the new one. A client with no records can still change currency, and saving other details
+  with the same currency works as before. The check runs under the client's row lock; invoices, draft invoices and
+  quotes now read the client under a share lock and checkout prices in the currency read under its client lock, so
+  a change and a client's first invoice or order can't cross. Clients changed before the upgrade are not corrected:
+  look for clients whose invoices are in another currency than the client's. No migration and no permission change.
+  Kernel: `ClientCurrencyUsage::sourcesFor()`.
+
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
