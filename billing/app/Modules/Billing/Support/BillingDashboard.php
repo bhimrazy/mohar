@@ -100,7 +100,7 @@ class BillingDashboard
             'href' => route('admin.billing.transactions.index', ['review' => 1]),
             'tone' => 'danger',
             'icon' => 'AlertTriangle',
-            'hint' => 'Not covered by payment or credit',
+            'hint' => 'Inquiries to answer, or not covered by payment or credit',
         ], 'billing.payments.manage', 15);
 
         $dashboard->todo('admin', 'billing.credit_owed', fn (?User $user): array => [

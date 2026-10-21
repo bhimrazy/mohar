@@ -88,7 +88,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             ['key' => 'secret_key', 'label' => 'Secret key', 'type' => 'secret', 'required' => true,
                 'help' => 'Stripe Workbench → API keys. A restricted key (rk_…) needs write access to Checkout Sessions and Refunds and read access to PaymentIntents, Refunds and Disputes.'],
             ['key' => 'webhook_secret', 'label' => 'Webhook signing secret', 'type' => 'secret', 'required' => true,
-                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.closed. Paste its whsec_… secret here.'],
+                'help' => 'Create a snapshot event destination for the webhook URL below with: checkout.session.completed, checkout.session.async_payment_succeeded, checkout.session.async_payment_failed, checkout.session.expired, payment_intent.succeeded, refund.created, refund.updated, charge.dispute.created, charge.dispute.funds_withdrawn, charge.dispute.closed. Paste its whsec_… secret here.'],
             ['key' => 'publishable_key', 'label' => 'Publishable key', 'type' => 'string',
                 'help' => 'Optional (pk_…). Checkout doesn\'t need it; "Test connection" checks that it belongs to the same mode as the secret key.'],
         ];
@@ -291,7 +291,7 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
                 'checkout.session.expired' => $this->sessionEvent($gateway, $context),
                 'payment_intent.succeeded' => $this->paymentIntentEvent($gateway, $context),
                 'refund.created', 'refund.updated' => $this->refundEvent($gateway, $context),
-                'charge.dispute.created' => $this->disputeEvent($gateway, $context),
+                'charge.dispute.created', 'charge.dispute.funds_withdrawn' => $this->disputeEvent($gateway, $context),
                 'charge.dispute.closed' => $this->disputeEvent($gateway, $context, closed: true),
                 default => $context->ignored('not used'),
             };
@@ -555,8 +555,14 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
     }
 
     /**
-     * A dispute opened, or closed ($closed). Only a closed dispute that Stripe reports as won (the money returned) is
-     * passed on; any other close (lost, or an inquiry closed) is acknowledged and changes nothing.
+     * A dispute opened, its funds withdrawn, or closed ($closed). Stripe sends `charge.dispute.created` for inquiries
+     * too (status `warning_*`), where no money leaves the account (#212). The retrieved dispute's
+     * `balance_transactions` list the funds withdrawn and reinstated, so a chargeback is passed on only once one of
+     * them withdrew money; until then the dispute is an inquiry: a to-do without money movement. An inquiry that
+     * escalates sends `charge.dispute.funds_withdrawn`, which books the chargeback then. A close with funds withdrawn
+     * is passed on: `won` as the win, `lost` as the chargeback (the backstop for an install not subscribed to
+     * funds_withdrawn; one chargeback per dispute id). Any other close (an inquiry closed as `warning_closed`) is
+     * acknowledged and changes nothing.
      */
     private function disputeEvent(GatewayConfig $gateway, WebhookContext $context, bool $closed = false): CallbackEvent|CallbackRejection
     {
@@ -579,12 +585,22 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             return $context->ignored('dispute without an amount');
         }
 
-        if ($closed && ($dispute['status'] ?? null) !== 'won') {
-            return $context->ignored('dispute closed without a win');
+        $status = $dispute['status'] ?? null;
+        $withdrawn = self::fundsWithdrawn($dispute);
+
+        if ($closed && (! in_array($status, ['won', 'lost'], true) || ! $withdrawn)) {
+            return $context->ignored($status === 'warning_closed' ? 'inquiry closed' : 'dispute closed with no funds withdrawn');
         }
 
         return new CallbackEvent(
-            type: $closed ? CallbackEvent::DISPUTE_WON : CallbackEvent::CHARGEBACK,
+            type: match (true) {
+                // A lost dispute is passed on as its chargeback: booked here when `charge.dispute.funds_withdrawn`
+                // never arrived (not subscribed), otherwise answered "duplicate" (one chargeback per dispute id).
+                $closed && $status === 'lost' => CallbackEvent::CHARGEBACK,
+                $closed => CallbackEvent::DISPUTE_WON,
+                $withdrawn => CallbackEvent::CHARGEBACK,
+                default => CallbackEvent::DISPUTE_INQUIRY,
+            },
             invoiceId: null,
             txnId: $dispute['id'],
             amount: $amount,
@@ -594,6 +610,24 @@ final class StripeDriver extends AbstractGatewayDriver implements ConnectionTest
             raw: [...$context->raw(), 'dispute' => $dispute['id'], 'payment_intent' => $intent, 'amount' => $dispute['amount'], 'currency' => $currency, 'status' => $dispute['status'] ?? null],
             sentAt: $context->sentAt,
         );
+    }
+
+    /**
+     * Whether one of the dispute's balance transactions took money out of the Stripe balance (a negative amount).
+     *
+     * @param  array<string, mixed>  $dispute
+     */
+    private static function fundsWithdrawn(array $dispute): bool
+    {
+        $transactions = is_array($dispute['balance_transactions'] ?? null) ? $dispute['balance_transactions'] : [];
+
+        foreach ($transactions as $transaction) {
+            if (is_array($transaction) && is_int($transaction['amount'] ?? null) && $transaction['amount'] < 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

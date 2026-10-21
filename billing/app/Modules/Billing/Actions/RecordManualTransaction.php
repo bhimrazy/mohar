@@ -52,7 +52,9 @@ class RecordManualTransaction
 
             $transactions = [];
             $remaining = $amount;
-            $invoices = Invoice::query()->where('client_id', $client->id)->whereIn('id', $invoiceIds)->get()->sortBy(fn (Invoice $invoice): int => (int) array_search($invoice->id, $invoiceIds, true));
+            // All invoices locked up front, in id order, before ApplyPayment can lock the client (ADR 0021, #224).
+            $invoices = Invoice::query()->where('client_id', $client->id)->whereIn('id', $invoiceIds)->orderBy('id')->lockForUpdate()->get()
+                ->sortBy(fn (Invoice $invoice): int => (int) array_search($invoice->id, $invoiceIds, true));
 
             foreach ($invoices as $index => $invoice) {
                 if ($remaining <= 0 || ! $invoice->status->isPayable() || $invoice->balance <= 0) {
