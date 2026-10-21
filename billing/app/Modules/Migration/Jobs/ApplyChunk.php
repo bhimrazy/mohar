@@ -8,6 +8,7 @@ use App\Data\Migration\ImportIssue;
 use App\Data\Migration\ImportOutcome;
 use App\Data\Migration\ImportRecord;
 use App\Enums\ImportAction;
+use App\Enums\ImportStopReason;
 use App\Events\Migration\MigrationRunCompleted;
 use App\Events\Migration\MigrationRunPaused;
 use App\Models\User;
@@ -97,7 +98,7 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
             ->update(['status' => MigrationRun::FAILED, 'error' => __('Importing stopped before the end. Continue to import the rest; rows already imported are not imported again.')]);
 
         if ($stopped === 1) {
-            MigrationRunPaused::dispatch($this->runId, 'apply_failed');
+            MigrationRunPaused::dispatch($this->runId, ImportStopReason::ApplyFailed);
         }
     }
 
@@ -123,7 +124,6 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
         // A new client takes the defaults for what the file does not map; an update changes only mapped fields, and
         // never the email (the importer refuses it too).
         $fields = $creating ? [...($normalized['defaults'] ?? []), ...$client] : Arr::except($client, 'email');
-        $previous = $creating ? null : Client::query()->find($record->match_client_id);
         $outcome = $clients->upsert(new ImportRecord('client', $run->source_system, (string) $record->source_id, [
             ...Arr::except($fields, 'client_group_create'),
             'client_group_name' => $client['client_group_create'] ?? null,
@@ -150,7 +150,8 @@ final class ApplyChunk implements ShouldBeEncrypted, ShouldQueue
         $record->forceFill([
             'outcome' => $outcome->action->value,
             'target_id' => $outcome->targetId,
-            'before' => $previous?->only($outcome->changes),
+            // The importer read these under its own row lock (ADR 0019); Migration never reads the client for undo.
+            'before' => $outcome->before,
             'problems' => [...($record->problems ?? []), ...array_map(fn (ImportIssue $issue): array => ['severity' => $issue->severity->value, 'code' => $issue->code, 'message' => $issue->message], $issues)],
             'changes' => $outcome->changes,
             'applied_at' => now(),

@@ -47,8 +47,9 @@ Migration. Shape to be settled with the WHMCS connector (client-import PR C).
   one query per lookup per chunk (client-import spec §13).
 - `MatchesExisting`: the owning module matches an incoming record to one it holds (a domain by name, a cPanel account
   by server and username), because Migration cannot read those tables.
-- `RevertsImport`, with a trailing `ImportOutcome::$before`, for undo of every entity, Core's included: the owning
-  module produces the snapshot under its own lock.
+- `RevertsImport`, for undo of every entity, Core's included. The snapshot travels in the trailing
+  `ImportOutcome::$before` (added with #184): the owning module produces it under its own lock, and Migration stores it
+  without reading the owner's tables.
 - `FinalizesImport` and `AppliesCutover`, if most importers turn out to implement `finalize()` and `cutover()` as
   empty methods.
 
@@ -59,7 +60,8 @@ Each run event lands with the code that dispatches it, and implements `ShouldDis
 - `MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed by entity, each with
   `created`, `updated`, `unchanged`, `skipped` and `failed`. Dispatched once, on the applying → completed transition,
   after commit; a stopped run dispatches `MigrationRunPaused`, never `Completed`.
-- `MigrationRunPaused(int $runId, string $reasonCode)`, when a run stops and waits for staff (`apply_failed`).
+- `MigrationRunPaused(int $runId, ImportStopReason $reasonCode)`, when a run stops and waits for staff
+  (`App\Enums\ImportStopReason`, an `@open` enum; `ApplyFailed` today).
 - `MigrationRunUndone(int $runId, int $reverted, int $kept)`, with undo.
 
 Run events are kernel events from their first dispatch, an exception to ADR 0008's promote-on-consume rule, because

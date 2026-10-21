@@ -10,11 +10,19 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 - Added `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed
   by entity, each with `created`, `updated`, `unchanged`, `skipped` and `failed`; dispatched after commit, once per run,
-  on the applying → completed transition. Added `MigrationRunPaused(int $runId, string $reasonCode)`, dispatched after
-  commit when an import stops (`apply_failed`). Both implement `ShouldDispatchAfterCommit`.
-- Added `App\Contracts\Billing\ClientDocuments::clientsWithDocuments(list<int>)`: the clients with any invoice,
-  quote, transaction or credit entry, so an import never relabels their currency (spec §6.4). Billing implements it;
-  Core binds a null default.
+  on the applying → completed transition. Added `MigrationRunPaused(int $runId, ImportStopReason $reasonCode)`,
+  dispatched after commit when an import stops. Both implement `ShouldDispatchAfterCommit`.
+- Added `App\Enums\ImportStopReason` (`@open`, ADR 0010/0011): `ApplyFailed`. `$sourceSystem` stays a string because it
+  is a registry key.
+- Added the registry `App\Support\Clients\ClientCurrencyUsage` (singleton): `source(string $key, Closure(list<int>):
+  list<int>)` and `clientsInUse(list<int>): list<int>`, the clients some module holds amounts for, so an import never
+  relabels their currency (spec §6.4). Billing (invoices, quotes, transactions, credit), Services, Orders and Domains
+  each register a source; with none registered no client is in use.
+- `App\Data\Migration\ImportOutcome` gains a trailing `?array $before = null`: the changed fields' previous values,
+  read by the importer under its own lock (ADR 0019). Compatible (ADR 0010: trailing defaulted field).
+- `App\Models\User`: saving a client login (`is_staff` false) with a new email clears `email_verified_at` unless the
+  same save sets it. Staff logins are not affected: Platform's `UpdateStaff` keeps its rule (an admin-initiated change
+  clears verification and sends the mail, a self-change keeps it). Query-builder `update()` bypasses the hook.
 - Core registers the `client` and `user` importers in the kernel `ImportRegistry`; both honour dry runs, including
   client groups (looked up, never created) and links to clients the dry run did not create. Core's single dev worker
   (`composer dev`, #164) also reads `Queues::IMPORTS`, so the Migration module no longer registers its own.

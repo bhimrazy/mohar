@@ -288,8 +288,9 @@ otherwise the default with a warning.
 ### 6.4 Currency
 
 ISO code of an enabled currency; blank means the default currency. On update, a currency change is refused when the
-client already has invoices, services, credit or orders (merge-participant counts above zero): amounts are stored per
-currency and cannot be re-labelled.
+client already has invoices, quotes, payments, credit, services, orders or domains: amounts are stored per currency
+and cannot be re-labelled. Each module that stores such amounts answers through the kernel registry
+`ClientCurrencyUsage`; a module that is not installed holds none.
 
 ### 6.5 Client group
 

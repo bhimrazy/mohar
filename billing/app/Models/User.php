@@ -61,8 +61,10 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     /**
      * Changing the password records when and clears a pending forced change (admin-set temporary password). Changing
-     * the email of an existing login removes its verification, unless the same save sets it: "verified since" then
-     * also means "unchanged since" (the client import links a login only when that is 30 days or more).
+     * the email of an existing client login (not staff: the test LoginImporter::linkable() uses) removes its
+     * verification, unless the same save sets it: "verified since" then also means "unchanged since" (the client
+     * import links a login only when that is 30 days or more). Staff email changes follow UpdateStaff's own rule (an
+     * admin-initiated change clears verification, a self-change keeps it). A query-builder update() bypasses this hook.
      */
     protected static function booted(): void
     {
@@ -72,7 +74,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
                 $user->must_change_password = false;
             }
 
-            if ($user->exists && $user->isDirty('email') && ! $user->isDirty('email_verified_at')) {
+            if ($user->exists && ! $user->is_staff && $user->isDirty('email') && ! $user->isDirty('email_verified_at')) {
                 $user->email_verified_at = null;
             }
         });

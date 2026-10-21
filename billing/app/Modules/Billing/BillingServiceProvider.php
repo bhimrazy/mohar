@@ -2,7 +2,6 @@
 
 namespace App\Modules\Billing;
 
-use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Billing\CreditLedger;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\GatewayRegistry;
@@ -36,6 +35,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -72,7 +72,6 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
-        $this->app->bind(ClientDocuments::class, BillingDirectory::class);
 
         $this->app->singleton(GatewayRegistry::class, fn (): GatewayManager => $this->app->make(GatewayManager::class));
         $this->app->singleton(GatewayManager::class, function (): GatewayManager {
@@ -90,6 +89,9 @@ class BillingServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->source('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.

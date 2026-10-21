@@ -2,7 +2,6 @@
 
 namespace App\Modules\Billing\Services;
 
-use App\Contracts\Billing\ClientDocuments;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
@@ -16,7 +15,7 @@ use App\Modules\Billing\Support\ClientPaymentOptions;
 /**
  * Read-only billing facts for other modules (checkout gateway list, invoice payment history).
  */
-class BillingDirectory implements ClientDocuments, GatewayDirectory, InvoiceQueries
+class BillingDirectory implements GatewayDirectory, InvoiceQueries
 {
     public function __construct(
         private GatewayManager $gateways,
@@ -48,7 +47,11 @@ class BillingDirectory implements ClientDocuments, GatewayDirectory, InvoiceQuer
     }
 
     /**
-     * Four indexed lookups, each only for the clients not found yet.
+     * The clients among $clientIds with any invoice, quote, transaction or credit entry (the Billing source of
+     * ClientCurrencyUsage). Four indexed lookups, each only for the clients not found yet.
+     *
+     * @param  list<int>  $clientIds
+     * @return list<int>
      */
     public function clientsWithDocuments(array $clientIds): array
     {

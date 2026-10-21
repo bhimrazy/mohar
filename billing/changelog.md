@@ -8,9 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
-- **Changing a login's email removes its verification (#184).** Every path that changes a login's email now leaves
-  `email_verified_at` empty unless the same save sets it (the profile page and staff edits already did this). The
-  client import relies on it: it links an existing login only when its email was verified 30 days ago or more.
+- **Changing a client login's email removes its verification (#184).** Every path that changes the email of a client
+  login (not staff) now leaves `email_verified_at` empty unless the same save sets it (the profile page already did
+  this). The client import relies on it: it links an existing login only when its email was verified 30 days ago or
+  more. Staff logins are unchanged: when an admin changes a colleague's email, verification is cleared and the
+  verification mail is sent; staff who change their own email on the staff page stay verified.
 - **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
   of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
   cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
@@ -263,7 +265,8 @@ pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searc
   closed rows are created closed without a login. An update changes only the fields the file maps (defaults such as
   currency, status and tax exemption apply to new clients only). **An import never changes the email of an existing
   client or of any login**: the review and the report say "Email in the file differs: kept the current one". A
-  currency change on a client that already has invoices, quotes, payments or credit is a row error. Each new open
+  currency change on a client that already has invoices, quotes, payments, credit, services, orders or domains is a
+  row error. Each new open
   client gets an owner login whose password hash is of a random secret nobody keeps, so it cannot sign in until an
   invitation sets a password. **An import never links an existing login on its own**: a row whose email belongs to a
   client login needs a decision (link it, only when its email was verified at least 30 days ago, or create the client
