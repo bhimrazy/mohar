@@ -138,7 +138,10 @@ class PaymentBatches
             ]);
 
             $remaining = $amount;
-            $invoices = Invoice::query()->whereIn('id', $batch->invoice_ids)->orderBy('due_date')->orderBy('id')->get();
+            // Every invoice of the batch is locked up front, in id order, before ApplyPayment can lock the client
+            // (ADR 0021): a payment of one of them alone locks it, then the client, so no cycle is possible (#224).
+            $invoices = Invoice::query()->whereIn('id', $batch->invoice_ids)->orderBy('id')->lockForUpdate()->get()
+                ->sortBy([['due_date', 'asc'], ['id', 'asc']])->values();
 
             foreach ($invoices as $invoice) {
                 $invoice->refresh();

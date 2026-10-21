@@ -13,6 +13,7 @@ use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
+use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\AdjustmentResource;
@@ -88,7 +89,8 @@ class InvoiceController extends Controller
             'invoice' => new InvoiceResource($invoice),
             'items' => InvoiceItemResource::collection($invoice->items),
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
-            'transactions' => TransactionResource::collection($invoice->transactions()->get()),
+            // A dispute inquiry is a staff to-do that moved no money (#212).
+            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
         ]);

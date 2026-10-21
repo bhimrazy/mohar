@@ -2,6 +2,18 @@
     "id": "du_1MoharDispute0001",
     "object": "dispute",
     "amount": 2500,
+    "balance_transactions": [
+        {
+            "id": "txn_1MoharDisputeOut01",
+            "object": "balance_transaction",
+            "amount": -2500,
+            "currency": "usd",
+            "fee": 1500,
+            "net": -4000,
+            "reporting_category": "dispute",
+            "type": "adjustment"
+        }
+    ],
     "charge": "ch_3MoharCharge0001",
     "created": 1792300200,
     "currency": "usd",

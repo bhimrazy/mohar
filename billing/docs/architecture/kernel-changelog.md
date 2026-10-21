@@ -13,6 +13,12 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   merge-field resolver (outcome, type, reason, link; never the number or images). Notifications maps it to the
   editable `kyc.document_decided` client email. With Notifications absent nothing listens.
 
+### Billing go-live fixes (#229)
+
+- `App\Data\Billing\CallbackEvent::DISPUTE_INQUIRY` (new constant): a dispute the provider has not withdrawn funds
+  for (Stripe inquiry); Billing books a zero-amount `dispute_inquiry` transaction, no money moves. Additive; drivers
+  that never send it are unaffected.
+
 ### ADR 0021 and the 0012/0018 addenda (#219)
 
 - `App\Support\Clients\ClientCurrencyUsage::source(string $key, Closure)` is renamed

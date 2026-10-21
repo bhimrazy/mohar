@@ -128,6 +128,7 @@ class GatewayCallbackHandler
                 CallbackEvent::REFUND => $this->refunded($gatewayKey, $event),
                 CallbackEvent::CHARGEBACK => $this->reversed($gatewayKey, $event),
                 CallbackEvent::DISPUTE_WON => $this->won($gatewayKey, $event),
+                CallbackEvent::DISPUTE_INQUIRY => $this->inquiry($gatewayKey, $event),
                 CallbackEvent::ATTEMPT_UPDATED => $this->attemptUpdated($gatewayKey, $event),
                 // Unknown event types are acknowledged and ignored, never booked as money movements.
                 default => $this->outcome($gatewayKey, 200, 'ignored event type', ['type' => $event->type, 'txn_id' => $event->txnId], $event->invoiceId),
@@ -400,6 +401,9 @@ class GatewayCallbackHandler
                 }
 
                 $this->closeDisputedCheck($parents, $event->txnId);
+                // An inquiry that escalated: its to-do is replaced by the chargeback (#212).
+                Transaction::query()->where('gateway', $gatewayKey)->where('gateway_txn_id', $event->txnId)
+                    ->where('type', TransactionType::DisputeInquiry)->whereNull('reviewed_at')->update(['reviewed_at' => now()]);
 
                 if ($taken === 0 && $remaining === 0) {
                     return $this->outcome($gatewayKey, 200, 'chargeback recorded', $event->raw, $parents[0]->invoice_id);
@@ -493,10 +497,42 @@ class GatewayCallbackHandler
     }
 
     /**
+     * A dispute opened with no money withdrawn (an inquiry, #212): one zero-amount row per dispute id, open on
+     * "Disputes to review" until staff mark it reviewed or the dispute's chargeback is booked. It moves no money:
+     * the payment, invoice and credit are untouched, and its close changes nothing. Idempotent on the unique
+     * (gateway, gateway_txn_id, type) index; a chargeback already booked for the dispute makes it a duplicate.
+     *
+     * @return Outcome
+     */
+    private function inquiry(string $gatewayKey, CallbackEvent $event): array
+    {
+        $recorded = Transaction::query()->where('gateway', $gatewayKey)->where('gateway_txn_id', $event->txnId)
+            ->whereIn('type', [TransactionType::DisputeInquiry, TransactionType::Chargeback])->exists();
+
+        if ($event->txnId === '' || $recorded) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $event->invoiceId);
+        }
+
+        $parents = $this->parents($gatewayKey, $event);
+
+        if ($parents === []) {
+            return $this->outcome($gatewayKey, 409, self::PAYMENT_NOT_BOOKED, $event->raw, $event->invoiceId);
+        }
+
+        try {
+            $this->reversalRow($parents[0], TransactionType::DisputeInquiry, $event, __('Dispute inquiry at the provider: answer it there. No money moved.'), review: 0);
+        } catch (UniqueConstraintViolationException) {
+            return $this->outcome($gatewayKey, 200, 'duplicate', $event->raw, $parents[0]->invoice_id);
+        }
+
+        return $this->outcome($gatewayKey, 200, 'dispute inquiry recorded; no money moved', $event->raw, $parents[0]->invoice_id);
+    }
+
+    /**
      * A refund row for a provider refund none of the payments could absorb (all of it went to account credit): it
      * changes neither the payment's refundable amount nor the invoice, and carries the provider's refund id.
      */
-    private function reversalRow(Transaction $payment, TransactionType $type, CallbackEvent $event, string $description): Transaction
+    private function reversalRow(Transaction $payment, TransactionType $type, CallbackEvent $event, string $description, ?int $review = null): Transaction
     {
         return Transaction::query()->create([
             'client_id' => $payment->client_id,
@@ -512,6 +548,7 @@ class GatewayCallbackHandler
             'description' => $description,
             'raw' => GatewayLogger::redact($event->raw),
             'occurred_at' => now(),
+            'review_amount' => $review,
         ]);
     }
 

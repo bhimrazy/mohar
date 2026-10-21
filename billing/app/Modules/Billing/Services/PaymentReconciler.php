@@ -32,6 +32,14 @@ class PaymentReconciler
     /** The late sweep stops starting lookups after this many seconds. */
     public const LATE_DEADLINE_SECONDS = 300;
 
+    /**
+     * Slack on the late interval (#222): a lookup is stamped when it finishes, seconds to minutes after its run
+     * started (up to the deadline plus one provider timeout), so the next run, an hour after the last, must accept a
+     * lookup stamped up to this long into the previous run. Runs are hourly and a run never looks an attempt up
+     * twice, so two lookups of one attempt are still at least LATE_INTERVAL_MINUTES - this apart.
+     */
+    public const LATE_SLACK_MINUTES = 10;
+
     public function __construct(
         private SettlePaymentAttempt $settle,
         private BillingSettings $settings,
@@ -75,6 +83,7 @@ class PaymentReconciler
         }
 
         $cap = min(1000, max(1, $this->settings->int('gateways.late_lookups_per_run', 100)));
+        $lookedUpBefore = now()->subMinutes(self::LATE_INTERVAL_MINUTES - self::LATE_SLACK_MINUTES);
         $deadline = microtime(true) + self::LATE_DEADLINE_SECONDS;
         /** @var array<string, true> $tripped gateways that errored in this run */
         $tripped = [];
@@ -90,7 +99,7 @@ class PaymentReconciler
                 ->whereIn('status', [AttemptStatus::Expired, AttemptStatus::Failed])
                 ->whereNull('lookups_closed_at')
                 ->where('created_at', '>=', now()->subHours($hours))
-                ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', now()->subMinutes(self::LATE_INTERVAL_MINUTES)))
+                ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', $lookedUpBefore))
                 ->whereNotIn('gateway', array_keys($tripped))
                 ->whereNotIn('id', $seen)
                 ->orderBy('id')

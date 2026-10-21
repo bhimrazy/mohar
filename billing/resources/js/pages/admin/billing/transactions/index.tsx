@@ -143,13 +143,19 @@ export default function TransactionsIndex({
                     )}
                     {txn.to_review != null && reviewing && (
                         <>
-                            <span className="text-xs whitespace-nowrap text-destructive">
-                                Not covered{' '}
-                                <Money
-                                    amount={txn.to_review}
-                                    currency={txn.currency}
-                                />
-                            </span>
+                            {txn.type === 'dispute_inquiry' ? (
+                                <span className="text-xs whitespace-nowrap text-destructive">
+                                    Inquiry: answer it at the provider
+                                </span>
+                            ) : (
+                                <span className="text-xs whitespace-nowrap text-destructive">
+                                    Not covered{' '}
+                                    <Money
+                                        amount={txn.to_review}
+                                        currency={txn.currency}
+                                    />
+                                </span>
+                            )}
                             {can.review && (
                                 <Button
                                     variant="outline"
