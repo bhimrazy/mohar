@@ -121,9 +121,10 @@ test('the next read sees an updated setting even through a fresh Settings instan
         'default_country' => 'GB',
         'date_format' => 'd/m/Y',
         'automation_time' => '04:30',
-    ]])->assertSessionHasNoErrors();
+    ], 'system' => ['timezone' => 'Asia/Kathmandu']])->assertSessionHasNoErrors();
 
-    expect((new Settings(app(SettingsRegistry::class)))->get('core.company_name'))->toBe('Northwind Hosting');
+    expect((new Settings(app(SettingsRegistry::class)))->get('core.company_name'))->toBe('Northwind Hosting')
+        ->and((new Settings(app(SettingsRegistry::class)))->get('system.timezone'))->toBe('Asia/Kathmandu');
 });
 
 test('every page receives the date format setting so dates follow it', function () {
