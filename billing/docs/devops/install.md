@@ -118,6 +118,9 @@ than `APP_URL`'s host and its subdomains are rejected. A wrong value sends peopl
 value produces insecure links. When the domain changes, update `APP_URL` and run `php artisan optimize` again. The
 install pre-flight warns in production when `APP_URL` is not an `https://` address or points at localhost.
 
+`AUTH_STEP_UP_SECONDS` is optional and defaults to 900. It sets how long a password confirmation unlocks sensitive
+changes (ADR 0018 §4). It must be a whole number from 60 to 3600; any other value stops the application at boot.
+
 `CACHE_STORE` must be a store that every web and queue process shares, because cache locks (a provisioning create
 that waits for verification, per-attempt payment locks) only exclude each other through one lock store. Use `database`
 or `redis` (`memcached` and `dynamodb` also work). `file` is safe only when everything runs on one host and one
