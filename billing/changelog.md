@@ -461,6 +461,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **Encrypted browser history is cleared on every logout (#250).** Before, only a logout with a KYC document unlock
+  open cleared it, so any page that encrypts its history stayed restorable with Back or a restored tab until the tab
+  closed. Now the history is cleared for staff and clients whenever a request ends or swaps the login (logout, deleting
+  your own account, a deactivated login signed out, sign in as a client and back), and on the login and two-factor
+  pages, where a session that ended on the server leads. A hover prefetch does not use up the clearing. No schema or
+  permission change.
 - **Identity images are re-encoded (#233).** Each uploaded JPEG, PNG or WebP is decoded and encoded again in the same
   format before it is encrypted. EXIF (GPS position, device, embedded thumbnails), colour profiles, text chunks, JPEG
   comments and bytes appended after the image data are not stored; a payload built into the pixel data of a lossless
