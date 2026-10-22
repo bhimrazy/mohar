@@ -7,7 +7,6 @@
 use App\Modules\Core\Install\AppKeyCheck;
 use App\Modules\Core\Install\CheckStatus;
 use App\Modules\Core\Install\EnvironmentCheck;
-use App\Support\Security\SecretEnv;
 
 function withEnv(array $values, Closure $callback): mixed
 {
@@ -35,18 +34,21 @@ function keyCheck(string $key, string $env = 'production', array $previous = [])
 test('APP_KEY_FILE supplies the key when APP_KEY is empty, and APP_KEY wins when both are set', function () {
     $file = tempnam(sys_get_temp_dir(), 'key');
     file_put_contents($file, "base64:from-file\n");
+    $load = fn (): array => array_intersect_key(require config_path('app.php'), array_flip(['key', 'previous_keys', 'key_source', 'key_file']));
 
     try {
-        expect(withEnv(['APP_KEY' => '', 'APP_KEY_FILE' => $file], fn () => SecretEnv::get('APP_KEY')))->toBe('base64:from-file')
-            ->and(withEnv(['APP_KEY' => 'base64:from-env', 'APP_KEY_FILE' => $file], fn () => SecretEnv::get('APP_KEY')))->toBe('base64:from-env')
-            ->and(withEnv(['APP_KEY' => '', 'APP_KEY_FILE' => $file.'.missing'], fn () => SecretEnv::get('APP_KEY')))->toBeNull();
+        expect(withEnv(['APP_KEY' => '', 'APP_KEY_FILE' => $file, 'APP_PREVIOUS_KEYS' => '', 'APP_PREVIOUS_KEYS_FILE' => $file], $load))
+            ->toBe(['key' => 'base64:from-file', 'previous_keys' => ['base64:from-file'], 'key_source' => 'file', 'key_file' => $file])
+            ->and(withEnv(['APP_KEY' => 'base64:from-env', 'APP_KEY_FILE' => $file], $load)['key'])->toBe('base64:from-env')
+            ->and(withEnv(['APP_KEY' => '', 'APP_KEY_FILE' => $file.'.missing'], $load)['key'])->toBeNull();
     } finally {
         unlink($file);
     }
 });
 
 test('an unreadable APP_KEY_FILE fails the check with its path', function () {
-    $check = withEnv(['APP_KEY' => '', 'APP_KEY_FILE' => '/run/secrets/nope'], fn () => keyCheck(''));
+    config(['app.key_file' => '/run/secrets/nope']);
+    $check = keyCheck('');
 
     expect($check->status)->toBe(CheckStatus::Failed)
         ->and($check->detail)->toContain('APP_KEY_FILE is set to /run/secrets/nope');

@@ -2,7 +2,6 @@
 
 namespace App\Modules\Core\Install;
 
-use App\Support\Security\SecretEnv;
 use Illuminate\Encryption\Encrypter;
 
 /**
@@ -23,10 +22,12 @@ final class AppKeyCheck
     public function run(): EnvironmentCheck
     {
         $key = (string) config('app.key');
-        $file = SecretEnv::file('APP_KEY');
+        $file = config('app.key_file');
+        $file = is_string($file) ? $file : null;
+        $fromFile = config('app.key_source') === 'file';
 
         if ($key === '') {
-            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, $file !== null && (string) env('APP_KEY') === ''
+            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, $file !== null
                 ? "APP_KEY_FILE is set to {$file}, which is missing, unreadable or empty."
                 : 'APP_KEY is not set. Run `php artisan key:generate` once and keep the key: it decrypts stored secrets.');
         }
@@ -37,7 +38,7 @@ final class AppKeyCheck
             return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY does not fit the configured cipher. Generate one with `php artisan key:generate --show`.');
         }
 
-        $problems = app()->isProduction() ? $this->productionProblems($key, $raw, $file) : [];
+        $problems = app()->isProduction() ? $this->productionProblems($key, $raw, $fromFile ? $file : null) : [];
 
         foreach ((array) config('app.previous_keys') as $previous) {
             if (! Encrypter::supported(self::raw((string) $previous), (string) config('app.cipher'))) {
@@ -53,14 +54,14 @@ final class AppKeyCheck
 
         $previous = count((array) config('app.previous_keys'));
 
-        return new EnvironmentCheck('APP_KEY', CheckStatus::Ok, 'Set'.($file !== null && (string) env('APP_KEY') === '' ? ' (from APP_KEY_FILE)' : '')
+        return new EnvironmentCheck('APP_KEY', CheckStatus::Ok, 'Set'.($fromFile ? ' (from APP_KEY_FILE)' : '')
             .($previous > 0 ? ", with {$previous} previous key(s): run `php artisan security:reencrypt`, then remove them." : '.'));
     }
 
     /**
      * @return list<string>
      */
-    private function productionProblems(string $key, string $raw, ?string $file): array
+    private function productionProblems(string $key, string $raw, ?string $keyFile): array
     {
         $problems = [];
 
@@ -70,7 +71,7 @@ final class AppKeyCheck
             $problems[] = 'APP_KEY is not random. Generate one with `php artisan key:generate --show` and rotate it (docs/devops/key-rotation.md).';
         }
 
-        if ((string) env('APP_KEY') === '' && $file !== null && str_starts_with((string) realpath($file), (string) realpath(base_path()).DIRECTORY_SEPARATOR)) {
+        if ($keyFile !== null && str_starts_with((string) realpath($keyFile), (string) realpath(base_path()).DIRECTORY_SEPARATOR)) {
             $problems[] = 'APP_KEY_FILE is inside the application directory, where code deploys, images and code backups pick it up. Keep it outside (e.g. /run/secrets).';
         }
 

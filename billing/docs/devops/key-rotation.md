@@ -1,0 +1,129 @@
+# Application key: storage and rotation
+
+`APP_KEY` encrypts every secret the app stores (AES-256-CBC with an HMAC, Laravel's encrypter). This page covers where
+the key may live in production, the warnings `app:install` gives about it, and how to rotate it. Install steps are in
+[install.md](install.md) (a server) and [production.md](production.md) (the Docker stack).
+
+## What the key protects
+
+**Stored secrets, which `php artisan security:reencrypt` re-encrypts.** The command finds every column with an
+Eloquent encrypted cast by loading the models, plus the values modules register in
+`App\Support\Security\EncryptedStorage`. Its dry run lists them. At the time of writing that is 26 targets:
+
+| Area          | Targets                                                                                                                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Billing       | `gateways.config`, `pay_methods.token`                                                                                                                                                    |
+| Services      | `servers.password`, `servers.api_token`, `servers.access_hash`, `servers.settings`, `services.password`, `services.custom_fields`, `module_queue.args`, `server_account_imports.accounts` |
+| Catalog       | `products.driver_config`, `addons.driver_config`                                                                                                                                          |
+| Domains       | `registrar_accounts.settings`, `domains.epp_code`                                                                                                                                         |
+| Notifications | `webhook_endpoints.secret`, `webhook_endpoints.previous_secret`                                                                                                                           |
+| Identity      | `kyc_documents.number`, `kyc_documents.files` (the images on the objects disk)                                                                                                            |
+| Import        | `migration_runs.header`, `migration_runs.found_values`, `migration_records.raw`, `migration_records.normalized`, `migration_records.before`                                               |
+| Core          | `settings.value` (secret settings, `enc:v1:`), `users.two_factor_secret`, `users.two_factor_recovery_codes`                                                                               |
+
+**Short-lived data, which expires by itself.** After a rotation these stay readable while the old key is in
+`APP_PREVIOUS_KEYS`. When the old key is removed, whatever is left of them can no longer be read:
+
+- queued jobs that carry encrypted payloads (mail, module commands, imports) and failed jobs waiting for a retry;
+- sessions (`SESSION_ENCRYPT=true`, `SESSION_LIFETIME`, 120 minutes by default) and cookies, the "remember me" cookie
+  included (people sign in again);
+- EPP codes in shopping carts (`orders.cart_ttl_days`, 7 days; the client enters the code again);
+- import uploads, deleted once they are staged.
+
+Signed links (password resets, verification, KYC image links, previews) are checked against the previous keys as
+well, so they keep working until they expire.
+
+## Where the key lives
+
+Never in the image, the repository or a backup of the code. Pick one of these:
+
+1. **Environment file, outside the code.** The Docker stack reads `deploy/.env` (`chmod 600`), which is git-ignored
+   and not copied into the image (`deploy/Dockerfile.dockerignore`). A server install reads `billing/.env`
+   (`chmod 600`, owned by the PHP user). systemd's `EnvironmentFile=` works the same way.
+2. **Environment injection.** Real environment variables win over `.env`. A secret manager that starts the process
+   with `APP_KEY` set (`EnvironmentFile=` written by the manager's agent, or a wrapper such as
+   `APP_KEY="$(<manager> read …)" php artisan …`) needs nothing in `.env`.
+3. **A file named by `APP_KEY_FILE`** (and `APP_PREVIOUS_KEYS_FILE`, comma-separated keys). The app reads the file
+   when it loads its configuration. A non-empty `APP_KEY` wins over the file, so leave it empty.
+    - Docker: copy `deploy/compose.secrets.example.yaml` to `deploy/compose.secrets.yaml`, put the keys in files
+      outside the repository (the example uses `/etc/mohar/secrets`, owned by UID 10001, mode 0400), and set
+      `DEPLOY_COMPOSE_OVERRIDE=deploy/compose.secrets.yaml` for `deploy/bin/deploy`. Compose mounts them at
+      `/run/secrets`. Manual `docker compose` commands then take `-f deploy/compose.secrets.yaml` as well.
+    - systemd: `LoadCredential=app_key:/etc/mohar/app_key` with `Environment=APP_KEY_FILE=%d/app_key`.
+    - Kubernetes: a secret mounted as a volume, with `APP_KEY_FILE` pointing at it.
+
+The configuration cache embeds the key: `php artisan optimize` writes it to `bootstrap/cache/config.php`. In the Docker
+stack that directory is a tmpfs per container. On a server, keep `bootstrap/cache` readable by the PHP user only and
+out of backups.
+
+`php artisan app:install` (every deploy runs it) checks the key. It fails when the key is missing, when `APP_KEY_FILE`
+cannot be read, or when the key does not fit the cipher. In production it warns when the key is a published one (the
+image build's placeholder, or the key in an example file), is not random, sits in a key file inside the application
+directory, or is read from a `.env` that other users can read. It also warns about previous keys that do not fit the
+cipher or repeat the current key.
+
+## Rotating the key
+
+Rotate on a schedule, when someone who had the key leaves, and at once after a leak. A rotation is rolling. The new
+key encrypts everything written from the restart on, the old key stays in `APP_PREVIOUS_KEYS` for reading,
+`security:reencrypt` moves the stored values to the new key, and only then is the old key removed.
+
+1. **Prepare.** Back up the database (production.md, Backups). Run `php artisan security:reencrypt --dry-run`: it
+   must exit 0. Values that no key decrypts (exit code 1, listed by id) are already lost. Clear them or find their
+   key before you start.
+2. **Generate the new key** and store it in your password manager or secret store:
+   `echo "base64:$(openssl rand -base64 32)"`.
+3. **Change the settings.** `APP_KEY=<new key>`. Put the old key first in `APP_PREVIOUS_KEYS` and keep any older keys
+   after it, comma-separated (the same goes for the files when you use `APP_KEY_FILE`).
+4. **Restart every PHP process**, so no process encrypts with the old key any more:
+    - Docker: `deploy/bin/deploy`. The new colour starts with the new settings, and the entrypoint caches the
+      configuration again. Then run `deploy/bin/deploy retire`. The previous colour still has the old key as its
+      current key and cannot read values encrypted with the new one, so a rollback after this point is not safe.
+    - A server: `php artisan optimize` (the cached configuration holds the key), restart php-fpm, then
+      `php artisan queue:restart` and any `schedule:work` process. The `schedule:run` cron job picks up the change by
+      itself.
+5. **Re-encrypt.** Docker: `docker compose -f deploy/compose.prod.yaml --profile <live colour> exec -T app-<live colour>
+   php artisan security:reencrypt`. A server: `php artisan security:reencrypt`. The command reads each table in chunks
+   (`--chunk`, 500 by default) and saves a checkpoint after each one. If it is interrupted, run it again and it
+   continues; `--restart` starts over. `--limit=<n>` stops after n values, which splits a large install into several
+   runs. A value the app writes during the run is left as the app wrote it. The command writes one audit-log entry
+   ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts per target, never values.
+
+    | Exit code | Meaning                                                                                                    |
+    | --------- | ---------------------------------------------------------------------------------------------------------- |
+    | 0         | every stored value is on the current key                                                                   |
+    | 1         | some values no configured key decrypts, or a write failed its check; they are unchanged and listed by id   |
+    | 2         | invalid options, or no `APP_KEY`                                                                           |
+    | 3         | not finished: stopped at `--limit`, the app wrote values during the run, or (dry run) values on an old key |
+
+6. **Verify.** `php artisan security:reencrypt --dry-run` exits 0. Sign in as staff with two-factor authentication,
+   test one gateway connection (Admin → Setup → Gateways) and one server connection (Admin → Services → Servers), and open a KYC document if you use
+   identity checks.
+7. **Wait for the short-lived data** listed above: the queues drained and no failed jobs you still want to retry,
+   one session lifetime, and the cart lifetime if you sell domain transfers.
+8. **Remove the old key** from `APP_PREVIOUS_KEYS` (keep it in the password manager for as long as you keep backups
+   taken before the rotation, see below) and restart again as in step 4. `app:install` stops reminding you about the
+   previous keys.
+
+**After a leak**, also change the credentials themselves (gateway API keys, server passwords and tokens, registrar
+credentials, webhook signing secrets, `support.inbound_secret`), because database dumps taken before the rotation
+can still be decrypted with the leaked key.
+
+## Backups and old keys
+
+Backups of the database hold ciphertext. Backups of the key are kept apart from them, and backups of the code or the
+host never include the key:
+
+- Exclude `.env` (`deploy/.env`, `billing/.env`) and `bootstrap/cache/config.php` from file and host backups (a
+  snapshot of `/srv/billing`, a cPanel account backup, rsync of the app directory). Keep the key in a password
+  manager or secret store instead.
+- A dump taken before a rotation needs the key it was written with. Restore it with that key in `APP_PREVIOUS_KEYS`,
+  then run `security:reencrypt`. Keep each old key for as long as you keep dumps taken under it.
+
+## Later: envelope encryption
+
+Every secret is encrypted directly with `APP_KEY`, so whoever has the key and a dump has the secrets. Not built yet:
+envelope encryption for the most sensitive columns (gateway credentials, pay-method tokens), where each value is
+encrypted with a data key that a key-encryption key in a KMS (AWS KMS, GCP KMS, HashiCorp Vault Transit) wraps. The
+KMS key never leaves the KMS, access is audited there, and a rotation re-wraps the data keys without touching the
+values. The target registry that `security:reencrypt` uses is where such columns would be listed.

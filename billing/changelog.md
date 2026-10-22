@@ -8,6 +8,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Application key rotation (#25).** New command `php artisan security:reencrypt` re-encrypts every stored secret
+  with the current `APP_KEY`: the 22 columns with an encrypted cast, secret settings, staff and client two-factor
+  secrets and recovery codes, and the identity images on the objects disk (26 targets; `--dry-run` lists them with
+  counts). It works in chunks with a checkpoint per target, so an interrupted run resumes, and a value the app writes
+  during the run is never overwritten. It writes one audit-log entry with counts only (event `security.reencrypted`).
+  Exit codes: 0 done, 1 values no key decrypts (left unchanged and listed by id), 2 invalid options, 3 more to do.
+  The runbook is `docs/devops/key-rotation.md`: new key, old key into `APP_PREVIOUS_KEYS`, restart every PHP process
+  (Docker: `deploy/bin/deploy`, then `retire`, because the previous colour cannot read the new key), re-encrypt,
+  verify, remove the old key. **Operators:** run `php artisan migrate` (new table `reencryption_checkpoints`,
+  migration `2026_10_22_000100`, expand only). `APP_KEY` and `APP_PREVIOUS_KEYS` can now come from a file named by
+  `APP_KEY_FILE` / `APP_PREVIOUS_KEYS_FILE` (Docker secrets: `deploy/compose.secrets.example.yaml` with the new
+  `DEPLOY_COMPOSE_OVERRIDE` setting of `deploy/bin/deploy`; systemd credentials); a non-empty variable still wins.
+  `app:install` (run by every deploy) now warns in production when the key is a published one or not random, when a
+  key file sits inside the application directory, when `.env` is readable by other users, and about previous keys
+  that do not fit the cipher or repeat the current key. Backups: the backup sections of `install.md`,
+  `production.md` and `cpanel.md` now say to exclude `.env` and `bootstrap/cache/config.php` from file and host
+  backups and to keep the key (and old keys, for older dumps) in a secrets store; before, `production.md` listed
+  `deploy/.env` among the things to back up. No permission change.
 - **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
   and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
   workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**

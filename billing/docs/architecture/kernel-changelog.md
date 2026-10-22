@@ -6,6 +6,16 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Key rotation (#25)
+
+- New registry `App\Support\Security\EncryptedStorage` (singleton, ADR 0012 shape):
+  `register(string $key, EncryptedColumn|EncryptedFiles $target, bool $replace = false)` and `all()`. Modules list
+  values encrypted with `APP_KEY` that no Eloquent encrypted cast declares, so `security:reencrypt` (Core) covers
+  them. New value objects `App\Support\Security\EncryptedColumn` (table, column, key column, prefix, JSON string)
+  and `App\Support\Security\EncryptedFiles` (path columns of a table, a disk). Additive. Core registers
+  `settings.value` and the two Fortify two-factor columns; Kyc registers its identity images. With a module absent,
+  its registration is absent too.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

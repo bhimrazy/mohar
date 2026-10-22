@@ -102,8 +102,9 @@ Dispatch the matching domain event as well (`TwoFactorReset`, `SettingsUpdated`,
 
 ## Go-live checklist
 
-- [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` (and `APP_PREVIOUS_KEYS` when rotating, so
-      encrypted settings stay readable).
+- [ ] `APP_ENV=production`, `APP_DEBUG=false`, a fresh `APP_KEY` that is in no repository, image or file backup
+      (`app:install` warns about a published or non-random key). Rotation: `APP_PREVIOUS_KEYS`, then
+      `php artisan security:reencrypt` ([devops/key-rotation.md](../devops/key-rotation.md)).
 - [ ] Installed with `php artisan app:install` (`docs/devops/install.md`), never with demo seeders: no
       `admin@example.com` or other `password` accounts exist.
 - [ ] **Trusted proxies** configured for the load balancer (`$middleware->trustProxies(at: [...])`, see

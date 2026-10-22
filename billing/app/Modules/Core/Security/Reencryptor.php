@@ -244,14 +244,16 @@ class Reencryptor
     private function compareAndSet(EncryptedColumn $target, int|string $key, string $old, string $new): int
     {
         $connection = $this->connection($target->connection);
-        $query = $connection->table($target->table)->where($target->keyColumn, $key);
+        $row = fn () => $connection->table($target->table)->where($target->keyColumn, $key);
 
-        // PostgreSQL has no equality operator for json; compare the stored text, which json keeps verbatim.
-        $target->json
-            ? $query->whereRaw('CAST('.$connection->getQueryGrammar()->wrap($target->column).' AS TEXT) = ?', [$old])
-            : $query->where($target->column, $old);
+        if (! $target->json) {
+            return $row()->where($target->column, $old)->update([$target->column => $new]);
+        }
 
-        return $query->update([$target->column => $new]);
+        // PostgreSQL has no equality operator for json: lock the row and compare the stored text (json keeps it verbatim).
+        return $connection->transaction(fn (): int => $row()->lockForUpdate()->value($target->column) === $old
+            ? $row()->update([$target->column => $new])
+            : 0);
     }
 
     /**
