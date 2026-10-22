@@ -71,6 +71,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
   admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
   requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
+- **Client import invitations.** A new table `migration_invitations` (migration `980300`, expand only) and a setting
+  `migration.invite_per_hour` (500). The permission `migration.runs.execute` now also covers sending invitations to
+  imported logins. A new system email template `client.migration_invitation` is installed by `php artisan app:install`
+  (run on every upgrade); it is always sent and cannot be switched off. Kernel: `App\Contracts\Auth\ClientLoginInvitations`
+  (Core binds a null default, Platform its invitation flow), `App\Enums\InvitationOutcome` and
+  `App\Enums\InvitationPurpose`. `App\Enums\SystemMailOutcome` gains `Suppressed` (mail logged but not sent on
+  purpose), which was reported as `Taken` before.
+- **Invitations while "Stop sending email" is on.** Adding a new login to a client now answers "the invitation was not
+  sent: email is switched off…" instead of reporting it sent, and leaves no open invitation; send it again once mail
+  is on.
 - **Client import opening balances.** Account-credit entries gain the reason `import`; an import's entries carry the
   reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. Migration
   `980310` adds `migration_records.entities` (expand only); applied rows now keep their undo snapshot per entity
@@ -563,6 +573,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
   errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
   generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- **Send invitations** (import report → Send invitations, client-import spec §5.7): lists the owner logins the import
+  created that nobody has used (no sign-in, no two-factor authentication, the password they were created with), by
+  state (not invited, waiting to send, invitation sent, expired), filtered by clients created or also updated by the
+  import, client group and status. Closed clients are never invited, and a login staff chose to link (it has its own
+  password) is never listed. Sending needs `migration.runs.execute` and a recent password; it queues the logins not
+  invited yet or whose invitation expired (an open invitation is not replaced in bulk) and sends at most
+  `migration.invite_per_hour` an hour, install-wide (default 500, Admin → Settings → Client import). Each login gets
+  its own single-use link through the same invitation flow as a login staff add (it sets the password and confirms
+  the email address) with the new editable template **Invitation after a client import**
+  (`client.migration_invitation`): never copied (CC and BCC are dropped), the link only in the button, never in the
+  subject, and never resent from the email log. A login that signed in, or whose client closed, after it was queued
+  is skipped. Without the Platform module, or while the link host check fails, the button is disabled with the reason,
+  and a sender that finds links unsendable stops and leaves the rest queued. A send that fails, or a sender that dies
+  part way, marks that login "Not sent" with the reason, and it can be sent again; an invitation the template system
+  refused leaves no open invitation behind (also for invitations staff send from a client's logins). The hourly limit
+  needs a cache store shared by every worker (database or Redis). While email is switched off ("Stop sending email")
+  or the template is turned off, the sender holds: no link is issued, the logins stay "Waiting to send", the page says
+  why, and "Continue sending" sends them once mail is on.
 - **Opening credit balances** (client-import spec §6.12): a column mapped to **Opening credit balance** (suggested for
   headers such as Credit or Opening balance) is read as an amount in the client's currency, never as a float: plain
   digits, western grouping (1,234,567) or lakh grouping (1,25,000), with at most two decimals after a point. A decimal

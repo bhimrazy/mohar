@@ -96,7 +96,7 @@ class EmailTemplate extends Model
     /** Account access and security mail: always sent, so it can't be switched off (only its wording edited). */
     public const ALWAYS_SENT = [
         'auth.password_reset', 'auth.email_verification', 'staff.password_reset', 'auth.user_invitation', 'staff.invitation',
-        'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
+        'client.migration_invitation', 'auth.login_added', 'auth.access_granted', 'auth.owner_changed', 'auth.two_factor_reset', 'staff.two_factor_reset',
         'staff.email_changed', 'staff.settings_changed',
     ];
 
