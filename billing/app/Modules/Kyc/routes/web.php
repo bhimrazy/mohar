@@ -18,6 +18,7 @@ Route::adminArea(function (): void {
         Route::get('/', [ReviewController::class, 'index'])->name('index');
         Route::get('clients/{client}', [ReviewController::class, 'show'])->whereNumber('client')->name('show');
         Route::post('clients/{client}/unlock', [ReviewController::class, 'unlock'])->whereNumber('client')->middleware('password.recent')->name('unlock');
+        Route::post('clients/{client}/lock', [ReviewController::class, 'lock'])->whereNumber('client')->name('lock');
         Route::get('documents/{document}/{side}', [ReviewController::class, 'image'])->whereNumber('document')->whereIn('side', ['front', 'back'])
             ->middleware('signed')->name('image');
         Route::post('documents/{document}/decision', [ReviewController::class, 'decide'])->whereNumber('document')->middleware('password.recent')->name('decide');

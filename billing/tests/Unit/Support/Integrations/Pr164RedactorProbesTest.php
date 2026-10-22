@@ -1,8 +1,8 @@
 <?php
 
 /*
- * Review-board probes for PR #164's Redactor change (maskPairs recursion), adopted as regression tests. M2 is
- * tracked as #190 (a central kernel fix) and skipped here until it lands.
+ * Review-board probes for PR #164's Redactor change (maskPairs recursion), adopted as regression tests. M2 and the
+ * #164 re-check leaks were fixed centrally in #190.
  */
 
 use App\Support\Integrations\Redactor;
@@ -47,9 +47,19 @@ test('labelled text without secrets is unchanged', function () {
 // ever reaches registrar_command_log"). OpenSRS answers in XML, ResellerClub error bodies are JSON.
 test('M2: secrets in a JSON body quoted after a label, or in XML, are masked', function (string $text, string $secret) {
     expect((new Redactor)->maskValues($text, []))->not->toContain($secret);
-})->skip('Pre-existing Redactor gaps, fixed centrally in the kernel: issue #190')->with([
+})->with([
     'json after a label' => ['HTTP 500: {"api-key":"K123","status":"ERROR"}', 'K123'],
     'xml element' => ['<passwd>P456</passwd>', 'P456'],
     'opensrs item' => ['<item key="reg_password">P789</item>', 'P789'],
     'value with a semicolon' => ['passwd=ab;cd', ';cd'],
+]);
+
+// #190 re-check (issue comment): past #164's bounds (2 levels, 4 KB values) a secret was kept whole.
+test('#190: a secret pair past any number of labels or behind a long value is masked', function (string $text, string $secret) {
+    expect((new Redactor)->maskValues($text, []))->not->toContain($secret);
+})->with([
+    'three labels' => ['a:b:c:api-key=K1', 'K1'],
+    'label, pair, label' => ['err:code=x:token=K1', 'K1'],
+    'label value over 4 KB' => ['Rejected: '.str_repeat('x', 5000).'?api-key=K1', 'K1'],
+    'url over 4 KB' => ['url: https://r.test/'.str_repeat('a', 5000).'?token=K1', 'K1'],
 ]);

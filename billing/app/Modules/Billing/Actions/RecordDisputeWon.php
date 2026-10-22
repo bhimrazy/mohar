@@ -3,6 +3,7 @@
 namespace App\Modules\Billing\Actions;
 
 use App\Events\Billing\InvoiceModified;
+use App\Events\Billing\PaymentReinstated;
 use App\Modules\Billing\Enums\CreditReason;
 use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
@@ -34,6 +35,11 @@ use Illuminate\Support\Facades\DB;
  *
  * The reversal row (`chargeback_reversal`, the dispute id) books everything the chargeback booked out as money in; the
  * unique `(gateway, gateway_txn_id, type)` index stops a second one. Locks run payment, invoice, client.
+ *
+ * A win dispatches one PaymentReinstated after commit per chargeback row that fired PaymentReversed (#221): the
+ * same invoice and invoice amount, also when the invoice still owes more or the money went to staff review. A
+ * dispute that took back only credit fired no PaymentReversed and fires no PaymentReinstated; a duplicate delivery
+ * dispatches nothing.
  */
 class RecordDisputeWon
 {
@@ -88,6 +94,8 @@ class RecordDisputeWon
             ]);
 
             $review = 0;
+            /** @var list<PaymentReinstated> $reinstated */
+            $reinstated = [];
 
             foreach ($rows as $row) {
                 // The invoice part of the row: the first also booked the credit taken back and any rest nobody covered.
@@ -104,6 +112,13 @@ class RecordDisputeWon
                 $takesBack = $invoice !== null && ($invoice->status->isPayable() || $invoice->status === InvoiceStatus::Paid);
                 $applied = $takesBack ? min($portion, max(0, $invoice->balance)) : 0;
                 $review += $portion - $applied;
+
+                // The counterpart of the PaymentReversed this row fired (RecordChargeback fires one per row with an
+                // invoice part on an invoice): same invoice and amount, whether the money goes back on the invoice or
+                // to staff review (#221).
+                if ($payment->invoice_id !== null) {
+                    $reinstated[] = new PaymentReinstated($payment->invoice_id, $row->client_id, $won->id, $row->id, $portion, $invoice->currency ?? $row->currency, $portion - $applied);
+                }
 
                 if ($applied > 0) {
                     $payment->refundable_remaining += $applied;
@@ -132,6 +147,8 @@ class RecordDisputeWon
             if ($review > 0) {
                 $won->update(['review_amount' => $review]);
             }
+
+            AfterCommit::dispatch(...$reinstated);
 
             return $won;
         });

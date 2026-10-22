@@ -258,7 +258,8 @@ interface HostedPaymentDriver extends GatewayDriver            // opt-in; manual
   plus `required` and `default`. Secrets keep going into `gateways.config` (`encrypted:array`), and the admin UI
   never echoes them back (it shows "••• set", and an empty submit keeps the old value).
 - Module-level tunables go in the `SettingsRegistry` billing section:
-  `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookup_grace_minutes` (120),
+  `billing.gateways.lookup_interval_minutes` (5), `billing.gateways.lookups_per_run` (200, at most 1,000; least
+  recently checked first, 4-minute deadline per run), `billing.gateways.lookup_grace_minutes` (120),
   `billing.gateways.http_timeout_seconds` (15), `billing.gateways.ambiguous_alert_minutes` (30),
   `billing.gateways.late_lookup_hours` (48) and `billing.gateways.late_lookups_per_run` (100).
 - **Packaging (an "extension"):** each extension is one class `Drivers/Gateways/Nepal/<Name>Driver.php` plus

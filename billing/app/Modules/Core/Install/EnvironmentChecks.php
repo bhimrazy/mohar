@@ -7,7 +7,6 @@ use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Database\Migrations\Migrator;
-use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -41,6 +40,7 @@ final class EnvironmentChecks
             $database,
             $migrations,
             $this->queue(),
+            $this->lockStore(),
             $this->queueTimeouts(),
             $migrations->failed() || $migrations->status === CheckStatus::Skipped
                 ? new EnvironmentCheck('Scheduler', CheckStatus::Skipped, 'Needs a migrated database.')
@@ -75,19 +75,7 @@ final class EnvironmentChecks
 
     private function appKey(): EnvironmentCheck
     {
-        $key = (string) config('app.key');
-
-        if ($key === '') {
-            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY is not set. Run `php artisan key:generate` once and keep the key: it decrypts stored secrets.');
-        }
-
-        $raw = str_starts_with($key, 'base64:') ? (string) base64_decode(substr($key, 7), true) : $key;
-
-        if (! Encrypter::supported($raw, (string) config('app.cipher'))) {
-            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY does not fit the configured cipher. Generate one with `php artisan key:generate --show`.');
-        }
-
-        return new EnvironmentCheck('APP_KEY', CheckStatus::Ok, 'Set.');
+        return (new AppKeyCheck)->run();
     }
 
     private function database(): EnvironmentCheck
@@ -136,6 +124,21 @@ final class EnvironmentChecks
         }
 
         return new EnvironmentCheck('Queue', CheckStatus::Ok, "{$connection} ({$driver}). Workers must be running: see the next steps.");
+    }
+
+    /**
+     * The cache lock store must be shared (CacheLockStore). A store that cannot exclude other processes stops a first
+     * production install; on a re-run after an upgrade, in development and in tests it warns, so a deploy is not blocked.
+     */
+    private function lockStore(): EnvironmentCheck
+    {
+        $result = (new CacheLockStore)->assess();
+
+        if ($result['status'] === CheckStatus::Failed && ! (app()->isProduction() && $this->firstInstall())) {
+            return new EnvironmentCheck('Cache lock store', CheckStatus::Warning, $result['detail']);
+        }
+
+        return new EnvironmentCheck('Cache lock store', $result['status'], $result['detail']);
     }
 
     private function queueTimeouts(): EnvironmentCheck

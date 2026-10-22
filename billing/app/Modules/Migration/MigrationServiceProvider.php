@@ -3,6 +3,7 @@
 namespace App\Modules\Migration;
 
 use App\Modules\Core\Support\ActivityLogger;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Migration\Models\MigrationRecord;
 use App\Modules\Migration\Models\MigrationRun;
 use App\Support\Automation\Automation;
@@ -10,11 +11,11 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -29,16 +30,15 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', RequirePassword::class);
-        }
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
+        $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
+        $this->app->make(InstallSecrets::class)->define(MigrationRecord::EMAIL_HASH_SECRET, MigrationRecord::emailHashKey(...));
 
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',
-            'migration.runs.execute' => 'Upload client files, map and check them (reads client data)',
+            'migration.runs.execute' => 'Upload client files, map, check and apply them, and send invitations to imported logins (reads client data)',
         ], sensitive: ['migration.runs.execute']);
 
         $this->app->make(Navigation::class)->add('admin', new NavItem('Import clients', 'admin.migration.imports.index', 'FileUp', 'Clients', 50, 'migration.runs.view', 'admin.migration.imports.*'));
@@ -48,6 +48,7 @@ class MigrationServiceProvider extends ModuleServiceProvider
             new SettingDefinition('migration.csv.max_rows', 'Most rows per file', 'integer', rules: ['integer', 'min:100', 'max:500000']),
             new SettingDefinition('migration.csv.max_columns', 'Most columns per file', 'integer', rules: ['integer', 'min:10', 'max:500']),
             new SettingDefinition('migration.staging_days', 'Days an unapplied upload is kept', 'integer', 'Its rows are then purged; counts stay.', rules: ['integer', 'min:1', 'max:30']),
+            new SettingDefinition('migration.invite_per_hour', 'Invitations sent per hour', 'integer', 'Invitations to imported logins are sent at most this many an hour. Keep it within your mail provider\'s limit.', rules: ['integer', 'min:1', 'max:10000']),
             new SettingDefinition('migration.undo_days', 'Days an applied import keeps its rows', 'integer', 'After that its row details are purged; counts and outcomes stay.', rules: ['integer', 'min:1', 'max:30']),
         ], 'migration.runs.execute');
 

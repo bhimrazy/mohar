@@ -12,8 +12,11 @@ use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
 use App\Support\Integrations\Redactor;
 use Closure;
+use Error;
+use Exception;
 use Illuminate\Support\Facades\Auth;
 use JsonSerializable;
+use ReflectionProperty;
 use Throwable;
 
 /**
@@ -21,7 +24,8 @@ use Throwable;
  * times the call and writes registrar_command_log with secrets redacted and responses truncated.
  *
  * Error text a driver raises is masked (secret pairs by name, and the account's own configured credentials by value)
- * before it is logged or re-thrown, so callers can store it in last_error, the activity log and events.
+ * before it is logged or re-thrown, so callers can store it in last_error, the activity log and events. The re-thrown
+ * exception keeps its class, retry flag and previous chain; only the messages along the chain are masked.
  *
  * Failure semantics for the non-idempotent commands (register, transfer, renew, restore): only a
  * RegistrarException(retryable: true) from the driver means "not executed, safe to retry". Any other
@@ -77,20 +81,17 @@ class RegistrarGateway
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
 
-            throw match (true) {
-                $error === $exception->getMessage() => $exception,
-                $exception instanceof RegistrarTimeout => new RegistrarTimeout($error),
-                default => new RegistrarException($error, $exception->retryable),
-            };
+            throw $this->maskChain($exception, $secrets);
         } catch (Throwable $exception) {
             $error = $this->redactor->maskValues($exception->getMessage(), $secrets);
             $this->record($registrarKey, $capability, $domain, $request, null, false, $error, $started, $staffId, $secrets);
+            $previous = $this->maskChain($exception, $secrets);
 
             if (in_array($capability, self::MUTATING, true)) {
-                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}");
+                throw new RegistrarTimeout("Unexpected registrar error; the {$capability} outcome is unknown: {$error}", $previous);
             }
 
-            throw new RegistrarException('The registrar call failed: '.$error, retryable: true);
+            throw new RegistrarException('The registrar call failed: '.$error, retryable: true, previous: $previous);
         }
     }
 
@@ -118,6 +119,29 @@ class RegistrarGateway
     public function supports(Domain $domain, string $capability): bool
     {
         return in_array($capability, $this->registrars->capabilitiesOf($domain->registrar_key), true);
+    }
+
+    /**
+     * Mask the message of the exception and of every exception behind it, in place, so the re-thrown error keeps its
+     * class, retry flag, trace and `previous` while nothing it carries to the log or to staff holds a credential.
+     *
+     * @template E of Throwable
+     *
+     * @param  E  $exception
+     * @param  list<string>  $secrets
+     * @return E
+     */
+    private function maskChain(Throwable $exception, array $secrets): Throwable
+    {
+        for ($link = $exception, $hops = 0; $link !== null && $hops < 16; $link = $link->getPrevious(), $hops++) {
+            $masked = $this->redactor->maskValues($link->getMessage(), $secrets);
+
+            if ($masked !== $link->getMessage()) {
+                (new ReflectionProperty($link instanceof Exception ? Exception::class : Error::class, 'message'))->setValue($link, $masked);
+            }
+        }
+
+        return $exception;
     }
 
     /**

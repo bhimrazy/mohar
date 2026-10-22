@@ -36,6 +36,114 @@ Additive; Domains moves onto these in PR C2, which removes its module SPI.
   `test_connection` is new. `RegistrarException` (without HTTP rendering), `RegistrarTimeout` and
   `CapabilityNotSupported` in the same namespace.
 
+### Client import invitations (importer B2a)
+
+- New contract `App\Contracts\Auth\ClientLoginInvitations` (client-import spec C3; beside `AuthMailer`):
+  `problem(): ?string` (why no invitation can be sent now, ADR 0012 addendum) and `invite(int $clientId, int $userId,
+  InvitationPurpose $purpose = InvitationPurpose::LoginAdded, ?int $actorId = null): InvitationOutcome`. Core binds
+  `NullClientLoginInvitations` ("not installed", always `Unavailable`); Platform binds `PlatformClientLoginInvitations`,
+  which maps each purpose to its template and invites only a never-used login.
+- New enum `App\Enums\InvitationPurpose` (`LoginAdded`, `Import`), `@open`.
+- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Held`, `Unavailable`), `@open`. `Held`:
+  mail is off on purpose, no link was issued, the login can be invited later.
+- `App\Enums\SystemMailOutcome::Suppressed` (new case): the template system logged the mail but did not send it on
+  purpose (mail switched off, the template turned off, demo data). It was `Taken` before. Nothing else may send it, as
+  with `Taken`; callers that compare with `Refused` or `Unavailable` are unchanged. `ManageClientLogins` puts back an
+  invitation whose mail was suppressed.
+
+### Key rotation (#25, ADR 0022)
+
+- New registry `App\Support\Security\EncryptedStorage` (`final`, `@api`, singleton, ADR 0012 shape):
+  `register(string $key, EncryptedModel|EncryptedColumn|EncryptedFiles $target, bool $replace = false)`, `has()`,
+  `keys()` and `all()`. Keys match `[a-z0-9_]{1,50}` (`<module>` or `<module>_<part>`); a duplicate key throws unless
+  `$replace`, and two keys naming the same storage throw `LogicException`. Modules declare there all data encrypted
+  with `APP_KEY` that outlives a rotation, so `security:reencrypt` (Core) covers it without reading other modules'
+  classes.
+- New value objects (`@api`): `EncryptedModel(class-string<Model>)` (a model whose encrypted casts are read when the
+  command runs), `EncryptedColumn` (table, column, key column, prefix, JSON string) and `EncryptedFiles` (path columns
+  of a table, a disk, and `lockFirst` naming the parent row to lock before the row). Additive. Every module with an
+  encrypted cast registers its models; Core also registers `core_settings`, the two Fortify columns and
+  `core_install_secrets`; Kyc registers `kyc_documents_files`. With a module absent, its registrations are absent
+  and a real run asks for `--partial`.
+- Outside the kernel: `App\Providers\ModulesServiceProvider::availableModules()` (every module on disk) and
+  `App\Modules\Core\Support\InstallSecrets` (per-install secrets that survive a rotation; Migration's email hash
+  uses it).
+
+### Step-up in the kernel (#81, ADR 0018 §4)
+
+- `App\Http\Middleware\RequireRecentPasswordConfirmation` (moved from `App\Modules\Platform\Http\Middleware`): the
+  `password.recent` middleware, aliased in `bootstrap/app.php`. Same contract: `ERROR_KEY`, `recentlyConfirmed()`,
+  `timeout()`; 423 for JSON, a `password_confirmation` validation error for Inertia. The window is read from
+  `auth.step_up_seconds` (900), which replaces `platform.password_confirmation_seconds`. Billing's
+  `ConfirmPasswordForAction` copy and Migration's `RequirePassword` fallback are deleted; modules register no step-up
+  alias of their own. `tests/Extensions/ModuleRoutesResolveTest.php` boots each module alone and fails when a route's
+  middleware does not resolve.
+
+### Client import opening balances and tax-number notes (importer B2b)
+
+- New capability `App\Contracts\Migration\RevertsImport extends RecordImporter` with
+  `revert(ImportRecord $record, ImportOutcome $applied, ImportContext $context): ImportOutcome` (ADR 0019 addendum).
+  Billing's `credit_balance` importer implements it. `App\Enums\ImportAction::Reverted` (new case of the open enum).
+- New contract `App\Contracts\Billing\TaxIdRules`: `normalize(string $country, string $taxId): string` and
+  `notes(string $country, ?string $taxId, ?string $state, bool $business): list<TaxIdNote>`, with the new DTO
+  `App\Data\Billing\TaxIdNote` (`severity` WARNING or INFO, `code`, `message`).
+  Core binds `NullTaxIdRules`; Billing binds `BillingTaxIdRules` (Nepal PAN, Indian GSTIN, EU reverse charge).
+
+### Payment follow-ups (#232, #221)
+
+- New event `App\Events\Billing\PaymentReinstated(invoiceId, clientId, transactionId, chargebackTransactionId,
+  amount, currency, reviewAmount = 0)` (compatible addition, #221): a won dispute undid a chargeback. The counterpart
+  of `PaymentReversed`, one to one: Billing's `RecordDisputeWon` dispatches, after commit, one per chargeback row that
+  fired `PaymentReversed`, with the same invoice and amount (one per invoice of a combined charge; none for a dispute
+  that took back only credit), whether or not the invoice is settled again. `transactionId` is the win's
+  `chargeback_reversal` row, `chargebackTransactionId` the chargeback row, `reviewAmount` the part held for staff
+  review. Implements `DomainEvent` and
+  `ShouldDispatchAfterCommit`. Notifications publishes it as the `payment.reinstated` webhook, and `PaymentReversed`
+  as `payment.reversed`; with Notifications absent nothing listens.
+- `App\Data\Billing\CallbackEvent` gains a trailing `bool $fundsReinstated = false` (compatible, #232): on
+  `DISPUTE_WON`, the provider's record shows the disputed money withdrawn and reinstated, so a win with no booked
+  chargeback is acknowledged (200, a zero-amount `chargeback_reversal` row as the won marker, no money moved) instead of
+  refused with 409. Set by the Stripe driver from the
+  dispute's balance transactions; other drivers keep the 409-and-retry behaviour.
+
+### Resume or cancel a hosted payment (#123)
+
+- New opt-in capability `App\Contracts\Billing\ResumesHostedPayment::resumeUrl(GatewayConfig, PaymentAttemptRef):
+  ?string`: the provider page where the customer can finish a still-open attempt, read from the provider at request
+  time and accepted only as https on the provider's own payment host. Billing never stores it or sends it as a prop.
+- New opt-in capability `App\Contracts\Billing\CancelsHostedPayment::cancelSession(GatewayConfig, PaymentAttemptRef):
+  HostedSessionCancel`: closes the provider session before Billing frees the invoice for another way to pay. Called
+  outside any database transaction; the answer is logged only, and settlement still comes from `lookup()`.
+- New closed enum `App\Enums\HostedSessionCancel` (`closed`, `already_final`, `unreachable`).
+- Additive: `HostedPaymentDriver` is unchanged and drivers without the interfaces keep working. Implemented by
+  `StripeDriver` and the sandbox card driver.
+
+### Redactor gaps (#190, CTO-sanctioned kernel change)
+
+- `App\Support\Integrations\Redactor` (`@api`): public method signatures unchanged. The string rules behind
+  `redact()`, `maskValues()` and `excerpt()` now run as one linear left-to-right scan instead of the bounded
+  `maskPairs()` recursion (the `NESTED_PAIR_*` limits are gone): secret `name=value`, `name: value`, `"name":"value"`
+  and `'name' => 'value'` pairs (quoted values with escapes, JSON arrays and objects, unquoted values through `;` and
+  `,` that continue the value), XML elements named like a secret or labelled by a secret `key`/`name` attribute (CDATA
+  included), secret XML attributes, URL userinfo, percent-encoded pairs, `curl -u` credentials (quoted or attached), whole
+  `Cookie:` and `Set-Cookie:` lines, and Stripe and Khalti key shapes. End tags are found through one index of `</`
+  offsets read by a forward-only cursor, so the scan stays linear with many unclosed elements (#252 B1). A secret
+  element with no end tag masks the rest of the text (fail closed); an element named like an HTML void element
+  (`<input name="password">`, XML `<param>`) with no matching end tag later in the text masks the text up to the next
+  tag or its CDATA section, so an HTML input masks nothing after it; with an end tag later it is masked to that end
+  tag like any element, child elements and comments included. An unquoted name whose value would start on the next
+  line takes that line unless it is header-shaped (a name, `:`, then a blank or the line end), so an empty `Cookie:`
+  keeps the next header while `password:\nvalue` and `token:\nQWx…==` are masked. The word
+  rules gain `pw` (EPP `newPW`) and the run-together `session` (`cpsession`, `whostmgrsession`).
+- Masks widen, with two narrowings: `auth-userid` (ResellerClub's reseller id) is no longer secret, and after an
+  unquoted `Session:` or `hash:` label in free text a value that is a known reference id (Stripe `cs_`, `pi_`, `ch_`,
+  `evt_`, `cus_`, `in_`, `sub_`, `re_`, `py_`, `seti_` ids) stays readable when the id is the whole value, optionally ending a sentence with `.`. Any other value after those
+  labels, `session=`, `hash=` and quoted keys stay secret.
+- A string that is a whole JSON document and holds nothing secret is returned unchanged instead of re-encoded.
+- `redactPayment()` also applies the string rules to text leaves (before Luhn scrubbing). Key rules unchanged.
+- Behaviour change for callers comparing exact output: a quoted secret keeps its quotes (`"password":"[redacted]"`,
+  `password="[redacted]"`); an unquoted one is replaced whole as before.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

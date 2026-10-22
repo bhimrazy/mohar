@@ -8,12 +8,16 @@ use App\Data\Billing\RedirectInstruction;
 use App\Http\Controllers\Controller;
 use App\Modules\Billing\Actions\ApplyCredit;
 use App\Modules\Billing\Actions\CaptureInvoice;
+use App\Modules\Billing\Actions\CloseHostedPayment;
 use App\Modules\Billing\Actions\ManagePayMethods;
+use App\Modules\Billing\Actions\ResumeHostedPayment;
+use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Http\Requests\Client\AmountRequest;
 use App\Modules\Billing\Http\Requests\Client\PayInvoiceRequest;
 use App\Modules\Billing\Http\Resources\AdjustmentResource;
@@ -89,8 +93,10 @@ class InvoiceController extends Controller
             'invoice' => new InvoiceResource($invoice),
             'items' => InvoiceItemResource::collection($invoice->items),
             'adjustments' => AdjustmentResource::collection($invoice->adjustments),
-            // A dispute inquiry is a staff to-do that moved no money (#212).
-            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)->get()),
+            // Zero-amount records (an inquiry's to-do #212, the won-dispute marker #232) moved no money: as on the PDF,
+            // the client sees only rows that did.
+            'transactions' => TransactionResource::collection($invoice->transactions()->where('type', '!=', TransactionType::DisputeInquiry)
+                ->where(fn ($query) => $query->where('amount_in', '>', 0)->orWhere('amount_out', '>', 0))->get()),
             'payment' => $invoice->status === InvoiceStatus::Unpaid && $invoice->balance > 0 ? $options->forInvoice($invoice) : null,
             'payment_in_progress' => $invoice->status->isPayable() ? $inProgress->forInvoice($invoice) : null,
         ]);
@@ -141,6 +147,77 @@ class InvoiceController extends Controller
         Inertia::flash('toast', ['type' => 'success', 'message' => __('Credit applied to invoice :number.', ['number' => $invoice->displayNumber()])]);
 
         return back();
+    }
+
+    /**
+     * "Continue payment": back to the provider page of this client's still-open attempt (#123). When the provider
+     * no longer offers it, the attempt is looked up so the invoice shows where it stands.
+     */
+    public function resumeAttempt(int $invoice, string $reference, ResumeHostedPayment $resume, SettlePaymentAttempt $settle): SymfonyResponse
+    {
+        $this->context->authorize('billing');
+        $attempt = $this->ownAttempt($this->find($invoice), $reference);
+        $url = $resume->handle($attempt);
+
+        if ($url !== null) {
+            return Inertia::location($url);
+        }
+
+        $status = PaymentInProgress::closable($attempt) ? $settle->handle($attempt, interactive: true) : $attempt->status;
+
+        if ($status->isOpen()) {
+            throw new BillingException(__('We couldn\'t reopen the payment page. Try again in a few minutes, or use another method.'));
+        }
+
+        Inertia::flash('toast', $this->attemptToast($status));
+
+        return to_route('client.invoices.show', $attempt->invoice_id);
+    }
+
+    /**
+     * "Use another method": close this client's open attempt at the provider, then free the invoice only if the
+     * lookup confirms the attempt can no longer be paid (#123).
+     */
+    public function closeAttempt(int $invoice, string $reference, CloseHostedPayment $close): RedirectResponse
+    {
+        $this->context->authorize('billing');
+        $attempt = $this->ownAttempt($this->find($invoice), $reference);
+        $status = $close->handle($attempt);
+
+        // The gateway's display label is a method name ("Card"), not a place, so the messages don't name it (#121).
+        if ($status->isOpen()) {
+            throw new BillingException(match (true) {
+                $status === AttemptStatus::Ambiguous => __('This payment hasn\'t been confirmed yet, so it can\'t be closed. If you were charged, you don\'t need to pay again.'),
+                $attempt->refresh()->expires_at === null => __('This payment is still being processed, so it can\'t be closed. This invoice updates once it finishes.'),
+                default => __('The payment page is still open, so the payment could still be made there. Finish it there, or try again in a few minutes.'),
+            });
+        }
+
+        Inertia::flash('toast', $this->attemptToast($status));
+
+        return to_route('client.invoices.show', $attempt->invoice_id);
+    }
+
+    /**
+     * @return array{type: string, message: string}
+     */
+    private function attemptToast(AttemptStatus $status): array
+    {
+        return $status === AttemptStatus::Succeeded
+            ? ['type' => 'success', 'message' => __('Payment received. Thank you.')]
+            : ['type' => 'info', 'message' => __('That payment is closed. Choose another way to pay.')];
+    }
+
+    /**
+     * An attempt of this client's invoice, by its reference (404 for anyone else's).
+     */
+    private function ownAttempt(Invoice $invoice, string $reference): PaymentAttempt
+    {
+        return PaymentAttempt::query()
+            ->where('client_id', $this->context->id())
+            ->where('invoice_id', $invoice->id)
+            ->where('reference', $reference)
+            ->firstOrFail();
     }
 
     /**

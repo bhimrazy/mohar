@@ -22,6 +22,8 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -42,6 +44,11 @@ class CatalogServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('catalog_products', new EncryptedModel(Product::class));
+        $encrypted->register('catalog_addons', new EncryptedModel(Addon::class));
+
         Relation::morphMap([
             'product' => Product::class,
             'addon' => Addon::class,

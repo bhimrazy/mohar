@@ -13,7 +13,7 @@ use Inertia\Testing\AssertableInertia as Assert;
 
 require_once __DIR__.'/helpers.php';
 
-/** Sensitive staff actions require a recent password confirmation (ConfirmPasswordForAction). */
+/** Sensitive staff actions require a recent password confirmation (password.recent, App\Http\Middleware\RequireRecentPasswordConfirmation). */
 beforeEach(fn () => $this->withSession(['auth.password_confirmed_at' => time()]));
 
 test('guests, customers and staff without permission cannot see invoices', function () {

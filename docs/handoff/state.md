@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-22 06:10 UTC by the CTO session (main site). Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 08:40 UTC by the CTO session. Work paused: the codespace hit its usage limit. Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -8,6 +8,8 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Progress toward "a product a host would switch to": **53/100** (CEO review round 3, 2026-10-20 afternoon,
   `docs/reviews/2026-10-20-ceo-round-3.md`; rubric in `docs/reviews/readme.md`). The merges below have not been scored
   yet; the next CEO round scores them.
+- Merged on 2026-10-22 (later): #237 client currency lock, #246 e2e in NPR, #248 currency code immutable, #249 KYC
+  history cleared, #261 server-import lock, #260 install requires a shared lock store (#64), #245 two-site docs.
 - Merged on 2026-10-22: the PHP 8.4.27 security patch for CVE-2026-109618/109619 through FrankenPHP 1.13.2, by
   security exception (#243), and client KYC: uploads plus staff review by Full Administrators only (#228, #231).
 - Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
@@ -50,24 +52,31 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 | #112 | Sign-in PR 0                                          | Draft. To be cut to the ADR 0018 §4 fix, or closed.            |
 | #128 | Gateway expansion spec (connectIPS, Fonepay, cards)   | Draft. Owner questions in the PR.                              |
 
-## Running now (2026-10-22 06:10 UTC; budget: load below 8, 2 GB free, disk below 85%)
+## Paused (2026-10-22 08:40 UTC; one codespace, `mohar-codespace-2`; the old site is deleted)
 
-- Code: KYC fix round (#228 part 1, #231 part 2; security re-check before merge); #218 client currency
-  locked once the client has records (go-live).
-- Queue, in order: importer B2
-  (invitations, opening balances, tax-ID warnings); Khalti and eSewa simulators from captures (#208, low); #112 cut;
-  kernel PR C before ResellerClub; #190 Redactor gaps; #235 (e2e default currency), #216, #217, #221, #225, #230, #232 follow-ups; the tail-latency
-  performance work (#205).
+All agents were stopped. Every branch is pushed; unfinished work is in `wip` commits. Resume each step below with a
+fresh agent (the stopped agents cannot be resumed on a new machine).
 
-Two build sites since 10-22 (`operating-model.md`, "Two build sites"):
+| PR | Where it stopped | Next step |
+| --- | --- | --- |
+| #252 Redactor gaps (#190) | Fix round done at d8f3dfc8 | Second re-check (allow-list secret probes, linearity of fail-closed scan, void elements), then merge |
+| #266 hosted resume (#123) | Fix round done at 2af1c49e; gates pass | Merge `origin/develop` (has #260, needed for N1/P4), re-reviewer re-check, merge |
+| #256 chargebacks (#232, #230, #221) | Fix round done | Re-reviewer re-check, merge |
+| #255 importer B2a invitations | Fix round done | Re-reviewer re-check, merge |
+| #259 importer B2b opening balances | Fix round done | Re-check; unfinished probes on branch `wip/recheck-259-probes` |
+| #268 password.recent kernel (#81) | Opened | Combined review + principal-architect gate |
+| #253 key rotation (#25) | Second fix round (N1 orphan image, N2 secret seeding, N3 overlapping runs, N4 `--only`) written, gates not run | Run gates, re-check |
+| #262/#264/#265 registrar contracts (PR C) | C2 review fixes in progress, `wip` commit 74c5fb60 on `feature/kernel-registrars-domains` | Finish C2 after #252 merges, then re-review |
+| #242 Laravel 13.36 (#11) | Cooldown clears 13:25 UTC 10-22 | Add `ci`, merge on green (the scheduled watcher stops with the codespace) |
 
-- Main site: #237 client currency lock (re-check passed; merges on green CI); #242 Laravel 13.36 (CI from 13:25
-  UTC, after wayfinder clears the cooldown); importer B2 (invitations, opening balances, tax-ID warnings).
-- Second site: #238 currency code immutable; #240 KYC history cleared when the unlock ends; #235 e2e fixtures in NPR.
-- Queue, in order: #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #239 ImportServerAccounts lock; #233 KYC EXIF
-  stripping (before KYC is on by default); #244 Node 24.22.1 and Debian base images (after 10-28); Khalti and eSewa
-  simulators (#208, low); #112 cut; kernel PR C before ResellerClub; #190 Redactor gaps; #216, #217, #221, #225,
-  #230, #232 follow-ups; tail latency (#205).
+After each merge close the issue by hand (`develop` ignores closing keywords).
+
+- Queue, in order: #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #233 KYC EXIF stripping; #126 deploy smoke seed;
+  #254 Redactor follow-ups and ADR 0023; #263 credit ledger idempotency key; #267, #269, #250, #257, #258, #216, #225;
+  #244 Node and Debian images (after 10-28); #208 simulators (low); tail latency (#205). The periodic review round
+  is overdue. The owner's preview on port 8000 is behind `develop`.
+- Owner questions from importer B2: how Nepali hosts invite migrated clients today; whether 500 invitations per
+  hour is right; whether a missing PAN is a warning or blocks the import.
 
 ## Open owner questions
 

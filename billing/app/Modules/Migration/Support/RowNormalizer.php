@@ -2,6 +2,7 @@
 
 namespace App\Modules\Migration\Support;
 
+use App\Contracts\Billing\TaxIdRules;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\ClientRules;
 use Carbon\CarbonImmutable;
@@ -44,6 +45,7 @@ final class RowNormalizer
         private string $defaultCurrency,
         private array $groups,
         private array $locales,
+        private TaxIdRules $taxIds,
     ) {}
 
     /**
@@ -95,6 +97,7 @@ final class RowNormalizer
                     ? $this->problem('error', 'too_long', __('The consent evidence is longer than 500 characters.'), $target)
                     : $extra[$target] = $value,
                 'currency' => $client['currency'] = $this->currency($value),
+                'credit_balance' => $extra[$target] = $this->credit($value),
                 'client_group' => $client = [...$client, ...$this->group($value)],
                 'country' => $client['country'] = $this->country($value),
                 'status' => $client['status'] = $this->status($value),
@@ -104,6 +107,7 @@ final class RowNormalizer
         }
 
         $this->spreadsheetArtefacts($client);
+        $this->taxId($client);
         $validator = Validator::make([...$defaults, ...$client], ClientRules::fields())
             ->setAttributeNames(array_map(mb_strtolower(...), ClientColumns::TARGETS));
 
@@ -150,6 +154,52 @@ final class RowNormalizer
         }
 
         return $date->toDateString();
+    }
+
+    /**
+     * An opening credit balance in minor units (ADR 0002), parsed as text, never as a float: plain digits, western
+     * grouping (1,234,567) or lakh grouping (12,34,567), with an optional point and one or two decimals. Anything else
+     * is refused, so a decimal comma ("250,50") or loose grouping ("1,2,3") is never read as a larger amount.
+     */
+    private function credit(string $value): ?int
+    {
+        if (preg_match('/^-\d/', $value) === 1) {
+            $this->problem('error', 'credit_negative', __('The opening credit balance cannot be negative.'), 'credit_balance');
+
+            return null;
+        }
+
+        $grouped = '(?:\d{1,12}|\d{1,3}(?:,\d{3}){1,3}|\d{1,2}(?:,\d{2}){1,4},\d{3})';
+
+        if (preg_match('/^('.$grouped.')(?:\.(\d{1,2}))?$/', $value, $parts) !== 1 || strlen($whole = str_replace(',', '', $parts[1])) > 12) {
+            $this->problem('error', 'credit_format', __('The opening credit balance must be an amount such as 1,250.50 or 1,25,000.50: digits, commas only between groups, and at most two decimals after a point.'), 'credit_balance');
+
+            return null;
+        }
+
+        return (int) $whole * 100 + (int) str_pad($parts[2] ?? '0', 2, '0');
+    }
+
+    /**
+     * The tax number as invoices store it, and Billing's notes on it (client-import spec §6.6): warnings, never errors.
+     *
+     * @param  array<string, mixed>  $client
+     */
+    private function taxId(array &$client): void
+    {
+        $country = $client['country'] ?? null;
+
+        if (! is_string($country)) {
+            return;
+        }
+
+        if (is_string($client['tax_id'] ?? null)) {
+            $client['tax_id'] = $this->taxIds->normalize($country, $client['tax_id']);
+        }
+
+        foreach ($this->taxIds->notes($country, $client['tax_id'] ?? null, $client['state'] ?? null, ($client['company_name'] ?? '') !== '') as $note) {
+            $this->problem($note->severity, $note->code, $note->message, 'tax_id');
+        }
     }
 
     private function currency(string $value): string

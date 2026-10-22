@@ -20,13 +20,18 @@ arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
         'App\Modules\Services\Support\Redactor',
     ]);
 
-arch('registrar contracts and DTOs use no model and no module (ADR 0009 "Verification")')
-    ->expect(['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'])
-    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models', 'App\Modules']);
+// One target per rule: a not->toUse() over several targets passes when any one of them is clean (issue #275).
+foreach (['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'] as $registrarKernel) {
+    arch("{$registrarKernel} uses no model and no module (ADR 0009 \"Verification\")")
+        ->expect($registrarKernel)
+        ->not->toUse(['Illuminate\Database\Eloquent\Model', 'App\Models', 'App\Modules']);
+}
 
-arch('provisioning drivers see snapshots only: no models, no database')
-    ->expect(['App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions'])
-    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Services\Models', 'App\Models']);
+foreach (['App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions'] as $driverCode) {
+    arch("{$driverCode} sees snapshots only: no models, no database")
+        ->expect($driverCode)
+        ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Services\Models', 'App\Models']);
+}
 
 arch('an extension package uses the kernel only, never a module')
     ->expect('Tests\Fixtures\Extensions')
@@ -62,6 +67,13 @@ foreach ($importerNamespaces as $namespace) {
 
 test('the record-importer rule refuses an importer that dispatches an event', function () {
     expect(fn () => expect('Tests\Fixtures\Migration\Import')->not->toUse(importerForbidden()))->toThrow(ExpectationFailedException::class);
+});
+
+test('every arch target in this file matches at least one class', function () use ($importerNamespaces) {
+    expect($importerNamespaces)->not->toBe([])
+        ->and(archTargetsWithoutClasses([
+            'App', 'App\Modules', 'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
+        ]))->toBe([]);
 });
 
 afterAll(fn () => releaseArchCache());
