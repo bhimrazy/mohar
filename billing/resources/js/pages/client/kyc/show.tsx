@@ -10,6 +10,7 @@ import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
 import { StatusBadge } from '@/components/app/status-badge';
+import { PhotoField } from '@/components/kyc/photo-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -93,6 +94,9 @@ function DocumentUpload({
 }) {
     const id = (field: string) => `${row.type}-${field}`;
     const accept = 'image/jpeg,image/png,image/webp';
+    const [frontBusy, setFrontBusy] = useState(false);
+    const [backBusy, setBackBusy] = useState(false);
+    const preparing = frontBusy || backBusy;
 
     return (
         <Form
@@ -120,36 +124,24 @@ function DocumentUpload({
                             aria-describedby={`${id('number')}-description`}
                         />
                     </Field>
-                    <Field
-                        htmlFor={id('front')}
+                    <PhotoField
+                        id={id('front')}
+                        name="front"
                         label="Front"
-                        hint={`JPEG, PNG or WebP, up to ${maxUploadMb} MB.`}
+                        hint={`JPEG, PNG or WebP, up to ${maxUploadMb} MB. Large photos are made smaller in your browser first.`}
+                        accept={accept}
                         error={errors.front}
-                    >
-                        <Input
-                            id={id('front')}
-                            name="front"
-                            type="file"
-                            accept={accept}
-                            aria-invalid={!!errors.front}
-                            aria-describedby={`${id('front')}-description`}
-                        />
-                    </Field>
+                        onBusyChange={setFrontBusy}
+                    />
                     {row.hasBack && (
-                        <Field
-                            htmlFor={id('back')}
+                        <PhotoField
+                            id={id('back')}
+                            name="back"
                             label="Back"
+                            accept={accept}
                             error={errors.back}
-                        >
-                            <Input
-                                id={id('back')}
-                                name="back"
-                                type="file"
-                                accept={accept}
-                                aria-invalid={!!errors.back}
-                                aria-describedby={`${id('back')}-description`}
-                            />
-                        </Field>
+                            onBusyChange={setBackBusy}
+                        />
                     )}
                     {errors.type && (
                         <p className="text-sm text-danger-text sm:col-span-2">
@@ -157,9 +149,14 @@ function DocumentUpload({
                         </p>
                     )}
                     <div className="sm:col-span-2">
-                        <Button type="submit" disabled={processing}>
-                            {processing && <Spinner />}
-                            Upload {row.label}
+                        <Button
+                            type="submit"
+                            disabled={processing || preparing}
+                        >
+                            {(processing || preparing) && <Spinner />}
+                            {preparing
+                                ? 'Preparing photos…'
+                                : `Upload ${row.label}`}
                         </Button>
                     </div>
                 </>
