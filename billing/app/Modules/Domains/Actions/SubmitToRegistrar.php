@@ -20,6 +20,7 @@ use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
+use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\DomainStateMachine;
@@ -43,6 +44,9 @@ use Throwable;
  *  - Timeout / unknown result → `pending_registration` / `pending_transfer` flagged needs_review.
  *  - Explicit registrar error → stays `pending`, RegistrarActionFailed, staff task; the claim is released.
  *  - Retryable errors (known not executed) release the claim and are re-thrown for the queue to retry.
+ *  - A TLD the client registers at the registry (`.np`, registrars.md §9), or a `.np` name its registry cannot
+ *    issue, is never sent, whoever created the domain: it stays `pending` with the reason in `last_error`
+ *    (Needs attention), RegistrarActionFailed and a staff task, as for an explicit registrar error.
  */
 class SubmitToRegistrar
 {
@@ -68,6 +72,7 @@ class SubmitToRegistrar
         if ($claim !== 'claimed') {
             return match ($claim) {
                 'manual' => $this->manual($domain),
+                'not_submittable' => $this->failed($domain, $domain->type, (string) self::notSubmittable($domain)),
                 'in_flight' => new ProvisionResult(false, 'A submission for this domain is already in progress.'),
                 'unverified' => $this->reconcile($domain, $staffId),
                 default => new ProvisionResult(false, "The domain is {$domain->status->label()}, not pending; nothing was submitted."),
@@ -124,9 +129,28 @@ class SubmitToRegistrar
     }
 
     /**
-     * Lock the row and claim it for submission.
+     * Why this domain is never sent to a registrar, or null when it may be. Matches the DomainRegistry and cart
+     * rules: its TLD is registered by the client at the registry, or it is a `.np` name outside the registry's
+     * second levels (`asha.np`), which no registrar can register.
+     */
+    private static function notSubmittable(Domain $domain): ?string
+    {
+        if ($domain->tldModel->registered_by_client) {
+            return __(':tld domains are registered by the client at the registry, so :domain was not sent to a registrar. Cancel it, or set its status once the client has registered it.', ['tld' => $domain->tldModel->extension, 'domain' => $domain->name]);
+        }
+
+        if (Tld::registryLevelHint($domain->name) !== null) {
+            return __(':domain cannot be registered: the .np registry issues names only under .com.np, .org.np and its other second levels. It was not sent to a registrar; cancel it.', ['domain' => $domain->name]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Lock the row and claim it for submission. An open claim is resolved first (something may have been sent);
+     * only then is a new submission refused for a domain that is never sent to a registrar.
      *
-     * @return 'claimed'|'manual'|'in_flight'|'unverified'|'not_pending'
+     * @return 'claimed'|'manual'|'not_submittable'|'in_flight'|'unverified'|'not_pending'
      */
     private function claim(Domain $domain): string
     {
@@ -139,6 +163,8 @@ class SubmitToRegistrar
             } elseif (self::hasOpenClaim($locked)) {
                 $claimedAt = CarbonImmutable::parse((string) $locked->registrar_meta['submission']);
                 $result = $claimedAt->gt(now()->subMinutes(self::IN_FLIGHT_MINUTES)) ? 'in_flight' : 'unverified';
+            } elseif (self::notSubmittable($locked) !== null) {
+                $result = 'not_submittable';
             } else {
                 $locked->registrar_key ??= $locked->tldModel->registrar_key;
 

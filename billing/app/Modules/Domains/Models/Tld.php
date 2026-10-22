@@ -70,7 +70,7 @@ class Tld extends Model
      */
     public static function registryLevelHint(string $domain): ?string
     {
-        $labels = explode('.', strtolower($domain));
+        $labels = explode('.', rtrim(strtolower($domain), '.'));
 
         if (end($labels) !== 'np' || (count($labels) >= 3 && in_array($labels[count($labels) - 2], self::NP_SECOND_LEVELS, true))) {
             return null;
