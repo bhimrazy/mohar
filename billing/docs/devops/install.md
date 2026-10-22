@@ -118,6 +118,13 @@ than `APP_URL`'s host and its subdomains are rejected. A wrong value sends peopl
 value produces insecure links. When the domain changes, update `APP_URL` and run `php artisan optimize` again. The
 install pre-flight warns in production when `APP_URL` is not an `https://` address or points at localhost.
 
+`CACHE_STORE` must be a store that every web and queue process shares, because cache locks (a provisioning create
+that waits for verification, per-attempt payment locks) only exclude each other through one lock store. Use `database`
+or `redis` (`memcached` and `dynamodb` also work). `file` is safe only when everything runs on one host and one
+`storage/` directory, and `array` and `null` keep locks inside a single process. The pre-flight stops a first
+production install on `array` or `null`, and otherwise warns; in production the admin dashboard's System health card
+shows the same finding.
+
 Then generate the application key **once**:
 
 ```bash
