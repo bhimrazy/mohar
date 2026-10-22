@@ -169,14 +169,15 @@ final class ResellerClubClient
     private static function validProxy(string $proxy): string
     {
         $parts = parse_url($proxy);
+        $scheme = is_array($parts) ? strtolower($parts['scheme'] ?? '') : '';
         $host = is_array($parts) ? ($parts['host'] ?? '') : '';
 
-        if (! is_array($parts) || ! in_array(strtolower((string) ($parts['scheme'] ?? '')), ['http', 'https', 'socks5h'], true) || $host === '') {
+        if (! in_array($scheme, ['http', 'https', 'socks5h'], true) || $host === '') {
             throw new RegistrarException('The ResellerClub outbound proxy must be an http://, https:// or socks5h:// address; nothing was sent.');
         }
 
         try {
-            app(OutboundAddressGuard::class)->resolve($host, (int) ($parts['port'] ?? (strtolower($parts['scheme']) === 'https' ? 443 : 1080)));
+            app(OutboundAddressGuard::class)->resolve($host, (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 1080)));
         } catch (OutboundAddressRefused $refused) {
             throw new RegistrarException('The ResellerClub outbound proxy address is refused by this install\'s outbound policy; nothing was sent.', previous: $refused);
         }

@@ -244,7 +244,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
                 return new SyncResult(false);
             }
 
-            $status = ($this->checkAvailability($config, $domain->sld, [$domain->tld])[0] ?? null)?->status ?? 'unknown';
+            $status = $this->checkAvailability($config, $domain->sld, [$domain->tld])[0]->status ?? 'unknown';
 
             return match ($status) {
                 'available' => new SyncResult(false, cancelled: true),
