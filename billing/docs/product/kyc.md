@@ -86,6 +86,10 @@ admin review routes stay available, so staff can finish the queue after the feat
   20 MP 325 MB, progressive 4:4:4 JPEG at 20 MP 289 MB, detailed WebP at 25 MP 298–301 MB, RGBA PNG at 25 MP 285 MB.
   A CMYK progressive JPEG at 25 MP, now refused, measured 343 MB from the command line (about 374 MB served, by the
   #286 security review).
+- Documents stored before #286 are re-encoded by `php artisan kyc:reencode-images` (#287, run once after upgrading;
+  `docs/devops/kyc-images.md`). Re-encoded documents carry `sanitised_at` (new uploads set it at upload). One the
+  command cannot read or re-encode is left as stored and flagged (`sanitise_issue`); staff see a note on its review
+  card asking for a new upload.
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.

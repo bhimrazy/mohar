@@ -378,10 +378,10 @@ export default function KycReview({
                                 )}
                                 {document.metadataKept && (
                                     <p className="text-sm text-muted-foreground">
-                                        These images could not be re-encoded,
-                                        so they may still hold the photo's
-                                        location and device details. Ask the
-                                        client to upload the document again.
+                                        These images could not be re-encoded, so
+                                        they may still hold the photo's location
+                                        and device details. Ask the client to
+                                        upload the document again.
                                     </p>
                                 )}
                                 {document.status === 'declined' &&

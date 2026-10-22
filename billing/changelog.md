@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Re-encode identity images stored before #286 (#287).** Run `php artisan kyc:reencode-images` once after upgrading,
+  off-peak (`--dry-run` first). It re-encodes the images of documents uploaded before #286 through the same sanitiser
+  as uploads, so their EXIF, GPS and device details are removed; new uploads are marked and skipped. It works in
+  chunks, resumes after an interruption, never overlaps a second run, and writes one audit entry with counts only
+  (event `kyc.images.reencoded`). An image it cannot read or re-encode is left as stored, flagged for staff and listed
+  by id (exit 1). Runbook: `docs/devops/kyc-images.md`. Migration `2026_10_22_770200` (expand only): nullable columns
+  `kyc_documents.sanitised_at` and `sanitise_issue` with index `kyc_documents_unsanitised_index`, and table
+  `kyc_image_rewrites` (paths of files being switched). New setting `kyc.reencode_decode_wait_seconds` (30). No
+  permission change.
 - **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
   (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
   permission change. Documents uploaded before the upgrade are not rewritten and keep their
@@ -574,6 +583,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
   recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
   admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
+- Documents uploaded before images were re-encoded (#286) can be re-encoded with `php artisan kyc:reencode-images`
+  (#287). A document whose images could not be re-encoded shows a note on its staff review card asking for a new
+  upload.
 
 ### Client import
 

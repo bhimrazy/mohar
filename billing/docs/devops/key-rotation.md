@@ -108,7 +108,9 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    and its audit entry is not marked complete. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
    one chunk is held in memory. A value the app writes during the run is left as the app wrote it. An identity image
    is written under a new name, recorded in the checkpoint, and the old file is deleted once the row points at the new
-   one; a run killed in between finishes that on the next run. A real run needs every module loaded, so no module's
+   one; a run killed in between finishes that on the next run. `kyc:reencode-images` ([kyc-images.md](kyc-images.md))
+   switches identity images the same way; the two commands can run at the same time, and a file one of them moved is
+   left to the other's next run. A real run needs every module loaded, so no module's
    data stays on the old key: it refuses to start (exit 2) when `MODULES` leaves modules out, unless you pass
    `--partial`, which names the skipped modules in the summary and the audit entry and ends with exit 3. The command
    writes one audit-log entry ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts

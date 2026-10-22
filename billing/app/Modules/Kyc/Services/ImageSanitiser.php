@@ -36,6 +36,7 @@ class ImageSanitiser
      *
      * @throws ImageDecodeBusy when the decode lock stays taken for kyc.image_decode_wait_seconds
      * @throws ValidationException when the bytes are not a JPEG, PNG or WebP image GD can decode, or are too large
+     * @throws RuntimeException when GD fails to scale, turn or encode the decoded image
      */
     public function clean(string $bytes, string $field): array
     {

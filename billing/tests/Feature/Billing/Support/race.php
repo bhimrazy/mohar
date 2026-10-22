@@ -7,11 +7,12 @@
  * fails the test: a hung child never stalls the job. Every child is gone when this returns or throws.
  *
  * @param  array<string, list<string>>  $workers  label => arguments after the label
+ * @param  string|null  $script  another module's worker script (default credit-worker.php); it prints the same fields
  * @return array<string, array<string, mixed>> label => the worker's JSON result
  */
-function runRaceWorkers(array $workers, float $timeoutSeconds = 30.0): array
+function runRaceWorkers(array $workers, float $timeoutSeconds = 30.0, ?string $script = null): array
 {
-    $script = __DIR__.'/credit-worker.php';
+    $script ??= __DIR__.'/credit-worker.php';
     $running = [];
 
     try {

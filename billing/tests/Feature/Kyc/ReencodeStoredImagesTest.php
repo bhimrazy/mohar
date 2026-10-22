@@ -1,9 +1,11 @@
 <?php
 
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Actions\StoreDocument;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
+use App\Modules\Kyc\Services\ImageSanitiser;
 use App\Modules\Kyc\Services\StoredImageReencoder;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Http\UploadedFile;
@@ -12,6 +14,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Testing\AssertableInertia;
 
 require_once __DIR__.'/Support/image-fixtures.php';
 
@@ -72,7 +75,7 @@ test('EXIF, GPS and the device are removed from an old image, the row moves to t
 
 test('documents uploaded since #286 are marked at upload and skipped', function () {
     actingAsClient();
-    app(App\Modules\Core\Support\Settings::class)->set('kyc.enabled', true);
+    app(Settings::class)->set('kyc.enabled', true);
     reencodeSubmit(reencodeImage('jpeg'))->assertSessionHasNoErrors();
     $uploaded = KycDocument::query()->sole();
 
@@ -154,9 +157,9 @@ test('a run killed around the switch loses no image and leaves no stray file aft
     $document = legacyDocument();
     $old = $document->paths();
 
-    app()->bind(StoredImageReencoder::class, fn () => new class(app(App\Modules\Kyc\Services\ImageSanitiser::class), $afterCommit) extends StoredImageReencoder
+    app()->bind(StoredImageReencoder::class, fn () => new class(app(ImageSanitiser::class), $afterCommit) extends StoredImageReencoder
     {
-        public function __construct(App\Modules\Kyc\Services\ImageSanitiser $sanitiser, private bool $afterCommit)
+        public function __construct(ImageSanitiser $sanitiser, private bool $afterCommit)
         {
             parent::__construct($sanitiser);
         }
@@ -174,7 +177,7 @@ test('a run killed around the switch loses no image and leaves no stray file aft
     // Both the old and the new files exist, the row points at one pair, and the rewrite is recorded.
     expect(Storage::disk(KycDocument::DISK)->allFiles())->toHaveCount(4)
         ->and(DB::table(StoredImageReencoder::REWRITES)->count())->toBe(2)
-        ->and($document->fresh()->paths())->toBe($afterCommit ? $document->fresh()->paths() : $old)
+        ->and($document->fresh()->paths() === $old)->toBe(! $afterCommit)
         ->and(Cache::lock(StoredImageReencoder::RUN_LOCK)->get())->toBeTrue();
     Cache::lock(StoredImageReencoder::RUN_LOCK)->forceRelease();
 
@@ -265,7 +268,7 @@ test('two runs never overlap, and invalid options exit with code 2', function ()
 test('an upload holding the decode lock leaves the document unchanged for the next run', function () {
     $document = legacyDocument();
     config(['kyc.reencode_decode_wait_seconds' => 0]);
-    $decode = Cache::lock(App\Modules\Kyc\Services\ImageSanitiser::LOCK, 60);
+    $decode = Cache::lock(ImageSanitiser::LOCK, 60);
     $decode->get();
 
     expect(reencodeRun())->toBe(3)
@@ -276,4 +279,15 @@ test('an upload holding the decode lock leaves the document unchanged for the ne
 
     $decode->release();
     expect(reencodeRun())->toBe(0);
+});
+
+test('staff see which documents kept their metadata', function () {
+    $flagged = legacyDocument(front: 'garbage');
+    legacyDocument(attributes: ['client_id' => $flagged->client_id, 'type' => DocumentType::NationalId]);
+    reencodeRun();
+    actingAsStaff(['kyc.documents.view']);
+
+    $this->get(route('admin.kyc.show', $flagged->client_id))->assertOk()->assertInertia(fn (AssertableInertia $page) => $page
+        ->where('documents.0.metadataKept', true)
+        ->where('documents.1.metadataKept', false));
 });
