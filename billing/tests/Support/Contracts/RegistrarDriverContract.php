@@ -50,8 +50,8 @@ use Throwable;
  * - the core calls and every capability the driver implements answer with their documented type or a
  *   RegistrarException (rejected, retryable, RegistrarTimeout), never another error; a write is completed or
  *   pending; nothing touches the database (one entry per capability interface in calls());
- * - whatever a driver echoes into results and error text is fully masked by the host's redaction set
- *   (RegistrarConfig::secrets()).
+ * - no answer or error text contains a configured secret setting or a request secret (the transfer code), checked
+ *   raw, before any host masking (assertEchoesNoSecret()).
  * Response-mapping scenarios of API drivers (availability and status matrices, timeouts, refused connections,
  * fixtures) belong in the driver's own tests.
  */
@@ -122,30 +122,39 @@ final class RegistrarDriverContract
                 ->and($queries)->toBe(0);
         });
 
-        test("{$key} registrar: everything it echoes is masked by the host's redaction set", function () use ($setUp) {
-            $driver = $setUp();
-            $secrets = RegistrarDriverContract::config($driver)->secrets();
-            $redactor = new Redactor;
-            $logged = [];
+        test("{$key} registrar: echoes no account credential and no request secret, in any answer or error", function () use ($setUp) {
+            RegistrarDriverContract::assertEchoesNoSecret($setUp());
+        });
+    }
 
-            foreach (RegistrarDriverContract::runs($driver) as $runs) {
-                foreach ($runs as $name => [, $run]) {
-                    try {
-                        $result = $run();
-                        $array = (array) json_decode((string) json_encode(is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result), true);
-                        $logged[] = $redactor->redact($array, $secrets, in_array($name, ['epp', 'transfer'], true) ? ['code'] : []);
-                    } catch (Throwable $error) {
-                        $logged[] = $redactor->maskValues($error->getMessage(), $secrets);
-                    }
+    /**
+     * Run every call and fail if a result or error text contains a configured secret setting or a request secret
+     * (the transfer code). Checked raw: the host masks what it logs and shows, but a driver must not rely on that, and
+     * not every path (a connection test, a package host) goes through the same mask.
+     */
+    public static function assertEchoesNoSecret(RegistrarDriver $driver): void
+    {
+        $secrets = [...self::config($driver)->secrets(), ...self::request(self::domain())->secrets()];
+        $seen = [];
+
+        foreach (self::runs($driver) as $runs) {
+            foreach ($runs as $name => [, $run]) {
+                try {
+                    $result = $run();
+                    $seen[$name] = is_object($result) && method_exists($result, 'toArray') ? $result->toArray() : $result;
+                } catch (Throwable $error) {
+                    $seen[$name] = $error->getMessage();
                 }
             }
+        }
 
-            expect($secrets)->not->toBeEmpty('the contract configures a value in every secret setting');
+        expect(self::config($driver)->secrets())->not->toBeEmpty('the contract configures a value in every secret setting');
 
+        foreach ($seen as $name => $answer) {
             foreach ($secrets as $secret) {
-                expect((string) json_encode($logged))->not->toContain($secret);
+                expect(str_contains((string) json_encode($answer), $secret))->toBeFalse("{$name} echoes a secret");
             }
-        });
+        }
     }
 
     /**
@@ -244,18 +253,18 @@ final class RegistrarDriverContract
     public static function config(RegistrarDriver $driver): RegistrarConfig
     {
         $settings = [];
-        $secretKeys = [];
+        $secretSettingKeys = [];
 
         foreach ($driver->settingsFields() as $field) {
             if ($field->isSecret()) {
                 $settings[$field->key] = "contract-{$field->key}-value";
-                $secretKeys[] = $field->key;
+                $secretSettingKeys[] = $field->key;
             } elseif ($field->default !== null) {
                 $settings[$field->key] = $field->default;
             }
         }
 
-        return new RegistrarConfig($driver->key(), $settings, true, $secretKeys);
+        return new RegistrarConfig($driver->key(), $settings, true, $secretSettingKeys);
     }
 
     public static function domain(): DomainRef
@@ -265,8 +274,9 @@ final class RegistrarDriverContract
 
     public static function request(DomainRef $domain): RegistrationRequest
     {
-        $contact = ['first_name' => 'Asha', 'last_name' => 'Shrestha', 'email' => 'asha@contract.test', 'phone' => '+977.15550100', 'address_1' => '1 Durbar Marg', 'city' => 'Kathmandu', 'postcode' => '44600', 'country' => 'NP'];
+        // The kernel contact shape (ContactSet::ROLES and FIELDS), as the host sends it: optional fields may be null.
+        $contact = [...array_fill_keys(ContactSet::FIELDS, null), 'first_name' => 'Asha', 'last_name' => 'Shrestha', 'email' => 'asha@contract.test', 'phone' => '01-5550100', 'address_1' => '1 Durbar Marg', 'city' => 'Kathmandu', 'postcode' => '44600', 'country' => 'NP'];
 
-        return new RegistrationRequest($domain, 1, ['ns1.contract.test', 'ns2.contract.test'], new ContactSet(['registrant' => $contact, 'admin' => $contact]), eppCode: self::SECRETS['epp_code']);
+        return new RegistrationRequest($domain, 1, ['ns1.contract.test', 'ns2.contract.test'], new ContactSet(array_fill_keys(ContactSet::ROLES, $contact)), eppCode: self::SECRETS['epp_code']);
     }
 }

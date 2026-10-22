@@ -88,7 +88,7 @@ final class AcmeRegistrarDriver implements ChecksAvailability, ManagesNameserver
 
     public function setNameservers(RegistrarConfig $config, DomainRef $domain, array $nameservers): RegistrarResult
     {
-        return $this->result($this->send($config, 'put', "/domains/{$domain->name}/nameservers", ['nameservers' => $nameservers], mutating: false), 'Nameservers updated at Acme.');
+        return $this->result($this->send($config, 'put', "/domains/{$domain->name}/nameservers", ['nameservers' => $nameservers]), 'Nameservers updated at Acme.');
     }
 
     public function testConnection(RegistrarConfig $config): ConnectionCheck
