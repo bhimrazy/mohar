@@ -24,6 +24,23 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   use UTC (reported once; shown as a dashboard warning). Backward-compatible names such as `Asia/Katmandu` are accepted.
 - Billing's `DocumentNumbers::next()` now requires the document date (module code, not kernel API).
 
+### Refund lookup for unconfirmed gateway refunds (#334)
+
+- New provider contract `App\Contracts\Billing\LooksUpRefunds` (extends `GatewayDriver`, detected with
+  `instanceof`; ADR 0010, ADR 0012): `lookupRefund(GatewayConfig, RefundRequest): ChargeResult`, called with the
+  `RefundRequest` the refund was sent with (`reference` always set). It answers as `refund()` would have: SUCCESS
+  (`txnId` = the provider's refund id), DECLINED (no such refund, or it failed; Billing releases the amount),
+  PENDING (only where `refund()` would answer it), ERROR (unknown; nothing changes). The driver compares the amount and
+  currency of a refund it finds and answers ERROR on a mismatch. It never creates a second refund.
+- `App\Data\Billing\RefundRequest` gains `?CarbonImmutable $sentAt = null` (last parameter): when the refund was
+  first sent, so a lookup can tell whether the provider's idempotency window has passed. Billing sets it from the
+  refund row on every request it builds.
+- `ChargeResult`'s docblock now covers a refund lookup (`fee` is 0). A driver without the interface is unchanged;
+  Billing offers staff a hand resolution for it (provider reference required, step-up, audit).
+- Meaning change for `refund()` results: only DECLINED releases the reserved amount. ERROR and PENDING keep the refund
+  pending. A driver must answer DECLINED for anything refused or never sent, and ERROR for any answer that leaves it
+  unknown (a timeout, a 5xx). `StripeDriver` implements `LooksUpRefunds`; Stripe and Khalti now answer ERROR for 5xx.
+
 ### Kept redirect URL for Khalti's Continue payment (#251)
 
 - `App\Data\Billing\RedirectInstruction` gains `bool $keepForResume = false` (last parameter). A driver sets it when

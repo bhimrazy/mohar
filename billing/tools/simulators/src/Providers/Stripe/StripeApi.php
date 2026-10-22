@@ -242,6 +242,21 @@ final class StripeApi
         return Response::json($object);
     }
 
+    /**
+     * GET /v1/refunds: the refunds of one PaymentIntent (the only filter used), newest first.
+     *
+     * @param  array<array-key, mixed>  $input
+     */
+    public function listRefunds(array $input): Response
+    {
+        $intent = (string) ($input['payment_intent'] ?? '');
+        $limit = max(1, min(100, (int) ($input['limit'] ?? 10)));
+        $refunds = array_values(array_filter((array) $this->state->all('refunds'), fn (mixed $refund): bool => is_array($refund) && ($intent === '' || $refund['payment_intent'] === $intent)));
+        usort($refunds, fn (array $a, array $b): int => [$b['created'], $b['id']] <=> [$a['created'], $a['id']]);
+
+        return Response::json(['object' => 'list', 'url' => '/v1/refunds', 'has_more' => count($refunds) > $limit, 'data' => array_slice($refunds, 0, $limit)]);
+    }
+
     public function account(): Response
     {
         return Response::json((array) $this->state->get('config', 'account'));

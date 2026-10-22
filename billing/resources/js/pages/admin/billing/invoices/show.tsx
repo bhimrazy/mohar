@@ -69,6 +69,11 @@ import {
 } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/InvoiceController';
 import { check as checkAttempt } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/PaymentAttemptController';
 import { refund } from '@/actions/App/Modules/Billing/Http/Controllers/Admin/TransactionController';
+import {
+    PendingRefundBanner,
+    TransactionStatusBadge,
+    releasedClass,
+} from '@/components/billing/pending-refund';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { countryName } from '@/lib/country';
 import { labelWithCurrency } from '@/lib/money';
@@ -311,11 +316,16 @@ export default function InvoiceShow({
             ),
         },
         {
+            key: 'status',
+            header: 'Status',
+            cell: (txn) => <TransactionStatusBadge txn={txn} />,
+        },
+        {
             key: 'amount',
             header: 'Amount',
             align: 'right',
             cell: (txn) => (
-                <div>
+                <div className={releasedClass(txn)}>
                     <Money
                         amount={
                             txn.amount_out > 0 ? -txn.amount_out : txn.amount_in
@@ -340,10 +350,36 @@ export default function InvoiceShow({
             header: <span className="sr-only">Actions</span>,
             align: 'right',
             hideOnMobile: true,
-            cell: (txn) =>
-                can.refunds && txn.refundable ? (
+            cell: (txn) => {
+                if (!can.refunds) {
+                    return null;
+                }
+
+                // A refund waiting for the provider holds the payment's amount: say why Refund isn't available.
+                if (
+                    transactions.some(
+                        (other) =>
+                            other.parent_transaction_id === txn.id &&
+                            other.type === 'refund' &&
+                            other.status === 'pending',
+                    )
+                ) {
+                    return (
+                        <span className="inline-flex flex-col items-end gap-1">
+                            <Button variant="ghost" size="sm" disabled>
+                                Refund
+                            </Button>
+                            <span className="text-xs text-muted-foreground">
+                                A refund is waiting for the provider.
+                            </span>
+                        </span>
+                    );
+                }
+
+                return txn.refundable ? (
                     <RefundDialog transaction={txn} gateways={gateways} />
-                ) : null,
+                ) : null;
+            },
         },
     ];
 
@@ -664,6 +700,12 @@ export default function InvoiceShow({
                                 }
                             />
                         </SectionCard>
+
+                        <PendingRefundBanner
+                            transactions={transactions}
+                            gateways={gateways}
+                            canAct={can.refunds}
+                        />
 
                         <SectionCard title="Transactions" flush>
                             <DataTable

@@ -3,7 +3,7 @@
 namespace App\Data\Billing;
 
 /**
- * Outcome of a capture or refund call: success|pending|declined|error.
+ * Outcome of a capture, a refund or a refund lookup (fee is 0 for a lookup): success|pending|declined|error.
  */
 final readonly class ChargeResult
 {

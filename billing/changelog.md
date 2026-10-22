@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A refund that times out is no longer refunded twice (#334).** A gateway refund now fails and frees its amount only when the provider definitely declines it, or when nothing was ever sent. A timeout, a server error, a pending answer or a crashed request leaves the refund **Pending** (shown as "Being confirmed") with its amount reserved, and staff see "The refund is being confirmed with the provider" instead of an error that invites a retry; the invoice shows a banner ("Don't refund again until this is settled") and a second gateway refund of the same payment is refused. A pending refund settles on the same row, so the provider's idempotency key never changes, through the provider's refund callback (checked against the refund we sent: payment, amount and currency), **Check refund**, or staff. **Check refund** is offered for Stripe: it repeats the original request with the same idempotency key, so Stripe returns the refund it made or makes it once; after Stripe's 24-hour window it lists the payment's refunds instead and treats absence as "no such refund" only past 24 hours. A Check replay Stripe did not process (a rejected or missing key, an idempotency conflict) never releases the amount. A refund Stripe keeps answering "unknown" for three days can be settled by hand like the others. For Khalti, which cannot be asked, staff choose **Confirmed at the provider** (with the provider's refund reference, which is booked and deduped on) or **Not refunded** (releases the amount), 10 minutes after the request if it never answered. Both need a recent password confirmation and `billing.refunds.manage`, and are written to the activity log. A late error never undoes a refund the callback already booked. A provider refund that arrives for a refund already released is booked once (by the provider's refund id) and put on the review list. Releasing never restores more than the payment can still give back after a chargeback. The dashboard lists **Refunds waiting for the provider** (older than 10 minutes), the Transactions page has a "Waiting for provider" filter, and every transaction row shows a status. Stripe and Khalti server errors (5xx) now count as unknown, not declined. New provider contract `LooksUpRefunds`; `RefundRequest` gains an optional `sentAt` (kernel changelog). Schema: new partial index `transactions_refund_pending_index` (built concurrently on PostgreSQL). No new permission.
+
 ### Added
 
 - **Documents are dated on the company's calendar (ADR 0013 Amendment 1).** Invoice issue and due dates, document
@@ -27,6 +31,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   windows, so the next run takes what the skipped one would have. To run a skipped date, use `php artisan
   automation:run --date=YYYY-MM-DD`. Core's `BusinessCalendar`, Orders' `CompanyClock` and Notifications' `MailClock`
   are replaced by the `CompanyClock` contract. No schema or permission change.
+
+- **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
+  Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for
+  test mode), one default customer or one customer per client, and an optional outbound proxy for the API allow-list.
+  The driver also checks availability, syncs status and expiry, follows transfers, and sets name servers, the transfer
+  lock, privacy and contacts, and returns the EPP code. Orders are placed without a ResellerClub invoice (the price
+  comes off the reseller balance). Before it registers or transfers, it searches the client's own customer for an order of
+  that name; an order is adopted only when the host already holds its id (a lost answer is settled by the host's
+  reconcile step, created since the submission began), and any other order of the name is a conflict for staff, so a
+  name in the reseller account cannot be taken over by typing it or its transfer code. In one-customer-per-client
+  mode the ResellerClub username is generated from our client id (`client-{id}@{host of APP_URL}`) and an existing
+  customer is adopted only on that exact username; the client's email is only a contact email. Reads, sync and the EPP code act only on the order id recorded from our own register
+  or transfer answer (or the submission lookup inside our own window); sync never links an order it finds by searching,
+  and says "no order is linked" when none is recorded (domains imported without one need the order id set by hand). A
+  renewal is sent only when ResellerClub's expiry date equals ours; when ResellerClub is ahead, our expiry is updated
+  from it and nothing is ordered again. A wrong transfer code gets its own message, apart from "code already sent". A
+  registration that is still unconfirmed 15 minutes after submission and cannot be followed is listed in Needs attention
+  and its sync reports the error instead of ok.
+  Sync never cancels a domain on an unknown registry answer or a registration that never reached ResellerClub. Calls
+  of a register, transfer or renew chain are time-bounded to fit the 180 s job, and the outbound proxy must be an
+  http, https or socks5h address that passes the outbound policy. `.np` names never reach
+  it. Verified against the ResellerClub simulator only (no live or demo account). No schema or permission change; the
+  registrar shows up as a new, unconfigured entry.
 
 - **ResellerClub simulator (#280, ADR 0016 S6).** Developers and CI can run ResellerClub's HTTP API as a local TLS
   simulator (`php artisan simulate:start resellerclub`): customers and contacts, availability, register, transfer with

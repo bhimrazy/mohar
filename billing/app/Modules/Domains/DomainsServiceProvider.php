@@ -22,6 +22,7 @@ use App\Modules\Domains\Actions\ConvertTldPrices;
 use App\Modules\Domains\Actions\IssueRenewalInvoices;
 use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
+use App\Modules\Domains\Drivers\Registrars\ResellerClub\ResellerClubDriver;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
@@ -89,6 +90,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         $this->app->make(RegistrarDriverRegistry::class)->register('log', LogRegistrar::class);
+        $this->app->make(RegistrarDriverRegistry::class)->register(ResellerClubDriver::KEY, ResellerClubDriver::class);
 
         // Kernel registrar exceptions know nothing about HTTP (ADR 0009 §4): a failed staff or client action goes back
         // to the form with the (already redacted) message.

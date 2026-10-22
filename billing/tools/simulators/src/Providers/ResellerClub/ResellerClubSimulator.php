@@ -120,7 +120,7 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
             ],
             'notes' => [
                 'ResellerClub registrar: test mode on, demo reseller id '.self::RESELLER_ID.', demo API key '.self::API_KEY.'.',
-                'The resellerclub.api and resellerclub.check endpoint keys are read by the ResellerClub driver, which arrives in the next PR (#280).',
+                'The ResellerClub registrar driver reads the resellerclub.api and resellerclub.check endpoint keys.',
             ],
         ];
     }
