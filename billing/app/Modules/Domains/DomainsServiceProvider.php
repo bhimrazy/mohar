@@ -4,6 +4,7 @@ namespace App\Modules\Domains;
 
 use App\Contracts\Domains\DomainPricing;
 use App\Contracts\Domains\DomainRegistry;
+use App\Contracts\Domains\Registrar\RegistrarRefs;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Events\Billing\InvoiceCancelled;
 use App\Events\Billing\InvoicePaid;
@@ -29,8 +30,10 @@ use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\RegistrarCommandLog;
+use App\Modules\Domains\Models\RegistrarRefRecord;
 use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
+use App\Modules\Domains\Services\EloquentRegistrarRefs;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientCurrencyUsage;
@@ -75,6 +78,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $this->app->scoped(DomainPricingService::class);
         $this->app->scoped(DomainPricing::class, fn ($app) => $app->make(DomainPricingService::class));
         $this->app->bind(DomainRegistry::class, DomainRegistryService::class);
+        $this->app->bind(RegistrarRefs::class, EloquentRegistrarRefs::class);
     }
 
     protected function schedule(Schedule $schedule): void
@@ -100,6 +104,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('domains_registrar_accounts', new EncryptedModel(RegistrarAccount::class));
         $encrypted->register('domains_domains', new EncryptedModel(Domain::class));
+        $encrypted->register('domains_registrar_refs', new EncryptedModel(RegistrarRefRecord::class));
 
         $this->registerListeners();
 

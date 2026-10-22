@@ -8,14 +8,14 @@ the key may live in production, the warnings `app:install` gives about it, and h
 
 **Stored secrets, which `php artisan security:reencrypt` re-encrypts.** Each module registers its encrypted data
 in `App\Support\Security\EncryptedStorage` (ADR 0022): its models with encrypted casts, other encrypted columns,
-and encrypted files. The dry run lists the targets. At the time of writing there are 27:
+and encrypted files. The dry run lists the targets. At the time of writing there are 28:
 
 | Area          | Targets                                                                                                                                                                                   |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Billing       | `gateways.config`, `pay_methods.token`                                                                                                                                                    |
 | Services      | `servers.password`, `servers.api_token`, `servers.access_hash`, `servers.settings`, `services.password`, `services.custom_fields`, `module_queue.args`, `server_account_imports.accounts` |
 | Catalog       | `products.driver_config`, `addons.driver_config`                                                                                                                                          |
-| Domains       | `registrar_accounts.settings`, `domains.epp_code`                                                                                                                                         |
+| Domains       | `registrar_accounts.settings`, `domains.epp_code`, `registrar_refs.secret`                                                                                                                |
 | Notifications | `webhook_endpoints.secret`, `webhook_endpoints.previous_secret`                                                                                                                           |
 | Identity      | `kyc_documents.number`, `kyc_documents.files` (the images on the objects disk)                                                                                                            |
 | Import        | `migration_runs.header`, `migration_runs.found_values`, `migration_records.raw`, `migration_records.normalized`, `migration_records.before`                                               |

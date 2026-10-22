@@ -6,6 +6,15 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar refs store, ADR 0009 PR C3
+
+- Domains binds `App\Contracts\Domains\Registrar\RegistrarRefs` to `EloquentRegistrarRefs` (table `registrar_refs`,
+  unique per registrar, ref type, local record and payload hash; `secret` encrypted). A driver that injects
+  `RegistrarRefs` resolves only while Domains is loaded. `remember()` refuses a value longer than its column
+  (`InvalidArgumentException`; `payloadHash` is sha256 hex).
+- Deleted: the module registrar SPI that PR C2 stopped using (`App\Modules\Domains\Drivers\Registrars\Registrar`,
+  its `Data` DTOs and the module `RegistrarException`, `RegistrarTimeout` and `CapabilityNotSupported`).
+
 ### Domains on the kernel registrar contracts, ADR 0009 PR C2
 
 Breaking, under the pre-1.0 window (ADR 0010): every in-repo implementer is updated in the same PR, and no package
