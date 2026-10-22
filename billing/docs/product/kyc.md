@@ -66,11 +66,15 @@ admin review routes stay available, so staff can finish the queue after the feat
   path. The document number is encrypted at rest too. Neither the bytes, the number nor the path ever appear in an
   Inertia prop, a log line or an audit entry; clients see the last 4 characters of the number only.
 - A failed upload never flashes the document number to the session (excluded from old input).
-- Every image is decoded and encoded again in its own format with GD before it is encrypted (#233): only pixels are
-  kept, so EXIF (GPS, device, thumbnails), colour profiles and appended bytes are dropped. The EXIF orientation is
-  applied to the pixels first. Refused: files GD cannot decode, and images above 25 megapixels (read from the header,
-  before decoding). Images above 16 megapixels are scaled down to 16 megapixels, which keeps decoding and turning a
-  24 MP phone photo under about 170 MB.
+- Every image is decoded and encoded again in its own format with GD before it is encrypted (#233). Metadata (EXIF
+  GPS, device and thumbnails, colour profiles, text chunks, JPEG comments) and bytes appended after the image data are
+  dropped; a payload built into the pixel data of a lossless PNG is not. The EXIF orientation is applied to the pixels
+  first. Refused with a validation error: files GD cannot decode; images above 25 megapixels (read from the header,
+  before decoding); a re-encoded file larger than the 5 MB upload limit; and, when another upload's decode holds the
+  lock for more than 15 seconds, "try again in a moment". Images above 16 megapixels are scaled down to 16 megapixels.
+- One decode runs at a time across the web processes that share the cache lock store (`kyc:image-decode`). Measured
+  in the production image with `memory_limit=256M`, one request decoding a 25 MP image peaks at 221 MB for an RGBA PNG
+  and at 188–198 MB for JPEG and WebP, framework boot included, so two at once could exceed the 512 MB container.
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.
