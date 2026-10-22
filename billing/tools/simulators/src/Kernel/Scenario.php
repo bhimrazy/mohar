@@ -182,12 +182,80 @@ final class Scenario
     }
 
     /**
-     * Distinct ephemeral ports on 127.0.0.1, never a forbidden one. Each is held until all are chosen, so they differ;
-     * another process can still take one before the simulator binds it, which Processes::start() retries.
+     * Distinct free ports on 127.0.0.1, never a forbidden one, each probed by binding it. They are held until all are
+     * chosen, so they differ.
+     *
+     * They come from below the kernel's ephemeral range (`ip_local_port_range`), and in a parallel test run from a
+     * slice of that window per worker. Ports the kernel hands out for `:0` binds sit in the ephemeral range, where
+     * every outgoing connection on the machine (the other workers' HTTP clients and readiness probes) takes its
+     * source port, so a port that was free when chosen could be gone before the simulator bound it. Another process
+     * can still take one; Processes::start() retries that.
      *
      * @return list<int>
      */
     public static function freePorts(int $count): array
+    {
+        [$low, $high] = self::portWindow();
+
+        if ($high - $low < 100) {
+            return self::kernelPorts($count); // no room below the ephemeral range: the kernel picks
+        }
+
+        $sockets = [];
+        $ports = [];
+
+        try {
+            for ($tries = 0; count($ports) < $count; $tries++) {
+                if ($tries > 200 * $count) {
+                    throw new RuntimeException("No free port between {$low} and {$high}.");
+                }
+
+                $port = random_int($low, $high);
+                $socket = in_array($port, [...self::FORBIDDEN_PORTS, ...$ports], true)
+                    ? false
+                    : @stream_socket_server("tcp://127.0.0.1:{$port}");
+
+                if ($socket !== false) {
+                    $sockets[] = $socket;
+                    $ports[] = $port;
+                }
+            }
+        } finally {
+            array_map(fclose(...), $sockets);
+        }
+
+        return $ports;
+    }
+
+    /**
+     * The ports scenarios pick from: from 20000 up to the ephemeral range, and in a parallel run the worker's own
+     * slice of 1,000 (TEST_TOKEN 1, 2, ...; more workers than slices share by wrapping).
+     *
+     * @return array{int, int} first and last port; the last is below the first when nothing fits
+     */
+    private static function portWindow(): array
+    {
+        $range = preg_split('/\s+/', trim((string) @file_get_contents('/proc/sys/net/ipv4/ip_local_port_range')));
+        $floor = 20000;
+        $ceiling = (isset($range[0]) && ctype_digit($range[0]) ? (int) $range[0] : 32768) - 1;
+        $slices = intdiv($ceiling - $floor + 1, 1000);
+        $worker = getenv('TEST_TOKEN');
+
+        if ($slices < 1 || ! is_string($worker) || ! ctype_digit($worker) || $worker === '') {
+            return [$floor, $ceiling];
+        }
+
+        $low = $floor + (((int) $worker - 1 + $slices) % $slices) * 1000;
+
+        return [$low, min($low + 999, $ceiling)];
+    }
+
+    /**
+     * Ports the kernel assigns for `:0` binds (ephemeral range): the fallback where the window above does not exist.
+     *
+     * @return list<int>
+     */
+    private static function kernelPorts(int $count): array
     {
         $sockets = [];
         $ports = [];

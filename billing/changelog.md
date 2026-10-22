@@ -12,6 +12,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Simulator scenarios pick ports below the ephemeral range, per test worker (#209).** The simulators (dev-only) chose
+  ports with `:0`, which the kernel takes from the range outgoing connections use, so a port could vanish before the
+  simulator bound it and `PortRetryTest` failed under parallel runs. Ports now come from 20000 up to the kernel's
+  ephemeral range, each probed by binding, in a slice per parallel worker. No schema or setting change.
 - **Sizing and restore docs (CEO review 2026-10-22).** Every doc now gives 2 vCPU and 4 GB as the minimum for the
   production stack (it said 8 GB in `production.md` and the docs site), with the measured memory and when to grow
   (`sizing.md`). The backup and restore steps were run end to end once; the restore section now says how to remove a
