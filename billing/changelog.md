@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
+  unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
+  `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
+  `import`) as `import:<external_ref>`, in batches of 1,000; their `gateway` and `external_ref` are left as they are.
+  Imported opening balances now carry only the idempotency key, so `gateway` and `external_ref` hold provider
+  references alone. A gateway driver can no longer register the key `import`: it fails at boot with a LogicException.
+  No permission or user-facing change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
