@@ -16,7 +16,9 @@
 #
 # Settings: DEPLOY_ENV_FILE (deploy/.env), DEPLOY_PROJECT (mohar), DEPLOY_STATE_DIR (deploy/state: the live
 # colour and images, and the upstream file Caddy imports). DEPLOY_SKIP_MIGRATION_CHECK=1 skips the migration
-# check when you have reviewed a finding.
+# check when you have reviewed a finding. DEPLOY_COMPOSE_OVERRIDE names an extra compose file merged over
+# compose.prod.yaml, e.g. deploy/compose.secrets.example.yaml copied and filled in to read APP_KEY from Docker
+# secrets (billing/docs/devops/key-rotation.md).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -30,7 +32,7 @@ state="$DEPLOY_STATE_DIR/deploy.env"
 upstream="$DEPLOY_STATE_DIR/live/upstream.caddy"
 # Caddy's config directory is bind-mounted (compose.prod.yaml), so a reload reads the checkout's current Caddyfile.
 caddy_config=/etc/caddy/conf/Caddyfile
-compose=(docker compose -p "$project" -f deploy/compose.prod.yaml --env-file "$env_file")
+compose=(docker compose -p "$project" -f deploy/compose.prod.yaml ${DEPLOY_COMPOSE_OVERRIDE:+-f "$DEPLOY_COMPOSE_OVERRIDE"} --env-file "$env_file")
 
 say() { printf '== %s\n' "$*"; }
 die() { printf 'deploy: %s\n' "$*" >&2; exit 1; }

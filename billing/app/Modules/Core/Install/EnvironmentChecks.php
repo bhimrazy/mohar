@@ -7,7 +7,6 @@ use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\Settings;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Database\Migrations\Migrator;
-use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -75,19 +74,7 @@ final class EnvironmentChecks
 
     private function appKey(): EnvironmentCheck
     {
-        $key = (string) config('app.key');
-
-        if ($key === '') {
-            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY is not set. Run `php artisan key:generate` once and keep the key: it decrypts stored secrets.');
-        }
-
-        $raw = str_starts_with($key, 'base64:') ? (string) base64_decode(substr($key, 7), true) : $key;
-
-        if (! Encrypter::supported($raw, (string) config('app.cipher'))) {
-            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY does not fit the configured cipher. Generate one with `php artisan key:generate --show`.');
-        }
-
-        return new EnvironmentCheck('APP_KEY', CheckStatus::Ok, 'Set.');
+        return (new AppKeyCheck)->run();
     }
 
     private function database(): EnvironmentCheck
