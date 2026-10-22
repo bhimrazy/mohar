@@ -581,6 +581,13 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Services
 
+- Import accounts: a currency change on a client at the same moment as a confirmed import can no longer leave the
+  client with an imported service in its old currency (#239). Each account reads the client again under a share lock
+  before its service is created. If the currency changed since the review, the account is not imported and the
+  report says why, for example "The client's currency changed from NPR to USD since the review, so it was not
+  imported in USD. Review the account again."; review it again to import it in the new currency. A currency change
+  that reaches the client while its service is being created waits for it and is then refused as usual. No
+  migration and no permission change.
 - Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
   on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
   finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
