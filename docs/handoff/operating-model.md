@@ -28,7 +28,10 @@ Definitions live in `.claude/agents/`. Pass the file name as `subagent_type` whe
 Model: chosen at launch with the Agent tool's `model` parameter, not pinned in the definitions, because the owner
 steers which model family has usage headroom. Choose by effort: Haiku for mechanical work (renames, lookups,
 formatting), Sonnet for ordinary work (docs, slop reviews, ordinary features and fixes, research), Opus for design,
-security and money (kernel, auth, architecture, payments, re-checks). A stopped agent
+security and money (kernel, auth, architecture, payments, re-checks).
+`module-engineer` is the exception: it is pinned to `sonnet` (the newest Sonnet) in its definition and launched
+without a `model` override, payments and kernel work included (owner, 2026-10-22, after /usage showed it at 37%).
+Opus stays on the reviewers (review-board on money/security PRs, re-reviewer, principal-architect). A stopped agent
 keeps its model on resume, so switching family means a fresh agent with a full brief. All agents share one GitHub
 account, so reviews are posted as comments and the verdict line is the gate.
 

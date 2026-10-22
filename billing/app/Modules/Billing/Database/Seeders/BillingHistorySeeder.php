@@ -12,6 +12,7 @@ use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\RefundMode;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Core\Database\Seeders\DemoSeeder;
 use App\Modules\Core\Enums\ClientOrigin;
@@ -47,7 +48,14 @@ class BillingHistorySeeder extends DemoSeeder
 
     private int $reference = 0;
 
-    public function run(Invoicer $invoicer, ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund): void
+    /** @var list<string> Nepal wallets with a seeded, active gateway row; NPR customers pay with these or by bank transfer. */
+    private array $wallets = [];
+
+    /**
+     * @param  list<array{daysAgo: int, hour: int, run: \Closure(): void}>  $scenario  steps replayed on their own day inside the
+     *                                                                                 history, so a scripted invoice is numbered and dated in order
+     */
+    public function run(Invoicer $invoicer, ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, array $scenario = []): void
     {
         // Demo data only: never fabricate billing history in a live install.
         if (app()->isProduction()) {
@@ -58,8 +66,9 @@ class BillingHistorySeeder extends DemoSeeder
         $today = CarbonImmutable::today();
         mt_srand(2026);
 
+        $this->wallets = array_values(array_map(strval(...), Gateway::query()->whereIn('key', BillingSeeder::NEPAL_WALLETS)->where('is_active', true)->orderBy('key')->pluck('key')->all()));
         $clients = $this->clients();
-        $events = $this->plan($clients, $today);
+        $events = $this->plan($clients, $today, $scenario);
 
         try {
             // One transaction for the whole history: the actions' own transactions become savepoints (fast seeding).
@@ -72,7 +81,7 @@ class BillingHistorySeeder extends DemoSeeder
     }
 
     /**
-     * @param  list<array{at: CarbonImmutable, type: string, invoice: int, client: Client, plan: array{0: string, 1: int}, share: int}>  $events
+     * @param  list<array<string, mixed>>  $events
      */
     private function replay(array $events, Invoicer $invoicer, ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund): void
     {
@@ -84,6 +93,7 @@ class BillingHistorySeeder extends DemoSeeder
             $invoiceKey = $event['invoice'];
 
             match ($event['type']) {
+                'script' => $event['run'](),
                 'issue' => $invoices[$invoiceKey] = $this->issue($invoicer, $event['client'], $event['plan'], $event['at']),
                 'pay' => $this->pay($pay, $invoices[$invoiceKey]->fresh() ?? $invoices[$invoiceKey], $event['share']),
                 'refund' => $this->refund($refund, $invoices[$invoiceKey]),
@@ -92,14 +102,12 @@ class BillingHistorySeeder extends DemoSeeder
         }
     }
 
-    /** Fixed US customers so the history is identical on every run (Core's demo clients are random). */
-    private const US_CUSTOMERS = [
-        ['Olivia', 'Bennett', 'Northwind Labs', 'CA'],
-        ['Marcus', 'Reid', 'Bluefin Analytics', 'TX'],
-        ['Hannah', 'Cole', null, 'WA'],
-        ['Diego', 'Alvarez', 'Copperleaf Studio', 'NY'],
-        ['Grace', 'Kim', 'Summit Outdoor Co', 'CO'],
-        ['Ethan', 'Brooks', null, 'FL'],
+    /** Fixed Nepali customers (generated names; PAN only where the buyer is a company) so the history is identical on every run. */
+    private const NEPAL_CUSTOMERS = [
+        ['Sunita', 'Shrestha', 'Shrestha Traders Pvt. Ltd.', 'Kathmandu', 'Bagmati', '44600', '301876543'],
+        ['Bishal', 'Thapa', 'Everest Digital Pvt. Ltd.', 'Lalitpur', 'Bagmati', '44700', '302765432'],
+        ['Mina', 'Gurung', null, 'Pokhara', 'Gandaki', '33700', null],
+        ['Rabin', 'Maharjan', 'Newa Foods Pvt. Ltd.', 'Bhaktapur', 'Bagmati', '44800', '303654321'],
     ];
 
     /**
@@ -108,25 +116,33 @@ class BillingHistorySeeder extends DemoSeeder
     private function clients(): array
     {
         // Demo clients count as staff-created (origin is not fillable).
-        $usd = array_map(fn (array $customer): Client => Client::unguarded(fn (): Client => Client::query()->firstOrCreate(
+        $create = fn (array $customer, array $extra): Client => Client::unguarded(fn (): Client => Client::query()->firstOrCreate(
             ['email' => strtolower($customer[0].'.'.$customer[1]).'@example.com'],
-            ['first_name' => $customer[0], 'last_name' => $customer[1], 'company_name' => $customer[2], 'address_1' => '100 Market Street',
-                'city' => 'Springfield', 'state' => $customer[3], 'postcode' => '10001', 'country' => 'US', 'currency' => 'USD',
-                'language' => 'en', 'status' => 'active', 'tax_exempt' => false, 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff],
-        )), self::US_CUSTOMERS);
+            ['first_name' => $customer[0], 'last_name' => $customer[1], 'company_name' => $customer[2], 'language' => 'en', 'status' => 'active',
+                'tax_exempt' => false, 'origin' => ClientOrigin::Staff, 'email_source' => EmailSource::Staff, ...$extra],
+        ));
+        $nepal = array_map(fn (array $customer): Client => $create($customer, [
+            'address_1' => 'Main Road '.(strlen($customer[1]) + 3), 'city' => $customer[3], 'state' => $customer[4], 'postcode' => $customer[5],
+            'country' => 'NP', 'currency' => 'NPR', 'tax_id' => $customer[6],
+        ]), self::NEPAL_CUSTOMERS);
+        // The one US customer (Core seeds the same address, so this finds it).
+        $us = $create(['Olivia', 'Bennett', 'Northwind Labs'], [
+            'address_1' => '100 Market Street', 'city' => 'New York', 'state' => 'NY', 'postcode' => '10001', 'country' => 'US', 'currency' => 'USD',
+        ]);
         $markets = array_map(fn (array $market): Client => $market['client'], BillingSeeder::marketClients());
 
-        // USD customers dominate (default-currency income chart), with Indian and Nepali customers in the mix.
-        return [...$usd, ...$usd, ...$markets];
+        // Nepali customers dominate, with a few Indian ones and a single US customer so the other currencies still show.
+        return [...$nepal, ...$nepal, ...$nepal, $us, ...$markets];
     }
 
     /**
      * Chronological event list: issue, (partial) payments, refunds and cancellations.
      *
      * @param  list<Client>  $clients
-     * @return list<array{at: CarbonImmutable, type: string, invoice: int, client: Client, plan: array{0: string, 1: int}, share: int}>
+     * @param  list<array{daysAgo: int, hour: int, run: \Closure(): void}>  $scenario
+     * @return list<array<string, mixed>>
      */
-    private function plan(array $clients, CarbonImmutable $today): array
+    private function plan(array $clients, CarbonImmutable $today, array $scenario = []): array
     {
         $events = [];
         $key = 0;
@@ -174,6 +190,10 @@ class BillingHistorySeeder extends DemoSeeder
             }
         }
 
+        foreach ($scenario as $step) {
+            $events[] = ['at' => $today->subDays($step['daysAgo'])->setTime($step['hour'], 0), 'type' => 'script', 'invoice' => ++$key, 'run' => $step['run']];
+        }
+
         usort($events, fn (array $a, array $b): int => [$a['at']->getTimestamp(), $a['invoice']] <=> [$b['at']->getTimestamp(), $b['invoice']]);
 
         return $events;
@@ -205,10 +225,15 @@ class BillingHistorySeeder extends DemoSeeder
         }
 
         $gateway = $invoice->payment_gateway ?? 'bank_transfer';
-        $prefix = $gateway === 'bank_transfer' ? ($invoice->currency === 'INR' ? 'NEFT' : 'WIRE') : 'ch';
+        $prefix = match ($gateway) {
+            'bank_transfer' => $invoice->currency === 'INR' ? 'NEFT' : 'WIRE',
+            'esewa' => 'ESW',
+            'khalti' => 'KHL',
+            default => 'ch',
+        };
         $amount = $share === 100 ? $invoice->balance : intdiv($invoice->balance * $share, 100);
 
-        $pay->handle($invoice, new PaymentData($amount, $gateway, sprintf('%s-hist-%05d', $prefix, ++$this->reference), fee: $gateway === 'bank_transfer' ? 0 : intdiv($amount * 29, 1000) + 30));
+        $pay->handle($invoice, new PaymentData($amount, $gateway, sprintf('%s-hist-%05d', $prefix, ++$this->reference), fee: $gateway === SandboxCardDriver::KEY ? intdiv($amount * 29, 1000) + 30 : 0));
     }
 
     private function refund(RefundTransaction $refund, Invoice $invoice): void
@@ -222,6 +247,10 @@ class BillingHistorySeeder extends DemoSeeder
 
     private function gatewayFor(Client $client): string
     {
+        if ($client->currency === 'NPR' && $this->wallets !== []) {
+            return mt_rand(0, 3) === 0 ? 'bank_transfer' : $this->wallets[mt_rand(0, count($this->wallets) - 1)];
+        }
+
         if ($client->currency !== 'USD' || ! BillingSeeder::sandboxAllowed()) {
             return 'bank_transfer';
         }

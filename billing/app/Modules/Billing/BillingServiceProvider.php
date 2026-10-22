@@ -24,6 +24,7 @@ use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
@@ -102,6 +103,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $encrypted = $this->app->make(EncryptedStorage::class);
         $encrypted->register('billing_gateways', new EncryptedModel(Gateway::class));
         $encrypted->register('billing_pay_methods', new EncryptedModel(PayMethod::class));
+        $encrypted->register('billing_payment_attempts', new EncryptedModel(PaymentAttempt::class));
 
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 

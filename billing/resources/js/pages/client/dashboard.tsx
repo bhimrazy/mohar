@@ -29,7 +29,7 @@ export default function ClientDashboard({ client, cards }: Props) {
                     title={`Welcome back, ${client.first_name}`}
                     description={
                         client.company_name
-                            ? `You're managing ${client.company_name}.`
+                            ? `You're managing ${client.company_name.replace(/\.$/, '')}.`
                             : 'Everything about your account in one place.'
                     }
                 />

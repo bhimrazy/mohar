@@ -90,6 +90,7 @@ class InvoicePdf
             'showSac' => $sellerCountry === 'IN' && ($indianGst || $taxed) && $invoice->items->contains(fn ($item) => $item->sac_code !== null),
             'money' => fn (int $amount): string => $this->money->format($amount, $invoice->currency),
             'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+            'countryName' => fn (?string $code): string => $this->countryName($code),
             // Issue and due dates: the AD date, and the BS date in brackets when that setting is on.
             'invoiceDate' => fn (?CarbonInterface $date): string => $date === null ? '—' : $date->format($dateFormat).(($bs = $this->bsDates->label($date)) !== null ? ' ('.$bs.')' : ''),
             'bsDates' => $this->bsDates->enabled(),
@@ -109,14 +110,38 @@ class InvoicePdf
 
     public function renderQuote(Quote $quote): string
     {
+        return Pdf::loadView('billing::pdf.quote', $this->quoteViewData($quote))->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function quoteViewData(Quote $quote): array
+    {
         $quote->loadMissing(['items', 'client']);
         $seller = $this->seller->snapshot();
+        $dateFormat = DateFormats::current();
 
-        return Pdf::loadView('billing::pdf.quote', [
+        return [
             'quote' => $quote,
             'company' => ['name' => (string) $seller['legal_name'], 'email' => (string) ($seller['email'] ?? '')],
             'money' => fn (int $amount): string => $this->money->format($amount, $quote->currency),
-        ])->setPaper(strtolower($this->settings->string('pdf.paper', 'A4')))->output();
+            'date' => fn (?CarbonInterface $date): string => $date?->format($dateFormat) ?? '—',
+        ];
+    }
+
+    /**
+     * "Nepal" for "NP"; the code itself when PHP's intl has no name for it.
+     */
+    private function countryName(?string $code): string
+    {
+        if ($code === null || $code === '') {
+            return '';
+        }
+
+        $name = class_exists(\Locale::class) ? \Locale::getDisplayRegion('-'.strtoupper($code), 'en') : false;
+
+        return is_string($name) && $name !== '' && $name !== strtoupper($code) ? $name : $code;
     }
 
     public function filename(Invoice $invoice): string

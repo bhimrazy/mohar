@@ -508,6 +508,17 @@ merchants).
 - **Connection test:** Khalti has no ping endpoint. We look up a made-up pidx: 401 means the key was rejected, and
   400/404 means it was accepted.
 - **`purchase_order_id`:** no length limit is documented. We send our 26-character attempt reference.
+- **Continue payment (#251):** the lookup does not return `payment_url`, and the docs show it only as a sample
+  initiate response (`https://test-pay.khalti.com/?pidx=…`) with no stated format, so we don't build it from the pidx.
+  The `payment_url` from initiate is kept on the attempt (`payment_attempts.resume_url`, encrypted with `APP_KEY`,
+  never logged or sent as a prop) and dropped once the attempt leaves Pending. It mostly repeats the pidx, which is
+  stored in plain text, so the encryption is defence in depth rather than secrecy. "Continue payment" on the invoice
+  redirects to it only while the invoice still has a balance, the attempt is pending and unexpired, the URL passes the
+  same Khalti host check as initiate and names the attempt's pidx, and a lookup of that pidx says `Initiated`. Otherwise
+  the attempt is settled from that same lookup (one Khalti call per click) and the client is told the next step:
+  Pending (paid, bank confirming) gives "Your payment is being confirmed…", no answer gives "try again in a few
+  minutes", and a closed session shows where it stands. A Khalti client is never told to use another method, because
+  Khalti has no such button. eSewa is not resumable: its signed form is served once.
 
 ### 8.3 eSewa: what the official docs and UAT say today vs this spec
 
