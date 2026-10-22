@@ -118,8 +118,13 @@ final class Redactor
      * HTML void elements: no end tag, so a secret `name` on one (`<input name="password">`) masks only the text before
      * the next tag (and a CDATA section), which in HTML is usually nothing. XML uses the same names with content
      * (`<param name="password">…</param>`), and that content is masked by the same rule. A prefixed name is never HTML.
+     * An element with no end tag keeps that next-tag bound only in an HTML document (HTML_DOCUMENT_PATTERN matches
+     * before it); anywhere else it is an XML container and a child element after it fails closed (voidContainerEnd).
      */
     private const VOID_ELEMENTS = ['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'];
+
+    /** Marks an HTML document: a doctype, `<html`, `<head` or `<body` tag (not `<header`), any case. */
+    private const HTML_DOCUMENT_PATTERN = '/<(?:!doctype\s+html|html|head|body)(?![\w:.-])/i';
 
     /** Header names whose whole line is secret: every cookie on it (`Cookie: theme=dark; cpsession=…`). */
     private const WHOLE_LINE_KEYS = ['cookie', 'set-cookie'];
@@ -374,6 +379,8 @@ final class Redactor
         $endTagCursor = 0;
         /** @var array<string, int> $lastEndTag offset of the last `</name` per void element name, found once per name */
         $lastEndTag = [];
+        /** @var int|null $htmlStart offset of the first HTML document marker, found once; PHP_INT_MAX when there is none */
+        $htmlStart = null;
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -414,7 +421,10 @@ final class Redactor
 
             if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
                 && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
-                $contentEnd = $this->voidContentEnd($value, $end, $voidName !== 'input');
+                $htmlStart ??= preg_match(self::HTML_DOCUMENT_PATTERN, $value, $html, PREG_OFFSET_CAPTURE) === 1 ? $html[0][1] : PHP_INT_MAX;
+                $contentEnd = $htmlStart < $start
+                    ? $this->voidContentEnd($value, $end)
+                    : $this->voidContainerEnd($value, $end);
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
                 $position = $contentEnd;
@@ -492,13 +502,10 @@ final class Redactor
     }
 
     /**
-     * Where the content of a secret void-named element starting at $start ends: past a CDATA section after optional
-     * blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`. With $childIsValue (every
-     * void name but HTML's `input`), a child start tag after only blanks and comments is the value's container
-     * (`<param name="password"><value><string>…`) and the element has no end tag to bound it, so the rest of the text is
-     * masked (fail closed). `input` keeps the next-tag bound, since `<input name="password"><p>…` is ordinary HTML.
+     * Where the content of a secret void-named element in an HTML document starts at $start ends: past a CDATA section
+     * after optional blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`.
      */
-    private function voidContentEnd(string $value, int $start, bool $childIsValue = false): int
+    private function voidContentEnd(string $value, int $start): int
     {
         $length = strlen($value);
         $first = $start + strspn($value, " \t\r\n", $start);
@@ -511,22 +518,70 @@ final class Redactor
 
         $next = strpos($value, '<', $start);
 
-        while ($childIsValue && $next !== false && trim(substr($value, $start, $next - $start)) === '') {
-            if (substr_compare($value, '<!--', $next, 4) !== 0) {
-                return strpbrk($value[$next + 1] ?? '', '!?') !== false || ctype_alpha($value[$next + 1] ?? '') ? $length : $next;
-            }
-
-            $close = strpos($value, '-->', $next + 4);
-
-            if ($close === false) {
-                return $length;
-            }
-
-            $start = $close + 3;
-            $next = strpos($value, '<', $start);
-        }
-
         return $next === false ? $length : $next;
+    }
+
+    /**
+     * Where the content of a secret void-named element outside an HTML document ends. Such an element is an XML
+     * container (`<param name="password"><value><string>…`) that no end tag bounds, so after only blanks, comments,
+     * empty CDATA sections and stray end tags, a child start tag (a name starting with a letter, `_`, `:` or a
+     * non-ASCII byte), `<!` or `<?` masks the rest of the text (fail closed). Text, a non-empty CDATA section or an end
+     * tag followed by neither ends the content there. Every step moves forward, so the cost is linear.
+     */
+    private function voidContainerEnd(string $value, int $start): int
+    {
+        $length = strlen($value);
+        $position = $start;
+        $bound = null;
+
+        while (true) {
+            $position += strspn($value, " \t\r\n", $position);
+
+            if ($position >= $length) {
+                return $bound ?? $length;
+            }
+
+            if ($value[$position] !== '<') {
+                return $bound ?? ($position + strcspn($value, '<', $position));
+            }
+
+            $after = $value[$position + 1] ?? '';
+
+            if (substr_compare($value, '<!--', $position, 4) === 0) {
+                $close = strpos($value, '-->', $position + 4);
+
+                if ($close === false) {
+                    return $length;
+                }
+
+                $position = $close + 3;
+            } elseif (substr_compare($value, '<![CDATA[', $position, 9) === 0) {
+                $close = strpos($value, ']]>', $position + 9);
+
+                if ($close === false) {
+                    return $length;
+                }
+
+                if (trim(substr($value, $position + 9, $close - $position - 9)) !== '') {
+                    return $bound ?? $close + 3;
+                }
+
+                $position = $close + 3;
+            } elseif ($after === '/') {
+                $bound ??= $position;
+                $close = strpos($value, '>', $position);
+
+                if ($close === false) {
+                    return $bound;
+                }
+
+                $position = $close + 1;
+            } elseif ($after === '!' || $after === '?' || ctype_alpha($after) || $after === '_' || $after === ':' || ($after !== '' && ord($after) >= 0x80)) {
+                return $length;
+            } else {
+                return $bound ?? $position;
+            }
+        }
     }
 
     /**

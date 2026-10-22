@@ -17,7 +17,7 @@ test('V1: an XML element named like an HTML void element still has its secret co
 ]);
 
 test('V1 guard: an HTML void element with a secret name masks nothing after it', function () {
-    $html = '<input type="password" name="password" value=""><p>Forgot your password?</p>';
+    $html = '<body><input type="password" name="password" value=""><p>Forgot your password?</p>';
 
     expect((new Redactor)->maskValues($html, []))->toBe($html);
 });

@@ -109,7 +109,7 @@ test('ids, amounts and references support needs stay readable', function (string
     'email' => ['contact a@b.com or https://x.test/?email=a@b.com'],
     'reference ids after a Session label' => ['{"message":"Session: cs_live_a1B2c3D4 expired","error":"Session: pi_a1B2c3D4."}'],
     'an empty Cookie header keeps the next line' => ["Cookie:\r\nHost: keepme.test"],
-    'void element with a secret name' => ['<input type="password" name="password" value=""><p>Forgot your password?</p>'],
+    'void element with a secret name' => ['<!DOCTYPE html><form><input type="password" name="password" value=""><p>Forgot your password?</p>'],
     'flags without credentials' => ['ps -u root; tar -U x'],
     'unchanged json keeps its formatting' => ["{\n  \"id\": \"evt_1\",\n  \"data\": {}\n}"],
 ]);
@@ -212,6 +212,10 @@ test('an unclosed void-named container masks its child content to the end of the
     'comment before the child' => ['<param name="password"><!-- note --><value>COM1SECRET', 'COM1SECRET'],
     'cdata after a comment' => ['<param name="password"><!-- note --><![CDATA[CDA1SECRET]]>', 'CDA1SECRET'],
     'unterminated comment' => ['<param name="password"><!-- <value>UNT1SECRET', 'UNT1SECRET'],
+    'input as an xml element' => ['<soap:Body><input name="password"><string>INP1SECRET', 'INP1SECRET'],
+    'upper-case input' => ['<INPUT name="password"><value>INP2SECRET', 'INP2SECRET'],
+    'header is not an html marker' => ['<header/><input name="password"><b>INP3SECRET', 'INP3SECRET'],
+    'html marker only after the element' => ['<input name="password"><b>INP4SECRET</b><html>', 'INP4SECRET'],
     'other void names' => ['<source name="token"><value>SRC1SECRET', 'SRC1SECRET'],
 ]);
 
@@ -221,7 +225,8 @@ test('a void-named element that is not a container keeps what follows it (#278)'
     'self-closing' => ['<param name="password"/><value>KEEP1</value>', 'KEEP1'],
     'self-closing with a space' => ['<param name="password" /><value>KEEP2</value>', 'KEEP2'],
     'non-secret name' => ['<param name="domain"><value>KEEP3</value>', 'KEEP3'],
-    'html input before a paragraph' => ['<input name="password"><p>KEEP4</p>', 'KEEP4'],
+    'html input before a paragraph' => ['<HTML><body><input name="password"><p>KEEP4</p>', 'KEEP4'],
+    'stray end tag then text' => ['<param name="password"></x>KEEP6<value>', 'KEEP6'],
     'empty at the end of the input' => ['<param name="password">', '<param name="password">'],
-    'closed by its parent' => ['<a><param name="password"></a><b>KEEP5</b>', 'KEEP5'],
+    'closed by its parent' => ['<a><param name="password"></a>KEEP5', 'KEEP5'],
 ]);
