@@ -69,9 +69,10 @@ Out of scope: §16.
 - **Tax invoice moment.** A hosting invoice is usually raised 14 days before the due date and many are never paid. If
   the legal number is assigned at publish, every unpaid renewal is a sale in the register and needs a credit note when
   it is cancelled. Mohar already has proforma mode (`billing.sequential_paid_numbering`): unpaid invoices carry a
-  proforma number and become tax invoices, with the legal number and issue date, when paid. In Nepal VAT mode the
-  install and the setting page recommend proforma mode and explain the trade-off; the choice is the owner's (§14, D1).
-  **MUST** (explanation) / owner decision (default)
+  proforma number and become tax invoices, with the legal number and issue date, when paid. Owner decision D1
+  (2026-10-22): an invoice becomes a tax invoice on payment, so turning Nepal VAT mode on turns proforma mode on
+  (`sequential_paid_numbering` and `set_issue_date_on_payment` true). Staff can switch proforma mode off, and the
+  setting page says that every unpaid invoice then becomes a sale needing a credit note when cancelled. **MUST**
 - Rule used everywhere below: a **tax invoice** is an invoice with a legal `number` (not a proforma number, not a draft).
   Only tax invoices appear in the register and only they take notes. A proforma invoice is cancelled without a note.
   **MUST**
@@ -171,7 +172,8 @@ amount (net, int minor), taxable (bool), tax_amount, sort_order`
 ### 5.3 Settlement of a credit note
 
 The credit first reduces what the invoice still owes; only what exceeds the balance (money already received) needs a
-destination. Staff choose it in the preview; the default is D3.
+destination. Staff choose it in the preview. Owner decision D3 (2026-10-22): account credit is pre-selected and the
+refund options are one click away.
 
 | Invoice state           | Credit up to the balance | Credit above the balance (money already paid)                                                                                                                                                                             |
 | ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -264,8 +266,8 @@ date, buyer, PAN, reason code and text, taxable, exempt, VAT, total, settlement 
   header block rows for PAN, name, year and period, then our extra columns. **MUST**
 - **PDF**: A4 landscape through the existing PDF renderer, header block, BS period, page totals and grand totals,
   "Printed by <staff> at <time>", the brand from `BrandProvider`. For a self-certified annual book. **MUST**
-- **XLSX** in the IRD template: **SHOULD**, needs a spreadsheet package (ADR 0007 approval) and the owner's answer on
-  whether hosts upload the register (D4).
+- No XLSX. Owner decision D4 (2026-10-22): CSV (detail and IRD layout) plus PDF; XLSX waits until the IRD portal
+  needs an upload (§16).
 - Large exports (> `reports.sync_export_max_rows`) are queued as in `reports.md` §7. **SHOULD**
 - Note PDF: titled "Credit Note" / "Debit Note", seller name, address and PAN/VAT number, buyer name, address and PAN,
   note number, BS and AD date, "Against tax invoice <number> dated <BS date> (<AD date>)", reason, lines, taxable,
@@ -344,7 +346,7 @@ Billing consumes nothing new.
 - `ExchangeRateSource` (existing) supplies `npr_rate` at numbering.
 - `BikramSambat` stays in `App\Modules\Billing\Support`; it gains `fiscalYear(DateTimeInterface): string` and
   `period(DateTimeInterface): string`. If another module needs BS dates it moves to `app/Support` (kernel) then.
-- **CBMS** is not built in this version (D5). The data model is ready for it: BS date, fiscal year in the CBMS form,
+- **CBMS** is not built (owner decision D5, 2026-10-22). The data model is ready for it: BS date, fiscal year in the CBMS form,
   buyer PAN, the amount split CBMS expects, the reference invoice and reason on notes, and `cbms_status` columns. A
   later driver would post each tax invoice and note through an outbox, retry by invoice number (CBMS rejects a
   duplicate bill), and never retry a note blindly (CBMS accepts duplicate notes, F9).
@@ -396,7 +398,7 @@ MUST:
    `cancellation` adjustment is written.
 10. Given automation auto-cancels an overdue tax invoice, then a credit note with created-by "automation" is issued and
     `TaxNoteIssued` has `automatic = true`.
-11. Given proforma mode and an unpaid proforma invoice, when it is cancelled, then no note is issued and nothing
+11. Given Nepal VAT mode (proforma on, D1) and an unpaid proforma invoice, when it is cancelled, then no note is issued and nothing
     appears in the register.
 12. Given a late fee added to a tax invoice, then a debit note `late_fee` is issued and the register shows it as a
     positive row.
@@ -428,27 +430,44 @@ MUST:
     invoice and the reason.
 29. Given a mistaken credit note, when staff reverse it, then a debit note `reverses_credit_note` with the same amount
     and tax exists and the invoice balance is back where it was.
+30. Given a new install with seller country NP and a seller VAT number, then Nepal VAT mode and proforma mode are on;
+    when a proforma invoice is paid, then it gets the next legal number, its issue date becomes the payment date and it
+    appears in that BS month's register (D1).
+31. Given a credit note on a paid invoice, when the preview opens, then account credit is the selected settlement and
+    refund to the original method and "refunded outside" are offered beside it (D3).
+32. Given the register page, then the exports offered are CSV (detail), CSV (IRD layout) and PDF, and nothing is sent
+    to CBMS when a tax invoice or note is issued; `cbms_status` stays null (D4, D5).
 
 SHOULD:
 
-30. Given an invoice PDF downloaded twice in Nepal VAT mode, then the second copy says "Copy of original — print 2" and
+33. Given an invoice PDF downloaded twice in Nepal VAT mode, then the second copy says "Copy of original — print 2" and
     `print_count` is 2.
-31. Given a direct SQL UPDATE of `tax_notes.total` on PostgreSQL, then the trigger rejects it.
-32. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
-33. Given a register export above the sync limit, then it is queued and the staff member gets a 24-hour signed link.
-34. Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (after D2), then the first note on 1 Shrawan 2083 is
+34. Given a direct SQL UPDATE of `tax_notes.total` on PostgreSQL, then the trigger rejects it.
+35. Given a note issued with "Send to client" ticked, then the client gets the email with the PDF attached.
+36. Given a register export above the sync limit, then it is queued and the staff member gets a 24-hour signed link.
+37. Given `{BS_FY}` in the note format and reset `bs_fiscal_year` (only if D2 is decided that way), then the first note on 1 Shrawan 2083 is
     `CN-2083-84-1`.
 
-## 14. Owner decisions (before the build)
+## 14. Owner decisions
 
-| #   | Decision                                              | Options                                                                                                                                                                                                                              | Recommendation                                                                                                                                                                 |
-| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1  | When does an invoice become the tax invoice?          | (a) at publish: every renewal is a sale and every unpaid cancellation needs a credit note; (b) on payment (proforma mode on by default in Nepal VAT mode): unpaid renewals are proforma bills, the tax invoice is numbered when paid | (b), if the accountant agrees that a proforma before payment is acceptable for a service                                                                                       |
-| D2  | Note numbering                                        | own `CN-`/`DN-` sequences never reset (now); or reset each BS fiscal year with `{BS_FY}`                                                                                                                                             | never reset now; switch together with invoices when the accountant answers the fiscal-year question                                                                            |
-| D3  | Default settlement of a credit note on a paid invoice | account credit; refund to original method; ask every time                                                                                                                                                                            | account credit pre-selected, refund one click away                                                                                                                             |
-| D4  | Register export format                                | CSV + PDF now; XLSX in the IRD template (needs a package approval)                                                                                                                                                                   | CSV + PDF now; XLSX only if hosts must upload it to the IRD portal                                                                                                             |
-| D5  | CBMS                                                  | build now; build when the first host crosses a threshold; never                                                                                                                                                                      | not now; ask the accountant whether hosting counts as an "internet service provider" (Rs 5 crore line) and whether software billing below the line needs tax-office permission |
-| D6  | Invoices in other currencies                          | which rate to NPR (Nepal Rastra Bank rate on the invoice date, the install's rate table, or the rate the payment was received at); whether foreign clients' invoices are export (zero-rated)                                         | the install's rate on the numbering date, NRB-sourced; export only through an explicit tax rule                                                                                |
+Decided by the owner on 2026-10-22 (#327):
+
+| #   | Decision                                              | Decided                                                                                          |
+| --- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| D1  | When does an invoice become the tax invoice?          | On payment. Unpaid invoices are proforma; Nepal VAT mode turns proforma mode on (§3).            |
+| D3  | Default settlement of a credit note on a paid invoice | Account credit, with refund one click away (§5.3).                                               |
+| D4  | Register export format                                | CSV (detail and IRD layout) plus PDF. XLSX waits until the IRD portal needs an upload (§7, §16). |
+| D5  | CBMS                                                  | Not now. The data model stays CBMS-ready (§4.1, §11).                                            |
+
+Open, waiting for the accountant (with A1–A10 in §15):
+
+| #   | Decision                     | Options                                                                                                                                                                                      | Recommendation                                                                                      |
+| --- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| D2  | Note numbering               | own `CN-`/`DN-` sequences never reset (now); or reset each BS fiscal year with `{BS_FY}`                                                                                                     | never reset now; switch together with invoices when the accountant answers the fiscal-year question |
+| D6  | Invoices in other currencies | which rate to NPR (Nepal Rastra Bank rate on the invoice date, the install's rate table, or the rate the payment was received at); whether foreign clients' invoices are export (zero-rated) | the install's rate on the numbering date, NRB-sourced; export only through an explicit tax rule     |
+
+Still to ask the accountant under D5: whether hosting counts as an "internet service provider" (Rs 5 crore line) and
+whether software billing below the line needs the tax office's permission.
 
 ## 15. Owner to confirm (local practice the specs assume)
 
@@ -471,7 +490,7 @@ SHOULD:
 
 ## 16. Out of scope
 
-Purchase register, input VAT and the full VAT return; CBMS posting (designed for, §11); IRD e-billing software
+Purchase register, input VAT and the full VAT return; CBMS posting (D5; designed for, §11); XLSX exports (D4); IRD e-billing software
 registration; abbreviated tax invoices (retail, under Rs 10,000); excise, health service tax and education fee
 columns; Devanagari numerals and a Nepali UI; India GST credit notes and GSTR-1 export (later; the model fits, with the
 30 November limit of F10 as a warning); credit notes across several invoices; credit notes for downgrades issued
