@@ -29,12 +29,12 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 | Currencies and exchange rates                     | Senior Engineer         | #43                    | ✅ merged       | symbols, lakh grouping, rate sources, reviews, converted prices                                                                                                         |
 | Production install path                           | Senior Engineer         | #57                    | ✅ merged       | `app:install`, reference-data installers                                                                                                                                |
 | Kernel contracts (ADR 0009 PR A)                  | Senior Engineer         | #61                    | ✅ merged       | outbound address guard, Redactor, SettingField, driver registry                                                                                                         |
-| Provisioning on kernel (ADR 0009 PR B, B2)        | Senior Engineer         | #62                    | 🔍 in review    | base for the cPanel/WHM driver                                                                                                                                          |
+| Provisioning on kernel (ADR 0009 PR B, B2)        | Senior Engineer         | #62                    | ✅ merged       | base for the cPanel/WHM driver                                                                                                                                          |
 | Stripe gateway                                    | Senior Engineer         | #58                    | ✅ merged       | fixture-tested, not live-verified; simulator in S3                                                                                                                      |
 | cPanel/WHM driver                                 | Senior Engineer         | #69, #73               | ✅ 1a+1b merged | spec: provisioning-cpanel.md; after #62                                                                                                                                 |
 | Registrar drivers (.np, ResellerClub, Namecheap)  | Senior Engineer         | #199, #262, #264, #265 | ✅ .np merged   | .np: clients register at the registry, Mohar shows nameservers; kernel contracts merged (ADR 0009 PR C1-C3); prep for #280 in flight, then ResellerClub, then Namecheap |
 | Client importer (CSV, WHMCS preset)               | Senior Engineers        | #160–#163, #184, #201  | ✅ merged       | upload, map, review, confirm and apply, report; B2 merged (invitations #255, opening balances #259)                                                                     |
-| eSewa and Khalti simulators                       | Senior Engineer         | #321                   | 🔍 in re-review | NPR lifecycle end to end (#208)                                                                                                                                         |
+| eSewa and Khalti simulators                       | Senior Engineer         | #321                   | ✅ merged       | NPR lifecycle end to end (closes #208); follow-ups #322, #323                                                                                                           |
 | Flaky-test fixes                                  | Senior Engineer         | —                      | ⏳ in flight    | one PR for time boundaries (#310, #322), one for #209 (simulator ports); not yet opened                                                                                 |
 | Nepal-first demo seed, #39 fix                    | Senior Engineer         | —                      | ⏳ in flight    | PR not yet opened                                                                                                                                                       |
 | VAT register and credit-note spec                 | Product manager         | —                      | ⏳ in flight    | spec only                                                                                                                                                               |
@@ -44,15 +44,29 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 
 ### 2026-10-22
 
-- Merged (full list in `docs/handoff/state.md`): registrar contracts and drivers on the kernel (#262, #264, #265),
-  Laravel 13.36 (#242), the local merge gate (#188), macOS tooling (#271), the credit ledger idempotency key (#283),
-  KYC image re-encode with its backfill, browser resize and unlock races (#286, #314, #312, #308), optional BS dates
-  on invoices (#293), step-up fixes (#296, #299), logout clears browser history (#304), `lock_timeout` for migration
-  DDL (#306), Redactor and arch-rule fixes (#294, #301), `develop` built on every push with E2E on `main` only
-  (#319), and the CEO and CTO reviews (#315, #318).
-- In flight: #321 simulators (in re-review), the flaky-test fix, registrar prep for #280, the VAT register and
-  credit-note spec. Next: the ResellerClub driver after #280.
-- Sizing and restore docs (#320, draft): one minimum everywhere, 2 vCPU and 4 GB, with the measured memory (857 MiB at
+- Merged, by area (list: `gh pr list --state merged --search "merged:2026-10-22"`):
+    - Payments and billing: hosted payment resume (#266), chargebacks (#256), credit ledger idempotency key (#283),
+      optional BS dates on invoices (#293), Stripe smoke route guard (#295), Khalti and eSewa simulators (#321).
+    - Importer: invitations (#255), opening balances (#259), invitation rate default 100 an hour (#291), key-list
+      dedupe (#300).
+    - Security: PHP 8.4.27 patch for CVE-2026-109618 and CVE-2026-109619 (#243), APP_KEY rotation with
+      `security:reencrypt` (#253), Redactor (#252, #294), step-up window and download prompts (#296, #299),
+      password.recent in the kernel (#268), logout clears browser history (#304).
+    - KYC: image re-encode and its backfill (#286, #314), browser resize (#312), unlock races (#308), history cleared
+      at unlock end (#249).
+    - Platform and domains: registrar contracts and drivers on the kernel (#262, #264, #265), client currency lock
+      (#237), currency code immutable (#248), server-import lock (#261), shared lock store in the install pre-flight
+      (#260), `lock_timeout` for migration DDL (#306), Laravel 13.36 (#242).
+    - Tests and CI: e2e in NPR (#246), deploy smoke runs the full seed (#282), arch rules (#276, #301), PostgreSQL
+      test database names (#297), local merge gate (#188), `develop` built on every push with E2E on `main` only
+      (#319).
+    - Docs and process: macOS tooling (#271), two-site docs (#245), pause state (#270), owner decisions (#289), CEO
+      review (#315, 62/100), CTO review (#318, 63/100), sizing and restore docs (#320).
+- In flight: registrar prep for #280 (#325), this docs update (#324), the gateway expansion spec (#128), and, with
+  no PR yet, the flaky-test fixes (issues #310 and #322; #209), the Nepal-first demo seed with the fix for issue
+  #39, Khalti "Continue payment" (issue #251), and the VAT register and credit-note spec. Next: the ResellerClub
+  driver after #280.
+- Sizing and restore docs (#320, merged): one minimum everywhere, 2 vCPU and 4 GB, with the measured memory (857 MiB at
   50,000 clients on the load-test stack) and when to grow. The documented backup and restore ran end to end once on
   Docker (database, bucket and an encrypted KYC image restored, 42 s); `down -v` needed both colour profiles and
   `deploy/bin/deploy` needed a portable path.
@@ -72,8 +86,9 @@ Living status board. Each workstream updates its row when it opens a PR for revi
   locks in the order payment → invoice → client (#227); billing go-live fixes: deposit refunds, Stripe dispute
   inquiries, late-sweep spacing, overpayment lock order (#229, closing #223, #212, #222, #224); the end-to-end hosting
   scenario green again (#234, follow-up #235).
-- Owner decisions: KYC documents are reviewed by Owner and Admin only; approve and decline stay disabled until the
-  documents are opened.
+- Owner decisions: KYC staff review: viewing needs `kyc.documents.view`; approve and decline need `kyc.documents.review`,
+  held by Full Administrators only by default, and stay disabled until the documents are opened (spec
+  `billing/docs/product/kyc.md` section 7).
 - Branch and issue cleanup: 107 stale remote branches removed (34 archived as tags), 10 issues closed with evidence.
 
 ### 2026-10-20
@@ -85,7 +100,7 @@ Living status board. Each workstream updates its row when it opens a PR for revi
 - Merged: CI speed-up (#91), import-page re-review fixes (#119), local DB options (#125), automation redelivery fix
   (#122, closes #82), CI minutes budget (#131), cPanel import step 3b-1 (#95, tick, review and a queued import with a
   per-account report; 50k-account stop in 6.8 s on PostgreSQL).
-- Stripe verified against the owner's sandbox and eSewa against its UAT environment, with no code changes; a late
+- One-off runs of Stripe against the owner's sandbox and eSewa against its UAT environment, with no code changes (since 2026-10-22 payments are verified against simulators only; live verification is still next); a late
   payment booking bug found by the test matrix (#130).
 - Merged later the same day: production compose stack (#80), Stripe simulator (#113), end-to-end lifecycle `simulate:e2e`
   (#115, 50 s on a runner), docs site (#137, Astro Starlight, not published), cPanel import step 3b-2 (#133).

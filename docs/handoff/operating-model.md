@@ -47,8 +47,8 @@ account, so reviews are posted as comments and the verdict line is the gate.
    probes are adopted as tests in the fix push. At most two fix rounds per PR: if the second re-review finds a
    defect the fixes introduced, the PR stops and the architect redesigns it (invariant, input space, budget)
    before more code. A confirmed secret leak is never Low.
-6. **Re-check.** `re-reviewer` for money, auth, permission and migration PRs; the CTO verifies from the diff for the
-   rest, and may do so for money, auth, permission and migration PRs too, but only when every adopted probe passes at
+6. **Re-check.** `re-reviewer` for money, auth, permission and migration PRs, always; the CTO verifies from the diff
+   for every other PR, when every adopted probe passes at
    the head.
 7. **Merge (CTO).** Merge `origin/develop` into the branch, run the gates, mark ready, wait for CI, post the sign-off
    naming each blocking item and its evidence, `gh pr merge --merge`. Remove the worktree and branch.
@@ -62,15 +62,15 @@ account, so reviews are posted as comments and the verdict line is the gate.
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Docs or process only                      | CI fast path; `slop-reviewer` for new handoff or process docs                                        |
 | UI, no migrations or money                | `review-board` (product-standards checklist) + `product-reviewer`; CTO verifies fixes from the diff  |
-| Money, auth, permissions, migrations      | `review-board` combined (code, security, database) → one fix round → `re-reviewer`                   |
+| Money, auth, permissions, migrations      | `review-board` combined (code, security, database) → fix round (cap: two) → `re-reviewer`            |
 | Shared kernel or ADR                      | `principal-architect` on the brief, then `principal-architect` + `review-board` on the PR            |
 | Driver (gateway, panel, registrar)        | `review-board` combined + the integration test matrix column + a recorded sandbox run in the PR body |
 | Infrastructure (`deploy/`, workflows, CI) | `review-board` with the DevOps focus (workflow safety while public, `tests/Unit/Deploy` probes)      |
 
 - No merge path without verification: a PR whose latest verdict is "Changes requested" is not marked ready. The
-  sign-off names each blocking item and the evidence (re-review, or a diff read plus the adopted probe green).
-- Flaky tests are fixed the same day (freeze time, serialise or quarantine), filed as an issue and re-run until
-  green; a flaky failure is never waved through.
+  sign-off names each blocking item and the evidence (the re-review for money, auth, permission and migration PRs; a diff read plus the adopted probe green for the rest).
+- Flaky tests are fixed the same day (freeze time, serialise), filed as an issue and re-run until green. A flaky
+  failure is not waved through, and quarantining a test is not a fix.
 - Lows and non-money mediums become issues, not new rounds. Security re-checks stay mandatory after any security
   finding.
 - Size cap: 2,000 changed lines, adopted probes excluded. An exception is named in the PR body with its reason, and
@@ -81,12 +81,13 @@ account, so reviews are posted as comments and the verdict line is the gate.
 
 ## Agent budget
 
-Up to 5 agents at once by default, periodic reviews included; more when there is independent work, bounded by
+Up to 5 agents at once by default, periodic reviews included (owner approved 2026-10-22: more than 5 is fine when
+needed, which overrides the default of 5 for Mohar); more when there is independent work, bounded by
 machine load (on the 10-core, 24 GB Mac about 7 while the 1-minute load stays near the core count), at least 2 GB of
 memory free and the disk below 85%. Never two agents on the same files: one owner per hot area (KYC images, the
 Redactor, a registrar driver), and no two open PRs change the same pipeline. Order when a slot frees:
 re-checks of PRs awaiting sign-off, then fix rounds, then new builds. No new builds while eight or more PRs await
-review. `state.md` "Running now" lists the running agents and the queue.
+review. `state.md` "Open pull requests and running work" lists the running work and the queue.
 
 ## Gates
 
@@ -157,7 +158,7 @@ is also the owner's own machine: the agent budget above applies, `/tmp` survives
   logs load, memory, disk and top processes every 30 s; start it each session.
 - Each worktree costs about 1 GB. `scripts/storage-cleanup.sh --apply` removes worktrees whose PR is merged and that
   are clean and pushed, clears stale caches and dangling images; run it every 30 minutes in long sessions.
-- Browser checks use Playwright only, never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
+- Browser checks use Playwright only (CPU-heavy runs go through `scripts/heavy.sh`), never the owner's Chrome (no Chrome DevTools MCP for agents). Scratch files
   get a unique name per agent (`$SCRATCH/<agent-slug>/`), so agents never overwrite each other.
 - No `npx` for a tool outside the lockfile (`vp`, `tsc` and `playwright` are in it): it runs unvetted code.
 - Dev servers: each agent gets its own port range (8100–8299); port 8000 is the owner's preview and is never touched

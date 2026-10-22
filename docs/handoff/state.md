@@ -1,13 +1,14 @@
 # Current state
 
-Last updated: 2026-10-22 evening by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
-stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
+Last updated: 2026-10-22 18:00 UTC by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
+stops, or the owner makes a decision. Keep it short: merges older than the current day move to `billing/docs/progress.md`, and history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
 
-- Progress toward "a product a host would switch to": **53/100** (CEO review round 3, 2026-10-20 afternoon,
-  `docs/reviews/2026-10-20-ceo-round-3.md`; rubric in `docs/reviews/readme.md`). The merges below have not been scored
-  yet; the next CEO round scores them.
+- Progress toward "a product a host would switch to": **62/100** (CEO review 2026-10-22,
+  `docs/reviews/2026-10-22-ceo.md`; rubric in `docs/reviews/readme.md`; the round-3 score on 10-20 was 53). Merges
+  after that review are not scored yet; the next CEO round scores them. CTO engineering score: 63/100
+  (`docs/reviews/2026-10-22-cto.md`).
 - Merged on 2026-10-22, later (after the 10:30 UTC update): registrar contracts and drivers on the kernel (#262, #264,
   #265; ADR 0009 PR C1 to C3), Laravel 13.36 (#242), the local merge gate (#188), macOS tooling (#271), deploy smoke
   runs the full seed (#282), credit ledger idempotency key (#283), KYC image re-encode (#286), its backfill (#314),
@@ -16,7 +17,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   Redactor void-container fix (#294), logout clears browser history (#304), `lock_timeout` for migration DDL
   (#306), key-list dedupe (#300), Arch rule guards (#301), PostgreSQL test names within 63 bytes (#297), Stripe
   smoke route guard (#295), `develop` built on every push and E2E only on `main` pushes (#319), the CEO and CTO
-  reviews (#315, #318; CTO engineering score 63/100), sizing and restore docs (#320), and the owner decisions
+  reviews (#315, #318; CTO engineering score 63/100), sizing and restore docs (#320), the Khalti and eSewa simulators (#321, closes #208), and the owner decisions
   (#289) and pause state (#270) docs.
 - Merged on 2026-10-22 on the Mac: #266 hosted resume (#123), #256 chargebacks (#232, #230, #221), #259 importer B2b
   opening balances, #268 password.recent in the kernel (#81), #276 Arch rules one per target (#275; Pest bug
@@ -25,7 +26,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Merged on 2026-10-22 (codespace): #237 client currency lock, #246 e2e in NPR, #248 currency code immutable, #249 KYC
   history cleared, #261 server-import lock, #260 install requires a shared lock store (#64), #245 two-site docs.
 - Merged on 2026-10-22: the PHP 8.4.27 security patch for CVE-2026-109618/109619 through FrankenPHP 1.13.2, by
-  security exception (#243), and client KYC: uploads plus staff review by Full Administrators only (#228, #231).
+  security exception (#243). Client KYC (#228, #231) merged on 2026-10-21; see the KYC rule below.
 - Merged on 2026-10-21: the client importer is complete (#184 confirm and apply, #201 review decisions, report and
   errors CSV; #160–#163 earlier), `.np` registered by clients with the host's nameservers (#199), Nepal-first install
   defaults (#215), billing reversals and the client lock order (#211), eSewa fixes from a REA capture of the UAT
@@ -41,8 +42,10 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
     - Subagents run on Opus (money, auth, kernel, security, re-checks) or Sonnet (docs, mechanical fixes) by task
       (10-21; Fable's weekly limit resets 10-25).
     - Security audits block only dependency changes; no nightly audit while `main` is the default branch (10-21).
-    - KYC (#197): Owner and Admin approve documents; off by default; documents deleted 90 days after the account
-      closes (10-21).
+    - KYC (#197, owner decision 2026-10-21): off by default; documents deleted 90 days after the account closes.
+      Staff review rule: viewing needs `kyc.documents.view` (Support role); approving or declining needs
+      `kyc.documents.review`, a sensitive permission held by Full Administrators (`*`) only by default, and every
+      decision needs a recent password. Spec: `billing/docs/product/kyc.md` section 7.
     - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
       accountant's answer (10-21).
 - Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
@@ -56,7 +59,7 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 - GitHub `bhimrazy/mohar` (public; the old name `bhimrazy/whmcs` redirects). `develop` = integration, `main` = release
   landing page (not yet cut).
-- App: `billing/` (Laravel 13.34, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.1.0). Local setup:
+- App: `billing/` (Laravel 13.36, PHP 8.4, Inertia 3, React 19, Pest 5, vite-plus 1.1.0). Local setup:
   `billing/docs/devops/local-setup.md` and the docs-site page "Run locally". Production install:
   `billing/docs/devops/install.md`.
 - Shared PostgreSQL for tests: `scripts/pg.sh`. Storage cleanup: `scripts/storage-cleanup.sh`. Process:
@@ -64,27 +67,29 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open pull requests and running work
 
-| PR             | Workstream                                                                              | Status (2026-10-22 evening)                                                  |
-| -------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| #321           | eSewa and Khalti simulators, NPR lifecycle end to end (#208)                            | Draft, in re-review.                                                         |
-| not yet opened | Flaky-test fix 1: time boundaries (#310 `AuthThrottleTest`, #322)                       | In flight. Fixed the same day, filed as issues and re-run (operating model). |
-| not yet opened | Flaky-test fix 2: #209 `PortRetryTest`, simulator ports                                 | In flight, separate PR.                                                      |
-| not yet opened | Nepal-first demo seed, and the #39 fix                                                  | In flight.                                                                   |
-| not yet opened | Registrar prep for #280 (follow-ups before the first API driver, ADR 0009 PR C reviews) | In flight. The ResellerClub driver comes after #280.                         |
-| not yet opened | VAT register and credit-note spec                                                       | In flight (spec only).                                                       |
-| #128           | Gateway expansion spec                                                                  | Draft. Owner questions in the PR.                                            |
+| PR             | Workstream                                                                                 | Status (2026-10-22 18:00 UTC)                                                |
+| -------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| #325           | Registrar prep for #280 (follow-ups before the first API driver, ADR 0009 PR C reviews)    | Draft. The ResellerClub driver comes after #280.                             |
+| #324           | This handoff docs update                                                                   | Open, fix round on the slop review.                                          |
+| #128           | Gateway expansion spec                                                                     | Draft. Owner questions in the PR.                                            |
+| not yet opened | Flaky-test fix 1: time boundaries (issues #310 `AuthThrottleTest`, #322 `UnlockRacesTest`) | In flight. Flaky tests are fixed the same day, filed as an issue and re-run. |
+| not yet opened | Flaky-test fix 2: issue #209 `PortRetryTest`, simulator ports                              | In flight, separate PR.                                                      |
+| not yet opened | Nepal-first demo seed, and the fix for issue #39                                           | In flight.                                                                   |
+| not yet opened | Khalti "Continue payment" (issue #251)                                                     | In flight.                                                                   |
+| not yet opened | VAT register and credit-note spec                                                          | In flight (spec only).                                                       |
+
+Follow-up issues from #321: #323 (a signed eSewa COMPLETE followed by NOT_FOUND is abandoned, not reviewed) and #322
+(flaky `UnlockRacesTest`).
 
 After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
 `npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
 - Queue, in order: #280 registrar follow-ups, then the ResellerClub driver; issue triage (close stale follow-ups);
   #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
-  after two fix rounds); #267, #269, #216, #225, #272–#274; #244 Node and Debian images (after 10-28); tail latency
-  (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258.
+  after two fix rounds); #267, #216, #225, #273, #274; #244 Node and Debian images (after 10-28); tail latency
+  (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258, #269, #272, #208.
 - Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release) to end
   changelog conflicts and the extra CI runs they cause (CTO review 2026-10-22, recommendation 2).
-- Owner questions from importer B2: how Nepali hosts invite migrated clients today; whether 500 invitations per
-  hour is right; whether a missing PAN is a warning or blocks the import.
 
 ## Open owner questions
 
@@ -99,7 +104,7 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
 
 ## Open issues worth knowing
 
-Go-live (label `go-live`): #11 and #126 merged today, so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
+Go-live (label `go-live`): issues #11 and #126 are closed (#11 by PR #242, #126 by PR #282), so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
 ## Scheduled
 
