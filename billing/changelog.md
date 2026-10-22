@@ -356,6 +356,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
 
+### Hosted payments: continue or pay another way (#123)
+
+- After a declined card on Stripe Checkout, the client invoice now offers **Continue payment**, which reopens the same
+  Stripe page (its address is read from Stripe at the click, only for the client's own open payment, and only on
+  Stripe's checkout host), and **Use another method**. The second asks for confirmation, expires the session at Stripe
+  first and frees the invoice only when Stripe's status confirms it can no longer be paid. If Stripe reports it paid,
+  the payment is recorded instead. A double click closes it once.
+- **Use another method** is offered only by methods that can close their payment page at the provider (Stripe
+  today). eSewa and Khalti don't offer it, and a direct request to close one of their payments is refused without a
+  status check or any change: their "not found" or "initiated" answer doesn't mean the customer's other tab can no
+  longer pay. If Stripe still holds the session or can't be reached, the client sees why, for example "The payment
+  page is still open, so the payment could still be made there". Each close sends Stripe a new idempotency key, so a
+  transient Stripe error is not replayed on the next click.
+- After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
+  the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
+- Operators: no migration, no setting and no permission change. Two new client routes,
+  `invoices/{invoice}/payments/{reference}/continue` and `…/close`, are throttled like Pay. Closing uses
+  `Cache::lock` and so needs the shared lock store (#64). Kernel: `ResumesHostedPayment`, `CancelsHostedPayment`,
+  `HostedSessionCancel`.
+
 ### Identity verification (KYC)
 
 - Clients can verify their identity in the client area (Identity verification): confirm the account email, save a

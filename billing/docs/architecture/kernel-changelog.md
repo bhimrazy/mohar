@@ -16,6 +16,18 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   alias of their own. `tests/Extensions/ModuleRoutesResolveTest.php` boots each module alone and fails when a route's
   middleware does not resolve.
 
+### Resume or cancel a hosted payment (#123)
+
+- New opt-in capability `App\Contracts\Billing\ResumesHostedPayment::resumeUrl(GatewayConfig, PaymentAttemptRef):
+  ?string`: the provider page where the customer can finish a still-open attempt, read from the provider at request
+  time and accepted only as https on the provider's own payment host. Billing never stores it or sends it as a prop.
+- New opt-in capability `App\Contracts\Billing\CancelsHostedPayment::cancelSession(GatewayConfig, PaymentAttemptRef):
+  HostedSessionCancel`: closes the provider session before Billing frees the invoice for another way to pay. Called
+  outside any database transaction; the answer is logged only, and settlement still comes from `lookup()`.
+- New closed enum `App\Enums\HostedSessionCancel` (`closed`, `already_final`, `unreachable`).
+- Additive: `HostedPaymentDriver` is unchanged and drivers without the interfaces keep working. Implemented by
+  `StripeDriver` and the sandbox card driver.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys
