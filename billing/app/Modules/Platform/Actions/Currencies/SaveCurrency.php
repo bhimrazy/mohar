@@ -17,6 +17,7 @@ use App\Support\Currencies\PriceConverters;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use InvalidArgumentException;
 
 class SaveCurrency
 {
@@ -29,18 +30,22 @@ class SaveCurrency
 
     /**
      * Create a currency (with its starting rate) or save its display settings. Rates of existing currencies
-     * change only through updateRates(), which is behind the sensitive core.currencies.rates permission.
+     * change only through updateRates(), which is behind the sensitive core.currencies.rates permission. The code is
+     * set on create only: other records refer to the currency by it, so $data['code'] is ignored on update.
      *
-     * @param  array{code: string, name: string, prefix: ?string, suffix: ?string, decimals: int, format: string, exchange_rate?: string|float|int|null}  $data
+     * @param  array{code?: string, name: string, prefix: ?string, suffix: ?string, decimals: int, format: string, exchange_rate?: string|float|int|null}  $data
      */
     public function handle(?Currency $currency, array $data): Currency
     {
-        $creating = $currency === null;
+        $creating = ! $currency?->exists;
         $currency ??= new Currency(['is_default' => false]);
         $before = $currency->exists ? $currency->only(['code', 'name', 'prefix', 'suffix', 'format']) : [];
 
+        if ($creating) {
+            $currency->code = $data['code'] ?? throw new InvalidArgumentException('A new currency needs a code.');
+        }
+
         $currency->fill([
-            'code' => $data['code'],
             'name' => $data['name'],
             'prefix' => $data['prefix'] ?? '',
             'suffix' => $data['suffix'] ?? '',
