@@ -88,3 +88,27 @@ test('the quote PDF prints its valid-until date in the date format setting', fun
 
     expect($html)->toContain('5 Nov 2026')->not->toContain('2026-11-05');
 });
+
+test('the seller block prints one PAN/VAT line when the PAN is the VAT number', function () {
+    billingSettings(['tax.home_country' => 'NP', 'seller.pan' => '600000001', 'seller.vat_number' => '600000001', 'seller.gstin' => '']);
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    $html = renderInvoiceHtml($invoice->fresh());
+
+    expect(substr_count($html, '600000001'))->toBe(1)->and($html)->toContain('PAN/VAT No.: 600000001');
+});
+
+test('the seller block prints both lines when the PAN and the VAT number differ', function () {
+    billingSettings(['tax.home_country' => 'NP', 'seller.pan' => '600000001', 'seller.vat_number' => '600000002', 'seller.gstin' => '']);
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    $html = renderInvoiceHtml($invoice->fresh());
+
+    expect($html)->toContain('PAN: 600000001')->toContain('VAT No.: 600000002');
+});
+
+test('the buyer country is printed as a name, not a code', function () {
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    expect(renderInvoiceHtml($invoice->fresh()))->toContain('Nepal');
+});

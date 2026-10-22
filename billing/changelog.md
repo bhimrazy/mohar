@@ -14,11 +14,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
-- **Nepal-first demo data (#39).** The demo's showcase client is now a Lalitpur company paying in NPR with 13% VAT, a buyer PAN
-  and eSewa or Khalti payments (when the PaymentsNepal module is installed); 11 more generated Nepali clients follow, and one
-  US client (USD, NY sales tax) stays last so multi-currency still shows. Seeded invoices are always issued on or before their
-  due date, including the 90-day history, and the quote PDF prints "valid until" in the Date format setting. Demo data only:
-  re-run `php artisan migrate:fresh --seed` to get it; no schema, permission or setting change.
+- **Nepal-first demo data (#39).** The demo is now a Nepal install: NPR is the default currency, the company time zone is
+  Asia/Kathmandu, dates read "22 Oct 2026" and Bikram Sambat dates show beside invoice dates. The showcase client is a
+  Lalitpur company (Sujata Shrestha, Himal Labs Pvt. Ltd.) with a buyer PAN, NPR invoices at 13% VAT at the catalogue
+  prices, eSewa and Khalti payments (when PaymentsNepal is installed) and a client-registered himallabs.com.np with no
+  fee; no seeded invoice bills a `.np` domain. Eleven more generated Nepali clients follow, and one US client (USD, NY
+  sales tax) stays last so multi-currency still shows. Catalog and domain list prices are converted from US dollars, so
+  they are right under any default currency. Seeded invoices are always issued on or before their due date, including
+  the 90-day history. The quote PDF prints "valid until" in the Date format setting, the invoice PDF prints the buyer's
+  country name and one "PAN/VAT No." line when the seller's PAN is the VAT number, the client invoice shows "eSewa"
+  as staff named it, and the client dashboard no longer ends with ".." after a company name ending in "Ltd.". Demo
+  data only: re-run `php artisan migrate:fresh --seed`; `db:seed` in production is unchanged; no schema, permission or
+  setting change.
 - **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
   at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second
   levels such as `asha.np`, is never sent to a registrar, even when staff created it with a registrar key. It stays

@@ -7,6 +7,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Core\Database\Seeders\CoreSeeder;
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\Settings;
 
 // The 730-day history takes tens of seconds to seed: seed it once per worker, each test reads it in a transaction.
@@ -70,6 +71,8 @@ it('shows the showcase client as a Nepali company: NPR, 13% VAT, buyer PAN, eSew
         ->and($invoices->every(fn (Invoice $invoice) => $invoice->tax1_name === 'VAT' && (float) $invoice->tax1_rate === 13.0))->toBeTrue()
         ->and($invoices->map(fn (Invoice $invoice) => $invoice->client_snapshot['tax_id'] ?? null)->unique()->values()->all())->toBe([$demo->tax_id])
         ->and($paid->payment_gateway)->toBeIn(['esewa', 'khalti'])
+        ->and($invoices->load('items')->flatMap(fn (Invoice $invoice) => $invoice->items)->pluck('description')->filter(fn ($text) => str_contains($text, 'Domain'))->all())->each->not->toContain('.np')
+        ->and(Transaction::query()->whereIn('invoice_id', $invoices->pluck('id'))->where('type', TransactionType::Refund)->exists())->toBeFalse()
         ->and($paid->issue_date->lt($paid->due_date))->toBeTrue()
         ->and($invoices->where('status', InvoiceStatus::Unpaid)->contains(fn (Invoice $invoice) => $invoice->due_date->isPast()))->toBeTrue();
 });
@@ -82,4 +85,23 @@ it('keeps exactly one US client, and it is not the first', function () {
         ->and($us->first()->id)->toBeGreaterThan(Client::query()->min('id'))
         ->and(Client::query()->where('currency', 'NPR')->count())->toBeGreaterThan(10)
         ->and(Invoice::query()->where('client_id', $us->first()->id)->exists())->toBeTrue();
+});
+
+it('runs the demo as a Nepal install: NPR default, Nepal time, local date format, BS dates on, one PAN/VAT number', function () {
+    $settings = app(Settings::class);
+
+    expect(Currency::default()->code)->toBe('NPR')
+        ->and($settings->get('system.timezone'))->toBe('Asia/Kathmandu')
+        ->and($settings->get('core.date_format'))->toBe('j M Y')
+        ->and($settings->get('billing.show_bs_dates'))->toBeTrue()
+        ->and($settings->get('billing.seller.pan'))->toBeEmpty()
+        ->and($settings->get('billing.seller.vat_number'))->toBe('600000001');
+});
+
+it('keeps the one seeded refund off the showcase client', function () {
+    $refunds = Transaction::query()->where('type', TransactionType::Refund)->get();
+    $demo = Client::query()->where('email', 'demo@example.com')->value('id');
+
+    expect($refunds)->not->toBeEmpty()
+        ->and($refunds->every(fn (Transaction $refund) => $refund->client_id !== $demo))->toBeTrue();
 });

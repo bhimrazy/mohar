@@ -66,7 +66,7 @@ class BillingHistorySeeder extends DemoSeeder
         $today = CarbonImmutable::today();
         mt_srand(2026);
 
-        $this->wallets = Gateway::query()->whereIn('key', BillingSeeder::NEPAL_WALLETS)->where('is_active', true)->orderBy('key')->pluck('key')->all();
+        $this->wallets = array_values(array_map(strval(...), Gateway::query()->whereIn('key', BillingSeeder::NEPAL_WALLETS)->where('is_active', true)->orderBy('key')->pluck('key')->all()));
         $clients = $this->clients();
         $events = $this->plan($clients, $today, $scenario);
 

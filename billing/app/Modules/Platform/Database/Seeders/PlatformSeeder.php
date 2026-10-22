@@ -137,7 +137,7 @@ class PlatformSeeder extends DemoSeeder
             return;
         }
 
-        $sources = ['INR' => 'ecb', 'NPR' => 'nrb'];
+        $sources = ['INR' => 'ecb', 'NPR' => 'nrb', 'USD' => 'nrb'];
 
         Currency::query()->where('is_default', false)->orderBy('code')->get()->each(function (Currency $currency) use ($sources): void {
             $source = $sources[$currency->code] ?? 'manual';
@@ -157,14 +157,15 @@ class PlatformSeeder extends DemoSeeder
             $currency->forceFill(['rate_source' => $source, 'is_auto_rate' => $source !== 'manual', 'rate_checked_at' => now(), 'rate_updated_at' => now()])->save();
         });
 
-        // One held change so the safety review can be demonstrated: NPR jumped 11% overnight.
-        $npr = Currency::query()->where('code', 'NPR')->first();
+        // One held change so the safety review can be demonstrated: the rupee-dollar rate jumped 11% overnight (the
+        // Nepal demo's default is NPR, so the held rate is USD's; another default keeps NPR's).
+        $npr = Currency::query()->where('code', Currency::default()->code === 'NPR' ? 'USD' : 'NPR')->first();
 
         if ($npr !== null && ! $npr->is_default) {
             $proposed = Decimal::round(Decimal::multiply((string) $npr->exchange_rate, '1.11'), Currency::RATE_SCALE);
 
             ExchangeRateReview::query()->create([
-                'currency' => 'NPR',
+                'currency' => $npr->code,
                 'current_rate' => $npr->exchange_rate,
                 'proposed_rate' => $proposed,
                 'change_percent' => Decimal::round(Decimal::percentChange((string) $npr->exchange_rate, $proposed), 4),

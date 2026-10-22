@@ -37,6 +37,22 @@ class BillingSeeder extends DemoSeeder
     /** Gateway keys of the Nepal wallets (PaymentsNepal); seeded only when that module registered them. */
     public const NEPAL_WALLETS = ['esewa', 'khalti'];
 
+    /**
+     * NPR prices in paisa as the demo catalogue lists them (Catalog's seed at its starting exchange rate), so an
+     * invoice line matches the product the client's service is on. Domain renewal is himallabs.com's .com renewal.
+     */
+    private const NPR_STARTER = 60_900;
+
+    private const NPR_PRO = 121_900;
+
+    private const NPR_BUSINESS = 227_900;
+
+    private const NPR_VPS_SMALL = 182_900;
+
+    private const NPR_BACKUPS = 45_900;
+
+    private const NPR_DOMAIN_COM_RENEWAL = 227_900;
+
     public function run(ApplyPayment $pay, CancelInvoice $cancel, RefundTransaction $refund, Quotes $quotes, CreateAddFundsInvoice $addFunds, SaveDraftInvoice $drafts): void
     {
         $this->gateways();
@@ -66,8 +82,10 @@ class BillingSeeder extends DemoSeeder
             'billing.seller.address' => 'Jhamsikhel Road, Lalitpur 44600, Bagmati, Nepal',
             'billing.seller.email' => 'billing@example.com',
             'billing.seller.phone' => '+977 1-5900000',
-            'billing.seller.pan' => '600000001',
+            // One number: Nepal's PAN is also the VAT number, so the invoice prints a single "PAN/VAT No." line.
             'billing.seller.vat_number' => '600000001',
+            // Nepali invoices show the Bikram Sambat date beside the AD date.
+            'billing.show_bs_dates' => true,
         ]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'invoice', 'period' => ''], ['next_number' => 1041]);
         BillingSequence::query()->firstOrCreate(['sequence' => 'quote', 'period' => ''], ['next_number' => 204]);
@@ -89,38 +107,42 @@ class BillingSeeder extends DemoSeeder
         $paid = $overdue = null;
         $scenario = [
             // Cancelled order.
-            ['daysAgo' => 30, 'hour' => 10, 'run' => fn () => $cancel->handle($issue($demo, [new InvoiceLineData('SSL certificate (cancelled order)', 390_000)], 'bank_transfer'), note: 'Order cancelled by customer')],
+            ['daysAgo' => 30, 'hour' => 10, 'run' => fn () => $cancel->handle($issue($demo, [new InvoiceLineData('Pro Hosting (cancelled order)', self::NPR_PRO)], 'bank_transfer'), note: 'Order cancelled by customer')],
             // Overdue with a partial bank transfer.
             ['daysAgo' => 24, 'hour' => 11, 'run' => function () use (&$overdue, $issue, $demo, $service, $on): void {
-                $overdue = $issue($demo, [$service('VPS Pro — vps1.himal-labs.com.np', 650_000, 2, $on())], 'bank_transfer');
+                $overdue = $issue($demo, [$service('VPS Small — vps.himal-labs.com.np', self::NPR_VPS_SMALL, 2, $on())], 'bank_transfer');
             }],
             ['daysAgo' => 20, 'hour' => 14, 'run' => function () use (&$overdue, $pay): void {
-                $pay->handle($overdue->refresh(), new PaymentData(300_000, 'bank_transfer', 'WIRE-'.random_int(10000, 99999)));
+                $pay->handle($overdue->refresh(), new PaymentData(100_000, 'bank_transfer', 'WIRE-'.random_int(10000, 99999)));
             }],
-            // Paid through eSewa or Khalti, then partly refunded to credit.
+            // Paid through eSewa or Khalti.
             ['daysAgo' => 12, 'hour' => 10, 'run' => function () use (&$paid, $issue, $demo, $service, $on, $wallet): void {
                 $paid = $issue($demo, [
-                    $service('Business Hosting — himal-labs.com.np', 250_000, 1, $on()->subMonth()),
-                    new InvoiceLineData('Domain renewal — himal-labs.com.np', 120_000, billableType: BillableType::Domain, billableId: 1),
+                    $service('Business Hosting — himal-labs.com.np', self::NPR_BUSINESS, 1, $on()->subMonth()),
+                    new InvoiceLineData('Domain renewal — himallabs.com', self::NPR_DOMAIN_COM_RENEWAL, billableType: BillableType::Domain, billableId: 1),
                 ], $wallet(0));
             }],
-            ['daysAgo' => 11, 'hour' => 15, 'run' => function () use (&$paid, $pay, $refund): void {
-                $payment = $pay->handle($paid->refresh(), new PaymentData($paid->balance, $paid->payment_gateway, strtoupper(substr((string) $paid->payment_gateway, 0, 3)).'-'.random_int(100000, 999999)));
-                $refund->handle($payment, 50_000, RefundMode::ToCredit, reason: 'Goodwill credit for downtime');
+            ['daysAgo' => 11, 'hour' => 15, 'run' => function () use (&$paid, $pay): void {
+                $pay->handle($paid->refresh(), new PaymentData($paid->balance, $paid->payment_gateway, strtoupper(substr((string) $paid->payment_gateway, 0, 3)).'-'.random_int(100000, 999999)));
             }],
             // Due soon.
-            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business Hosting — himal-labs.com.np', 250_000, 1, $on()), new InvoiceLineData('Daily backups add-on', 30_000, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
+            ['daysAgo' => 9, 'hour' => 10, 'run' => fn () => $issue($demo, [$service('Business Hosting — himal-labs.com.np', self::NPR_BUSINESS, 1, $on()), new InvoiceLineData('Daily backups add-on', self::NPR_BACKUPS, billableType: BillableType::ServiceAddon, billableId: 3)], $wallet(1))],
         ];
 
         // Starter Hosting for the first Nepali clients, paid for every third one, issued over the last ten days.
         $others = Client::query()->whereKeyNot($demo->id)->where('currency', 'NPR')->orderBy('id')->limit(6)->get();
 
         foreach ($others as $index => $client) {
-            $scenario[] = ['daysAgo' => 10 - $index, 'hour' => 12, 'run' => function () use ($issue, $pay, $service, $client, $index, $on, $wallet): void {
-                $invoice = $issue($client, [$service('Starter Hosting', 99_900 + $index * 50_000, 100 + $index, $on())], $index % 2 === 0 ? 'bank_transfer' : $wallet($index));
+            $scenario[] = ['daysAgo' => 10 - $index, 'hour' => 12, 'run' => function () use ($issue, $pay, $refund, $service, $client, $index, $on, $wallet): void {
+                $invoice = $issue($client, [$service('Starter Hosting', self::NPR_STARTER, 100 + $index, $on())], $index % 2 === 0 ? 'bank_transfer' : $wallet($index));
 
                 if ($index % 3 === 0) {
-                    $pay->handle($invoice, new PaymentData($invoice->balance, $invoice->payment_gateway ?? 'manual', 'TX-'.Str::upper(Str::random(8))));
+                    $payment = $pay->handle($invoice, new PaymentData($invoice->balance, $invoice->payment_gateway ?? 'manual', 'TX-'.Str::upper(Str::random(8))));
+
+                    // One goodwill refund, on a client that is not the showcase one.
+                    if ($index === 3) {
+                        $refund->handle($payment, 20_000, RefundMode::ToCredit, reason: 'Goodwill credit for downtime');
+                    }
                 }
             }];
         }

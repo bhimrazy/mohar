@@ -32,14 +32,18 @@ class DomainsSeeder extends DemoSeeder
     /** .np second levels: clients register these at the registry themselves; they only use them with hosting. */
     private const SELF_REGISTERED = ['.com.np', '.org.np', '.edu.np', '.net.np'];
 
+    private ?Currency $usd = null;
+
     public function run(): void
     {
+        $this->usd = Currency::query()->where('code', 'USD')->first();
+
         RegistrarAccount::query()->firstOrCreate(['key' => 'log'], ['is_active' => true, 'test_mode' => true, 'settings' => ['api_key' => 'demo-key', 'simulate' => 'none']]);
 
         $tlds = [];
 
         foreach (self::SELF_REGISTERED as $index => $extension) {
-            Tld::query()->firstOrCreate(['extension' => $extension], ['registrar_key' => null, 'registered_by_client' => true, 'auto_register' => false, 'is_active' => true, 'sort_order' => 20 + $index]);
+            $tlds[$extension] = Tld::query()->firstOrCreate(['extension' => $extension], ['registrar_key' => null, 'registered_by_client' => true, 'auto_register' => false, 'is_active' => true, 'sort_order' => 20 + $index]);
         }
 
         foreach (self::TLDS as $extension => $definition) {
@@ -54,7 +58,7 @@ class DomainsSeeder extends DemoSeeder
                 'addon_dns' => true,
                 'addon_id_protection' => true,
                 'is_active' => true,
-                ...$definition['settings'],
+                ...$this->feesInDefaultCurrency($definition['settings']),
             ]);
             $tlds[$extension] = $tld;
 
@@ -80,12 +84,14 @@ class DomainsSeeder extends DemoSeeder
         $demoDomains = [
             ['himallabs', '.com', DomainStatus::Active, $today->addDays(21)],
             ['himallabs', '.io', DomainStatus::Active, $today->addMonths(9)],
-            ['demo-shop', '.co.uk', DomainStatus::Active, $today->addYears(2)->addMonths(3)],
+            ['himalshop', '.com', DomainStatus::Active, $today->addYears(2)->addMonths(3)],
             ['himallabs', '.net', DomainStatus::Grace, $today->subDays(6)],
-            ['demo-archive', '.org', DomainStatus::Redemption, $today->subDays(40)],
-            ['demo-old', '.com', DomainStatus::Expired, $today->subMonths(5)],
+            ['himal-archive', '.org', DomainStatus::Redemption, $today->subDays(40)],
+            ['himal-old', '.com', DomainStatus::Expired, $today->subMonths(5)],
             ['himallabs', '.org', DomainStatus::Pending, null],
-            ['demo-move', '.com', DomainStatus::PendingTransfer, null],
+            ['himal-move', '.com', DomainStatus::PendingTransfer, null],
+            // Registered by the client at the .np registry: no registrar, no fee, never invoiced.
+            ['himallabs', '.com.np', DomainStatus::Active, null],
         ];
 
         foreach ($demoDomains as [$sld, $extension, $status, $expiry]) {
@@ -93,7 +99,7 @@ class DomainsSeeder extends DemoSeeder
         }
 
         $others = Client::query()->whereKeyNot($demo->id)->orderBy('id')->limit(6)->get();
-        $samples = ['northwind', 'globex', 'initech', 'umbrella', 'acme-hosting', 'stark-labs'];
+        $samples = ['sagarmatha-treks', 'annapurna-foods', 'kathmandu-stationery', 'lumbini-crafts', 'thamel-gear', 'patan-studio'];
 
         foreach ($others as $index => $client) {
             $extension = array_keys(self::TLDS)[$index % 4];
@@ -102,12 +108,37 @@ class DomainsSeeder extends DemoSeeder
     }
 
     /**
-     * Convert a default-currency amount and round it to a retail price: amounts of 100 or more major units
+     * The list prices above are US dollars (the catalog's base); the install's default currency may be another one.
+     */
+    private function fromUsd(int $amount, Currency $currency): int
+    {
+        return $this->usd === null || $currency->code === $this->usd->code ? $amount : $this->usd->convertTo($amount, $currency);
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    private function feesInDefaultCurrency(array $settings): array
+    {
+        $default = Currency::default();
+
+        foreach (['grace_fee', 'redemption_fee'] as $key) {
+            if (isset($settings[$key])) {
+                $settings[$key] = $this->fromUsd($settings[$key], $default);
+            }
+        }
+
+        return $settings;
+    }
+
+    /**
+     * Convert a US dollar amount and round it to a retail price: amounts of 100 or more major units
      * end in 9 (1091.16 → 1099.00); smaller amounts keep the converted cents.
      */
     private function retail(int $amount, Currency $currency): int
     {
-        $converted = $currency->is_default ? $amount : $currency->fromDefault($amount);
+        $converted = $this->fromUsd($amount, $currency);
 
         if ($converted < 10000) {
             return $converted;
@@ -120,7 +151,8 @@ class DomainsSeeder extends DemoSeeder
     {
         $today = CarbonImmutable::today();
         $name = $sld.$tld->extension;
-        $renew = TldPrice::query()->where('tld_id', $tld->id)->where('currency', $client->currency)->whereNull('client_group_id')->where('years', 1)->value('renew') ?? 1499;
+        $selfRegistered = $tld->registered_by_client;
+        $renew = $selfRegistered ? 0 : TldPrice::query()->where('tld_id', $tld->id)->where('currency', $client->currency)->whereNull('client_group_id')->where('years', 1)->value('renew') ?? 1499;
         $pending = in_array($status, [DomainStatus::Pending, DomainStatus::PendingTransfer], true);
 
         $domain = Domain::query()->create([
@@ -131,18 +163,18 @@ class DomainsSeeder extends DemoSeeder
             'sld' => $sld,
             'tld' => $tld->extension,
             'type' => $status === DomainStatus::PendingTransfer ? 'transfer' : 'register',
-            'registrar_key' => 'log',
+            'registrar_key' => $selfRegistered ? null : 'log',
             'status' => $status,
             'registration_date' => $expiry?->subYear(),
             'expiry_date' => $expiry,
             'next_due_date' => $expiry ?? $today,
-            'next_invoice_date' => ($expiry ?? $today)->subDays(30),
+            'next_invoice_date' => ($selfRegistered ? $today : ($expiry ?? $today)->subDays(30)),
             'billing_anchor_day' => $expiry?->day,
             'period_years' => 1,
             'first_payment_amount' => (int) $renew,
             'recurring_amount' => (int) $renew,
             'currency' => $client->currency,
-            'auto_renew' => $status !== DomainStatus::Expired,
+            'auto_renew' => ! $selfRegistered && $status !== DomainStatus::Expired,
             'id_protection' => $sld === 'himallabs',
             'dns_management' => true,
             'registrar_lock' => $pending ? null : true,
