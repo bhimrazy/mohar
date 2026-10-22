@@ -301,7 +301,7 @@ class ClientImportController extends Controller
                 'credit' => ($record->normalized['extra']['credit_balance'] ?? null) === null ? null : [
                     'amount' => (int) $record->normalized['extra']['credit_balance'],
                     // The client's currency: the file's, else the matched client's, else the default a new client gets.
-                    'currency' => (string) ($record->normalized['client']['currency'] ?? $record->matchedClient?->currency ?? $record->normalized['defaults']['currency'] ?? ''),
+                    'currency' => (string) ($record->normalized['client']['currency'] ?? $record->matchedClient->currency ?? $record->normalized['defaults']['currency'] ?? ''),
                 ],
             ]);
 
