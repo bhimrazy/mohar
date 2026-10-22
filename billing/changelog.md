@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
+  permission change. The default text of the invoice emails and the service suspension email changed: the Issued, Due,
+  Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
+  unedited templates to the new text; edited templates keep their text and the editor offers the new default. Invoice
+  PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
+- **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
+  (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
+  permission change. Documents uploaded before the upgrade are not rewritten and keep their
+  metadata until they are replaced or deleted by retention. Six new settings in `kyc.php`: `max_image_pixels`
+  (25 000 000), `max_buffered_jpeg_pixels` (20 000 000), `stored_image_pixels` (16 000 000), `stored_webp_pixels`
+  (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
+  the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
+  upload route has a new rate limiter `kyc-upload` (20 a minute per IP address) on top of 10 a minute per user.
 - **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
   unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
   `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
@@ -453,6 +466,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **Encrypted browser history is cleared on every logout (#250).** Before, only a logout with a KYC document unlock
+  open cleared it, so any page that encrypts its history stayed restorable with Back or a restored tab until the tab
+  closed. Now the history is cleared for staff and clients whenever a request ends or swaps the login (logout, deleting
+  your own account, a deactivated login signed out, sign in as a client and back), and on the login and two-factor
+  pages, where a session that ended on the server leads. A hover prefetch does not use up the clearing. No schema or
+  permission change.
+- **Identity images are re-encoded (#233).** Each uploaded JPEG, PNG or WebP is decoded and encoded again in the same
+  format before it is encrypted. EXIF (GPS position, device, embedded thumbnails), colour profiles, text chunks, JPEG
+  comments and bytes appended after the image data are not stored; a payload built into the pixel data of a lossless
+  PNG is not removed. The EXIF orientation is applied to the pixels, so staff see the photo upright. Refused with a validation
+  error: a file that cannot be decoded ("Upload a photo or scan as JPEG, PNG or WebP."), an image above 25 megapixels
+  or a progressive or CMYK JPEG above 20 megapixels (from its header, before decoding), and an upload that waits more
+  than 5 seconds for another upload's decode ("Other photos are being processed. Try again in a moment."). Decodes
+  run one at a time per cache lock store, and uploads are limited to 20 a minute per IP address. Images above 16
+  megapixels (WebP: 8 megapixels) are scaled down to that size. A stored image is at most 5 MB: a larger result is
+  encoded again at quality 75, then scaled to 12 and 8 megapixels (an opaque PNG becomes a JPEG), and is refused only
+  if it is still larger.
 - **KYC review: Hide documents holds, and the page times the end from the server (#257, #258).** Which clients' documents a
   staff member has open is now a database row (new table `kyc_review_unlocks`) changed under a row lock, not part of the
   session. A request that began before Hide documents can no longer write the old unlock back when it saves its
@@ -462,7 +492,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the server still says the unlock is open, the page waits again. **Operators:** run `php artisan migrate` (adds
   `kyc_review_unlocks`, expand only). Documents open at upgrade time are hidden again on the new release (staff press Show documents once); for one release the
   old session entry is still read so its browser history is cleared when it ends, and Hide also removes it (a
-  compatibility shim, removed in the release after next).
+  compatibility shim, removed in the release after next). During a blue-green overlap or after a rollback, Hide documents
+  served by the old release does not close a row the new release wrote; that unlock ends by itself within 15 minutes.
+  Each browser session has its own unlock: Hide and sign-out in one browser end the others' too, and those browsers
+  clear their history on their next page.
   An unlock now belongs to the session that opened it (a hash of the session id is stored, never the id): another
   browser or a copied session cookie of the same login sees nothing, signing in again does not bring it back, a changed
   session id ends it, and signing out ends every unlock of that staff member. Show documents now requires the
@@ -493,6 +526,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
+### Bikram Sambat dates beside AD dates on invoices (#207)
+
+- Admin → Settings → Billing → "Show the Bikram Sambat date beside the AD date on invoices" (off by default). When on,
+  the issue and due dates on the admin and client invoice pages, the invoice PDF and the key-facts rows of invoice
+  emails also show the BS date: "12 Jan 2026 (28 Poush 2082 BS)". Month names are in English transliteration.
+- BS dates cover 2000–2095 BS (14 April 1943 to 14 April 2039); a date outside that range shows the AD date only.
+  Years after the current panchang (about 2084 BS onwards) are projections from public calendar tables. Fiscal-year
+  invoice numbering in BS is not part of this change.
+
+### PostgreSQL test database names (#285)
+
+- `scripts/pg.sh` gives a slug longer than 42 characters a shortened database name (55 bytes: its first 46 bytes, `_`,
+  and 8 hex digits of its SHA-256). Shorter slugs keep their names. Parallel test workers and the race tests' extra
+  databases now stay within PostgreSQL's 63-byte limit, so they no longer collide. No change for users or operators.
 
 ### Stripe smoke command without Billing (#269)
 
