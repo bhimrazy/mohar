@@ -200,3 +200,28 @@ test('the shapes that once ran quadratic scale linearly from 512 KB to 4 MB', fu
     'labels with the value on the next line' => [fn (): string => "pw:\n"],
     'session ids with a joined tail' => [fn (): string => 'Session: cs_live_a1B2c3D4:'],
 ]);
+
+test('an unclosed void-named container masks its child content to the end of the text (#278)', function (string $text, string $secret) {
+    expect((new Redactor)->maskValues($text, []))->not->toContain($secret);
+})->with([
+    'truncated rpc' => ["<methodCall><params>\n<param name=\"password\">\n  <value><string>TRUNC1SECRET", 'TRUNC1SECRET'],
+    'closed child after the last end tag' => ['<param name="password"><value>B1</value></param> <param name="password"><value>B2SECRET</value>', 'B2SECRET'],
+    'mixed case' => ['<PARAM Name="Password"><VALUE>MIX1SECRET</VALUE>', 'MIX1SECRET'],
+    'extra attributes' => ['<param id="p1" name="password" type="x"><value>ATTR1SECRET', 'ATTR1SECRET'],
+    'nested unclosed' => ['<param name="password"><param name="user"><value>NEST1SECRET', 'NEST1SECRET'],
+    'comment before the child' => ['<param name="password"><!-- note --><value>COM1SECRET', 'COM1SECRET'],
+    'cdata after a comment' => ['<param name="password"><!-- note --><![CDATA[CDA1SECRET]]>', 'CDA1SECRET'],
+    'unterminated comment' => ['<param name="password"><!-- <value>UNT1SECRET', 'UNT1SECRET'],
+    'other void names' => ['<source name="token"><value>SRC1SECRET', 'SRC1SECRET'],
+]);
+
+test('a void-named element that is not a container keeps what follows it (#278)', function (string $text, string $kept) {
+    expect((new Redactor)->maskValues($text, []))->toContain($kept);
+})->with([
+    'self-closing' => ['<param name="password"/><value>KEEP1</value>', 'KEEP1'],
+    'self-closing with a space' => ['<param name="password" /><value>KEEP2</value>', 'KEEP2'],
+    'non-secret name' => ['<param name="domain"><value>KEEP3</value>', 'KEEP3'],
+    'html input before a paragraph' => ['<input name="password"><p>KEEP4</p>', 'KEEP4'],
+    'empty at the end of the input' => ['<param name="password">', '<param name="password">'],
+    'closed by its parent' => ['<a><param name="password"></a><b>KEEP5</b>', 'KEEP5'],
+]);

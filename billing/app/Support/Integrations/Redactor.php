@@ -414,7 +414,7 @@ final class Redactor
 
             if ((string) $match[2][0] === (string) $match[3][0] && in_array($voidName, self::VOID_ELEMENTS, true)
                 && ($lastEndTag[$voidName] ??= (int) strripos($value, '</'.$voidName)) < $end) {
-                $contentEnd = $this->voidContentEnd($value, $end);
+                $contentEnd = $this->voidContentEnd($value, $end, $voidName !== 'input');
                 $content = substr($value, $end, $contentEnd - $end);
                 $output .= trim($content) === '' ? $content : self::MASK;
                 $position = $contentEnd;
@@ -493,9 +493,12 @@ final class Redactor
 
     /**
      * Where the content of a secret void-named element starting at $start ends: past a CDATA section after optional
-     * blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`.
+     * blanks (an unterminated one runs to the end, failing closed), otherwise at the next `<`. With $childIsValue (every
+     * void name but HTML's `input`), a child start tag after only blanks and comments is the value's container
+     * (`<param name="password"><value><string>…`) and the element has no end tag to bound it, so the rest of the text is
+     * masked (fail closed). `input` keeps the next-tag bound, since `<input name="password"><p>…` is ordinary HTML.
      */
-    private function voidContentEnd(string $value, int $start): int
+    private function voidContentEnd(string $value, int $start, bool $childIsValue = false): int
     {
         $length = strlen($value);
         $first = $start + strspn($value, " \t\r\n", $start);
@@ -507,6 +510,21 @@ final class Redactor
         }
 
         $next = strpos($value, '<', $start);
+
+        while ($childIsValue && $next !== false && trim(substr($value, $start, $next - $start)) === '') {
+            if (substr_compare($value, '<!--', $next, 4) !== 0) {
+                return strpbrk($value[$next + 1] ?? '', '!?') !== false || ctype_alpha($value[$next + 1] ?? '') ? $length : $next;
+            }
+
+            $close = strpos($value, '-->', $next + 4);
+
+            if ($close === false) {
+                return $length;
+            }
+
+            $start = $close + 3;
+            $next = strpos($value, '<', $start);
+        }
 
         return $next === false ? $length : $next;
     }
