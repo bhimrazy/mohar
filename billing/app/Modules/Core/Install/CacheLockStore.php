@@ -45,10 +45,10 @@ final class CacheLockStore
                 $problems[] = "The lock connection \"{$lock}\" of the {$store} cache is not a {$driver} connection that exists, so the first lock would fail. Correct or remove it.";
                 $worst = CheckStatus::Failed;
             } elseif (in_array($driver, self::SINGLE_HOST, true)) {
-                $problems[] = ($isFailover ? "{$source} is" : "{$source} is").' shared only inside one server. With a second server or container, '.lcfirst(self::RISK).' Fine for a single server; otherwise use database or redis.';
+                $problems[] = "{$source} is".' shared only inside one server. With a second server or container, '.lcfirst(self::RISK).' Fine for a single server; otherwise use database or redis.';
                 $worst = $worst === CheckStatus::Failed ? $worst : CheckStatus::Warning;
             } else {
-                $problems[] = ($isFailover ? "{$source} is" : "{$source} is").' not shared between processes. '.self::RISK.' '.$fix;
+                $problems[] = "{$source} is".' not shared between processes. '.self::RISK.' '.$fix;
                 $worst = CheckStatus::Failed;
             }
         }
