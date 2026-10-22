@@ -26,7 +26,10 @@ class CurrencyRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
-        $this->merge(['code' => strtoupper((string) $this->input('code'))]);
+        // Non-string input (e.g. code[]=X) is left for the string rule to reject.
+        if (is_string($this->input('code'))) {
+            $this->merge(['code' => strtoupper($this->input('code'))]);
+        }
     }
 
     /**
@@ -34,7 +37,10 @@ class CurrencyRequest extends FormRequest
      */
     public function messages(): array
     {
-        return ['decimals.in' => __('Only currencies with 2 decimal places are supported for now.')];
+        return [
+            'decimals.in' => __('Only currencies with 2 decimal places are supported for now.'),
+            'code.in' => __('The code of an existing currency cannot be changed. To use another code, add a new currency.'),
+        ];
     }
 
     /**
@@ -45,7 +51,11 @@ class CurrencyRequest extends FormRequest
         $currency = $this->route('currency');
 
         return [
-            'code' => ['required', 'string', 'size:3', 'alpha', Rule::unique('currencies', 'code')->ignore($currency instanceof Currency ? $currency->id : null)],
+            // Clients, invoices, quotes, transactions, prices and rate history refer to a currency by its code, so the
+            // code is fixed once the currency exists. An update may omit it or repeat it unchanged; it is never saved.
+            'code' => $currency instanceof Currency
+                ? ['sometimes', 'string', Rule::in([$currency->code])]
+                : ['required', 'string', 'size:3', 'alpha', Rule::unique('currencies', 'code')],
             'name' => ['required', 'string', 'max:100'],
             'prefix' => ['nullable', 'string', 'max:10'],
             'suffix' => ['nullable', 'string', 'max:10'],
