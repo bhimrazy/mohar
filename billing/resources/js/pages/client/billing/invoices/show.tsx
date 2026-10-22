@@ -229,7 +229,8 @@ export default function ClientInvoiceShow({
                                                     <ConfirmDialog
                                                         trigger={
                                                             <Button variant="ghost">
-                                                                Use another method
+                                                                Use another
+                                                                method
                                                             </Button>
                                                         }
                                                         title={`Stop the ${payment_in_progress.gateway_name} payment?`}
@@ -241,7 +242,9 @@ export default function ClientInvoiceShow({
                                                             payment_in_progress.reference,
                                                         ])}
                                                         onSuccess={() =>
-                                                            setPayAnotherWay(true)
+                                                            setPayAnotherWay(
+                                                                true,
+                                                            )
                                                         }
                                                     />
                                                 )}
@@ -251,7 +254,9 @@ export default function ClientInvoiceShow({
                                                     <Button
                                                         variant="ghost"
                                                         onClick={() =>
-                                                            setPayAnotherWay(true)
+                                                            setPayAnotherWay(
+                                                                true,
+                                                            )
                                                         }
                                                     >
                                                         Pay a different way
