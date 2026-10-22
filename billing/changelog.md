@@ -11,10 +11,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
   (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
   permission change. Documents uploaded before the upgrade are not rewritten and keep their
-  metadata until they are replaced or deleted by retention. Four new settings in `kyc.php`: `max_image_pixels`
-  (25 000 000), `stored_image_pixels` (16 000 000), `step_down_pixels` (12 000 000, 8 000 000) and
-  `image_decode_wait_seconds` (15). Image decoding takes the
-  cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks.
+  metadata until they are replaced or deleted by retention. Six new settings in `kyc.php`: `max_image_pixels`
+  (25 000 000), `max_buffered_jpeg_pixels` (20 000 000), `stored_image_pixels` (16 000 000), `stored_webp_pixels`
+  (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
+  the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
+  upload route has a new rate limiter `kyc-upload` (20 a minute per IP address) on top of 10 a minute per user.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
@@ -452,9 +453,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   comments and bytes appended after the image data are not stored; a payload built into the pixel data of a lossless
   PNG is not removed. The EXIF orientation is applied to the pixels, so staff see the photo upright. Refused with a validation
   error: a file that cannot be decoded ("Upload a photo or scan as JPEG, PNG or WebP."), an image above 25 megapixels
-  (from its header, before decoding), and an upload that waits more than 15 seconds for another upload's decode
-  ("Other photos are being processed. Try again in a moment."). Decodes run one at a time per cache lock store.
-  Images above 16 megapixels are scaled down to 16 megapixels. A stored image is at most 5 MB: a larger result is
+  or a progressive or CMYK JPEG above 20 megapixels (from its header, before decoding), and an upload that waits more
+  than 5 seconds for another upload's decode ("Other photos are being processed. Try again in a moment."). Decodes
+  run one at a time per cache lock store, and uploads are limited to 20 a minute per IP address. Images above 16
+  megapixels (WebP: 8 megapixels) are scaled down to that size. A stored image is at most 5 MB: a larger result is
   encoded again at quality 75, then scaled to 12 and 8 megapixels (an opaque PNG becomes a JPEG), and is refused only
   if it is still larger.
 

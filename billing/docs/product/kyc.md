@@ -69,18 +69,23 @@ admin review routes stay available, so staff can finish the queue after the feat
 - Every image is decoded and encoded again in its own format with GD before it is encrypted (#233). Metadata (EXIF
   GPS, device and thumbnails, colour profiles, text chunks, JPEG comments) and bytes appended after the image data are
   dropped; a payload built into the pixel data of a lossless PNG is not. The EXIF orientation is applied to the pixels
-  first. Refused with a validation error: files GD cannot decode; images above 25 megapixels (read from the header,
-  before decoding); and, when another upload's decode holds the lock for more than 15 seconds, "try again in a
-  moment". Images above 16 megapixels are scaled down to 16 megapixels.
+  first. Refused with a validation error: files GD cannot decode; images above 25 megapixels, and progressive or
+  four-channel (CMYK) JPEGs above 20 megapixels (read from the header, before decoding); and, when another upload's
+  decode holds the lock for more than 5 seconds, "try again in a moment". Images above 16 megapixels are scaled down
+  to 16 megapixels, WebP above 8 megapixels to 8 megapixels. The upload route allows 10 a minute per user and 20 a
+  minute per IP address.
 - The stored file is at most 5 MB (the upload limit). A larger result is encoded again from the same decoded pixels:
   JPEG or WebP at quality 90, then 75, then 75 scaled to 12 and then 8 megapixels (`kyc.step_down_pixels`). An opaque
   PNG that is too large becomes a JPEG and follows the same steps; a PNG with an alpha channel or `tRNS` chunk stays a
   PNG and is only scaled. Only an image still above 5 MB at 8 megapixels is refused ("The image must be 5 MB or
   smaller.").
-- One decode runs at a time across the web processes that share the cache lock store (`kyc:image-decode`). Measured
-  in the production image with `memory_limit=256M`, one request decoding a 25 MP image, steps included, peaks at
-  221 MB of PHP memory for an RGBA PNG and at 188–207 MB for JPEG and WebP, framework boot included. libwebp's encoder
-  allocates outside PHP's limit: a detailed WebP reaches 360–430 MB resident, against 220–250 MB for JPEG and PNG.
+- One decode runs at a time across the web processes that share the cache lock store (`kyc:image-decode`). libjpeg
+  (progressive and CMYK coefficients) and libwebp (encoder) allocate outside PHP's memory limit, so the caps above are
+  set by the container peak. Measured in the production `php` stage (`memory_limit=256M`, `--memory=512m
+  --cpus=1`), one upload served by FrankenPHP, cgroup `memory.peak` (idle about 38 MB): CMYK progressive JPEG at
+  20 MP 325 MB, progressive 4:4:4 JPEG at 20 MP 289 MB, detailed WebP at 25 MP 298–301 MB, RGBA PNG at 25 MP 285 MB.
+  A CMYK progressive JPEG at 25 MP, now refused, measured 343 MB from the command line (about 374 MB served, by the
+  #286 security review).
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.

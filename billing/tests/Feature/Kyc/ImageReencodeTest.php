@@ -1,12 +1,16 @@
 <?php
 
+use App\Models\User;
+use App\Modules\Core\Models\Client;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Enums\DocumentType;
 use App\Modules\Kyc\Models\KycDocument;
+use App\Modules\Kyc\Services\DocumentVault;
 use App\Modules\Kyc\Services\ImageSanitiser;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 
@@ -285,4 +289,66 @@ test('a PNG over the limit becomes a JPEG when it is opaque, and stays a smaller
         ->and($transparent['mime'])->toBe('image/png')
         ->and(array_slice(getimagesizefromstring($transparent['bytes']), 0, 2))->toBe([200, 200])
         ->and(strlen($transparent['bytes']))->toBeLessThanOrEqual(200 * 1024);
+});
+
+test('a WebP is scaled down to kyc.stored_webp_pixels before it is encoded, and stays a WebP', function () {
+    config(['kyc.stored_webp_pixels' => 200]);
+
+    reencodeSubmit(reencodeImage('webp'))->assertSessionHasNoErrors();
+    $stored = reencodeStoredFront();
+
+    expect(array_slice(getimagesizefromstring($stored), 0, 2))->toBe([20, 10])
+        ->and(getimagesizefromstring($stored)['mime'])->toBe('image/webp');
+});
+
+test('a progressive or four-channel JPEG has the lower pixel cap, read from its frame header', function (int $sof, int $components, string $message) {
+    // A frame header for 5000 × 4500 (22.5 MP) and no scan data: only the header checks can pass it.
+    $frame = pack('Cnn', 8, 4500, 5000).chr($components).implode('', array_map(fn (int $id): string => chr($id)."\x11\0", range(1, $components)));
+    $jpeg = "\xFF\xD8\xFF".chr($sof).pack('n', strlen($frame) + 2).$frame."\xFF\xD9";
+
+    reencodeSubmit($jpeg)->assertSessionHasErrors(['front' => $message]);
+    expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([]);
+})->with([
+    'progressive' => [0xC2, 3, 'The image must be 20 megapixels or smaller.'],
+    'CMYK baseline' => [0xC0, 4, 'The image must be 20 megapixels or smaller.'],
+    // Under the 25 MP cap, so it reaches the decoder, which finds no scan data.
+    'RGB baseline' => [0xC0, 3, 'Upload a photo or scan as JPEG, PNG or WebP.'],
+]);
+
+test('document uploads are limited per IP address as well as per user', function () {
+    foreach (range(1, 2) as $account) {
+        $client = Client::factory()->create();
+        $user = User::factory()->create(['email' => $client->email]);
+        $client->users()->attach($user, ['is_owner' => true]);
+        $this->actingAs($user);
+
+        foreach (range(1, 10) as $attempt) {
+            $this->post(route('client.kyc.documents.store'), [])->assertSessionHasErrors('front');
+        }
+    }
+
+    // A third account from the same address: the 21st upload in the minute.
+    $this->actingAs(User::factory()->create());
+    $this->post(route('client.kyc.documents.store'), [])->assertTooManyRequests();
+});
+
+test('the images are stored outside the database transaction, so a contended decode lock refuses instead of failing', function () {
+    $baseline = DB::transactionLevel();
+    $vault = new class(app(ImageSanitiser::class)) extends DocumentVault
+    {
+        /** @var list<int> */
+        public array $levels = [];
+
+        public function put(int $clientId, UploadedFile $file, string $field): array
+        {
+            $this->levels[] = DB::transactionLevel();
+
+            return parent::put($clientId, $file, $field);
+        }
+    };
+    app()->instance(DocumentVault::class, $vault);
+
+    reencodeSubmit(reencodeImage('jpeg'))->assertSessionHasNoErrors();
+
+    expect($vault->levels)->toBe([$baseline, $baseline]);
 });

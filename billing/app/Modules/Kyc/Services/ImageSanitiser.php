@@ -45,7 +45,11 @@ class ImageSanitiser
             throw $this->refuse($field, __('Upload a photo or scan as JPEG, PNG or WebP.'));
         }
 
-        $limit = (int) config('kyc.max_image_pixels', 25_000_000);
+        // libjpeg holds every DCT coefficient of a progressive or four-channel (CMYK) JPEG while decoding it, outside
+        // PHP's memory limit, so those get a lower cap.
+        $limit = $type === IMAGETYPE_JPEG && $this->jpegNeedsCoefficientBuffer($bytes)
+            ? (int) config('kyc.max_buffered_jpeg_pixels', 20_000_000)
+            : (int) config('kyc.max_image_pixels', 25_000_000);
 
         if ($limit < $size[0] * $size[1]) {
             throw $this->refuse($field, __('The image must be :count megapixels or smaller.', ['count' => intdiv($limit, 1_000_000)]));
@@ -53,7 +57,7 @@ class ImageSanitiser
 
         try {
             return Cache::lock(self::LOCK, self::LOCK_TTL_SECONDS)
-                ->block((int) config('kyc.image_decode_wait_seconds', 15), fn (): array => $this->reencode($bytes, $type, $field));
+                ->block((int) config('kyc.image_decode_wait_seconds', 5), fn (): array => $this->reencode($bytes, $type, $field));
         } catch (LockTimeoutException) {
             throw $this->refuse($field, __('Other photos are being processed. Try again in a moment.'));
         }
@@ -73,7 +77,9 @@ class ImageSanitiser
         }
 
         // One statement each, so only two images are alive at a time.
-        $image = $this->scaledTo($image, (int) config('kyc.stored_image_pixels', 16_000_000));
+        // libwebp's encoder allocates outside PHP's memory limit and grows with the output, so WebP is stored smaller.
+        $stored = (int) config('kyc.stored_image_pixels', 16_000_000);
+        $image = $this->scaledTo($image, $type === IMAGETYPE_WEBP ? min($stored, (int) config('kyc.stored_webp_pixels', 8_000_000)) : $stored);
         $image = $this->orient($image, $this->orientation($bytes, $type));
 
         // The stored copy obeys the upload limit too: the review page and security:reencrypt hold it in memory.
@@ -255,6 +261,51 @@ class ImageSanitiser
         }
 
         return $this->tiffOrientation($tiff);
+    }
+
+    /**
+     * Whether the first frame header (SOFn) before the scan data is progressive (SOF2, SOF6, SOF10, SOF14) or has four
+     * components. A header we cannot find counts as yes, so the lower cap applies.
+     */
+    private function jpegNeedsCoefficientBuffer(string $bytes): bool
+    {
+        $offset = 2;
+        $length = strlen($bytes);
+
+        while ($offset + 4 <= $length && $bytes[$offset] === "\xFF") {
+            $marker = ord($bytes[$offset + 1]);
+
+            // Fill bytes, then markers that carry no length (TEM, RSTn).
+            if ($marker === 0xFF) {
+                $offset++;
+
+                continue;
+            }
+
+            if ($marker === 0x01 || ($marker >= 0xD0 && $marker <= 0xD7)) {
+                $offset += 2;
+
+                continue;
+            }
+
+            if ($marker === 0xDA || $marker === 0xD9) {
+                return true;
+            }
+
+            if ($marker >= 0xC0 && $marker <= 0xCF && ! in_array($marker, [0xC4, 0xC8, 0xCC], true)) {
+                return in_array($marker, [0xC2, 0xC6, 0xCA, 0xCE], true) || ord($bytes[$offset + 9] ?? "\4") >= 4;
+            }
+
+            $size = $this->number('n', $bytes, $offset + 2);
+
+            if ($size < 2) {
+                return true;
+            }
+
+            $offset += 2 + $size;
+        }
+
+        return true;
     }
 
     private function jpegExif(string $bytes): ?string
