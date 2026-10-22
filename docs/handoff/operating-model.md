@@ -97,6 +97,9 @@ $H npm run build
 $H php artisan test --compact tests/Arch <touched suites>
 ```
 
+On macOS, tests that need Linux tools (the simulators in `tools/simulators/tests` use `setsid`) run through
+`$MOHAR_ROOT/scripts/linux.sh <command>` from the worktree's `billing/`, in the production base image.
+
 CI is the full-suite runner on SQLite and PostgreSQL. Locally, engineers and reviewers run the tests they touched
 plus `tests/Arch`, on PostgreSQL too for queries and migrations: `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`
 gives a database on the shared server `mohar-pg` (in-memory, recreated on demand; `--stop`, `--prune`). No private
