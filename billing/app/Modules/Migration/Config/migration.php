@@ -11,4 +11,6 @@ return [
     'staging_days' => 7,
     // Days an applied import can be undone; its row payloads are purged afterwards (§5.7).
     'undo_days' => 7,
+    // Most import invitations sent in any hour, install-wide (§5.7); 50,000 logins take about four days at 500.
+    'invite_per_hour' => 500,
 ];

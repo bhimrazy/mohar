@@ -6,6 +6,21 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Client import invitations (importer B2a)
+
+- New contract `App\Contracts\Auth\ClientLoginInvitations` (client-import spec C3; beside `AuthMailer`):
+  `problem(): ?string` (why no invitation can be sent now, ADR 0012 addendum) and `invite(int $clientId, int $userId,
+  InvitationPurpose $purpose = InvitationPurpose::LoginAdded, ?int $actorId = null): InvitationOutcome`. Core binds
+  `NullClientLoginInvitations` ("not installed", always `Unavailable`); Platform binds `PlatformClientLoginInvitations`,
+  which maps each purpose to its template and invites only a never-used login.
+- New enum `App\Enums\InvitationPurpose` (`LoginAdded`, `Import`), `@open`.
+- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Held`, `Unavailable`), `@open`. `Held`:
+  mail is off on purpose, no link was issued, the login can be invited later.
+- `App\Enums\SystemMailOutcome::Suppressed` (new case): the template system logged the mail but did not send it on
+  purpose (mail switched off, the template turned off, demo data). It was `Taken` before. Nothing else may send it, as
+  with `Taken`; callers that compare with `Refused` or `Unavailable` are unchanged. `ManageClientLogins` puts back an
+  invitation whose mail was suppressed.
+
 ### Key rotation (#25, ADR 0022)
 
 - New registry `App\Support\Security\EncryptedStorage` (`final`, `@api`, singleton, ADR 0012 shape):
