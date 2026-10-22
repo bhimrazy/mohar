@@ -185,7 +185,10 @@ test('every arch target in this file matches at least one class', function () {
 
     expect(archTargetsWithoutClasses($targets))->toBe([])
         ->and(archTargetsWithoutClasses(['App\Support', 'App\NoSuchNamespace', 'App\Modules\*\NoSuchDirectory']))
-        ->toBe(['App\NoSuchNamespace', 'App\Modules\*\NoSuchDirectory']);
+        ->toBe(['App\NoSuchNamespace', 'App\Modules\*\NoSuchDirectory'])
+        // A single class counts when it exists (a rule over a renamed class passes silently, issue #277).
+        ->and(archTargetsWithoutClasses([IdentifiesOccurrence::class, DomainEvent::class, 'App\Support\Events\Renamed', 'App\Support\Events\Identifies']))
+        ->toBe(['App\Support\Events\Renamed', 'App\Support\Events\Identifies']);
 });
 
 afterAll(fn () => releaseArchCache());
