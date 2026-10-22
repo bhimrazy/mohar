@@ -45,6 +45,7 @@ type Props = {
     groups: { value: string; label: string }[];
     perHour: number;
     sending: number;
+    held: string | null;
     blocked: string | null;
 };
 
@@ -121,6 +122,7 @@ export default function ImportInvitations({
     groups,
     perHour,
     sending,
+    held,
     blocked,
 }: Props) {
     const { errors } = usePage().props as { errors: Record<string, string> };
@@ -195,6 +197,13 @@ export default function ImportInvitations({
 
                 {reason && (
                     <p className="text-sm text-muted-foreground">{reason}</p>
+                )}
+
+                {held && !blocked && (
+                    <Alert>
+                        <CircleAlert />
+                        <AlertDescription>{held}</AlertDescription>
+                    </Alert>
                 )}
 
                 {errors.invitations && (

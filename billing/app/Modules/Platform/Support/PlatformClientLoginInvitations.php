@@ -62,9 +62,11 @@ class PlatformClientLoginInvitations implements ClientLoginInvitations
                 return InvitationOutcome::Refused;
             }
 
-            return $this->logins->mailInvitation($user, $client, self::template($purpose), $actorId) === SystemMailOutcome::Refused
-                ? InvitationOutcome::Refused
-                : InvitationOutcome::Sent;
+            return match ($this->logins->mailInvitation($user, $client, self::template($purpose), $actorId)) {
+                SystemMailOutcome::Refused => InvitationOutcome::Refused,
+                SystemMailOutcome::Suppressed => InvitationOutcome::Held,
+                default => InvitationOutcome::Sent,
+            };
         });
     }
 

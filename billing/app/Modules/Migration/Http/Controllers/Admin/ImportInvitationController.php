@@ -55,6 +55,8 @@ class ImportInvitationController extends Controller
             'perHour' => $perHour,
             'sending' => MigrationInvitation::query()->where('migration_run_id', $run->id)->where(fn ($query) => $query->where('status', MigrationInvitation::QUEUED)
                 ->orWhere(fn ($query) => $query->where('status', MigrationInvitation::SENDING)->where('updated_at', '>=', now()->subSeconds(MigrationInvitation::STALE_SECONDS))))->count(),
+            // Why the waiting invitations are held (mail switched off), from the row the sender put back.
+            'held' => MigrationInvitation::query()->where('migration_run_id', $run->id)->where('status', MigrationInvitation::QUEUED)->whereNotNull('reason')->orderByDesc('id')->value('reason'),
             'blocked' => $canSend ? $invitations->blocked($run) : __('You need permission to run client imports to send invitations.'),
         ]);
     }

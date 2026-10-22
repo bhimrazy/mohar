@@ -238,3 +238,31 @@ test('the import lists exactly the logins Platform would invite (the two never-u
 
     expect($listed)->toBe($neverUsed)->and($listed)->toHaveCount(2);
 });
+
+test('while email is switched off the sender holds: no link is issued, the row waits with the reason, and continuing after mail is on sends it', function () {
+    $run = importedRun([ClientCsv::row('1', 'a@example.com'), ClientCsv::row('2', 'b@example.com')]);
+    Queue::fake();
+    app(Settings::class)->set('notifications.mail_disabled', true);
+    $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors();
+    Queue::fake();
+
+    (new SendInvitations)->handle(app(ClientLoginInvitations::class), app(Settings::class), app(ActivityLogger::class));
+
+    // One attempt is logged as suppressed, then the sender stops: no link, no next job, both rows still waiting.
+    expect(MigrationInvitation::query()->pluck('status')->unique()->all())->toBe([MigrationInvitation::QUEUED])
+        ->and(ClientInvitation::query()->count())->toBe(0)
+        ->and(EmailMessage::query()->count())->toBe(1);
+    Queue::assertNothingPushed();
+    $this->get(route('admin.migration.imports.invitations', $run))->assertInertia(fn (Assert $page) => $page
+        ->where('counts.queued', 2)->where('counts.open', 0)->where('held', fn (string $reason): bool => str_contains($reason, 'Stop sending email')));
+
+    app(Settings::class)->set('notifications.mail_disabled', false);
+    $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors();
+    Queue::assertPushed(SendInvitations::class, 1);
+    (new SendInvitations)->handle(app(ClientLoginInvitations::class), app(Settings::class), app(ActivityLogger::class));
+
+    expect(MigrationInvitation::query()->pluck('status')->unique()->all())->toBe([MigrationInvitation::SENT])
+        ->and(MigrationInvitation::query()->whereNotNull('reason')->count())->toBe(0)
+        ->and(EmailMessage::query()->whereNull('suppressed_reason')->count())->toBe(2)->and(ClientInvitation::query()->count())->toBe(2);
+    $this->get(route('admin.migration.imports.invitations', $run))->assertInertia(fn (Assert $page) => $page->where('counts.open', 2)->where('held', null));
+});

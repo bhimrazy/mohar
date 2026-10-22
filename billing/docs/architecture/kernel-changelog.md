@@ -14,7 +14,12 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   `NullClientLoginInvitations` ("not installed", always `Unavailable`); Platform binds `PlatformClientLoginInvitations`,
   which maps each purpose to its template and invites only a never-used login.
 - New enum `App\Enums\InvitationPurpose` (`LoginAdded`, `Import`), `@open`.
-- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Unavailable`), `@open`.
+- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Held`, `Unavailable`), `@open`. `Held`:
+  mail is off on purpose, no link was issued, the login can be invited later.
+- `App\Enums\SystemMailOutcome::Suppressed` (new case): the template system logged the mail but did not send it on
+  purpose (mail switched off, the template turned off, demo data). It was `Taken` before. Nothing else may send it, as
+  with `Taken`; callers that compare with `Refused` or `Unavailable` are unchanged. `ManageClientLogins` puts back an
+  invitation whose mail was suppressed.
 
 ### Client currency lock (#218)
 

@@ -32,7 +32,8 @@ use Throwable;
  *   A row left `sending` by a sender that died is failed by the next sender, never queued again: its mail may have
  *   gone out.
  * - While invitations cannot be sent (ClientLoginInvitations::problem()), nothing is sent and no next job is queued;
- *   the rows stay queued and the page shows the reason.
+ *   the rows stay queued and the page shows the reason. The same when mail is held on purpose (email switched off:
+ *   the outcome is Held): that row goes back to queued with the reason, and the sender stops until staff continue.
  *
  * Queries: the throttle counts on (status, sent_at), the batch reads on (status, id), the stale sweep on
  * (status, id) with updated_at.
@@ -86,8 +87,8 @@ final class SendInvitations implements ShouldBeEncrypted, ShouldQueue
 
             $room = min(self::BATCH, $perHour - $this->sentInLastHour());
 
-            if ($room > 0) {
-                $this->sendBatch($invitations, $audit, $room);
+            if ($room > 0 && $this->sendBatch($invitations, $audit, $room)) {
+                return;
             }
         } finally {
             $lock->release();
@@ -107,7 +108,10 @@ final class SendInvitations implements ShouldBeEncrypted, ShouldQueue
             ->update(['status' => MigrationInvitation::FAILED, 'reason' => __('The sender stopped before this invitation was confirmed; it may have been sent. Send a new link from the client\'s logins if needed.'), 'updated_at' => now()]);
     }
 
-    private function sendBatch(ClientLoginInvitations $invitations, ActivityLogger $audit, int $room): void
+    /**
+     * @return bool whether mail is held (the sender stops and queues no next job)
+     */
+    private function sendBatch(ClientLoginInvitations $invitations, ActivityLogger $audit, int $room): bool
     {
         $tally = [];
 
@@ -139,6 +143,13 @@ final class SendInvitations implements ShouldBeEncrypted, ShouldQueue
                     throw $exception;
                 }
 
+                if ($outcome === InvitationOutcome::Held) {
+                    // By query: the loaded model still says queued, so a model save would leave the row `sending`.
+                    MigrationInvitation::query()->whereKey($row->id)->update(['status' => MigrationInvitation::QUEUED, 'updated_at' => now(), 'reason' => __('Held: email is switched off ("Stop sending email" in the notification settings), or the invitation template is turned off. Turn it on, then continue sending.')]);
+
+                    return true;
+                }
+
                 $row->forceFill([
                     'status' => $outcome->value,
                     'sent_at' => $outcome === InvitationOutcome::Sent ? now() : null,
@@ -146,6 +157,8 @@ final class SendInvitations implements ShouldBeEncrypted, ShouldQueue
                 ])->save();
                 $this->tally($tally, $row->migration_run_id, $outcome->value);
             }
+
+            return false;
         } finally {
             foreach ($tally as $runId => $counts) {
                 $run = MigrationRun::query()->find($runId);

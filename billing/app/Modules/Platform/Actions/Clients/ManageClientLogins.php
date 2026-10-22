@@ -136,15 +136,22 @@ class ManageClientLogins
      */
     private function sendInvitation(User $user, Client $client): void
     {
-        if ($this->mailInvitation($user, $client, PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded), ($actor = auth()->user()) instanceof User ? $actor->id : null) === SystemMailOutcome::Refused) {
+        $outcome = $this->mailInvitation($user, $client, PlatformClientLoginInvitations::template(InvitationPurpose::LoginAdded), ($actor = auth()->user()) instanceof User ? $actor->id : null);
+
+        if ($outcome === SystemMailOutcome::Refused) {
             throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: its link failed the security check. Check APP_URL, then send the invitation again.')]);
+        }
+
+        if ($outcome === SystemMailOutcome::Suppressed) {
+            throw ValidationException::withMessages(['email' => __('The login was added, but the invitation was not sent: email is switched off, or the invitation template is turned off. Turn it on, then send the invitation again.')]);
         }
     }
 
     /**
      * Mails a new invitation link with the given template, replacing the login's earlier link. When the template
-     * system refuses it, the invitation is put back as it was (removed, or the earlier link restored), so nothing
-     * looks sent that was not; the refusal is logged as a security event and returned, and nothing else sends it.
+     * system refuses it, or holds it because mail is off (Suppressed), the invitation is put back as it was (removed,
+     * or the earlier link restored), so nothing looks sent that was not, and nothing else sends it. A refusal is also
+     * logged as a security event.
      */
     public function mailInvitation(User $user, Client $client, string $templateKey, ?int $actorId): SystemMailOutcome
     {
@@ -162,7 +169,7 @@ class ManageClientLogins
             'auth' => ['invite_url' => new SensitiveValue($url, secret: $token), 'expires_at' => $expiresAt, 'expires_in' => InvitationExpiry::phrase()],
         ], 'invite|'.$user->id.'|'.ClientInvitation::hashToken($token), $client->id, carriesSecret: true);
 
-        if ($outcome === SystemMailOutcome::Refused) {
+        if ($outcome === SystemMailOutcome::Refused || $outcome === SystemMailOutcome::Suppressed) {
             $previous === null ? $invitation->delete() : $invitation->forceFill($previous->only(['token_hash', 'email', 'sent_at', 'expires_at', 'accepted_at', 'invited_by']))->save();
         }
 

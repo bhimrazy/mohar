@@ -8,15 +8,16 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * One login staff asked to invite from a client import: queued → sending → sent, skipped, refused or unavailable
- * (the ClientLoginInvitations outcome), or failed (the send threw, or the sender stopped while it was sending). Ids,
- * a status and a fixed reason only; the mail itself is in the email log.
+ * (the ClientLoginInvitations outcome), or failed (the send threw, or the sender stopped while it was sending). A
+ * Held outcome (mail switched off) puts the row back to queued with its reason. Ids, a status and a fixed reason
+ * only; the mail itself is in the email log.
  *
  * @property int $id
  * @property int $migration_run_id
  * @property int $client_id
  * @property int $user_id
  * @property string $status
- * @property string|null $reason why it was not sent (a fixed sentence), for failed and refused rows
+ * @property string|null $reason why it was not sent (a fixed sentence), for failed and refused rows and held queued ones
  * @property int|null $requested_by
  * @property CarbonImmutable|null $sent_at
  * @property CarbonImmutable|null $created_at

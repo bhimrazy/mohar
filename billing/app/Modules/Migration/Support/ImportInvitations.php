@@ -107,8 +107,13 @@ class ImportInvitations
             // One queueing per run at a time: two clicks never queue a login twice.
             MigrationRun::query()->whereKey($run->id)->lockForUpdate()->first();
             // One INSERT … SELECT: nothing is read into PHP. The bound values are cast, so both databases type them.
+            // The time is the application's now() (UTC), never the database clock: PostgreSQL's current_timestamp is in
+            // the server's zone, which would displace the duplicate check's created_at. SQLite stores the bound text as
+            // is (its cast to timestamp would make it a number).
+            $now = now()->format('Y-m-d H:i:s');
+            $at = DB::getDriverName() === 'pgsql' ? 'cast(? as timestamp)' : '?';
             $eligible = DB::query()->fromSub($this->candidates($run, $filters), 'x')->whereIn('state', ['not_invited', 'expired'])
-                ->selectRaw('cast(? as bigint), client_id, user_id, cast(? as varchar(16)), cast(? as bigint), current_timestamp, current_timestamp', [$run->id, MigrationInvitation::QUEUED, $actor->id]);
+                ->selectRaw("cast(? as bigint), client_id, user_id, cast(? as varchar(16)), cast(? as bigint), {$at}, {$at}", [$run->id, MigrationInvitation::QUEUED, $actor->id, $now, $now]);
 
             return DB::table('migration_invitations')->insertUsing(['migration_run_id', 'client_id', 'user_id', 'status', 'requested_by', 'created_at', 'updated_at'], $eligible);
         });

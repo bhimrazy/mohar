@@ -22,6 +22,10 @@ enum InvitationOutcome: string
      * refused the link). Nothing may send it by another path. */
     case Refused = 'refused';
 
+    /** Nothing was sent because mail is held on purpose (email switched off, or the invitation template turned off).
+     * No link was issued; the login can be invited once mail is on again. */
+    case Held = 'held';
+
     /** No module sends invitations in this install. */
     case Unavailable = 'unavailable';
 }
