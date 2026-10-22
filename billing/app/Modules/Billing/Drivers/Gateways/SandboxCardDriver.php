@@ -2,7 +2,9 @@
 
 namespace App\Modules\Billing\Drivers\Gateways;
 
+use App\Contracts\Billing\CancelsHostedPayment;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\CallbackEvent;
 use App\Data\Billing\CallbackRejection;
@@ -18,6 +20,7 @@ use App\Data\Billing\QrPayload;
 use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
+use App\Enums\HostedSessionCancel;
 use App\Modules\Billing\Services\Tax\TaxMath;
 use App\Support\Billing\AbstractGatewayDriver;
 use App\Support\Billing\SandboxPolicy;
@@ -33,12 +36,13 @@ use Illuminate\Support\Str;
  *  - Merchant/token: the "vault" (remote input) turns card details into a signed, self-describing token; capture
  *    and refund are simulated. Webhooks are HMAC-SHA256 signed (header X-Sandbox-Signature).
  *  - Hosted (HostedPaymentDriver): initiate → simulated provider page → browser return (hint only) → lookup()
- *    against the simulated provider's state, exactly like Khalti/eSewa.
+ *    against the simulated provider's state, exactly like Khalti/eSewa. An unpaid page can be reopened or closed
+ *    (ResumesHostedPayment, CancelsHostedPayment), as at Stripe.
  *
  * Outcomes are deterministic by card number:
  *   4242 4242 4242 4242 success · 4000 0000 0000 0002 declined · 4000 0000 0000 0077 pending · 4000 0000 0000 0119 error
  */
-class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDriver
+class SandboxCardDriver extends AbstractGatewayDriver implements CancelsHostedPayment, HostedPaymentDriver, ResumesHostedPayment
 {
     public const SIGNATURE_HEADER = 'X-Sandbox-Signature';
 
@@ -174,6 +178,7 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
             'payment.failed' => CallbackEvent::PAYMENT_FAILED,
             'charge.refunded' => CallbackEvent::REFUND,
             'charge.dispute' => CallbackEvent::CHARGEBACK,
+            'charge.dispute.won' => CallbackEvent::DISPUTE_WON,
             default => null,
         };
 
@@ -254,6 +259,24 @@ class SandboxCardDriver extends AbstractGatewayDriver implements HostedPaymentDr
             fee: $status === LookupResult::SUCCEEDED ? $this->fee($gateway, (int) $state['amount']) : 0,
             raw: ['pidx' => $state['pidx'], 'status' => $state['status'], 'txn_id' => $state['txn_id'], 'amount' => $state['amount']],
         );
+    }
+
+    public function resumeUrl(GatewayConfig $gateway, PaymentAttemptRef $attempt): ?string
+    {
+        return (self::providerState($attempt->reference)['status'] ?? null) === 'initiated'
+            ? route('billing.sandbox.checkout', ['reference' => $attempt->reference])
+            : null;
+    }
+
+    public function cancelSession(GatewayConfig $gateway, PaymentAttemptRef $attempt): HostedSessionCancel
+    {
+        if ((self::providerState($attempt->reference)['status'] ?? null) !== 'initiated') {
+            return HostedSessionCancel::AlreadyFinal;
+        }
+
+        self::simulate($attempt->reference, 'cancelled');
+
+        return HostedSessionCancel::Closed;
     }
 
     /**

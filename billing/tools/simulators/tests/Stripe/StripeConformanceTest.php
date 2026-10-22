@@ -85,7 +85,7 @@ test('a session, its payment, a refund and a dispute answer in the shapes of the
         ->and(stripeShapeGaps('dispute', stripeCall('GET', "/v1/disputes/{$dispute}", ['expand' => ['payment_intent']])->json()))->toBe([])
         ->and(stripeShapeGaps('account', stripeCall('GET', '/v1/account')->json()))->toBe([])
         ->and(stripeShapeGaps('event', reset($events)))->toBe([])
-        ->and(array_column($events, 'type'))->toEqualCanonicalizing(['checkout.session.completed', 'payment_intent.succeeded', 'refund.created', 'charge.refunded', 'charge.dispute.created'])
+        ->and(array_column($events, 'type'))->toEqualCanonicalizing(['checkout.session.completed', 'payment_intent.succeeded', 'refund.created', 'charge.refunded', 'charge.dispute.created', 'charge.dispute.funds_withdrawn'])
         // The request log keeps the secret key out (default rule) and card fields masked (payment rule).
         ->and((string) json_encode($this->scenario->log()->entries()))->not->toContain(StripeSimulator::SECRET_KEY);
 });

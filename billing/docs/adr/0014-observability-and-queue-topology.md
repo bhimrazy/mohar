@@ -98,6 +98,7 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
     | `NOTIFICATIONS` | `notifications` |
     | `WEBHOOKS`      | `webhooks`      |
     | `AUTOMATION`    | `automation`    |
+    | `IMPORTS`       | `imports`       |
 
     Jobs use the constants, and no other queue names are allowed.
 
@@ -109,6 +110,14 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
   default connection's 240 s `retry_after`, which reintroduces #82. `RunAutomationJob` fails fast, without running,
   when a worker on another connection takes it.
 
+- **`imports` (amended 2026-10-20, client-import spec C2)** carries client-import jobs (staging, checking, applying).
+  The `default` pool works it after `default` (`--queue=default,imports --timeout=150 --memory=256`), so an import of
+  50,000 rows delays `default` work by at most one import job (`Queues::IMPORT_JOB_TIMEOUT_SECONDS`, 120 s). The
+  `default` queue carries order provisioning and, until they move to `registrar`, the domain registration jobs: their
+  worst-case wait behind imports is one import job. Each import job caps itself at 120 s, below the default connection's 240 s `retry_after`,
+  so the queue needs no connection of its own; a job that could run longer must be split into chunks instead. The
+  spec proposed a separate `retry_after`; the CTO accepted the default connection instead (2026-10-20, #160): the
+  120 s job timeout, the pool's `--timeout=150` and the 160 s stop grace keep each import job below 240 s.
 - Domains jobs move to `registrar`, so a registrar outage cannot starve other `default` work.
 - Core alone registers one `DevCommands` worker over all queues in priority order:
   `payments,provisioning,registrar,notifications,webhooks,default`. Modules no longer register workers. The one
@@ -125,6 +134,14 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
     - one worker on the `automation` connection, with a stop timeout above 3,600 s.
 - Every job that calls a provider is `ShouldBeUnique` or protected by a lock, sets `$tries` and `$backoff`, uses
   `ShouldBeEncrypted` if its payload holds personal data, and is idempotent (ADR 0011).
+
+### Lock store (amended 2026-10-22, #64)
+
+Cache locks (`Cache::lock`) guard provisioning, payment attempts and other flows that have no database constraint to
+fall back on. They hold only when every web and queue process shares one lock store, so `CACHE_STORE` must be
+`database`, `redis` or another network store. `file` is single-host only. `array` and `null` give no cross-process
+exclusion. `app:install` fails on those two for a first production install and warns otherwise; the admin health card
+reports it in production.
 
 ### Performance budgets
 

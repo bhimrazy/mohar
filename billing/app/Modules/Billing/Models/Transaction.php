@@ -10,6 +10,7 @@ use App\Modules\Core\Models\Client;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\UseFactory;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -38,6 +39,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $description
  * @property array<string, mixed>|null $raw
  * @property int|null $created_by
+ * @property int|null $review_amount
+ * @property CarbonImmutable|null $reviewed_at
  * @property CarbonImmutable $occurred_at
  * @property CarbonImmutable|null $created_at
  * @property-read Client $client
@@ -50,7 +53,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'client_id', 'invoice_id', 'payment_batch_id', 'pay_method_id', 'gateway', 'gateway_txn_id', 'type', 'status',
     'amount_in', 'amount_out', 'fee', 'currency', 'gateway_amount', 'gateway_currency', 'exchange_rate',
-    'refundable_remaining', 'parent_transaction_id', 'description', 'raw', 'created_by', 'occurred_at',
+    'refundable_remaining', 'parent_transaction_id', 'description', 'raw', 'created_by', 'occurred_at', 'review_amount',
+    'reviewed_at',
 ])]
 class Transaction extends Model
 {
@@ -70,7 +74,19 @@ class Transaction extends Model
             'fee' => 'integer',
             'gateway_amount' => 'integer',
             'refundable_remaining' => 'integer',
+            'review_amount' => 'integer',
+            'reviewed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Chargebacks and provider refunds with a part nothing could absorb, not yet marked reviewed (the to-do).
+     *
+     * @return Builder<self>
+     */
+    public static function toReview(): Builder
+    {
+        return self::query()->whereNotNull('review_amount')->whereNull('reviewed_at');
     }
 
     /**

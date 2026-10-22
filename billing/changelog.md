@@ -8,6 +8,232 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Step-up for sensitive actions works with any set of modules (#81).** The `password.recent` middleware moved from
+  the Platform module to the application kernel (`App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in
+  `bootstrap/app.php`). Installations that leave out Platform (`MODULES=Domains`, `MODULES=Services` and so on) no
+  longer get a 500 error on sensitive Domains, Services, Kyc, Notifications and Storefront actions: they get the usual
+  confirm-password prompt (423 for JSON clients). Billing's and Migration's own fallbacks are removed; Migration's
+  used to redirect to the confirm page, and now behaves like every other module. The window is still 900 seconds;
+  its setting moved from `platform.password_confirmation_seconds` to `auth.step_up_seconds` in `config/auth.php`.
+  Anyone who edited the old key in `app/Modules/Platform/Config/platform.php` sets the new one instead. No schema or
+  permission change.
+- **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
+  or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
+  single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
+  finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
+
+- **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
+  transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
+  longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
+  different code is refused with "The code of an existing currency cannot be changed. To use another code, add a new
+  currency." Staff who need another code add a new currency. No schema or permission change. Installations where a
+  code was already renamed keep their records under the old code; nothing repairs them automatically.
+- **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
+  and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
+  workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
+  Docker: the image now builds from FrankenPHP 1.13.2 (PHP 8.4.27, which also fixes four FrankenPHP advisories, one
+  high: GHSA-6q3j-62j9-f9hh); deploy as usual with `deploy/bin/deploy`, which replaces the web container and every
+  worker. The prod build stops if its PHP is older than 8.4.27. Self-hosted and cPanel: upgrade the PHP packages (on
+  cPanel, ask the host for `ea-php84` 8.4.27+), then restart php-fpm and run `php artisan queue:restart`; see
+  `docs/devops/install.md` and `docs/devops/cpanel.md` ("PHP security floor"). `php artisan app:install` reports a new
+  "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
+  admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
+  requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
+- **Client import opening balances.** Account-credit entries gain the reason `import`; an import's entries carry the
+  reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. Migration
+  `980310` adds `migration_records.entities` (expand only); applied rows now keep their undo snapshot per entity
+  (`{client: …, credit_balance: …}`). GSTINs with the codes 97 (Other Territory) and 99 (Centre Jurisdiction) are now
+  valid. No permission change. Kernel: `App\Contracts\Migration\RevertsImport`, `ImportAction::Reverted`,
+  `App\Contracts\Billing\TaxIdRules` with `App\Data\Billing\TaxIdNote` (Core binds a null default, Billing its rules).
+- **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
+  on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
+  domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
+  "This client has billing records and services in NPR, so the currency can't be changed.", and a save that tries
+  anyway gets the same message on the currency field. Before, the change was saved and amounts stored in the old
+  currency were read in the new one. A client with no records can still change currency, and saving other details
+  with the same currency works as before. The check runs under the client's row lock; invoices, draft invoices and
+  quotes now read the client under a share lock, and a checkout whose client currency changed after the cart was
+  priced is refused ("The account currency changed while this order was placed."), so a change and a client's first
+  invoice or order can't cross. Account credit (staff adjustments, manual payments without invoices) is refused when
+  its amount is not in the client's currency ("Account credit must be in the client currency (NPR)."). Saving a quote
+  now locks the quote first and checks its stage again, so an edit can no longer overwrite a quote accepted or
+  converted at the same moment. Clients changed before the upgrade are not corrected: look for clients whose invoices
+  are in another currency than the client's. For such a client, a refund, cancellation or reversal that would move
+  account credit in the invoice's old currency is now refused with that message. No migration and no permission
+  change. Kernel: `ClientCurrencyUsage::sourcesFor()`.
+- **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
+  `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
+  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
+  permissions, which `kyc.*` does not grant: `kyc.documents.view` (queue and documents) and `kyc.documents.review`
+  (approve or decline). `php artisan app:install` resets the system roles, so the Support role gains
+  `kyc.documents.view` (with an audit entry); deciding stays with full administrators unless a role is given the review
+  permission. Opening documents and every decision ask for a recent password. The daily housekeeping stage gains
+  the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
+  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
+  (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
+  templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
+- **Payment follow-ups (#232, #230, #221).**
+    - **A won Stripe dispute that was never booked as a chargeback is acknowledged (#232).** On a Stripe webhook
+      destination without `charge.dispute.funds_withdrawn`, an inquiry that escalated and was then won reached its
+      `charge.dispute.closed` with no chargeback booked, and Billing answered 409 until Stripe stopped retrying. When the
+      dispute's balance transactions show both the withdrawal and the reinstatement, Billing now answers 200 and moves
+      no money, with the gateway log result "dispute won with no chargeback booked; funds reinstated at the provider,
+      no money moved". It records the win as a zero-amount `chargeback_reversal` transaction ("Dispute won at the
+      provider before a chargeback was booked here. No money moved."), written under the payment's lock: a chargeback
+      for that dispute delivered later (a `funds_withdrawn` read before the win) is then answered "dispute already won;
+      nothing booked", and one that commits while the win waits for the lock is reversed as usual. The zero row is not
+      shown to the client (invoice page, PDF, account credit page), is never refundable and adds no ledger line or
+      income; staff see it on Billing → Transactions. A `charge.dispute.created` or `funds_withdrawn` retrieved after
+      the win is also ignored by the Stripe driver. The inquiry's to-do stays on "Disputes to review" for staff
+      to mark reviewed. Failed deliveries from before the upgrade are not replayed: resend them from the Stripe
+      Dashboard if you want them in the log.
+    - **The open-payment poller looks up every five minutes (#230).** As with the late sweep (#222), each lookup is
+      stamped when it finishes, so the next five-minute run skipped the attempt and pending hosted payments (eSewa,
+      Khalti) were looked up every ten minutes. A time-travel test showed the 10:05 run skipping it. The cut-off is
+      now taken once, when the run starts, with up to 60 seconds of slack (half the interval when
+      `billing.gateways.lookup_interval_minutes` is 1); the back-off after 12 lookups (every sixth interval) uses the
+      same cut-off. Each run is now bounded: at most `billing.gateways.lookups_per_run` lookups (new setting, default
+      200, 1 to 1,000), never-checked and least recently checked attempts first, and none
+      started after 4 minutes; the rest wait for the next run.
+    - **New outgoing webhooks `payment.reinstated` and `payment.reversed` (#221).** A won dispute fires the new event
+      `PaymentReinstated` once for each `PaymentReversed` its chargeback fired, with the same invoice and amount: one
+      per invoice for a combined charge, none for a dispute that took back only account credit (which fired no
+      `PaymentReversed` either). It fires also when the invoice still owes more or the money went to staff review
+      (`invoice.paid` still follows only when the win settles the invoice). Webhook endpoints can subscribe to
+      `payment.reinstated` (the `chargeback_reversal` transaction) and to `payment.reversed` (the chargeback, or a
+      refund with "reverse effects"), which was not offered before. An endpoint subscribed to all events (`*`) receives
+      both from the upgrade on; others only once staff add them on the endpoint's form (Admin → Webhooks).
+    - No migration and no permission change; one new setting (`billing.gateways.lookups_per_run`). Kernel: new event
+      `App\Events\Billing\PaymentReinstated`; new `CallbackEvent::$fundsReinstated`.
+
+- **Go-live payment fixes (#223, #212, #222, #224).**
+    - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
+      add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
+      overpayment credit, and never more than the deposit still holds. If the client already spent it, the balance
+      goes negative and shows on "Clients owing account credit". Before, the client kept the credit. Deposits refunded
+      before the upgrade are not corrected: check the add-funds invoices with status Refunded.
+    - **Stripe inquiries are no longer booked as chargebacks (#212).** Stripe sends `charge.dispute.created` for
+      inquiries too (status `warning_*`), where no money leaves the account. A dispute is now booked as a chargeback only
+      when one of its balance transactions withdrew funds. Until then it is a zero-amount `dispute_inquiry` transaction
+      on "Disputes to review" ("Inquiry: answer it at the provider"): no change to the invoice, payment or credit, and
+      the client doesn't see it. An inquiry that escalates is booked when Stripe sends
+      `charge.dispute.funds_withdrawn`, which also closes the inquiry's to-do; an inquiry that closes changes nothing.
+      Without that event, the chargeback is booked when the dispute closes as lost (`charge.dispute.closed`), once per
+      dispute. Adding `charge.dispute.funds_withdrawn` to the Stripe webhook destination is recommended, so the
+      chargeback is booked when the money leaves, not weeks later. New webhook result: "dispute inquiry
+      recorded; no money moved". Inquiries booked as chargebacks before the upgrade are not corrected: check Stripe
+      chargebacks whose dispute status at Stripe starts with `warning_`.
+    - **The late-payment sweep runs every hour (#222).** Each lookup is stamped when it finishes, a few seconds after the
+      hourly run starts, so the next run skipped the attempt: closed attempts were looked up every two hours. The sweep
+      now takes attempts last looked up at least 50 minutes before the run started.
+    - **Two overpayments of one client no longer deadlock on PostgreSQL (#224).** A payment that may post account credit
+      (an overpayment, a deposit paid in full, a payment of a closed or held invoice) locks the client after the
+      invoice and before its row is inserted. A combined payment and a manual payment of several invoices lock all of
+      them first, in id order. Two-process tests reproduced both deadlocks (40P01) before the fix.
+    - No migration and no permission change. Kernel: `CallbackEvent::DISPUTE_INQUIRY`.
+
+- **Won disputes are booked (#191), and provider reversals take back credit first (#194).** A dispute the merchant
+  wins (Stripe `charge.dispute.closed` with status `won`) now books a `chargeback_reversal` transaction once per
+  dispute, under either `billing.reversal.set_collections` setting: the invoice is paid again up to what it still
+  owes, the payment can be refunded again by that much, and
+  the account credit the dispute took back is restored, which clears the negative balance and the "Clients owing
+  account credit" to-do it caused. Money the invoice can no longer take (it was paid again or cancelled since the
+  dispute) goes to "Disputes to review", never to credit. Add `charge.dispute.closed` to the Stripe webhook
+  destination; until then won disputes are still not booked. A win for a dispute you already corrected by hand
+  restores the credit again: check those clients after the upgrade. Partial provider refunds and disputes now take
+  back the credit the payment placed before they reduce the invoice (before: invoice first), so a partial refund of
+  an overpaid payment leaves the invoice paid. A disputed payment flagged "Late payments to check" leaves that to-do,
+  keeping its review note with "disputed at the provider" added, and an activity entry
+  (`billing.payment.late_closed_by_dispute`). Credit a win restored is taken back again by a later provider refund or
+  dispute of the same charge. New webhook results: "dispute won; payment reinstated", "dispute
+  won; needs staff review" and "dispute not booked yet; retry expected". No migration.
+- **eSewa attempts live 60 minutes and end on a cancel.** A captured run of eSewa's UAT sandbox (2026-10-21) showed
+  that eSewa keeps a booked session payable about 50 minutes after the form post, and that a cancel on eSewa's page
+  answers `NOT_FOUND` in the status check, not `CANCELED`. Before, the attempt expired after 15 minutes, so a
+  customer could pay another way while the eSewa session could still be paid, and a customer who cancelled stayed
+  locked out until those 15 minutes ran out. Now `payments_nepal.esewa.attempt_ttl_minutes` defaults to 60, and
+  values below 55 are raised to 55. A pending eSewa attempt whose status check says `NOT_FOUND` ends when the
+  customer comes back through the cancel URL (attempt failed; on any gateway, a cancel return that ends failed now
+  shows "Payment cancelled. You can try again or choose another way to pay.") or once it is 5 minutes old (attempt expired). `NOT_FOUND` never marks an invoice paid. An
+  attempt in staff review is not ended this way, and none is ended early unless `gateways.late_lookup_hours`
+  covers the attempt's lifetime plus two late-sweep hours (3 hours with the 60-minute eSewa attempt; default 48). A cancel return for a pending attempt may look up the status again 10 seconds after the
+  last lookup, instead of one minute. Ended attempts stay in the late-payment sweep (#130), so an old eSewa form
+  that is still paid is booked and flagged for staff. Attempts already open at the upgrade keep their 15-minute
+  expiry. No migration and no permission change. Kernel: `LookupResult` gains a trailing `sessionEnded` field (default false), and
+  `SettlePaymentAttempt::handle()` takes an optional `cancelReturn` flag.
+- **Changing a client login's email removes its verification (#184).** Every path that changes the email of a client
+  login (not staff) now leaves `email_verified_at` empty unless the same save sets it (the profile page already did
+  this). The client import relies on it: it links an existing login only when its email was verified 30 days ago or
+  more. Staff logins are unchanged: when an admin changes a colleague's email, verification is cleared and the
+  verification mail is sent; staff who change their own email on the staff page stay verified.
+- **Nepal-first install defaults (#170) and a queue timeout check (#195).** Nothing changes on an existing
+  installation: `app:install` writes the regional defaults only while no currency exists, so a database upgraded
+  from an earlier release keeps the US dollar default, US as default country, UTC as company time zone and the
+  built-in date and tax settings it already used, whether or not they were ever stored. A **new** install now
+  starts with country Nepal, NPR as the default currency (USD and INR are added with rates relative to it), time
+  zone Asia/Kathmandu, dates like `1 Jan 2026`, a VAT rule of 13% for Nepal, the seller tax country set to Nepal
+  and invoice numbers `INV-00001`. Tax stays off until you enable it in Settings → Billing → Tax. The install
+  now also **fails a first install** (and only warns on an installation that already has currencies, such as the re-run after an upgrade) when a queue connection's `retry_after` is not above the longest job timeout (200 s on the
+  default connection, 3,600 s on `automation`): raise `DB_QUEUE_RETRY_AFTER` (or the Redis or Beanstalkd
+  equivalent) above the figure the message gives. The shipped values (240 s) pass. The company time zone is
+  now a setting you can edit in Settings → Company (`system.timezone`; ADR 0013's rename to `core.timezone` is
+  still pending).
+- **`.np` domains are registered by the client at the registry** (owner decision, 2026-10-20). Run `php artisan
+  migrate`: it adds `tlds.registered_by_client` and turns it on for `.np` and its second levels. Those TLDs can no
+  longer be registered or transferred through the cart; clients use them with hosting through "Use a domain I own".
+  New setting: `domains.self_registration_url` ("How to register" link, default the registry's guide).
+- **Chargebacks and provider refunds take back account credit (#172, #183).** A dispute or a provider-side refund
+  of a payment that went to account credit (an overpayment, a payment of an invoice that was already paid or
+  cancelled, or a staff refund of the payment to credit) left that credit spendable: the chargeback was booked at 0
+  and the refund only logged "refund needs staff review". Now the part the payment could not return is taken back
+  from the credit that payment placed, once per dispute or refund id, never from other credit. If the client
+  already spent it, the balance goes negative; this now also applies to refunds of flagged late payments (#152),
+  which keep their "Gateway payments to review" flag. Chargeback and refund rows book the whole reversed amount as
+  money out (a refund that came only from credit gets its own row), so net income is right. A dispute with nothing
+  left on the invoice no longer moves a paid invoice to Collections or emits `PaymentReversed`. Two new dashboard
+  to-dos: "Clients owing account credit" (`billing.credit.manage`; Billing → Account credit, new "Show: Negative
+  balances only" filter) and "Disputes to review" (`billing.payments.manage` and `billing.transactions.view`; Billing → Transactions,
+  "Mark reviewed", recent password) for a rest nothing could cover. Webhook results now include "chargeback
+  recorded; credit taken back", "chargeback needs staff review" and "refund recorded; credit taken back". Run
+  `php artisan migrate`: it adds `transactions.review_amount` and `reviewed_at` (nullable) and two partial indexes,
+  built concurrently on PostgreSQL. Disputes and refunds booked before the upgrade are not revisited: check clients whose payments
+  were disputed or refunded at the provider.
+- **Registrar drivers implement `findSubmission()`** (registrars.md C2). The `Registrar` interface gains
+  `findSubmission(Domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup` (status: the kernel
+  `App\Enums\ReconcileStatus`, shared with provisioning) and the `reconcile`
+  capability; a driver without it throws `CapabilityNotSupported`. Result DTOs gain a trailing `remote` array.
+  Driver settings are read as `SettingField`s: `integer` fields are validated and stored as numbers.
+- **Registrar work moved to the `registrar` queue** (ADR 0014, ADR 0017). Register, transfer and renew jobs and the
+  hourly registrar sync (now the `SyncRegistrars` job, scheduled as `domains:sync`) left the `default` queue, and the
+  scheduler process no longer calls registrars itself. The provider pool (`queue:work
+  --queue=payments,provisioning,registrar --timeout=200`) must be running, or registrations, renewals and sync wait
+  there. Jobs already queued on `default` still run there. A sync run stops taking new domains after 70 s; the rest
+  go first in the next run. `php artisan domains:sync` still runs a sync in the shell. `composer dev` now runs one
+  queue worker for every queue (Core, built from the `Queues` constants) in place of the Services and Notifications
+  ones, so local runs process registrar jobs too.
+- **The hourly `domains:sync` now recovers interrupted submissions** (#12), also when registrar sync is switched
+  off: a `pending` domain whose submission claim is older than 15 minutes is flagged for review with a staff task,
+  checked with the registrar (never re-sent) and listed in the sync report. No schema change.
+- **Website permissions.** Admin → Website needs `storefront.content.manage` (edit and preview the draft) and
+  `storefront.publish` (make it live). `storefront.publish` is sensitive: only an exact grant (or `*`) gives it, never
+  `storefront.*`, and publishing asks for the password when it was not confirmed recently. Grant both explicitly to
+  staff who maintain the public site.
+- **Public website (Storefront module).** A migration adds `storefront_revisions`. Until a version is published, the
+  home page shows the placeholder headline "Hosting and domains from {company name}". The `/` route moved from
+  `routes/web.php` to the Storefront module, and unknown public URLs now return the public 404 page (still HTTP 404;
+  other-method URLs still 405). Footer company details read Settings → Company and the invoice seller details (legal
+  name, address, phone, PAN, VAT number, GSTIN) until the company profile exists. Settings → Company gains support
+  hours, WhatsApp number, company registration number and Facebook, Instagram, LinkedIn and X links for the footer;
+  empty fields are not shown. A new support email (Settings → Company) is the website's contact address and "Contact
+  us" link; without it the footer shows the billing address and "Contact us" opens a support ticket. The demo data
+  now runs a clearly fictional host, "Example Hosting" (seller details, support hours, WhatsApp, PAN/VAT,
+  registration number, `example.com` email, social and Terms, Privacy and Refund links), and its card gateway is
+  named "Card"; its bank transfer instructions name a fictional bank and an example NPR account. The demo seller is a Nepal company: the demo sets the tax home to Nepal (Bagmati) and the default
+  country to NP, so NPR invoices carry 13% VAT and INR invoices no longer charge Indian GST. Only the demo seeders
+  change; the shipped defaults (tax home IN/MH, default country US) are as before. The Core and Billing demo
+  seeders now fill only empty settings, so re-running `db:seed` keeps company values a developer changed; run
+  `migrate:fresh --seed` for the new demo values.
+
 - **Late gateway payments are booked (#130).** A success that Stripe, eSewa or Khalti confirms for a payment
   attempt that had already closed (expired, failed or cancelled) was logged but never booked. It is now booked
   after the same server-side lookup as any payment: on the invoice up to its balance, the rest as account credit
@@ -22,6 +248,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   "Late payments" filter:** a payment staff booked by hand before the upgrade (for example from a bank statement)
   can be booked a second time by a provider webhook for its old attempt. Compare each listed payment with your
   records and refund any duplicate.
+
+- **The default queue worker also runs client imports** (client-import spec C2): start it as
+  `php artisan queue:work --queue=default,imports --tries=3 --timeout=150 --memory=256` (it was `--queue=default`), and give
+  it a stop timeout above 150 s (Compose `stop_grace_period: 160s`). Import jobs use the new `imports` queue, worked
+  after `default`, stop themselves after 120 s and may use up to 192 MB. Without the change, client imports wait in the
+  queue. On SQS, give the `imports` queue a visibility timeout of at least 150 s.
+- **Client import files can be 20 MB.** The container's PHP `upload_max_filesize` is now 21M (was 12M). On other
+  installs, raise `upload_max_filesize` (and `post_max_size`) to at least 21M; the Import clients page says when PHP
+  accepts less than the setting. New permissions `migration.runs.view` and `migration.runs.execute` (sensitive: never
+  granted by a wildcard, needs a recent password) control the page.
 
 - **Clients record how they were created and who set their email (`clients.origin`, `clients.email_source`).** A Core
   migration adds `origin` (`signup`, `checkout`, `staff`, `import`, `api`; default `signup`) and `email_source`
@@ -39,6 +275,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     **Do not vouch for an address a client chose** (a sign-up, or one changed in the client area): that lets an email
     match to it be proposed, and re-opens the gap this closes.
 
+- **PostgreSQL: the `pg_trgm` extension and 12 search indexes.** Four migrations run `create extension if not exists
+  pg_trgm` and build GIN trigram indexes CONCURRENTLY (no write lock) on the searched columns of `invoices`
+  (`number`, `proforma_number`), `services` (`domain`, `username`, `product_name`, `dedicated_ip`), `support_tickets`
+  (`number`, `subject`) and `clients` (`lower()` of `first_name`, `last_name`, `company_name`, `email`). PostgreSQL 13
+  and later treat `pg_trgm` as trusted, so the database owner can create it; a role without `CREATE` on the database
+  needs a superuser to run `create extension pg_trgm` first. Some managed services also need `pg_trgm` allow-listed
+  before it can be created (Azure Database for PostgreSQL: the `azure.extensions` server parameter). If creating the
+  extension fails, `migrate` stops at the first trigram migration with the database error; allow the extension and run
+  `migrate` again, which is safe to repeat. On 20,000 clients the builds took 2.4 s and the indexes use about 10 MB.
+  SQLite is unchanged.
 - **Start a fourth queue worker for Admin → Automation → Run now** (#82):
   `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`, with a stop timeout above 3,600 s
   (systemd `TimeoutStopSec`, Supervisor `stopwaitsecs`, Compose `stop_grace_period`). Run now jobs moved from the
@@ -150,6 +396,194 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
 
+### Architecture tests check every target (#275)
+
+- The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and
+  events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
+  went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
+  No violations were found on `develop`. No change for users or operators.
+
+### Hosted payments: continue or pay another way (#123)
+
+- After a declined card on Stripe Checkout, the client invoice now offers **Continue payment**, which reopens the same
+  Stripe page (its address is read from Stripe at the click, only for the client's own open payment, and only on
+  Stripe's checkout host), and **Use another method**. The second asks for confirmation, expires the session at Stripe
+  first and frees the invoice only when Stripe's status confirms it can no longer be paid. If Stripe reports it paid,
+  the payment is recorded instead. A double click closes it once.
+- **Use another method** is offered only by methods that can close their payment page at the provider (Stripe
+  today). eSewa and Khalti don't offer it, and a direct request to close one of their payments is refused without a
+  status check or any change: their "not found" or "initiated" answer doesn't mean the customer's other tab can no
+  longer pay. If Stripe still holds the session or can't be reached, the client sees why, for example "The payment
+  page is still open, so the payment could still be made there". Each close sends Stripe a new idempotency key, so a
+  transient Stripe error is not replayed on the next click.
+- After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
+  the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
+- Operators: no migration, no setting and no permission change. Two new client routes,
+  `invoices/{invoice}/payments/{reference}/continue` and `…/close`, are throttled like Pay. Closing uses
+  `Cache::lock` and so needs the shared lock store (#64). Kernel: `ResumesHostedPayment`, `CancelsHostedPayment`,
+  `HostedSessionCancel`.
+
+### Identity verification (KYC)
+
+- Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
+  phone number (numbers without a prefix get `+977`, set in `kyc.phone_country_code`), and upload two different
+  documents out of Citizenship certificate, National ID (NID) and Driving licence, each with its number and a front and
+  back image. A banner on every client-area page shows the status (to do, pending review, declined) until the
+  client is verified. Verification never blocks ordering, paying or using services.
+- Images must be JPEG, PNG or WebP by their content (SVG and PDF are refused), up to 5 MB each. Images and document
+  numbers are encrypted at rest; clients see only the last four characters of a number.
+- A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
+  cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
+  the daily task `kyc.prune_documents`, at most 500 per run.
+- Staff review: Admin → Clients → Identity verification shows summary cards (pending review, declined, verified, not
+  started), a status filter and search, so staff can find any client's verification state; the client profile links
+  to it. Numbers and images stay hidden until the staff member confirms their password for that client; they then
+  show for up to 15 minutes (never longer than the password confirmation), through signed links bound to that staff
+  member. Approve and Decline stay disabled until the documents were shown. A decline needs a reason. Every decision
+  emails the client (new editable template "Identity document decision"), with the reason for a decline and one
+  button to the verification page. Each opening, image view, approval and decline is in the activity log, without
+  the number or the image.
+- Staff review: when the 15-minute window ends, the page hides the numbers and images at once and reloads, and the
+  browser history of the review page is cleared on the first page after the window ends, so Back or a restored tab no
+  longer brings the numbers back (#240). Logging out while documents are shown clears it too, and so does every visit
+  to the login or two-factor challenge page, where a session that ended on the server (idle expiry, deactivated
+  account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
+  recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
+  admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
+
+### Client import
+
+- **Admin → Clients → Import clients**: upload a CSV file of clients (up to 20 MB, 100,000 rows and 200 columns; each
+  a setting) into a named source. Files must be UTF-8 (other encodings are refused with the fix); the separator
+  (comma, semicolon or tab) is detected or chosen. The file is encrypted before it is stored, read on the `imports`
+  queue into encrypted rows 500 at a time, and then deleted. Columns named like passwords, card numbers or security
+  answers are never stored. The page shows the progress, a "did not finish" alert after 10 minutes without a worker
+  with a button to continue, every earlier upload, and a notice when the same file was uploaded to the source before.
+- **Map columns**: each column of the file becomes a client field, the External ID, an imported field (kept as is with
+  its header as label) or nothing. Suggestions come from the header names, with a preset for the WHMCS clients export;
+  password and card columns stay ignored. First name, last name and email are required. Dates are read in the chosen
+  order (year-first is picked automatically). Options: what to do when an email matches a client (skip or update),
+  blank cells on update, closed clients, company-name and tax-ID duplicate flags, logins, and trusting the file's
+  verified column.
+- **Check**: every row is checked on the `imports` queue, 1,000 rows per job, with the admin client form's own rules
+  (shared in Core, so the two cannot disagree), ISO country codes, enabled currencies (blank means the default) and
+  client groups by name. Client groups not found stop the check until each is mapped, created or dropped; currencies
+  not enabled can be mapped; unrecognised countries are listed. Spreadsheet damage (numbers in scientific notation,
+  Indian postcodes missing a leading zero) is a warning.
+- **Duplicates** (client-import spec §7): the same email or External ID twice in the file makes the later row an error
+  naming the first; a row imported from the source before comes out unchanged or as an update; an email that matches
+  one client is skipped or updated by the option, with the fields an update changes; several matches, a closed match,
+  a match whose email changed in the last 30 days, and (when flagged) the same company name or tax ID need a decision;
+  a merged match resolves to the client it was merged into; an email that belongs to a contact is a warning.
+- **Check results**: summary cards (new clients, updates, unchanged, skipped, needs a decision, errors, tax-exempt),
+  tabs with counts, and every row with its file row number, the matching client and its notes; search by row number
+  or exact email. Nothing is imported yet: reviewing and applying is the next step.
+- **Import** (client-import spec §5.6): confirming needs a recent password, the digest of the rows reviewed (a new
+  check or a changed decision needs a new review), no row left needing a decision, and an acknowledgement when
+  tax-exempt clients are included. One import runs per install at a time. Rows are applied on the `imports` queue,
+  200 per job, each in its own transaction: a stopped import continues where it stopped without creating anything
+  twice, and a new client whose email someone added after the review is not created. Clients are created through
+  Core's importer with origin `import`, the email source `import`, `imported_at`, the sign-up date as their creation
+  date, imported fields, and a marketing consent row with its evidence (never turning a withdrawal into a grant);
+  closed rows are created closed without a login. An update changes only the fields the file maps (defaults such as
+  currency, status and tax exemption apply to new clients only). **An import never changes the email of an existing
+  client or of any login**: the review and the report say "Email in the file differs: kept the current one". A
+  currency change on a client that already has invoices, quotes, payments, credit, services, orders or domains is a
+  row error. Each new open
+  client gets an owner login whose password hash is of a random secret nobody keeps, so it cannot sign in until an
+  invitation sets a password. **An import never links an existing login on its own**: a row whose email belongs to a
+  client login needs a decision (link it, only when its email was verified at least 30 days ago, or create the client
+  without a login); a staff login's email gets no login. The id map records every row, so the same file again comes
+  out unchanged. No email is sent, and no `ClientRegistered` or other client event fires; `MigrationRunCompleted` fires
+  once, after commit, and `MigrationRunPaused` when an import stops. Continue goes through the same one-at-a-time
+  check as confirm, and each row is claimed under a lock, so no row is applied twice. The page shows the progress and
+  the counts by outcome.
+- **Review and report**: each checked row can be switched to the choices it allows (create, update the matched client,
+  or skip; for an email that belongs to a client login, "create and link the existing login" when that login's email
+  was verified 30 days ago or more, or "create without a login"), and the counts and review digest follow without
+  reading any row payload. A refused decision shows its reason on the page. "Accept all proposed" creates the rows whose
+  company name or tax ID matched a client and leaves rows matched to a closed client, several clients or a recently
+  changed email, and rows whose email belongs to a login, for staff, saying how many. After the import the rows are
+  listed by outcome (created, updated, unchanged, skipped, not imported) with a link to each client. The rows with
+  errors download as CSV (row, column, reason and the original cells; formula-like cells prefixed with an apostrophe),
+  generated on request and never stored; staff need `migration.runs.execute` and a recent password.
+- **Opening credit balances** (client-import spec §6.12): a column mapped to **Opening credit balance** (suggested for
+  headers such as Credit or Opening balance) is read as an amount in the client's currency, never as a float: plain
+  digits, western grouping (1,234,567) or lakh grouping (1,25,000), with at most two decimals after a point. A decimal
+  comma ("250,50"), loose grouping ("1,2,3"), a negative amount or a credit in another currency than the client's is a
+  row error. Billing posts the balance automatically only for a client the import creates ("Opening balance from
+  <source>", reason `import`, in the client's currency, under the client's row lock), and on a later run of the same
+  client only the difference, while its credit has not moved since the last import. Otherwise (an existing client
+  matched for the first time, or credit that moved) nothing is posted and the row says "Existing credit kept; post the
+  opening balance manually if it is still owed." The review asks Billing what apply would do, so a balance shows as a
+  change only when it would be posted, and the same file again comes out unchanged. Each run posts at most one entry
+  per client. Undo, when it is built (spec PR 5), takes back exactly what a run posted while the balance still covers
+  it. Without the Billing module the review warns that balances will not be imported.
+- **Tax-number notes** (client-import spec §6.6): Nepal PAN/VAT numbers that are not 9 digits, Indian GSTINs that are not
+  valid, and GSTINs registered in another state than the address (place of supply follows the GSTIN) are warnings
+  in the review; a Nepal business without a PAN gets a note, and an EU VAT ID that makes invoices reverse charge gets a
+  note. None of them blocks a row. Numbers are stored as invoices use them (spaces removed, uppercase, for Nepal, India
+  and the EU).
+- The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
+- Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
+  expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an
+  import stopped partway and never continued loses them 30 days after its last activity and can no longer be continued.
+
+### Storefront
+
+- New home page (direction A): the host's own headline and text from the published website content, domain search with featured extensions and their
+  first-year and renewal prices, the most popular plan (the catalog's Featured flag), and sections the host turns on
+  and orders: why choose us, featured plans with a billing-cycle switch, more products, how can we help, news and
+  network status, ways to pay. The product's own name and tagline never appear.
+- One public layout for home, store, cart, checkout, domains, knowledge base, announcements, network status and the
+  404 page. The header lists the catalog's visible product groups live (a link each up to three groups on wide screens,
+  otherwise one menu with taglines and "from" prices in the visitor's currency), Domains (register, transfer, prices), Support
+  (with an open-incident count where network status is public), a currency switcher, the cart and Log in or Client
+  area; on phones it becomes a menu sheet. The footer shows the company details, payment methods enabled for the
+  visitor's currency (official eSewa and Khalti logos, names for the rest), the tax statement and legal links.
+- Price cards show the cycle price, "Renews at" and any setup fee; with `catalog.show_monthly_breakdown` on they lead
+  with the per-month price and "Billed …". Each currency states tax for its own market from Billing's tax rules
+  (`storefront.tax_markets`: "+13% VAT at checkout" for NPR, "+18% GST at checkout" for INR whatever the rules are
+  named, by `storefront.tax_families`; "Tax added at checkout where applicable" for USD and other currencies). Showing prices with tax included is a per-currency choice, off by
+  default, and adds tax only to taxed products (and to domains while domains are taxed).
+- Home sections also include trust facts ("Hosting since 2014") under the headline and a "Ready to get online?" band
+  with the lowest plan price; both can be switched off and reordered. The footer shows support hours, WhatsApp,
+  registration and tax numbers (one "PAN/VAT no." row when the VAT number is the PAN), social links and "Pay an
+  invoice"; the Support menu lists network status and Contact us, and the phone menu lists the cart. The 404 page
+  links to Hosting plans, Knowledge base, Contact us and Home. Log-in and sign-up pages link back to the website.
+- Customer surfaces (public site, login, sign-up, invitation) show the host's uploaded logo or mark, else the name;
+  never the product's own logo or mark.
+- Admin → Website: headline, text, sections on/off and order, trust facts, why-us points, the call-to-action band,
+  featured groups and first billing cycle, news counts, header product menu, legal links, page title and description, and price display per currency
+  (tax included or not, and the tax note's wording). Changes are saved as a draft, previewed at a signed staff-only
+  link under `/admin/website/preview` (60 minutes, not indexed, no Referer, admin sign-in checks) and published after a
+  dialog that lists the changes. Publishing refuses a draft that was saved again after the dialog opened, is
+  audit-logged with the change list and fires `StorefrontPublished`; draft saves are audit-logged with the changed
+  sections, and at most one draft can exist. A fresh install is marked "Needs your text" until the host publishes a headline.
+- `/domains/pricing` lists register, renew and transfer prices for every extension sold in the visitor's currency.
+  "Transfer a domain" opens the domain search with transfer preselected.
+- Search: the home page and the 404 page send their title, description, canonical URL, robots and Open Graph tags
+  in the first HTML response, plus `Organization` and `WebSite` JSON-LD on the home page. `/sitemap.xml` lists the
+  home page, store, domain prices, public knowledge-base articles and live announcements.
+
+### Performance
+
+Measured on the load-test data at 20,000 clients (143,247 invoices), PostgreSQL 18 capped at 2 CPUs, one request at
+a time: medians of three runs before and three after, on the same database, on a shared host (load 4 to 7).
+
+- **Admin dashboard:** first paint with an empty cache 5.7 s → 0.75 s, the deferred widgets 6.0 s → 0.42 s, with the
+  60-second cache warm 400 ms → 283 ms; peak memory 125 MB → 39 MB (the deferred request failed at PHP's 128 MB
+  default). Receivables, monthly recurring revenue, tax collected and weekly sign-ups are summed in SQL, one row per
+  currency, instead of reading every open or recently paid invoice and every service into PHP. The figures are
+  unchanged: the full dashboard payload is identical byte for byte in UTC and in Asia/Kathmandu. MRR is cached for
+  60 seconds, as the Billing figures already were.
+- **Search on PostgreSQL:** admin global search 226 ms → 47 ms, invoice list search 220 ms → 113 ms, the client
+  picker 70 ms → 28 ms; the services and clients list searches spend less time in the database (70 → 50 ms and
+  42 → 27 ms). Contains searches use trigram indexes instead of reading the whole table (#48).
+- Tests now fail if a dashboard query reads unbounded rows of invoices, services, clients, tickets or transactions,
+  if the admin invoice, client, service and ticket lists or the client invoice and service lists query per row, or
+  if a searched column has no usable index on PostgreSQL.
+
 ### Platform foundation
 
 - `INTEGRATION_ENDPOINTS` and `INTEGRATION_CA_BUNDLE` point fixed-host integrations at local simulators (ADR 0016).
@@ -163,7 +597,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   CA, with a token-gated control plane for faults (latency, 5xx, rate limits, slow or truncated bodies, a hang after
   commit, a reset before commit, certificate rotation) and signed callbacks. The first provider simulator is `whm`;
   `stripe` follows. The commands exist only when `APP_ENV` is `local` or `testing`, and a `composer install
---no-dev` build contains neither the commands nor the package (checked in CI).
+  --no-dev` build contains neither the commands nor the package (checked in CI).
 - Developers get a `whm` simulator (`php artisan simulate:start whm`), a stateful cPanel & WHM server. Point a cPanel
   server at it (host 127.0.0.1, the printed port and token), run Test connection and trust its certificate, and the
   real driver provisions, suspends, changes packages and passwords, terminates and opens login links against it,
@@ -178,6 +612,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
   provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
   and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- `simulate:e2e` runs in NPR, the install default: the product, invoices and Stripe payments are in NPR instead of
+  forcing USD at install.
 - A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
   409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
@@ -217,6 +653,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Services
 
+- Import accounts: a currency change on a client at the same moment as a confirmed import can no longer leave the
+  client with an imported service in its old currency (#239). Each account reads the client again under a share lock
+  before its service is created. If the currency changed since the review, the account is not imported and the
+  report says why, for example "The client's currency changed from NPR to USD since the review, so it was not
+  imported in USD. Review the account again."; review it again to import it in the new currency. A currency change
+  that reaches the client while its service is being created waits for it and is then refused as usual. No
+  migration and no permission change.
 - Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
   on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
   finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
@@ -357,6 +800,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Platform admin
 
+- Currencies: the ISO code is fixed once a currency exists. The edit form shows it read-only with the reason, the
+  update request refuses a different code, saving display settings never writes the code, and the `Currency` model
+  refuses any other attempt to rename it (#238).
 - Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
   page says "An automation run is already queued or running." During the scheduled run it says "An automation run
   is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
@@ -402,6 +848,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Domains
 
+- `.np` self-registration flow (registrars.md §9). TLDs can be marked "registered by the client at the registry" (on
+  by default for `.np` and its second levels). Domain search explains that the client registers these names at the
+  registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"
+  preselected. Checkout accepts `.np` names only under the registry's second levels (`.com.np`, `.org.np`, `.edu.np`
+  and the rest) and creates no registrar order. The client's hosting service shows the nameservers to set at the
+  registry, with a Copy button: the server's, else the default nameservers an admin saved (never the shipped
+  placeholder). Until real nameservers exist, staff get the to-do "Set your nameservers so clients with their own
+  domain know where to point it." A bare `.np` name in the search explains the second levels instead of offering
+  "I already have it". The demo marks `.com.np`, `.org.np`, `.edu.np` and `.net.np`
+  this way.
 - TLD catalog with per-term register/transfer/renew prices per currency and client-group slab (no silent currency
   conversion), grace/redemption periods and fees, renew windows, EPP requirement and registrar assignment.
 - `DomainPricing` (`price`, `terms`, `split` for multi-level TLDs such as `.co.uk`, renewal terms within the
@@ -423,6 +879,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   invoices handled, renewal chunking fixed, lookups cached as arrays, strict pricing-grid input, "Renew now" for
   clients and staff, needs-attention todos, `DomainPricing` v2, domain events promoted to `app/Events/Domains`,
   USD/INR/NPR demo prices.
+- Registrar prerequisites (registrars.md §2): a submission or renewal whose outcome was lost is checked in the
+  registrar account with `findSubmission` (executed → applied; in progress → waits for sync; absent or unknown →
+  staff review, never re-sent); registrar ids such as order and transfer ids are kept in `registrar_meta.remote`;
+  the hourly sync recovers submissions a killed worker left pending (#12); a shared contract test every registrar
+  driver runs (`tests/Support/Contracts/RegistrarDriverContract.php`).
+- Log redaction masks a credential pair quoted behind a label, as in `Rejected: api-key=…` (it was kept whole).
+  The registrar gateway also masks the account's configured credentials by value in its log and in the error text
+  that reaches the domain's last error, the activity log and `RegistrarActionFailed`.
 
 ### Orders
 
@@ -445,6 +909,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Billing
 
+- **Renewals and checkouts no longer fail when the client's credit is spent at the same time** (#192). Issuing an
+  invoice that applies account credit, and placing an order, lock the client before inserting anything for it. On
+  PostgreSQL two renewals, or two checkouts, of one client applying credit no longer deadlock (one of them used to
+  fail). The credit applied is read under that lock: credit spent meanwhile lowers it, and with none left the invoice
+  is issued unpaid. Checkouts of one client now run one after the other.
+- **Fewer database queries per issued invoice** (renewal runs, and every other invoice):
+    - On 20,000 clients a billing day's 4,251 renewals took 42.7 queries each, now 34.7. On this shared host that was
+      138 → 126 ms per renewal (medians of three alternating runs).
+    - Issuing reuses the client and the new lines it has just written instead of reading them again, and reads the
+      order's payment guard only when there is account credit to apply.
+    - Invoice, proforma and quote numbers take one query fewer after a period's first number.
+    - Webhooks no longer build a payload when no endpoint subscribes to the event. As a result, an error in a payload
+      resolver for such an event is no longer reported to the error log; with a subscribed endpoint it still is.
+    - The stored result is unchanged: a full renewal run on that data leaves every invoice, line, service link, credit
+      entry, transaction, email and queued job identical.
 - Implements `Invoicer`, `TaxCalculator`, `CreditLedger`, `GatewayDirectory` and `InvoiceQueries`, and consults
   `PaymentGuard` before taking a payment.
 - Invoices are immutable once issued; changes go through an adjustments ledger. Gap-free and proforma numbering,
@@ -502,6 +981,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Form-post gateways now open a full-page checkout whose CSP allows exactly the provider origin
   (`SecurityHeaders::allowFormAction()`); before, the browser blocked the eSewa form.
 - Provider logos on the pay panel and admin gateway pages; client pay requests are rate limited per user.
+- eSewa: an attempt lasts eSewa's 50-minute booking window plus a margin (60 minutes), and a cancel on eSewa's page
+  ends the attempt at once, so the customer can pay again (see the upgrade note). The eSewa "Test connection"
+  reports `ES104` as a wrong product code or secret key, and any other refusal, such as a duplicate transaction
+  uuid, as a refused test booking.
 
 ### Support
 
@@ -720,6 +1203,29 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### DevOps
 
+- Deployment, part 4 (D4): the manual "Build image" workflow (`workflow_dispatch` only) builds the image for amd64,
+  arm64 or both as an OCI artifact with SBOM and provenance (7 days), reports each platform's compressed size against
+  a limit, packs the release tarball for hosts without Docker (new Dockerfile target `release`), and optionally pushes
+  the very same archive to GHCR (`skopeo copy --preserve-digests`, `packages: write` only in that job). cPanel shared
+  hosting is supported in cron mode (`docs/devops/cpanel.md`, `deploy/cpanel/crontab.example`), tested by
+  `deploy/cpanel/simulate-cron`. The cron worker lines are those of `Queues::workerCommands()` (a Deploy probe
+  fails on drift), so client imports are worked in cron mode. Cron mode has no catch-up for daily entries: the
+  automation time must be a multiple of the cron interval (`docs/devops/cpanel.md`). The GHCR push runs only from the
+  default branch and the build cache is scoped to the built ref.
+
+- CI security audits only on dependency changes (owner decision 2026-10-21). `composer audit` and `npm audit` now
+  block a PR or push only when it changes a Composer or npm manifest or lockfile, an `.npmrc` or a workflow file, so a
+  newly published advisory no longer turns every open PR red. A new advisory against unchanged lockfiles shows up on
+  the next dependency change or a manual `composer deps:check` (no nightly run: scheduled workflows run only from the
+  default branch, `main`, which stays a landing page). Lockfile sync and the dependency cooldown check still run on
+  every PR.
+- `vite-plus` 0.3.3 → 1.1.0 (and the `vite` alias/override `@voidzero-dev/vite-plus-core` 0.3.3 → 1.1.0). The
+  core bundled `launch-editor` 2.14.1, affected by GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw and GHSA-587h-7wmj-h5pm
+  (published 2026-10-20; `npm audit --audit-level=high` failed CI); 1.1.0 is the first fixed release and bundles
+  `launch-editor` 2.14.2. Brings Vitest 5.0.3, Oxlint 1.87.0 and Oxfmt 0.72.0; the new Oxfmt re-indents list-item
+  continuation lines in 12 Markdown files (whitespace only). Requires Node `^22.18.0 || ^24.11.0 || >=26.0.0`
+  (`.nvmrc` is 24.21.0). The `vite-plus` package no longer ships `oxlint`/`oxfmt` wrappers: editors use
+  `vp lint --lsp` and `vp fmt --lsp`.
 - Deployment, part 3 (D3): blue-green deploys on one host. `deploy/bin/deploy` checks and runs the migrations with
   the new image, starts the idle colour beside the live one, switches Caddy with a graceful reload once it is
   healthy, moves the single scheduler and drains the old workers (each finishes its current job), and keeps the old
@@ -786,6 +1292,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   npm `resolved`/`integrity` and Composer `dist`/`source` must match the registry for the checked name@version;
   offline unit tests for these rules run in `npm test`. Policy checks run before `composer install`/`npm ci`;
   push runs diff against `github.event.before`; `security-exception` waives only `Security-Exception:
-name@version` items listed in the PR body (job summary lists them). Vitest (`npm test`) in CI and `composer ci`.
+  name@version` items listed in the PR body (job summary lists them). Vitest (`npm test`) in CI and `composer ci`.
   No workflow `paths-ignore` (image/docs-only PRs take the in-job fast path). Follow-up #11: framework 13.36.x +
   Wayfinder 0.1.22 after 2026-10-22.

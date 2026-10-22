@@ -23,14 +23,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Switch } from '@/components/ui/switch';
 import { capabilityLabel } from '@/components/domains/capabilities';
-
-type SchemaField = {
-    key: string;
-    label: string;
-    type: 'string' | 'password' | 'boolean' | 'select';
-    options?: Record<string, string>;
-    help?: string;
-};
+import type { SettingFieldData } from '@/components/app/setting-field';
 
 type Registrar = {
     key: string;
@@ -39,8 +32,8 @@ type Registrar = {
     configured: boolean;
     is_active: boolean;
     test_mode: boolean;
-    schema: SchemaField[];
-    settings: Record<string, string | boolean | null>;
+    schema: SettingFieldData[];
+    settings: Record<string, string | number | boolean | null>;
     secrets_set: Record<string, boolean>;
     domains_count: number;
     tlds_count: number;
@@ -118,10 +111,10 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                 label={field.label}
                                 error={error}
                                 hint={
-                                    field.type === 'password' &&
+                                    field.secret &&
                                     registrar.secrets_set[field.key]
                                         ? 'Saved. Leave empty to keep it.'
-                                        : field.help
+                                        : (field.help ?? undefined)
                                 }
                             >
                                 {field.type === 'select' ? (
@@ -163,9 +156,11 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                                     <Input
                                         id={id}
                                         type={
-                                            field.type === 'password'
+                                            field.secret
                                                 ? 'password'
-                                                : 'text'
+                                                : field.type === 'number'
+                                                  ? 'number'
+                                                  : 'text'
                                         }
                                         autoComplete="off"
                                         value={String(value ?? '')}

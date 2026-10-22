@@ -8,11 +8,13 @@ use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Exceptions\CapabilityNotSupported;
 use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
+use Carbon\CarbonImmutable;
 
 /**
  * Registrar driver contract (spec §5). Drivers are registered in RegistrarManager under a key and are
@@ -28,7 +30,7 @@ interface Registrar
 {
     public const CAPABILITIES = [
         'availability', 'suggestions', 'register', 'transfer', 'renew', 'restore', 'info', 'nameservers', 'lock',
-        'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync',
+        'epp', 'contacts', 'id_protection', 'sync', 'transfer_sync', 'reconcile',
     ];
 
     /**
@@ -42,9 +44,10 @@ interface Registrar
     public function capabilities(): array;
 
     /**
-     * Settings the admin can configure for this driver.
+     * Settings the admin can configure for this driver, in the array form SettingField::fromArray() reads
+     * (`password` is a secret, `integer` a number).
      *
-     * @return list<array{key: string, label: string, type: 'string'|'password'|'boolean'|'select', options?: array<string, string>, help?: string}>
+     * @return list<array{key: string, label: string, type: 'string'|'password'|'boolean'|'select'|'integer', options?: array<string, string>, help?: string, required?: bool, default?: string|int|bool|null}>
      */
     public function settingsSchema(): array;
 
@@ -91,6 +94,15 @@ interface Registrar
     public function sync(Domain $domain): SyncResult;
 
     public function transferSync(Domain $domain): TransferSyncResult;
+
+    /**
+     * Capability `reconcile`: look up, in our own registrar account, whether a mutating command whose outcome was
+     * lost (timeout, killed worker) ran. A "name not available" answer is never proof either way: check ownership.
+     *
+     * @param  'register'|'transfer'|'renew'  $command
+     * @param  CarbonImmutable  $submittedAt  when the lost attempt was claimed; older orders are not evidence
+     */
+    public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup;
 
     /**
      * @return array{ok: bool, message: string}

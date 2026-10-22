@@ -18,6 +18,7 @@ app/
   Events/<Area>/           domain events (scalar payloads, ids not models)
   Enums/                   shared enums (BillingCycle, BillableType)
   Support/                 Money, Modules base provider, Navigation, Dashboard registries
+  Http/Middleware/         kernel-owned, module-agnostic middleware (password.recent), aliased in bootstrap/app.php
   Modules/<Module>/
     <Module>ServiceProvider.php   extends App\Support\Modules\ModuleServiceProvider
     Config/<module>.php           defaults, merged as config('<module>.*')
@@ -37,13 +38,19 @@ loads only Core + Billing.
 ### Dependency rules (enforced in review)
 
 1. A module may import: its own namespace, `App\Modules\Core\*`, `App\Contracts|Data|Events|Enums|Support\*`,
-   `App\Models\User`, framework/vendor code.
+   `App\Http\Middleware\*` (kernel-owned HTTP middleware), `App\Models\User`, framework/vendor code.
+   Middleware home: framework-level, module-agnostic middleware goes in `App\Http\Middleware`; middleware that
+   needs Core models or services goes in `App\Modules\Core\Http\Middleware`.
 2. A module must NOT import another module's classes (models, services, controllers). Cross-module calls go
    through a contract in `app/Contracts`; cross-module reactions go through events in `app/Events`.
 3. Exceptions: **Reports** (read model) may read other modules' tables via their models.
 4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
    kernel → module imports, non-interface contracts, non-final DTOs/events, Eloquent models in DTOs/events, debug
    calls, and `DB` facade use in controllers all fail the build. The module list is read from `app/Modules`. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+   Each rule has exactly one `expect()` target: in pest-plugin-arch 5.0, `expect([A, B])->not->toUse(X)` passes as
+   soon as one target does not use `X`, so a violation in any other target goes unreported (issue #275, upstream
+   pestphp/pest#1751). Write a `foreach` with one `arch()` per namespace instead. Each file in `tests/Arch` also
+   checks that its target namespaces match at least one class, so a typo or a moved directory cannot pass silently.
 5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
 6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
@@ -229,8 +236,8 @@ while the first still runs it; work that can run longer gets its own connection 
 
 **Database** — portable migrations (no SQLite/MySQL-only types), foreign keys with explicit on-delete,
 indexes on foreign keys and status/date columns used by automation. Migration filenames:
-`2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 0001xx, Catalog 1xxxxx, Orders 2xxxxx,
-Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, PaymentsNepal 75xxxx,
+`2026_10_17_<module-prefix-number>_...` so modules don't collide (Core 000100–099999, Catalog 1xxxxx, Orders 2xxxxx,
+Billing 3xxxxx, Services 4xxxxx, Domains 5xxxxx, Support 6xxxxx, Themes 70xxxx, Storefront 72xxxx, PaymentsNepal 75xxxx, Kyc 77xxxx,
 Notifications 80xxxx, Affiliates 85xxxx, Platform 90xxxx, AI 95xxxx, Migration 98xxxx). New modules take a free
 block and add it here in the same PR.
 Models use `#[Fillable]`, `#[UseFactory(XFactory::class)]`, `casts()` method, PHPDoc `@property` blocks.
@@ -245,8 +252,14 @@ database-free Unit and Arch suites run on SQLite only — ADR 0006, `docs/devops
 5. Strict `GROUP BY`; no SQLite-only functions (`strftime`, `ifnull`, `julianday`); no backticks.
 6. Validate string lengths against column sizes (PostgreSQL rejects overlong values).
 7. A failed statement aborts the transaction — use `upsert`/`firstOrCreate`/`lockForUpdate`, never catch `QueryException` to retry.
+   Row locks, the lock order and the two-process race test: ADR 0021.
 8. Lowercase emails (and domain names, promo codes) on write; unique indexes are case-sensitive.
 9. Booleans as `where('flag', true)`; no explicit ids in seeders.
+10. Dashboard and report figures are summed in SQL (one row per currency or group; a conditional `sum(case …)` per
+    series point); never read unbounded rows into PHP to total them. `DashboardQueryCountTest` enforces it.
+11. A contains search (`whereLike`, `Like::where`) on a table that grows with clients needs a trigram index on exactly
+    the searched expression of every OR'd column (`OnlineIndex::trigram()`), or PostgreSQL scans the table.
+    `SearchIndexesTest` checks the admin searches.
 
 ### Migrations during blue-green deploys (expand, then contract)
 

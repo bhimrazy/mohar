@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Database\Seeders;
 
+use App\Modules\Core\Support\Settings;
 use Illuminate\Database\Seeder;
 use RuntimeException;
 
@@ -40,5 +41,23 @@ abstract class DemoSeeder extends Seeder
         } finally {
             self::$running--;
         }
+    }
+
+    /**
+     * Store demo values only for settings that have no value yet, so re-running `db:seed` never overwrites what a
+     * developer changed (a stored null or empty string counts as no value).
+     *
+     * @param  array<string, mixed>  $values
+     */
+    protected function fillEmptySettings(array $values): void
+    {
+        $settings = app(Settings::class);
+        $stored = $settings->all();
+
+        $settings->setMany(array_filter(
+            $values,
+            fn (string $key): bool => ! isset($stored[$key]) || $stored[$key] === '',
+            ARRAY_FILTER_USE_KEY,
+        ));
     }
 }

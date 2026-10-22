@@ -54,6 +54,8 @@ every item.
   mail that carried one cannot be resent (the action says to send a new link). (2026-10-18)
 - Account-recovery endpoints give the same response for known and unknown accounts and are rate
   limited. (2026-10-18)
+- Approve and decline actions on uploaded documents stay disabled until staff have opened the documents, and only
+  roles with the review permission (Owner and Admin by default) see them enabled. (2026-10-21)
 
 - Compact amounts use K / L (lakh) / Cr (crore) for INR and NPR and K / M / B otherwise, never the browser's
   locale abbreviations. A currency symbol never wraps away from its number. (2026-10-18)

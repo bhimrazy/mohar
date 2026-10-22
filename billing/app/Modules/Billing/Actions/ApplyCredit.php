@@ -13,6 +13,7 @@ use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\Client;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 
@@ -29,6 +30,21 @@ class ApplyCredit
 
     public function handle(Invoice $invoice, int $amount, ?int $userId = null): Invoice
     {
+        return $this->apply($invoice, $amount, $userId);
+    }
+
+    /**
+     * Apply as much credit as the balance takes, from the credit balance read under the client lock (#192). Credit
+     * spent concurrently (another invoice, a checkout) only lowers the amount; with none left nothing is applied and
+     * the invoice stays unpaid. Locks run invoice, then client, like every credit movement.
+     */
+    public function handleAvailable(Invoice $invoice, ?int $userId = null): Invoice
+    {
+        return $this->apply($invoice, null, $userId);
+    }
+
+    private function apply(Invoice $invoice, ?int $amount, ?int $userId): Invoice
+    {
         return DB::transaction(function () use ($invoice, $amount, $userId): Invoice {
             $invoice = Invoice::query()->lockForUpdate()->findOrFail($invoice->id);
 
@@ -42,6 +58,15 @@ class ApplyCredit
 
             if (($reason = $this->guard->refusalReason($invoice->id)) !== null) {
                 throw new BillingException($reason);
+            }
+
+            if ($amount === null) {
+                Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
+                $amount = min($invoice->balance, $this->credit->balance($invoice->client_id, $invoice->currency)->amount);
+
+                if ($amount <= 0) {
+                    return $invoice;
+                }
             }
 
             if ($amount <= 0 || $amount > $invoice->balance) {

@@ -1,0 +1,7 @@
+{
+    "product_code": "EPAYTEST",
+    "transaction_uuid": "fixture-uuid-complete",
+    "total_amount": 100.0,
+    "status": "COMPLETE",
+    "ref_id": "0001FXT"
+}

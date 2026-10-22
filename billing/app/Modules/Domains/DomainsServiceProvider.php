@@ -23,6 +23,7 @@ use App\Modules\Domains\Actions\SendExpiryReminders;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
+use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Listeners\HandleInvoiceCancelled;
 use App\Modules\Domains\Listeners\HandleInvoicePaid;
 use App\Modules\Domains\Listeners\MirrorLinkedServiceState;
@@ -32,6 +33,7 @@ use App\Modules\Domains\Services\DomainPricingService;
 use App\Modules\Domains\Services\DomainRegistryService;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\PriceConverters;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -50,8 +52,9 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
 /**
- * Domains module. Registrar sync is scheduled hourly (`domains:sync`) rather than in the daily automation
- * pipeline because pending transfers and needs_review domains need sub-daily checks; it has no SYNC task.
+ * Domains module. Registrar sync is scheduled hourly (the SyncRegistrars job on the registrar queue, also runnable as
+ * `domains:sync`) rather than in the daily automation pipeline because pending transfers and needs_review domains
+ * need sub-daily checks; it has no SYNC task.
  */
 class DomainsServiceProvider extends ModuleServiceProvider
 {
@@ -76,12 +79,17 @@ class DomainsServiceProvider extends ModuleServiceProvider
 
     protected function schedule(Schedule $schedule): void
     {
-        $schedule->command('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
+        $schedule->job(new SyncRegistrars)->name('domains:sync')->hourly()->withoutOverlapping()->onOneServer();
     }
 
     protected function bootModule(): void
     {
         $this->registerListeners();
+
+        // A domain's prices are stored in its client's currency (client-import spec §6.4); a deleted one still counts.
+        $this->app->make(ClientCurrencyUsage::class)->register('domains', fn (array $clientIds): array => Domain::withTrashed()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
+
         $this->registerAutomation();
         $this->registerNavigation();
         $this->registerDashboardCards();
@@ -253,6 +261,7 @@ class DomainsServiceProvider extends ModuleServiceProvider
             new SettingDefinition('domains.suggestion_limit', 'Maximum suggestions', 'integer', rules: ['min:0', 'max:50']),
             new SettingDefinition('domains.lookup_rate_limit', 'Lookups per minute per IP', 'integer', rules: ['min:1', 'max:600']),
             new SettingDefinition('domains.premium_enabled', 'Sell premium names (at the standard price until premium pricing exists)', 'boolean'),
+            new SettingDefinition('domains.self_registration_url', '"How to register" link for domains clients register at the registry', 'string', 'Shown in domain search for extensions marked "registered by the client", such as .np.', rules: ['nullable', 'url:https', 'max:255']),
             new SettingDefinition('domains.order_route', 'Cart route used by "Add to cart" on the domain search', 'string'),
         ], 'domains.settings.manage');
 

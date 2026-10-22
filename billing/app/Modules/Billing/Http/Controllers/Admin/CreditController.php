@@ -28,7 +28,9 @@ class CreditController extends Controller
 
         $client = $request->filled('client') ? Client::query()->find($request->integer('client')) : null;
 
-        $entries = CreditLedgerEntry::query()
+        $owing = $request->boolean('owing');
+
+        $entries = ($owing ? CreditLedgerEntry::owing() : CreditLedgerEntry::query())
             ->with(['client:id,first_name,last_name,company_name', 'staff:id,name'])
             ->when($client, fn ($query) => $query->where('client_id', $client?->id))
             ->orderByDesc('id')
@@ -37,6 +39,7 @@ class CreditController extends Controller
 
         return Inertia::render('admin/billing/credit/index', [
             'can' => ['adjust' => $request->user()?->hasPermission('billing.credit.adjust') ?? false],
+            'owing' => $owing,
             'client' => $client === null ? null : [
                 'id' => $client->id,
                 'display_name' => $client->display_name,

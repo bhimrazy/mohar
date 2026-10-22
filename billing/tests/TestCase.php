@@ -2,6 +2,7 @@
 
 namespace Tests;
 
+use App\Modules\Core\Install\PhpSecurityRelease;
 use Closure;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionCommitted;
@@ -12,6 +13,7 @@ use Illuminate\Foundation\Testing\DatabaseTruncation;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -71,6 +73,28 @@ abstract class TestCase extends BaseTestCase
 
         $this->releaseCommittedSavepoints();
         $this->refuseDatabaseInDatabaseFreeSuites();
+        $this->forgetTrustedHostsAndProxies();
+        $this->assumePatchedPhp();
+    }
+
+    /**
+     * The install check and the dashboard report a vulnerable PHP build (PhpSecurityRelease); development machines and
+     * CI run older 8.4 builds, so outcomes would depend on the runner. Tests of that check bind their own version.
+     */
+    private function assumePatchedPhp(): void
+    {
+        $this->app->instance(PhpSecurityRelease::class, new PhpSecurityRelease(PhpSecurityRelease::PATCHED['8.4']));
+    }
+
+    /**
+     * Symfony keeps trusted hosts and proxies in static properties, so a test that runs TrustHosts or TrustProxies
+     * outside the testing environment leaks them to every later test in the same worker: a request for a foreign
+     * host then fails with 400 depending on test order (CI on #94). Start every test from Symfony's defaults.
+     */
+    private function forgetTrustedHostsAndProxies(): void
+    {
+        Request::setTrustedHosts([]);
+        Request::setTrustedProxies([], -1);
     }
 
     /**

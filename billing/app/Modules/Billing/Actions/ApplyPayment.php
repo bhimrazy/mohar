@@ -7,6 +7,7 @@ use App\Events\Billing\InvoicePartiallyPaid;
 use App\Events\Billing\PaymentReceived;
 use App\Modules\Billing\Data\PaymentData;
 use App\Modules\Billing\Enums\CreditReason;
+use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Exceptions\BillingException;
@@ -16,6 +17,7 @@ use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Services\InvoiceSettlement;
 use App\Modules\Billing\Support\AfterCommit;
+use App\Modules\Core\Models\Client;
 use App\Support\Money;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -71,6 +73,18 @@ class ApplyPayment
 
         if ($refusal !== null && ! $payment->fromGateway) {
             throw new BillingException($refusal);
+        }
+
+        // A payment that will post account credit (closed or refused invoice, an overpayment, a deposit paid in full)
+        // locks the client before its row is inserted (#224). The insert's foreign key takes a key-share lock on the
+        // client; two such payments of one client on different invoices would each hold it and then wait on each other
+        // for the credit post's FOR UPDATE, which PostgreSQL aborts as a deadlock (40P01). Only those lock it: a
+        // payment of several invoices locks all of them first (ADR 0021), and must not hold the client in between.
+        $credits = ! $invoice->status->isPayable() || $refusal !== null || $payment->amount > $invoice->balance
+            || ($invoice->kind === InvoiceKind::AddFunds && $payment->amount >= $invoice->balance);
+
+        if ($credits) {
+            Client::query()->whereKey($invoice->client_id)->lockForUpdate()->firstOrFail();
         }
 
         $transaction = Transaction::query()->create([

@@ -31,6 +31,9 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
 
     public const WEBHOOK_SECRET = 'whsec_SimulatorLocalScenarioSecret00';
 
+    /** The fee for receiving a dispute (Stripe US: 15.00 USD), in the charge currency's minor units. */
+    public const DISPUTE_FEE = 1_500;
+
     public function key(): string
     {
         return 'stripe';
@@ -107,12 +110,20 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
     public function actions(): array
     {
         return [
+            // The event destination. `enabled_events` (optional) limits which event types it receives, as a Stripe
+            // event destination does; left out, every event is sent.
             'webhook_url' => function (array $input, Scenario $scenario): array {
                 $scenario->state()->put('config', 'webhook_url', (string) $input['url']);
+                $events = is_array($input['enabled_events'] ?? null) ? array_values(array_map('strval', $input['enabled_events'])) : [];
+                $scenario->state()->put('config', 'enabled_events', $events);
 
-                return ['webhook_url' => $input['url']];
+                return ['webhook_url' => $input['url'], 'enabled_events' => $events];
             },
-            // The cardholder disputes a payment with their bank.
+            // The cardholder disputes a payment with their bank. A chargeback (the default) withdraws the disputed
+            // amount plus the dispute fee from the balance at once, as one balance transaction on the dispute, and
+            // Stripe sends charge.dispute.created and then charge.dispute.funds_withdrawn. An inquiry (`inquiry`:
+            // true; status warning_needs_response) withdraws nothing, carries no balance transaction, sends only
+            // charge.dispute.created, and leaves the charge refundable (docs.stripe.com/disputes/how-disputes-work).
             'dispute' => function (array $input, Scenario $scenario): array {
                 $stripe = new StripeApi($scenario);
                 $intent = $stripe->find((string) $input['payment_intent']);
@@ -122,25 +133,129 @@ final class StripeSimulator implements HasControlActions, RecordsLive, RedactsPa
                     throw new \InvalidArgumentException('No paid PaymentIntent '.$input['payment_intent'].'.');
                 }
 
+                $inquiry = (bool) ($input['inquiry'] ?? false);
+                $amount = (int) ($input['amount'] ?? $charge['amount']);
+                $withdrawal = $inquiry ? null : self::disputeBalanceTransaction($stripe, -$amount, $charge['currency'], self::DISPUTE_FEE);
                 $dispute = [
                     'id' => $stripe->newId('du_'),
                     'object' => 'dispute',
-                    'amount' => (int) ($input['amount'] ?? $charge['amount']),
+                    'amount' => $amount,
+                    'balance_transactions' => $withdrawal === null ? [] : [$withdrawal],
                     'charge' => $charge['id'],
                     'created' => time(),
                     'currency' => $charge['currency'],
+                    'is_charge_refundable' => $inquiry,
                     'livemode' => false,
                     'metadata' => [],
                     'payment_intent' => $charge['payment_intent'],
-                    'reason' => (string) ($input['reason'] ?? 'fraudulent'),
-                    'status' => 'needs_response',
+                    'reason' => (string) ($input['reason'] ?? ($inquiry ? 'general' : 'fraudulent')),
+                    'status' => $inquiry ? 'warning_needs_response' : 'needs_response',
                 ];
                 $scenario->state()->put('disputes', $dispute['id'], $dispute);
-                $scenario->state()->put('charges', $charge['id'], [...$charge, 'disputed' => true]);
+
+                if ($withdrawal !== null) {
+                    $scenario->state()->put('balance', $withdrawal['id'], $withdrawal);
+                    $scenario->state()->put('charges', $charge['id'], [...$charge, 'disputed' => true]);
+                }
+
                 $stripe->emit('charge.dispute.created', $dispute);
+
+                if ($withdrawal !== null) {
+                    $stripe->emit('charge.dispute.funds_withdrawn', $dispute);
+                }
 
                 return ['dispute' => $dispute['id']];
             },
+            // The issuer escalates an inquiry to a chargeback: the same dispute becomes `needs_response`, the disputed
+            // amount plus the dispute fee is withdrawn as a balance transaction on it, and Stripe sends
+            // charge.dispute.funds_withdrawn. The charge can no longer be refunded outside the dispute.
+            'escalate_dispute' => function (array $input, Scenario $scenario): array {
+                $stripe = new StripeApi($scenario);
+                $dispute = $stripe->find((string) $input['dispute']);
+
+                if ($dispute === null || $dispute['object'] !== 'dispute') {
+                    throw new \InvalidArgumentException('No dispute '.$input['dispute'].'.');
+                }
+
+                if (! in_array($dispute['status'], ['warning_needs_response', 'warning_under_review'], true)) {
+                    throw new \InvalidArgumentException("A {$dispute['status']} dispute can't escalate.");
+                }
+
+                // State is stored as decoded JSON; the dispute action wrote the amount as an int.
+                $amount = (int) $dispute['amount'];
+                $withdrawal = self::disputeBalanceTransaction($stripe, -$amount, $dispute['currency'], self::DISPUTE_FEE);
+                $dispute = [...$dispute, 'status' => 'needs_response', 'is_charge_refundable' => false, 'balance_transactions' => [...$dispute['balance_transactions'], $withdrawal]];
+                $scenario->state()->put('balance', $withdrawal['id'], $withdrawal);
+                $scenario->state()->put('disputes', $dispute['id'], $dispute);
+                $charge = $stripe->find((string) $dispute['charge']);
+
+                if (is_array($charge)) {
+                    $scenario->state()->put('charges', $charge['id'], [...$charge, 'disputed' => true]);
+                }
+
+                $stripe->emit('charge.dispute.funds_withdrawn', $dispute);
+
+                return ['dispute' => $dispute['id'], 'status' => $dispute['status']];
+            },
+            // The dispute's outcome: an inquiry closes as warning_closed (nothing moves); a chargeback is lost (nothing
+            // moves) or won (the amount is reinstated, charge.dispute.funds_reinstated, then charge.dispute.closed).
+            'close_dispute' => function (array $input, Scenario $scenario): array {
+                $stripe = new StripeApi($scenario);
+                $dispute = $stripe->find((string) $input['dispute']);
+                $status = (string) ($input['status'] ?? '');
+
+                if ($dispute === null || $dispute['object'] !== 'dispute') {
+                    throw new \InvalidArgumentException('No dispute '.$input['dispute'].'.');
+                }
+
+                $inquiry = str_starts_with((string) $dispute['status'], 'warning_');
+
+                if ($inquiry ? $status !== 'warning_closed' : ! in_array($status, ['won', 'lost'], true)) {
+                    throw new \InvalidArgumentException("A {$dispute['status']} dispute can't close as {$status}.");
+                }
+
+                $dispute = [...$dispute, 'status' => $status, 'is_charge_refundable' => false];
+
+                if ($status === 'won') {
+                    $reinstated = self::disputeBalanceTransaction($stripe, $dispute['amount'], $dispute['currency'], 0);
+                    $scenario->state()->put('balance', $reinstated['id'], $reinstated);
+                    $dispute['balance_transactions'][] = $reinstated;
+                }
+
+                $scenario->state()->put('disputes', $dispute['id'], $dispute);
+
+                if ($status === 'won') {
+                    $stripe->emit('charge.dispute.funds_reinstated', $dispute);
+                }
+
+                $stripe->emit('charge.dispute.closed', $dispute);
+
+                return ['dispute' => $dispute['id'], 'status' => $status];
+            },
+        ];
+    }
+
+    /**
+     * A balance transaction that moves dispute money: negative for the withdrawal (amount plus fee), positive for a
+     * reinstatement, in Stripe's shape (reporting_category dispute, type adjustment).
+     *
+     * @return array<string, mixed>
+     */
+    private static function disputeBalanceTransaction(StripeApi $stripe, int $amount, string $currency, int $fee): array
+    {
+        return [
+            'id' => $stripe->newId('txn_'),
+            'object' => 'balance_transaction',
+            'amount' => $amount,
+            'available_on' => time(),
+            'created' => time(),
+            'currency' => $currency,
+            'description' => $amount < 0 ? 'Chargeback withdrawal' : 'Chargeback reversal',
+            'fee' => $fee,
+            'net' => $amount - $fee,
+            'reporting_category' => 'dispute',
+            'status' => 'available',
+            'type' => 'adjustment',
         ];
     }
 }

@@ -7,14 +7,14 @@ reach us. Decision record: [ADR 0007](../adr/0007-dependency-pinning-and-cooldow
 
 ## Rules
 
-| What                    | Pinning rule                                                                                                 | Cooldown enforced by                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.34.0"`), `composer.lock` is the source of truth | `scripts/check-dependency-age.mjs` (packagist `time`)                |
-| npm packages            | exact versions in `package.json`, `save-exact=true`, `package-lock.json` is the source of truth              | `.npmrc` `min-release-age=7` (native) + the script (registry `time`) |
-| GitHub Actions          | full commit SHA + `# <tag>` comment on the same line; SHA must equal the tag                                 | the script (release date, tag → SHA)                                 |
-| Docker images           | `<name>:<tag>@sha256:<digest>` (compose and workflow `services:`)                                            | the script (Docker Hub push date)                                    |
-| Tools                   | `billing/.nvmrc` (Node), `tools: composer:<x.y.z>` in the setup action                                       | the script (nodejs.org / GitHub release)                             |
-| Transitive dependencies | locked (ranges are allowed only below the direct level)                                                      | the script (every locked package, not just direct ones)              |
+| What                    | Pinning rule                                                                                                                                            | Cooldown enforced by                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Composer packages       | exact versions in `composer.json` (`"laravel/framework": "13.34.0"`), `composer.lock` is the source of truth                                            | `scripts/check-dependency-age.mjs` (packagist `time`)                                    |
+| npm packages            | exact versions in `package.json` (checked by the script for `billing/` and `docs-site/`), `save-exact=true`, `package-lock.json` is the source of truth | `.npmrc` `min-release-age=7` (native) + the script (registry `time`), for both lockfiles |
+| GitHub Actions          | full commit SHA + `# <tag>` comment on the same line; SHA must equal the tag                                                                            | the script (release date, tag → SHA)                                                     |
+| Docker images           | `<name>:<tag>@sha256:<digest>` (compose and workflow `services:`)                                                                                       | the script (Docker Hub push date)                                                        |
+| Tools                   | `billing/.nvmrc` (Node), `tools: composer:<x.y.z>` in the setup action                                                                                  | the script (nodejs.org / GitHub release)                                                 |
+| Transitive dependencies | locked (ranges are allowed only below the direct level)                                                                                                 | the script (every locked package, not just direct ones)                                  |
 
 CI installs only from lockfiles (`composer install`, `npm ci`); both fail or are rejected when the lockfile is
 out of sync with the manifest (`composer validate`, `npm ci`). Exceptions to exact pinning: the PHP runtime
@@ -56,8 +56,14 @@ composer deps:check                                # composer validate + compose
   image's digest under a tag, a tarball of another package, a swapped integrity or Composer archive).
 - Exit codes: `0` ok · `1` policy violation · `2` a date could not be verified (network/registry failure —
   never treated as a pass). Set `GITHUB_TOKEN` locally if you hit GitHub API rate limits.
-- CI ([ci.md](ci.md)) runs it on every PR and push, together with `composer validate`, `composer audit --locked`
-  and `npm audit --audit-level=high --package-lock-only` — all **before** `composer install` / `npm ci`, so no
+- CI ([ci.md](ci.md)) runs it on every PR and push, together with `composer validate`, and — only when the change
+  touches `billing/composer.json|lock`, `billing/package.json|package-lock.json`, `docs-site/package.json|package-lock.json`,
+  any `.npmrc` or a workflow file — `composer audit --locked` and `npm audit --audit-level=high --package-lock-only`
+  (for `billing/` and `docs-site/`). Why: on 2026-10-21 a newly published advisory turned every PR red at once
+  (fixed by #206), so the owner decided (2026-10-21) that the audits block only changes to dependency files. A new
+  advisory against unchanged lockfiles surfaces on the next dependency change or a manual `composer deps:check`;
+  there is no nightly run while `main`, the default branch, stays a landing page (owner, 2026-10-21). All **before**
+  `composer install` / `npm ci`, so no
   package code runs before the lockfiles pass. PR runs diff against the PR base, pushes against
   `github.event.before` (a new branch or an unreachable base checks `--all`). `composer ci` runs the same via
   `composer deps:check`.
@@ -93,7 +99,7 @@ A fix for a critical/high vulnerability may be adopted before it is 7 days old:
     Only those exact `name@version` items skip the cooldown; anything else that is too new still fails, so
     fresh packages cannot ride along with a security bump. The job summary lists the waived items. Re-run the
     job after editing the label or body (both are read at run time). Pinning/binding checks, lockfile sync and
-    the audits are **always enforced**.
+    the audits are **always enforced** whenever they run.
 
 3. The CTO approves the PR explicitly (review comment naming the advisory). Without that approval it is not merged.
 4. Locally: `DEPENDENCY_AGE_EXCEPTIONS='laravel/framework@13.36.1' composer deps:check`; npm needs

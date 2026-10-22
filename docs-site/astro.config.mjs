@@ -33,6 +33,7 @@ export default defineConfig({
                         'get-started/requirements',
                         'get-started/install-docker',
                         'get-started/install-server',
+                        'get-started/run-locally',
                         'get-started/first-sign-in',
                     ],
                 },

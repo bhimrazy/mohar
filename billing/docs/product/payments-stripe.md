@@ -18,7 +18,7 @@ are made up.
   against the stored attempt: amount, currency, our reference and an unused provider transaction id. Signed
   webhooks speed this up; every webhook triggers a retrieve and never trusts the posted body.
 - Refunds, full and partial, through the Refunds API. Refunds made in the Stripe Dashboard are recorded from
-  webhooks. Disputes are recorded as chargebacks and flagged for staff.
+  webhooks. Disputes with funds withdrawn are recorded as chargebacks and flagged for staff; inquiries are a to-do only.
 - Multi-currency: every card presentment currency Stripe lists (§5), including USD and INR, with zero-decimal
   currencies handled exactly.
 - Admin configuration with write-only secrets, test mode, a connection test, the official Stripe wordmark.
@@ -91,6 +91,13 @@ the same metadata on the session and on `payment_intent_data`: `mohar_reference`
   (`POST /v1/checkout/sessions/<id>/expire`; only an `open` session can be expired, so this can't touch a paid
   one) and the lookup closes the attempt at once, so the customer can pay another way without waiting 35 minutes.
   The session id comes from a server-side cache keyed by our reference, never from the browser.
+- **Declined card (#123):** Checkout keeps the session open after a decline, so the invoice offers "Continue
+  payment" and "Use another method" to the invoice owner. Continue retrieves the stored session and redirects to its
+  `url` only while it is `open` and on the checkout host. Use another method expires the stored session
+  (`ResumesHostedPayment` and `CancelsHostedPayment`), then the lookup settles the attempt: `expired` frees the
+  invoice, and a paid session is booked. Each close sends its own Idempotency-Key (Stripe replays a key's first
+  answer, a 500 included, for 24 hours). Only drivers that implement `CancelsHostedPayment` offer or accept it; eSewa
+  and Khalti keep their cancel-return "Pay a different way".
 - The poller (`billing.payments.reconcile`) settles attempts whose customer never came back.
 
 ### 3.2 Lookup status mapping
@@ -128,14 +135,15 @@ stored:
 4. The object is **retrieved from Stripe** with our pinned API version. Only ids and the type come from the body,
    so the event's own API version doesn't matter.
 
-| Event                                                                                                                                         | Retrieve      | Result for Billing                                                                                                            |
-| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired` | session       | settle the attempt named by our reference (Billing looks it up and applies its guards); sessions not created here are ignored |
-| `payment_intent.succeeded`                                                                                                                    | PaymentIntent | the same, for PaymentIntents our Checkout created (`mohar_flow=checkout`)                                                     |
-| `payment_intent.payment_failed`                                                                                                               | —             | acknowledged and logged; Checkout shows the failure and the customer can retry there                                          |
-| `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded`, unless our own refund row already recorded it (below); else ignored                         |
-| `charge.dispute.created`                                                                                                                      | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice)                        |
-| anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                        |
+| Event                                                                                                                                         | Retrieve      | Result for Billing                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired` | session       | settle the attempt named by our reference (Billing looks it up and applies its guards); sessions not created here are ignored                                                                                                                                                                                                                                                                                                                                                          |
+| `payment_intent.succeeded`                                                                                                                    | PaymentIntent | the same, for PaymentIntents our Checkout created (`mohar_flow=checkout`)                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `payment_intent.payment_failed`                                                                                                               | —             | acknowledged and logged; Checkout shows the failure and the customer can retry there                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `refund.created`, `refund.updated`                                                                                                            | refund        | refund recorded when `succeeded`, unless our own refund row already recorded it (below); else ignored                                                                                                                                                                                                                                                                                                                                                                                  |
+| `charge.dispute.created`, `charge.dispute.funds_withdrawn`                                                                                    | dispute       | chargeback (invoice → collections, `PaymentReversed`, staff see it in the gateway log and the invoice) only when one of the dispute's `balance_transactions` withdrew funds; otherwise (an inquiry, status `warning_*`) a `dispute_inquiry` to-do with no money movement (#212)                                                                                                                                                                                                        |
+| `charge.dispute.closed`                                                                                                                       | dispute       | with funds withdrawn: `won` reverses the chargeback (billing.md §4.8), or, when no chargeback was booked and the dispute shows the withdrawal and the reinstatement, is acknowledged with no money moved and a zero-amount won marker (#232; a later chargeback for the won dispute books nothing, and a later `created` or `funds_withdrawn` is ignored by the driver); `lost` books the chargeback if `funds_withdrawn` never did (once per dispute id); `warning_closed` is ignored |
+| anything else (also `charge.refunded`)                                                                                                        | —             | 200, logged as ignored                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 - **Closed attempts:** an event for an attempt we already closed (expired, failed or cancelled) is verified and
   looked up the same way; a session or PaymentIntent Stripe reports as paid is booked as a late payment
@@ -290,7 +298,7 @@ DTOs in `app/Data/Billing` (final, readonly):
 6. MUST: Given a paid Stripe payment, staff can refund part of it and then the rest through Stripe; the refund
    webhooks for those refunds don't book them again.
 7. MUST: Given a refund made in the Stripe Dashboard, `refund.created` records it once.
-8. MUST: Given `charge.dispute.created`, a chargeback is recorded, the invoice goes to collections and
+8. MUST: Given `charge.dispute.created` (or `charge.dispute.funds_withdrawn`) for a dispute with funds withdrawn, a chargeback is recorded, the invoice goes to collections and
    `PaymentReversed` fires.
 9. MUST: Given production, test mode can't be activated or used, and the driver refuses test-mode calls.
 10. MUST: Given a JPY invoice of ¥5,000 (0 decimals), Stripe receives `unit_amount=5000`; given an amount that can't
@@ -321,6 +329,7 @@ API version `2026-09-30.endive` is the current version stated on the versioning 
   https://docs.stripe.com/api/payment_intents/create
 - Refunds object and create: https://docs.stripe.com/api/refunds/object , https://docs.stripe.com/api/refunds/create
 - Disputes object: https://docs.stripe.com/api/disputes/object
+- How disputes work (inquiries, `warning_*` statuses): https://docs.stripe.com/disputes/how-disputes-work
 - Balance transactions: https://docs.stripe.com/api/balance_transactions/object
 - Event types: https://docs.stripe.com/api/events/types
 - Webhooks, manual signature verification, retries: https://docs.stripe.com/webhooks (section "Verify webhook

@@ -1,0 +1,7 @@
+{
+    "product_code": "EPAYTEST",
+    "transaction_uuid": "fixture-uuid-cancelled",
+    "total_amount": 100.0,
+    "status": "NOT_FOUND",
+    "ref_id": null
+}

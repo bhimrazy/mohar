@@ -2,17 +2,20 @@
 
 namespace Tests\Fakes\Domains;
 
+use App\Enums\ReconcileStatus;
 use App\Modules\Domains\Drivers\Registrars\Data\AvailabilityResult;
 use App\Modules\Domains\Drivers\Registrars\Data\ContactSet;
 use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
 use App\Modules\Domains\Drivers\Registrars\Data\EppCodeResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
 use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
+use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
 use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
 use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
 use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\Domain;
+use Carbon\CarbonImmutable;
 use Closure;
 use Throwable;
 
@@ -21,14 +24,19 @@ use Throwable;
  */
 class FakeRegistrar implements Registrar
 {
-    /** @var list<string> */
-    public array $capabilities = Registrar::CAPABILITIES;
+    /** @var list<string> every capability except `reconcile`, which tests opt into (it replaces the info check) */
+    public array $capabilities = [];
 
     /** @var list<array{command: string, domain: string|null}> */
     public array $calls = [];
 
     /** @var array<string, mixed> command => result object, Throwable, or Closure returning either (runs during the call) */
     public array $results = [];
+
+    public function __construct()
+    {
+        $this->capabilities = array_values(array_diff(Registrar::CAPABILITIES, ['reconcile']));
+    }
 
     public static function install(string $key = 'fake'): self
     {
@@ -142,6 +150,11 @@ class FakeRegistrar implements Registrar
     public function transferSync(Domain $domain): TransferSyncResult
     {
         return $this->record('transfer_sync', $domain, new TransferSyncResult(false));
+    }
+
+    public function findSubmission(Domain $domain, string $command, CarbonImmutable $submittedAt): SubmissionLookup
+    {
+        return $this->record('reconcile', $domain, new SubmissionLookup(ReconcileStatus::Unknown));
     }
 
     public function testConnection(): array

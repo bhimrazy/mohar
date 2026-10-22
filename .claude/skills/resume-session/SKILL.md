@@ -40,7 +40,9 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
 
    Merge green PRs whose merge watchers died with the session (watchers are shell jobs and stop too), but only
    those with a CTO sign-off comment at their current head; never on CI alone. Retarget
-   PRs stacked on a branch that merged (`gh pr list --json number,baseRefName`).
+   PRs stacked on a branch that merged (`gh pr list --json number,baseRefName`). Check the repository's current
+   visibility (`gh repo view --json visibility`): the CI rules differ (`operating-model.md`, "Repository
+   visibility and CI").
 
 4. **New device only.** Install prerequisites from `billing/docs/devops/local-setup.md` (PHP 8.4 with
    pdo_pgsql, Composer, Node with npm, Docker, `gh auth login`). Then in `billing/`:
@@ -60,25 +62,30 @@ description: Resume the Mohar build after a Claude Code restart, a context reset
        echo "$a $(tail -1 $f | jq -r '.timestamp[:16]') $(jq -r .description agent-$a.meta.json)"; done
      ```
 
-     Resume within the agent budget (`operating-model.md`, "Waves": four running, two code and two review, load
-     under 6), in order: re-checks of PRs awaiting sign-off, then fix rounds, then builds. The rest wait in the
-     queue in `state.md`. Resume each with SendMessage to its agent id. Tell it the exact state found in step 3 (head commit, dirty
-     files, snapshot branch, PR) and that processes it had running were stopped.
+     Resume within the agent budget (`operating-model.md`, "Agent budget": load below 8, 2 GB free, disk below
+     85%), in order: re-checks of PRs awaiting sign-off, then fix rounds, then builds. The rest wait in the queue in
+     `state.md`. A resumed agent keeps the model it started with; when the owner's model preference has changed,
+     launch a fresh agent of the same type with a full brief instead (state found in step 3, head commit, dirty
+     files, snapshot branch, PR, review links). Otherwise resume with SendMessage to its agent id and tell it the
+     exact state found in step 3 and that processes it had running were stopped.
    - Restart the session's background shell jobs: the resource monitor (step 2), the storage cleanup loop
      (`scripts/storage-cleanup.sh --apply` every 30 minutes) and, if the owner was using it, the preview server
-     on port 8000:
+     on port 8000, detached so it survives a Claude Code restart (not a codespace reboot):
 
      ```bash
      cd billing && XDEBUG_MODE=off DB_DATABASE=$PWD/database/preview.sqlite \
-       APP_URL=https://$CODESPACE_NAME-8000.app.github.dev php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+       APP_URL=https://$CODESPACE_NAME-8000.app.github.dev setsid nohup php artisan serve --host=0.0.0.0 \
+       --port=8000 --no-reload > /workspaces/whmcs/.worktrees/_review/preview-8000.log 2>&1 < /dev/null &
      ```
+
+     Long-running watchers (such as `.worktrees/_review/merge-when-green.sh`) live in `.worktrees/_review/`, not
+     `/tmp`, which a reboot clears.
    - New device, or the id is unknown: launch a fresh agent of the right type from `.claude/agents/`
      with the brief template in the `run-workstream` skill, pointing at the existing branch, PR and
      review comments. Tell it to read the branch's commits before writing anything.
-   - Keep to the concurrency limits in `operating-model.md`: at most two engineers building at once.
 
-6. **Periodic reviews.** Recreate the 12-hour review schedule (`operating-model.md`, "Periodic reviews")
-   with CronCreate, and run a round now if the newest file in `docs/reviews/` is older than 12 hours.
+6. **Periodic reviews.** Run the `review-round` skill now if the newest file in `docs/reviews/` is older than 12
+   hours, and recreate the 12-hour schedule with CronCreate.
 
 7. **Report to the owner.** In a few lines: what was found, what was resumed, what is next. Then update
    `docs/handoff/state.md` if anything changed.

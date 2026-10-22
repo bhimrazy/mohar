@@ -36,7 +36,9 @@ return [
             'live' => 'https://esewa.com.np/api/epay/transaction/status/',
         ],
         'min_amount' => 100, // paisa (Rs 1); eSewa publishes no minimum
-        'attempt_ttl_minutes' => 15, // "payment must be made within 15 minutes of login"
+        // eSewa keeps a booking payable 50 minutes after the form post (UAT bookingExpiryTime, 2026-10-21), even
+        // though its docs say payment must follow login within 15 minutes. Values below 55 are raised to 55.
+        'attempt_ttl_minutes' => 60,
     ],
 
     'http' => [

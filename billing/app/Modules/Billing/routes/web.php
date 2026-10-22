@@ -45,6 +45,7 @@ Route::adminArea(fn () => Route::prefix('billing')->name('billing.')->group(func
     Route::get('transactions', [TransactionController::class, 'index'])->name('transactions.index');
     Route::post('transactions', [TransactionController::class, 'store'])->middleware('password.recent')->name('transactions.store');
     Route::post('transactions/{transaction}/refund', [TransactionController::class, 'refund'])->middleware('password.recent')->name('transactions.refund');
+    Route::post('transactions/{transaction}/reviewed', [TransactionController::class, 'reviewed'])->middleware('password.recent')->name('transactions.reviewed');
 
     Route::resource('quotes', AdminQuoteController::class);
     Route::post('quotes/{quote}/deliver', [AdminQuoteController::class, 'deliver'])->name('quotes.deliver');
@@ -78,6 +79,8 @@ Route::clientArea(function (): void {
         Route::get('{invoice}', 'show')->whereNumber('invoice')->name('show');
         Route::get('{invoice}/pdf', 'pdf')->whereNumber('invoice')->name('pdf');
         Route::post('{invoice}/pay', 'pay')->whereNumber('invoice')->middleware('throttle:billing-pay')->name('pay');
+        Route::get('{invoice}/payments/{reference}/continue', 'resumeAttempt')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->middleware('throttle:billing-pay')->name('attempts.resume');
+        Route::post('{invoice}/payments/{reference}/close', 'closeAttempt')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->middleware('throttle:billing-pay')->name('attempts.close');
         Route::get('{invoice}/checkout/{reference}', 'checkout')->whereNumber('invoice')->where('reference', '[a-z0-9-]{3,40}')->name('checkout');
         Route::post('{invoice}/credit', 'applyCredit')->whereNumber('invoice')->name('credit');
     });

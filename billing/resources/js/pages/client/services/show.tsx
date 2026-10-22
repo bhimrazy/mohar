@@ -4,9 +4,12 @@ import {
     AlertTriangle,
     CalendarClock,
     CalendarPlus,
+    Check,
+    Copy,
     Wallet,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useClipboard } from '@/hooks/use-clipboard';
 import { DateTime } from '@/components/app/date';
 import { DescriptionList } from '@/components/app/description-list';
 import { Field } from '@/components/app/field';
@@ -51,6 +54,8 @@ type Props = {
     cancellationTypes: SelectOption[];
     changeOptions?: ChangeOptions;
     creditOnDowngrade: boolean;
+    /** Nameservers the service's domain should use: the server's, else the default setting. */
+    nameservers: string[];
     can: { cancel: boolean; changePassword: boolean };
 };
 
@@ -62,9 +67,12 @@ export default function ClientServiceShow({
     cancellationTypes,
     changeOptions,
     creditOnDowngrade,
+    nameservers,
     can,
 }: Props) {
     const [cancelOpen, setCancelOpen] = useState(false);
+    const [copiedNameservers, copy] = useClipboard();
+    const copied = copiedNameservers === nameservers.join('\n');
     const cancelForm = useForm({ type: 'end_of_period', reason: '' });
     const passwordForm = useForm({ password: '', password_confirmation: '' });
     const name = service.domain ?? service.product_name ?? 'Service';
@@ -184,22 +192,39 @@ export default function ClientServiceShow({
                                             </span>
                                         ),
                                     },
-                                    {
-                                        label: 'Nameservers',
-                                        value: service.server?.nameservers
-                                            .length ? (
-                                            <ul className="font-mono text-xs">
-                                                {service.server.nameservers.map(
-                                                    (ns) => (
-                                                        <li key={ns}>{ns}</li>
-                                                    ),
-                                                )}
-                                            </ul>
-                                        ) : null,
-                                    },
                                 ]}
                             />
                         </SectionCard>
+
+                        {nameservers.length > 0 && (
+                            <SectionCard
+                                title="Nameservers"
+                                description={
+                                    service.domain
+                                        ? 'Set these at your registry if your domain is registered elsewhere, such as a .np domain.'
+                                        : undefined
+                                }
+                                actions={
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() =>
+                                            void copy(nameservers.join('\n'))
+                                        }
+                                    >
+                                        {copied ? <Check /> : <Copy />}
+                                        {copied ? 'Copied' : 'Copy'}
+                                    </Button>
+                                }
+                            >
+                                <ul className="grid gap-1 font-mono text-sm">
+                                    {nameservers.map((host) => (
+                                        <li key={host}>{host}</li>
+                                    ))}
+                                </ul>
+                            </SectionCard>
+                        )}
 
                         {live && (
                             <SectionCard

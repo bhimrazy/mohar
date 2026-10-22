@@ -18,6 +18,7 @@ use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\ClientCurrencyLock;
 use App\Modules\Core\Support\Settings;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\RedirectResponse;
@@ -98,6 +99,11 @@ class ClientController extends Controller
                     ],
                 ]),
             'links' => $navigation->clientLinks($client->id, $user),
+            // Columns an import kept as they were (client-import spec §6.13), with when the client was imported.
+            'imported' => $client->imported_at === null ? null : [
+                'at' => $client->imported_at->toIso8601String(),
+                'fields' => array_map(fn (array $field): array => ['label' => $field['label'], 'value' => $field['value'], 'source' => $field['source']], $client->imported_fields ?? []),
+            ],
             // Audit entries (with IPs and impersonator names) only for staff allowed to read the activity log.
             'activity' => $can('core.activity_log.view')
                 ? ActivityLog::query()->where('client_id', $client->id)->with(['user:id,name', 'impersonator:id,name'])->latest('id')->limit(15)->get()
@@ -125,13 +131,15 @@ class ClientController extends Controller
         ]);
     }
 
-    public function edit(Client $client): Response
+    public function edit(Client $client, ClientCurrencyLock $currencyLock): Response
     {
         $this->authorize('core.clients.update');
         abort_if($client->merged_into_client_id !== null, 404);
 
         return Inertia::render('admin/clients/form', [
             'client' => new ClientResource($client),
+            // Why the currency can't change, so the form disables it up front; the save checks again under the lock.
+            'currencyLock' => $currencyLock->reason($client),
             ...$this->formOptions(),
         ]);
     }

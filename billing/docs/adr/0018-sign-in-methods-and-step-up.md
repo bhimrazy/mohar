@@ -1,6 +1,6 @@
 # ADR 0018 — Sign-in methods and step-up
 
-- Status: Proposed · 2026-10-19 · Owner: Principal architect
+- Status: Accepted · 2026-10-22 (proposed 2026-10-19) · Owner: Principal architect
 - Related: ADR 0001 (modular monolith), ADR 0009 and 0012 (kernel extension contracts, registries), ADR 0011 (events
   after commit), `docs/security/standards.md` §2 (step-up), `billing/docs/product/social-sign-in.md`, PR #102
   (architect check), issue #81, PR #89 (structural tests for secrets and step-up).
@@ -137,3 +137,22 @@ A login always keeps at least one way to sign in:
   needs a registry entry and a counter decorator, not a kernel edit.
 - Risk: `CompleteSignIn` depends on Fortify's private session keys. The pinned test and the 7-day upgrade cooldown
   (ADR 0007) contain that risk.
+
+## Addendum (2026-10-21, client importer #184): email verification on an email change
+
+- **Client logins.** The `User` saving hook clears `email_verified_at` when a client login (`is_staff` false) is saved
+  with a new email, unless the same save sets it. A model hook is the one place every writer passes through, since
+  there is no single change-email action. Query-builder `update()` bypasses it, so `users.email` is never written
+  that way.
+- **Staff logins.** The hook leaves them alone, and Platform's `UpdateStaff` owns the rule for the staff page. A change
+  made by another admin clears verification and sends the verification mail. A staff member's own change keeps it.
+  Both addresses get the change notice either way. Admin routes require `verified`, so clearing a self-change with no
+  mail would send the only full admin to the verify prompt. Settings → Profile (`ProfileController`) still clears
+  verification on any self-change, staff included.
+- **What verification says.** For a client login it also bounds the last email change, because a change clears it.
+  `LoginImporter::linkable()` relies on that: it links a non-staff login whose email was verified at least 30 days
+  ago.
+- **`users.email_changed_at` is deferred.** While the hook clears verification on every client email change, "verified
+  30 days ago" already implies "unchanged for 30 days", and no consumer needs the two facts apart. The column is added,
+  set in the same hook, with the first consumer that does: linking a social identity by verified email (§1), or a
+  rule for staff. `clients.email_changed_at` stays the column for the client record.

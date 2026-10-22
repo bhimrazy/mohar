@@ -7,6 +7,7 @@ use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Contracts\Orders\PaymentGuard;
+use App\Contracts\Orders\ShopperSession;
 use App\Contracts\Services\ServiceRegistry;
 use App\Events\Billing\InvoicePaid;
 use App\Events\Domains\DomainRegistered;
@@ -26,12 +27,14 @@ use App\Modules\Orders\Listeners\MergeCartOnLogin;
 use App\Modules\Orders\Listeners\TrackItemActivation;
 use App\Modules\Orders\Models\Order;
 use App\Modules\Orders\Models\OrderItem;
+use App\Modules\Orders\Services\CartShopperSession;
 use App\Modules\Orders\Services\CompanyClock;
 use App\Modules\Orders\Services\OrderPaymentGuard;
 use App\Modules\Orders\Support\Demo\DemoBilling;
 use App\Modules\Orders\Support\Demo\DemoServices;
 use App\Modules\Orders\Support\OrdersDashboard;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Modules\ModuleServiceProvider;
@@ -40,6 +43,7 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Seo\SitemapRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -62,6 +66,7 @@ class OrdersServiceProvider extends ModuleServiceProvider
     {
         $this->app->singleton(FraudScreening::class);
         $this->app->bind(PaymentGuard::class, OrderPaymentGuard::class);
+        $this->app->scoped(ShopperSession::class, CartShopperSession::class);
     }
 
     protected function bootModule(): void
@@ -69,6 +74,10 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->bindDemoContracts();
 
         $this->app->make(HttpKernel::class)->appendMiddlewareToGroup('web', CaptureReferralAndPromo::class);
+
+        // An order's amounts are stored in its client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->register('orders', fn (array $clientIds): array => Order::query()
+            ->whereIn('client_id', $clientIds)->distinct()->pluck('client_id')->all());
 
         Event::listen(Login::class, MergeCartOnLogin::class);
         Event::listen(ServiceActivated::class, TrackItemActivation::class);
@@ -81,6 +90,11 @@ class OrdersServiceProvider extends ModuleServiceProvider
         $this->registerPermissionsAndSettings();
         $this->registerSearchAndMergeFields();
         $this->registerAutomation();
+
+        $this->app->make(SitemapRegistry::class)->register('orders', fn (): array => [
+            ['loc' => route('store.index'), 'lastmod' => null],
+            ['loc' => route('store.domains'), 'lastmod' => null],
+        ]);
     }
 
     /**

@@ -18,6 +18,7 @@ use LogicException;
  *   OnlineIndex::create('orders', ['client_id', 'id']);                                  // orders_client_id_id_index
  *   OnlineIndex::create('tld_prices', ['tld_id', 'currency', 'years'], 'tld_prices_default_price_unique', unique: true, where: 'client_group_id is null');
  *   OnlineIndex::create('clients', [], 'clients_email_lower_index', expression: 'lower(email)');
+ *   OnlineIndex::trigram('invoices', 'number', 'invoices_number_trgm_index');                // PostgreSQL only
  */
 final class OnlineIndex
 {
@@ -28,12 +29,18 @@ final class OnlineIndex
      * @param  list<literal-string>  $columns  column names written in code; ignored when $expression is given
      * @param  literal-string|null  $where  partial-index predicate written in code
      * @param  literal-string|null  $expression  expression to index, e.g. "lower(email)"
+     * @param  'gin'|null  $using  index method other than btree (PostgreSQL only)
      */
-    public static function create(string $table, array $columns, ?string $name = null, bool $unique = false, ?string $where = null, ?string $expression = null, bool $allowLocking = false): void
+    public static function create(string $table, array $columns, ?string $name = null, bool $unique = false, ?string $where = null, ?string $expression = null, bool $allowLocking = false, ?string $using = null): void
     {
         $name ??= self::defaultName($table, $columns, $unique);
         $driver = self::driver($name);
         self::assertNameLength($name);
+
+        if ($using !== null && $driver !== 'pgsql') {
+            throw new LogicException("Index {$name} uses {$using}, which only PostgreSQL supports.");
+        }
+
         $concurrently = self::concurrently($name, $allowLocking);
 
         if ($driver === 'pgsql') {
@@ -60,14 +67,33 @@ final class OnlineIndex
         $target = $expression ?? implode(', ', array_map(fn (string $column): string => $grammar->wrap($column), $columns));
 
         DB::statement(sprintf(
-            'create %sindex%s %s on %s (%s)%s',
+            'create %sindex%s %s on %s%s (%s)%s',
             $unique ? 'unique ' : '',
             $concurrently ? ' concurrently' : '',
             $grammar->wrap($name),
             $grammar->wrapTable($table),
+            $using !== null ? ' using '.$using : '',
             $target,
             $where !== null ? ' where '.$where : '',
         ));
+    }
+
+    /**
+     * A trigram index (pg_trgm, GIN) that serves contains searches on PostgreSQL: `col::text ilike '%term%'` from
+     * whereLike() and `lower(col) like '%term%'` from Like::where(), as long as $expression is what the query
+     * searches. Creates the extension when it is missing (trusted since PostgreSQL 13: the database owner may create
+     * it). A no-op on SQLite, where contains searches scan the table.
+     *
+     * @param  literal-string  $expression  the searched column or expression, e.g. "number" or "lower(email)"
+     */
+    public static function trigram(string $table, string $expression, string $name, bool $allowLocking = false): void
+    {
+        if (self::driver($name) !== 'pgsql') {
+            return;
+        }
+
+        DB::statement('create extension if not exists pg_trgm');
+        self::create($table, [], $name, expression: $expression.' gin_trgm_ops', allowLocking: $allowLocking, using: 'gin');
     }
 
     /**

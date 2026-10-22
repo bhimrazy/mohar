@@ -8,6 +8,7 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
@@ -17,7 +18,8 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
-use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
+use App\Modules\Billing\Import\OpeningBalanceImporter;
+use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
@@ -28,6 +30,7 @@ use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\PaymentReconciler;
+use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
@@ -35,8 +38,11 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\BusinessCalendar;
 use App\Support\Automation\Automation;
+use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
+use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
@@ -50,7 +56,6 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -69,6 +74,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(Invoicer::class, InvoiceService::class);
         $this->app->bind(TaxCalculator::class, TaxEngine::class);
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
+        $this->app->bind(TaxIdRules::class, BillingTaxIdRules::class);
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
 
@@ -87,19 +93,20 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
+
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Opening credit balances of imported clients (client-import spec §6.12).
+        $this->app->make(ImportRegistry::class)->register('credit_balance', OpeningBalanceImporter::class, dependsOn: ['client']);
+
+        // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
+        $this->app->make(ClientCurrencyUsage::class)->register('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
 
         // Each client pay request may open a provider session (Khalti initiate) with the merchant's key: cap it per
         // signed-in user so one account can't get the key throttled or flagged at the provider.
         RateLimiter::for('billing-pay', fn (Request $request): Limit => Limit::perMinute(self::PAY_REQUESTS_PER_MINUTE)
             ->by('billing-pay|'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
-
-        // Step-up middleware is owned by Platform; provide the same contract when Platform isn't installed.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', ConfirmPasswordForAction::class);
-        }
 
         // Card data must never be flashed into the session by a validation redirect (PCI DSS 3.3.1).
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
@@ -282,7 +289,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             new SettingDefinition('billing.tax.calculation', 'Tax calculation', 'select', options: ['per_line' => 'Per line', 'per_invoice' => 'Per invoice']),
             new SettingDefinition('billing.tax.rounding', 'Tax rounding', 'select', options: ['half_up' => 'Half up', 'half_even' => 'Half even', 'down' => 'Down', 'up' => 'Up']),
             new SettingDefinition('billing.tax.apply_to', 'Taxed item kinds', help: 'Comma-separated: service, addon, domain, setup, late_fee, manual', rules: ['max:200']),
-            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
+            new SettingDefinition('billing.tax.home_country', 'Seller tax country', help: 'ISO code of the country you charge tax from, e.g. NP. Also used for intra-/inter-state rules, e.g. IN', rules: ['size:2']),
             new SettingDefinition('billing.tax.home_state', 'Seller state', help: 'State of registration, e.g. MH. India GST: CGST+SGST in this state, IGST elsewhere.', rules: ['max:100']),
             $bool('vat.enabled', 'Enable EU VAT rules'),
             new SettingDefinition('billing.vat.home_country', 'VAT home country', help: 'ISO code, e.g. DE', rules: ['size:2']),
@@ -299,6 +306,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $list('reminders.overdue_days', 'Overdue reminder days', 'Comma-separated, e.g. 1, 4, 7'),
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
+            new SettingDefinition('billing.gateways.lookups_per_run', 'Hosted payments: status lookups per run', 'integer', 'At most this many open payments are looked up every five minutes (1 to 1,000); the least recently checked go first.', rules: ['min:1', 'max:'.PaymentReconciler::MAX_LOOKUPS_PER_RUN]),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
             new SettingDefinition('billing.gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours)', 'integer', 'Hourly, up to 168 hours after the payment started. 0 turns it off.', rules: ['min:0', 'max:'.PaymentReconciler::MAX_LATE_LOOKUP_HOURS]),
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),

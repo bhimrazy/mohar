@@ -6,6 +6,158 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Step-up in the kernel (#81, ADR 0018 §4)
+
+- `App\Http\Middleware\RequireRecentPasswordConfirmation` (moved from `App\Modules\Platform\Http\Middleware`): the
+  `password.recent` middleware, aliased in `bootstrap/app.php`. Same contract: `ERROR_KEY`, `recentlyConfirmed()`,
+  `timeout()`; 423 for JSON, a `password_confirmation` validation error for Inertia. The window is read from
+  `auth.step_up_seconds` (900), which replaces `platform.password_confirmation_seconds`. Billing's
+  `ConfirmPasswordForAction` copy and Migration's `RequirePassword` fallback are deleted; modules register no step-up
+  alias of their own. `tests/Extensions/ModuleRoutesResolveTest.php` boots each module alone and fails when a route's
+  middleware does not resolve.
+
+### Client import opening balances and tax-number notes (importer B2b)
+
+- New capability `App\Contracts\Migration\RevertsImport extends RecordImporter` with
+  `revert(ImportRecord $record, ImportOutcome $applied, ImportContext $context): ImportOutcome` (ADR 0019 addendum).
+  Billing's `credit_balance` importer implements it. `App\Enums\ImportAction::Reverted` (new case of the open enum).
+- New contract `App\Contracts\Billing\TaxIdRules`: `normalize(string $country, string $taxId): string` and
+  `notes(string $country, ?string $taxId, ?string $state, bool $business): list<TaxIdNote>`, with the new DTO
+  `App\Data\Billing\TaxIdNote` (`severity` WARNING or INFO, `code`, `message`).
+  Core binds `NullTaxIdRules`; Billing binds `BillingTaxIdRules` (Nepal PAN, Indian GSTIN, EU reverse charge).
+
+### Payment follow-ups (#232, #221)
+
+- New event `App\Events\Billing\PaymentReinstated(invoiceId, clientId, transactionId, chargebackTransactionId,
+  amount, currency, reviewAmount = 0)` (compatible addition, #221): a won dispute undid a chargeback. The counterpart
+  of `PaymentReversed`, one to one: Billing's `RecordDisputeWon` dispatches, after commit, one per chargeback row that
+  fired `PaymentReversed`, with the same invoice and amount (one per invoice of a combined charge; none for a dispute
+  that took back only credit), whether or not the invoice is settled again. `transactionId` is the win's
+  `chargeback_reversal` row, `chargebackTransactionId` the chargeback row, `reviewAmount` the part held for staff
+  review. Implements `DomainEvent` and
+  `ShouldDispatchAfterCommit`. Notifications publishes it as the `payment.reinstated` webhook, and `PaymentReversed`
+  as `payment.reversed`; with Notifications absent nothing listens.
+- `App\Data\Billing\CallbackEvent` gains a trailing `bool $fundsReinstated = false` (compatible, #232): on
+  `DISPUTE_WON`, the provider's record shows the disputed money withdrawn and reinstated, so a win with no booked
+  chargeback is acknowledged (200, a zero-amount `chargeback_reversal` row as the won marker, no money moved) instead of
+  refused with 409. Set by the Stripe driver from the
+  dispute's balance transactions; other drivers keep the 409-and-retry behaviour.
+
+### Resume or cancel a hosted payment (#123)
+
+- New opt-in capability `App\Contracts\Billing\ResumesHostedPayment::resumeUrl(GatewayConfig, PaymentAttemptRef):
+  ?string`: the provider page where the customer can finish a still-open attempt, read from the provider at request
+  time and accepted only as https on the provider's own payment host. Billing never stores it or sends it as a prop.
+- New opt-in capability `App\Contracts\Billing\CancelsHostedPayment::cancelSession(GatewayConfig, PaymentAttemptRef):
+  HostedSessionCancel`: closes the provider session before Billing frees the invoice for another way to pay. Called
+  outside any database transaction; the answer is logged only, and settlement still comes from `lookup()`.
+- New closed enum `App\Enums\HostedSessionCancel` (`closed`, `already_final`, `unreachable`).
+- Additive: `HostedPaymentDriver` is unchanged and drivers without the interfaces keep working. Implemented by
+  `StripeDriver` and the sandbox card driver.
+
+### Client currency lock (#218)
+
+- `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys
+  of every source that holds amounts for one client, in registration order. Unlike `clientsInUse()` it asks every
+  source, so Core's client edit can name what blocks a currency change. `register()` and `clientsInUse()` are unchanged.
+
+### Client identity verification (#231)
+
+- New event `App\Events\Kyc\DocumentDecided(clientId, documentId)` (compatible addition): staff approved or
+  declined an identity document. Dispatched after commit by the Kyc module; details come from the `kyc_document`
+  merge-field resolver (outcome, type, reason, link; never the number or images). Notifications maps it to the
+  editable `kyc.document_decided` client email. With Notifications absent nothing listens.
+
+### Billing go-live fixes (#229)
+
+- `App\Data\Billing\CallbackEvent::DISPUTE_INQUIRY` (new constant): a dispute the provider has not withdrawn funds
+  for (Stripe inquiry); Billing books a zero-amount `dispute_inquiry` transaction, no money moves. Additive; drivers
+  that never send it are unaffected.
+
+### ADR 0021 and the 0012/0018 addenda (#219)
+
+- `App\Support\Clients\ClientCurrencyUsage::source(string $key, Closure)` is renamed
+  `register(string $key, Closure $source, bool $replace = false)`, the aggregating-registry shape of the ADR 0012
+  addendum. Keys must match `[a-z0-9_]{1,50}`; a duplicate key throws `LogicException` unless `$replace` is set, and a
+  replacement is logged. Breaking, under the pre-1.0 window: the four in-repo callers (Billing, Services, Orders,
+  Domains) are updated in the same PR, and no external package used the method.
+
+### Client import, PR B1a (client-import spec §15, ADR 0019 accepted)
+
+- Added `App\Events\Migration\MigrationRunCompleted(int $runId, string $sourceSystem, array $counts)`, `$counts` keyed
+  by entity, each with `created`, `updated`, `unchanged`, `skipped` and `failed`; dispatched after commit, once per run,
+  on the applying → completed transition. Added `MigrationRunPaused(int $runId, ImportStopReason $reasonCode)`,
+  dispatched after commit when an import stops. Both implement `ShouldDispatchAfterCommit`.
+- Added `App\Enums\ImportStopReason` (`@open`, ADR 0010/0011): `ApplyFailed`. `$sourceSystem` stays a string because it
+  is a registry key.
+- Added the registry `App\Support\Clients\ClientCurrencyUsage` (singleton): `source(string $key, Closure(list<int>):
+  array<int|string>)` and `clientsInUse(list<int>): list<int>`, the clients some module holds amounts for, so an import never
+  relabels their currency (spec §6.4). Billing (invoices, quotes, transactions, credit), Services, Orders and Domains
+  each register a source; with none registered no client is in use.
+- `App\Data\Migration\ImportOutcome` gains a trailing `?array $before = null`: the changed fields' previous values,
+  read by the importer under its own lock (ADR 0019). Compatible (ADR 0010: trailing defaulted field).
+- `App\Models\User`: saving a client login (`is_staff` false) with a new email clears `email_verified_at` unless the
+  same save sets it. Staff logins are not affected: Platform's `UpdateStaff` keeps its rule (an admin-initiated change
+  clears verification and sends the mail, a self-change keeps it). Query-builder `update()` bypasses the hook.
+- Core registers the `client` and `user` importers in the kernel `ImportRegistry`; both honour dry runs, including
+  client groups (looked up, never created) and links to clients the dry run did not create. Core's single dev worker
+  (`composer dev`, #164) also reads `Queues::IMPORTS`, so the Migration module no longer registers its own.
+
+### Registrar prerequisites (#164)
+
+- `Redactor`: a secret `name=value` pair inside another pair's value (`Rejected: api-key=…`) is masked; it was kept
+  whole. The search inside a value is bounded (2 levels, values up to 4 KB), so long provider text stays linear in
+  time and memory. Signatures unchanged. Compatible: more is masked, nothing that was masked is shown.
+- No other kernel change: `ReconcileStatus` and `Queues::REGISTRAR` are used as they are. The single dev queue worker
+  (`composer dev`) moved to Core and is built from the `Queues` constants.
+
+### Client import, PR A0 (client-import spec §16 C1, C2; ADR 0019 proposed)
+
+- Added the provider contract `App\Contracts\Migration\RecordImporter` (with `key()`; a dry run's `upsert()` writes
+  nothing; `rules()` must not query the database), `ImportIdResolver::targetId(string $entity, string $sourceId)`,
+  the DTOs `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}` and the enums
+  `App\Enums\{ImportAction (@open), ImportSeverity}`, as `migration.md` §12 with two trailing defaulted fields,
+  `ImportOutcome::$changes` and `ImportContext::$actorId`. One vocabulary: `$entity` is the registry key and
+  `$sourceSystem` the kind of source (`csv`, `whmcs_api`).
+- Added the final registry `App\Support\Migration\ImportRegistry` (ADR 0012), bound in `AppServiceProvider`:
+  `register(key, class-string|Closure, replace: false, dependsOn: [])` with keys matching `[a-z0-9_]{1,50}`,
+  duplicates refused unless replaced (logged), `has()`, `get()` (checks the importer's `key()`), `keys()`, and
+  `ordered(array $keys = [])`, which checks only the requested chains.
+- Added `App\Support\Queues::IMPORTS` (`imports`), `IMPORT_JOB_TIMEOUT_SECONDS` (120), `DEFAULT_POOL_TIMEOUT_SECONDS`
+  (150) and `DEFAULT_POOL_MEMORY_MB` (256). The default pool works `default,imports`; no new connection (ADR 0014
+  amendment).
+- Arch rule: every `App\Modules\*\Import` namespace that exists uses no `event()` or `dispatch()` helper, event
+  dispatcher, `Event`, `Bus`, `Mail` or `Notification` facade, `SystemMailer`, `AuthMailer`, `App\Events` namespace
+  other than `Migration`, or driver contract or registry; a probe fixture proves the rule fails.
+- The run events (C4) are not in this PR; each lands with the code that dispatches it (ADR 0019).
+
+### Storefront (public site, PR feature/storefront-home)
+
+- Added `App\Contracts\Orders\ShopperSession` (`currency()`, `cartCount()`, `switchableCurrencies()`), implemented by
+  Orders; Core binds `NullShopperSession` (default currency, empty cart).
+- Added `App\Contracts\Support\PublicHelpDirectory` (`recentAnnouncements()`, `popularArticles()`,
+  `networkStatus()`), implemented by Support; Core binds `NullPublicHelpDirectory`. Spec K9, without the sitemap part.
+- Added `DomainPricing::catalog(string $currency, ?int $clientId = null)`: active TLDs with 1-year register, renew and
+  transfer prices, spotlight flag and badge (spec K4, without `category` and the `TldPricingChanged` event). Service
+  contract: `FakeDomains` is updated.
+- Documented the marketing keys `PriceBook::storefront()` already returns (group `headline`, `tagline`; product
+  `tagline`, `is_featured`) as optional keys of the array shape (spec K2, without `icon` and `comparison()`).
+- Added `App\Support\Seo\SitemapRegistry` (ADR 0012 shape: `register(key, Closure, replace: false)` with keys
+  `[a-z0-9_]{1,50}`, a duplicate key throws unless replaced, `has()`, `keys()`, `entries()`; a source that throws is
+  reported and left out), bound as a singleton. Orders, Support and Storefront register their public URLs.
+- Added `App\Events\Storefront\StorefrontPublished(revisionId, publishedBy, changedSections)`. Declared here with the
+  other storefront kernel pieces; the publish flow that dispatches it is the stacked PR #99.
+- `PriceBook::storefront()` products also document the optional `is_taxable` key (Catalog sends it).
+- Interim gaps, each until its spec contract exists: K6 (`TaxDisplay`): Storefront derives the tax statement and
+  inclusive amounts from a probe line through `TaxCalculator`, and reads `orders.domains_taxable` and
+  `catalog.show_monthly_breakdown` through Core `Settings`. K7 (`GatewayDirectory::acceptanceMarks()`): Storefront
+  reads logos from `GatewayRegistry` drivers that implement `ProvidesLogo`. K5 (`ProductGroupUpdated`): a group that is
+  hidden or renamed can show in the header for up to `storefront.cache_seconds` (600 s).
+- `App\Data\Branding\Brand` gains trailing `hasUploadedLogo` and `hasUploadedMark` (default false), also in
+  `toArray()`. Customer surfaces show a logo or mark only when the host uploaded it, never the product's default.
+- Interim, until the company profile contract (spec K1): the public footer and `Organization` JSON-LD read
+  `core.company_*` and `billing.seller.*` through Core `Settings`.
+
 ### Integration simulators, S1 (ADR 0016 §1, §3)
 
 - `Endpoints`: a key that does not match the key pattern is never repeated in logs, `app:install` or the dashboard;
@@ -94,7 +246,7 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 - `ProvisioningContext::$configOptions` is empty in PR B; PR B2 fills it by module key from
   `PriceBook::moduleInputs()`. Install-specific option ids are never sent to drivers.
 - **Breaking (module SPI removed):** `App\Modules\Services\Drivers\Provisioning\{ProvisioningDriver, ServiceContext,
-DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
+  DriverMetadata, DriverResult, DriverRegistry, UsageRow}` and
   `App\Modules\Services\Exceptions\RetryableProvisioningException`. `LogDriver` and `NoneDriver` are updated, and an
   arch rule keeps the old names out.
 - `DriverMetadata` gains `?int $commandTimeoutSeconds` and `?UsernamePolicy $usernamePolicy` (cPanel K9 and K6;

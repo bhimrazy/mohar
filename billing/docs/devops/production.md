@@ -20,7 +20,7 @@ running for a rollback until you `retire` it. `deploy/bin/deploy status` shows w
 | `app-<colour>`           | the app image   | FrankenPHP, classic mode                                                 | 1.0 / 512 MB         | 30 s       |
 | `worker-critical-…`      | the app image   | `queue:work --queue=payments,provisioning,registrar --timeout=200`       | 0.5 / 384 MB         | 210 s      |
 | `worker-notifications-…` | the app image   | `queue:work --queue=notifications,webhooks` (60 s job timeout)           | 0.5 / 384 MB         | 70 s       |
-| `worker-default-…`       | the app image   | `queue:work --queue=default` (60 s job timeout)                          | 0.5 / 384 MB         | 70 s       |
+| `worker-default-…`       | the app image   | `queue:work --queue=default,imports --timeout=150 --memory=256`          | 0.5 / 384 MB         | 160 s      |
 | `worker-automation-…`    | the app image   | `queue:work automation --queue=automation --tries=1 --timeout=3600`      | 0.5 / 384 MB         | 3,660 s    |
 | `scheduler-…`            | the app image   | `schedule:work` (exactly one, live colour)                               | 0.5 / 512 MB         | 3,660 s    |
 | `migrate`                | the app image   | one-shot: `migrate`, `objects:ensure-bucket`, `app:install` (idempotent) | 1.0 / 512 MB         | —          |
@@ -171,6 +171,13 @@ colours run, the host needs more memory: see Sizing.
 RustFS in `compose.prod.yaml` are bumped by hand: GitHub does not document whether Dependabot reads a compose file
 named `compose.prod.yaml`. Every pin must be a digest at least 7 days old (`composer deps:check`), and the postgres
 image must equal the one in `billing/compose.yaml` (CI checks it).
+
+**PHP security floor.** The image runs PHP 8.4.27 (FrankenPHP 1.13.2), which fixes CVE-2026-109618 and
+CVE-2026-109619 (unauthenticated remote code execution in every web SAPI); images built from an older checkout run
+PHP 8.4.26 or older and are vulnerable. Update with the steps above: `deploy/bin/deploy` rebuilds the image and replaces
+the web container and every worker, so no PHP process keeps the old binary. Check with
+`docker compose -f deploy/compose.prod.yaml exec web-<colour> php -v`. The prod build stops if its PHP is older than the
+floor, and the admin dashboard shows "PHP runtime" in red while it is (see [install.md](install.md#php-security-floor)).
 
 ## Rolling back
 

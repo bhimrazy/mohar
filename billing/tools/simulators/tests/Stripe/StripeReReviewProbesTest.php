@@ -59,7 +59,10 @@ test('#124 through drain(): a dispute refused with 409 before its payment is boo
     $attempts = $outbox->drain($app, maxSeconds: 10);
 
     expect(array_column($attempts, 1))->each->toBe(200)
-        ->and(end($results))->toBe(['charge.dispute.created', 200, 'chargeback recorded'])
+        // charge.dispute.created (retried) and charge.dispute.funds_withdrawn: one books the chargeback, the other is a
+        // duplicate, whichever the outbox delivers first.
+        ->and(collect($results)->filter(fn (array $result): bool => str_starts_with($result[0], 'charge.dispute.') && $result[1] === 200)->pluck(2)->sort()->values()->all())
+        ->toBe(['chargeback recorded', 'duplicate'])
         ->and($outbox->exhausted())->toBe([])
         ->and($outbox->pending())->toBe([])
         ->and(microtime(true) - $started)->toBeLessThan(3.0)

@@ -11,11 +11,13 @@ use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AdjustmentKind;
 use App\Modules\Billing\Enums\AdjustmentReason;
 use App\Modules\Billing\Enums\CreditReason;
+use App\Modules\Billing\Enums\InvoiceKind;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\CreditLedgerService;
@@ -110,16 +112,17 @@ class RefundTransaction
             $refund->forceFill(['gateway_txn_id' => $result->txnId, 'raw' => GatewayLogger::redact($result->raw)]);
         }
 
-        // 3. Finalise the books.
+        // 3. Finalise the books. Locks in the module's order: invoice, then client (the credit post), as payments,
+        // credit and chargebacks take them, so a refund to credit never deadlocks with a dispute of the same invoice.
         return DB::transaction(function () use ($refund, $payment, $amount, $mode, $reverseEffects, $userId): Transaction {
+            $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
+
             $refund->status = TransactionStatus::Succeeded;
             $refund->save();
 
             if ($mode === RefundMode::ToCredit) {
                 $this->credit->post($payment->client_id, Money::of($amount, $payment->currency), CreditReason::RefundToCredit, $payment->invoice_id, $refund->id, __('Refund to credit'), $userId);
             }
-
-            $invoice = $payment->invoice_id !== null ? Invoice::query()->lockForUpdate()->find($payment->invoice_id) : null;
 
             if ($invoice !== null) {
                 $this->applyToInvoice($invoice, $refund, $amount, $reverseEffects, $userId);
@@ -192,10 +195,34 @@ class RefundTransaction
 
         $invoice->save();
 
+        if ($invoice->kind === InvoiceKind::AddFunds) {
+            $this->takeBackDeposit($invoice, $refund, $amount, $userId);
+        }
+
         AfterCommit::dispatch(new InvoiceRefunded($invoice->id, $invoice->client_id, $amount, $invoice->currency, $invoice->status === InvoiceStatus::Refunded, $reverseEffects));
 
         if ($reverseEffects) {
             AfterCommit::dispatch(new PaymentReversed($invoice->id, $invoice->client_id, $refund->id, $amount, $invoice->currency, 'refund'));
+        }
+    }
+
+    /**
+     * A refunded deposit takes back the account credit it placed (#223), as a chargeback of it does: the refunded
+     * amount, at most what the deposit still holds on this invoice (its add-funds line, less the chargebacks, refunds
+     * and won disputes booked against it without a provider tag), so a refund in parts never takes back more than was
+     * deposited. The balance may go negative when the client already spent the credit ("Clients owing account
+     * credit"). Called with the invoice locked; the post locks the client, so locks run invoice, then client.
+     */
+    private function takeBackDeposit(Invoice $invoice, Transaction $refund, int $amount, ?int $userId): void
+    {
+        $held = (int) CreditLedgerEntry::query()->where('client_id', $invoice->client_id)->where('invoice_id', $invoice->id)
+            ->where('currency', $invoice->currency)->whereNull('gateway')
+            ->whereIn('reason', [CreditReason::AddFunds, CreditReason::Reversal])->sum('amount');
+        $taken = min($amount, max(0, $held));
+
+        if ($taken > 0) {
+            $this->credit->post($invoice->client_id, Money::of(-$taken, $invoice->currency), CreditReason::Reversal, $invoice->id, $refund->id,
+                __('Deposit reversed (refund)'), $userId, allowNegative: true);
         }
     }
 }

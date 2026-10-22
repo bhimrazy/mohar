@@ -151,7 +151,7 @@ the settings catalog, activity log, admin global search, login-as-client (impers
   `platform.rates_manual_stale_after_days` (default 30), are flagged as stale on the page and in "Needs attention". A failed
   fetch fails the automation task with the reason, keeps the old rates and is audit-logged.
 - **Audit and history:** every rate change writes `exchange_rate_history (currency, rate, source, effective_at,
-user_id)` and an activity entry (`currency.rate_changed`, old → new, source, who; system for automation). Held,
+  user_id)` and an activity entry (`currency.rate_changed`, old → new, source, who; system for automation). Held,
   approved and rejected changes, source/rule edits and failed fetches are logged too. The currency edit page charts
   the rate in force for each of the last 90 days.
 - `ExchangeRatesUpdated(currencies, source)` is dispatched after changes (spec §14).
