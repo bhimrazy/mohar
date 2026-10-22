@@ -8,10 +8,32 @@
 #                                                       and any idle billing_e2e_* left by an interrupted `simulate:e2e`
 # Then run `composer test:pgsql` (or any artisan command) in the worktree's billing/ directory.
 # The data lives in tmpfs: it is test data, fast, and disappears when the server stops.
+#
+# Slug limit: PostgreSQL names are at most 63 bytes, and a parallel worker adds _test_<n> (Laravel) to the database.
+# So billing_test_<slug> is kept whole while it is 55 bytes or less (a slug of up to 42 characters). A longer one
+# becomes its first 46 bytes, "_", and the first 8 hex digits of its SHA-256, so it stays 55 bytes and unique.
+# Any slug works; only the database name of a long slug changes. The same rule (name_fit) gives the race tests their
+# extra databases (Tests\TestCase::pgsqlIdentifier, 63-byte limit).
 set -euo pipefail
 name=mohar-pg
 port=55432
 image="postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873"
+
+# name_fit <name> <max bytes>: the name if it fits; otherwise its first (max-9) bytes, "_", and 8 hex digits of its SHA-256.
+name_fit() {
+    local name="$1" max="$2" hash
+    if [ "${#name}" -le "$max" ]; then
+        printf '%s' "$name"
+        return
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then hash=$(printf '%s' "$name" | sha256sum); else hash=$(printf '%s' "$name" | shasum -a 256); fi
+    printf '%s_%s' "${name:0:$((max - 9))}" "${hash:0:8}"
+}
+
+# db_for <slug>: the test database name for a worktree slug (55 bytes: room for _test_<n> with up to 99 workers).
+db_for() {
+    name_fit "billing_test_$(echo "$1" | tr -c 'a-zA-Z0-9\n' '_')" 55
+}
 
 if [ "${1:-}" = "--stop" ]; then
     docker rm -f "$name" >/dev/null 2>&1 || true
@@ -21,7 +43,7 @@ fi
 if [ "${1:-}" = "--prune" ]; then
     shift
     keep="__none__"
-    for k in "$@"; do keep="$keep|$(echo "$k" | tr -c 'a-zA-Z0-9\n' '_')"; done
+    for k in "$@"; do keep="$keep|$(db_for "$k" | sed 's/^billing_test_//')"; done
     # Parallel test runs add billing_test_<slug>_test_<n>; those are kept with their slug.
     docker exec "$name" psql -U billing -d billing -tAc "
         SELECT datname FROM pg_database d
@@ -33,7 +55,7 @@ if [ "${1:-}" = "--prune" ]; then
 fi
 
 slug="${1:?usage: pg.sh <worktree-slug> | --stop}"
-db="billing_test_$(echo "$slug" | tr -c 'a-zA-Z0-9\n' '_')"
+db="$(db_for "$slug")"
 
 if ! docker ps --format '{{.Names}}' | grep -qx "$name"; then
     docker rm -f "$name" >/dev/null 2>&1 || true
