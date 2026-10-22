@@ -225,6 +225,8 @@ services:
 
     # One-shot, run by the deploy script with the new image before the new colour starts: migrations (expand only,
     # docs/architecture.md), the bucket, reference data (all idempotent). It also builds the image.
+    # `migrate --isolated=1` holds a cache lock (CACHE_STORE=database: the cache_locks table, so that one migration
+    # runs first on its own) and exits 1 while another migrator runs, which stops the deploy.
     migrate:
         <<: *worker
         image: ${APP_IMAGE:-mohar-app:local} # own image
@@ -235,7 +237,7 @@ services:
         command:
             - sh
             - -c
-            - php artisan migrate --force --no-interaction && php artisan objects:ensure-bucket --no-interaction && php artisan app:install --no-interaction
+            - php artisan migrate --force --no-interaction --path=database/migrations/0001_01_01_000001_create_cache_table.php && php artisan migrate --isolated=1 --force --no-interaction && php artisan objects:ensure-bucket --no-interaction && php artisan app:install --no-interaction
         restart: 'no'
         # A one-shot: nothing to probe while it runs.
         healthcheck:

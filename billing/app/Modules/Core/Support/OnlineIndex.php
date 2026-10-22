@@ -3,8 +3,11 @@
 namespace App\Modules\Core\Support;
 
 use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use LogicException;
+use RuntimeException;
+use Throwable;
 
 /**
  * Index changes that are safe on large, busy tables (PostgreSQL and SQLite, ADR 0006).
@@ -19,8 +22,9 @@ use LogicException;
  *
  * Every build and drop runs under LockTimeout. A concurrent build waits for every transaction older than itself,
  * on any table, so it gets the longer `database.migrations.concurrent_lock_timeout` (60s: ordinary transactions
- * finish, a stuck one fails the build instead of hanging the deploy). A lock timeout there leaves an INVALID index,
- * which the next attempt drops first.
+ * finish, a stuck one fails the build instead of hanging the deploy). A lock timeout there leaves an INVALID index:
+ * the next attempt drops it first, and after the last failed attempt it is dropped too. An index another session is
+ * still building is never dropped (dropIfInvalid()).
  *
  *   OnlineIndex::create('orders', ['client_id', 'id']);                                  // orders_client_id_id_index
  *   OnlineIndex::create('tld_prices', ['tld_id', 'currency', 'years'], 'tld_prices_default_price_unique', unique: true, where: 'client_group_id is null');
@@ -55,9 +59,9 @@ final class OnlineIndex
 
         $concurrently = self::concurrently($name, $allowLocking);
 
-        self::underLockTimeout($table, $concurrently, function () use ($table, $columns, $name, $unique, $where, $expression, $using, $driver, $concurrently): void {
+        $build = function () use ($table, $columns, $name, $unique, $where, $expression, $using, $driver, $concurrently): void {
             if ($driver === 'pgsql') {
-                self::dropIfInvalid($name, $concurrently);
+                self::dropIfInvalid($table, $name, $concurrently);
             }
 
             $existing = self::existing($name);
@@ -81,7 +85,17 @@ final class OnlineIndex
                 $target,
                 $where !== null ? ' where '.$where : '',
             ));
-        });
+        };
+
+        try {
+            self::underLockTimeout($table, $concurrently, $build);
+        } catch (Throwable $failure) {
+            if ($concurrently) {
+                self::dropLeftoverOf($table, $name, $failure);
+            }
+
+            throw $failure;
+        }
     }
 
     /**
@@ -275,11 +289,36 @@ final class OnlineIndex
         $probe = self::PREDICATE_PROBE;
         DB::statement("drop table if exists pg_temp.{$probe}");
         DB::statement(sprintf('create temporary table %s (like %s)', $probe, DB::connection()->getQueryGrammar()->wrapTable($table)));
-        DB::statement("create index {$probe}_index on pg_temp.{$probe} ((1)) where {$where}");
+        try {
+            DB::statement(sprintf('create index %s_index on pg_temp.%s ((1)) where %s', $probe, $probe, self::withoutQualifier($where, $table)));
+        } catch (QueryException $exception) {
+            if (($exception->errorInfo[0] ?? $exception->getCode()) === '55P03') {
+                throw $exception;
+            }
+
+            throw new LogicException("The predicate of index on {$table} could not be compared with the existing one ({$exception->errorInfo[2]}). Write it with unqualified columns or columns qualified by the table name only: where {$where}", 0, $exception);
+        }
+
         $row = DB::selectOne("select pg_get_expr(i.indpred, i.indrelid) as predicate from pg_index i where i.indexrelid = 'pg_temp.{$probe}_index'::regclass");
         DB::statement("drop table pg_temp.{$probe}");
 
         return (string) $row?->predicate;
+    }
+
+    /**
+     * The predicate with "table." qualifiers removed outside string literals: the probe copy has another name, and
+     * PostgreSQL stores the predicate of a one-table index unqualified anyway.
+     */
+    private static function withoutQualifier(string $where, string $table): string
+    {
+        $parts = preg_split("/('(?:[^']|'')*')/", $where, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$where];
+        $qualifier = '/(?<![\w."])"?'.preg_quote($table, '/').'"?\s*\.\s*(?=["\w])/i';
+
+        foreach ($parts as $index => $part) {
+            $parts[$index] = $index % 2 === 0 ? (string) preg_replace($qualifier, '', $part) : $part;
+        }
+
+        return implode('', $parts);
     }
 
     /**
@@ -306,7 +345,7 @@ final class OnlineIndex
                 $depth++;
             } elseif ($character === ')') {
                 $depth--;
-            } elseif ($depth === 0 && $i > 0 && ctype_space($sql[$i - 1]) && preg_match('/\Gwhere\b/i', $sql, $match, 0, $i) === 1) {
+            } elseif ($depth === 0 && $i > 0 && (ctype_space($sql[$i - 1]) || $sql[$i - 1] === ')') && preg_match('/\Gwhere\b/i', $sql, $match, 0, $i) === 1) {
                 return trim(substr($sql, $i + 5));
             }
         }
@@ -378,15 +417,81 @@ final class OnlineIndex
         return $columns === '' ? [] : explode(',', $columns);
     }
 
-    private static function dropIfInvalid(string $name, bool $concurrently): void
+    /**
+     * Drop the INVALID index of $table that an interrupted concurrent build left, never one another session is still
+     * building: such a build is INVALID too until its last step, and a DROP queued behind it would remove the index
+     * once it has become valid. The order makes the check race-free. pg_index is read, then the build progress, then
+     * pg_index again: a build running at the first read either still shows in the progress view, or finished before
+     * it and the second read sees the index valid (a build commits indisvalid before it leaves the view). No new
+     * build can start on the name while the index exists. A build in progress is waited for on its SHARE UPDATE
+     * EXCLUSIVE lock, which blocks no reads or writes; lock_timeout bounds the wait, after which LockTimeout retries,
+     * then fails naming the building session. An INVALID index of another table is left for existing() to report.
+     *
+     * @param  bool  $waitForBuilder  false: leave an index another session is building alone, without waiting
+     */
+    private static function dropIfInvalid(string $table, string $name, bool $concurrently, bool $waitForBuilder = true): void
     {
-        $invalid = DB::selectOne(
-            'select 1 as invalid from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = ? and not i.indisvalid and pg_table_is_visible(c.oid)',
+        while (($index = self::indexState($name)) !== null && ! $index['valid'] && $index['table'] === $table) {
+            $builder = DB::selectOne(
+                'select p.pid from pg_stat_progress_create_index p
+                 where p.datid = (select oid from pg_database where datname = current_database())
+                   and (p.index_relid = ? or p.relid = ?) and p.pid <> pg_backend_pid() limit 1',
+                [$index['oid'], $index['table_oid']],
+            );
+
+            if ($builder !== null) {
+                if (! $waitForBuilder) {
+                    return;
+                }
+
+                DB::transaction(fn () => DB::statement(sprintf('lock table %s in share update exclusive mode', DB::connection()->getQueryGrammar()->wrapTable($table))));
+
+                continue;
+            }
+
+            $again = self::indexState($name);
+
+            if ($again !== null && $again['oid'] === $index['oid'] && ! $again['valid']) {
+                DB::statement(sprintf('drop index%s if exists %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * The index as the catalog shows it now; each call reads it again.
+     *
+     * @phpstan-impure
+     *
+     * @return array{oid: int, valid: bool, table: string, table_oid: int}|null
+     */
+    private static function indexState(string $name): ?array
+    {
+        $row = DB::selectOne(
+            'select c.oid, i.indisvalid as valid, t.relname as table_name, t.oid as table_oid
+             from pg_index i join pg_class c on c.oid = i.indexrelid join pg_class t on t.oid = i.indrelid
+             where c.relname = ? and pg_table_is_visible(c.oid)',
             [$name],
         );
 
-        if ($invalid !== null) {
-            DB::statement(sprintf('drop index%s if exists %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+        return $row === null ? null : ['oid' => (int) $row->oid, 'valid' => (bool) $row->valid, 'table' => (string) $row->table_name, 'table_oid' => (int) $row->table_oid];
+    }
+
+    /**
+     * After a failed concurrent build, drop the INVALID index it left: a ready one is maintained on every write, and a
+     * unique one already rejects rows, while the deploy reports that nothing changed. One attempt under the concurrent
+     * timeout; when that fails too, the error names the index to drop by hand.
+     */
+    private static function dropLeftoverOf(string $table, string $name, Throwable $failure): void
+    {
+        try {
+            LockTimeout::run($table, fn () => self::dropIfInvalid($table, $name, true, waitForBuilder: false), (string) config('database.migrations.concurrent_lock_timeout', '60s'), 1, transaction: false);
+        } catch (Throwable $cleanup) {
+            throw new RuntimeException(sprintf(
+                '%s The INVALID index %s that the failed build left could not be dropped (%s); drop it with DROP INDEX CONCURRENTLY %s before the old release meets it.',
+                $failure->getMessage(), $name, $cleanup->getMessage(), $name,
+            ), 0, $failure);
         }
     }
 }

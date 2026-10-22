@@ -144,7 +144,8 @@ final class LockTimeout
             "select a.pid, a.state, a.application_name, string_agg(distinct l.mode, '/') as modes,
                 coalesce(extract(epoch from (now() - a.xact_start))::bigint, 0) as seconds
              from pg_locks l join pg_stat_activity a on a.pid = l.pid
-             where l.locktype = 'relation' and l.relation = to_regclass(?) and l.granted and l.pid <> pg_backend_pid()
+             where l.locktype = 'relation' and l.database = (select oid from pg_database where datname = current_database())
+               and l.relation = to_regclass(?) and l.granted and l.pid <> pg_backend_pid()
              group by a.pid, a.state, a.application_name, a.xact_start
              order by a.xact_start nulls last limit 5",
             [DB::connection()->getTablePrefix().$table],

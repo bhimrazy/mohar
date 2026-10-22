@@ -303,12 +303,22 @@ Locks, for every new migration (the old release keeps serving while it runs):
 6. **Indexes go through `OnlineIndex`**, which applies rule 5 itself. A CONCURRENTLY build cannot run in a
    transaction, so it sets `lock_timeout` for the session and restores it afterwards. Such a build waits for every
    older transaction in the database, on any table, so it gets `DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT` (default
-   60s) and 3 attempts. A timed-out attempt leaves an INVALID index, which the next attempt drops first. An
-   existing index of the same name is reused only when the table, columns, uniqueness and partial-index predicate
-   all match: PostgreSQL compares `pg_get_expr(indpred, indrelid)` with the predicate rebuilt on a temporary copy
-   of the table's columns, and SQLite compares the `WHERE` of `sqlite_master.sql` ignoring case, spacing, identifier
-   quotes and enclosing parentheses, but never the case of string literals. Any difference throws: an index is
-   never silently reused with another `WHERE`.
+   60s) and 3 attempts.
+    - **INVALID indexes.** A timed-out or failed build leaves an INVALID index. When the last attempt fails, that
+      index is dropped (a ready one is maintained on every write, and a unique one rejects rows); if the drop fails,
+      the error names it. A later run drops it before building.
+    - **Another session's build.** An INVALID index another session is still building is never dropped: the
+      progress view `pg_stat_progress_create_index` is read between two reads of `pg_index`, and such a build is
+      waited for on its SHARE UPDATE EXCLUSIVE lock (which blocks no reads or writes). Only an index of the same
+      table is dropped.
+    - **Reuse.** An existing index of the same name is reused only when the table, columns, uniqueness and
+      partial-index predicate all match. PostgreSQL compares `pg_get_expr(indpred, indrelid)` with the predicate
+      rebuilt on a temporary copy of the table's columns. SQLite compares the `WHERE` of `sqlite_master.sql`,
+      ignoring case, spacing, identifier quotes and enclosing parentheses, but never the case of string literals.
+      Any difference throws: an index is never silently reused with another `WHERE`. Write predicate columns
+      unqualified, or qualified by the table name only.
+7. **One migrator at a time.** The deploy's `migrate` service runs `migrate --isolated=1` (a cache lock in
+   `cache_locks`, whose own migration runs first), so a second deploy stops instead of migrating beside the first.
 
 ## Testing (Pest)
 

@@ -103,7 +103,8 @@ docker image inspect "$image" --format 'image size (unpacked): {{.Size}} bytes'
 
 step "first install on empty PostgreSQL and RustFS"
 "${compose[@]}" up -d --wait --wait-timeout 120 postgres rustfs
-APP_IMAGE="$image" "${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction \
+APP_IMAGE="$image" "${compose[@]}" run --rm -T migrate sh -c "php artisan migrate --force --no-interaction --path=database/migrations/0001_01_01_000001_create_cache_table.php \
+    && php artisan migrate --isolated=1 --force --no-interaction \
     && php artisan objects:ensure-bucket --no-interaction \
     && php artisan app:install --no-interaction --admin-name='Smoke Admin' --admin-email=${admin_email}" > "$work/install.log" 2>&1 \
     || { awk 'hide && NF { print "   <one-time password hidden>"; hide = 0; next } /one-time password/ { hide = 1 } { print }' "$work/install.log" | tail -40 >&2; fail "first install"; }
