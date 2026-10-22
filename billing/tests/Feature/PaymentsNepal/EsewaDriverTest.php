@@ -264,7 +264,13 @@ test('a customer who cancels on eSewa can pay again at once, under a new transac
     expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->toBeNull()->review_reason->toBe('Cancelled by the customer: the provider has no payable session')
         ->and(Transaction::query()->count())->toBe(0)
         ->and($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
-    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress', null));
+    // The invoice offers "Pay a different way" at once, with the "don't pay again" warning, while the old form could
+    // still be posted (#123).
+    $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page
+        ->where('payment_in_progress.status', 'failed')
+        ->where('payment_in_progress.can_pay_another_way', true)
+        ->where('payment_in_progress.can_close', false)
+        ->whereNot('payment', null));
 
     // eSewa answers "Duplicate transaction UUID." to a reused uuid (UAT), so the retry must carry a new one.
     $retry = startEsewaAgain($invoice);
@@ -297,6 +303,31 @@ test('a booked eSewa session keeps the invoice locked for eSewa\'s whole booking
 
     $this->travel(7)->minutes();
     $this->get(route('client.invoices.show', $invoice->id))->assertInertia(fn (Assert $page) => $page->where('payment_in_progress.can_pay_another_way', true));
+});
+
+test('use another method frees the invoice only when eSewa holds no payable session, and a late success is still booked', function () {
+    [$invoice, $attempt] = startEsewa(10_000);
+    $close = route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]);
+    Http::fake([ESEWA_STATUS => Http::sequence()
+        ->push(esewaFixture('status_pending', ['transaction_uuid' => $attempt->reference, 'total_amount' => 100.0]))
+        ->push(esewaFixture('status_not_found_cancelled', ['transaction_uuid' => $attempt->reference]))
+        ->whenEmpty(Http::response(esewaFixture('status_complete', ['transaction_uuid' => $attempt->reference])))]);
+
+    // eSewa still holds a payable booking: nothing changes and the client is told why.
+    $this->from(route('client.invoices.show', $invoice->id))->post($close)
+        ->assertSessionHasErrors(['billing' => 'Esewa still has this payment open, so it could still be paid there. Finish it there, or try again in a few minutes.']);
+    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+
+    $this->post($close)->assertSessionHasNoErrors()->assertRedirect(route('client.invoices.show', $invoice->id));
+    expect($attempt->fresh())->status->toBe(AttemptStatus::Failed)->lookups_closed_at->toBeNull();
+
+    // The old form is paid anyway: booked on the invoice as a late payment, once.
+    $this->travel(61)->minutes();
+    $this->artisan('billing:reconcile-payments');
+
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and(Transaction::query()->where('gateway', EsewaDriver::KEY)->count())->toBe(1)
+        ->and($attempt->fresh())->status->toBe(AttemptStatus::Succeeded)->late_payment_at->not->toBeNull();
 });
 
 test('an attempt in staff review is not ended by a later NOT_FOUND', function () {

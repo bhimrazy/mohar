@@ -1,7 +1,8 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import { Download } from 'lucide-react';
 import { useState } from 'react';
+import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import type { DataTableColumn } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
@@ -33,9 +34,11 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import {
     applyCredit,
+    closeAttempt,
     index,
     pay,
     pdf,
+    resumeAttempt,
 } from '@/actions/App/Modules/Billing/Http/Controllers/Client/InvoiceController';
 
 type Props = {
@@ -114,6 +117,7 @@ export default function ClientInvoiceShow({
     payment_in_progress,
 }: Props) {
     const [payAnotherWay, setPayAnotherWay] = useState(false);
+    const { errors } = usePage<{ errors: Record<string, string> }>().props;
     // A started payment that can still complete at the provider hides the pay panel (no accidental second
     // payment); once its session has ended the customer may choose to pay another way.
     const showPayPanel =
@@ -194,30 +198,68 @@ export default function ClientInvoiceShow({
                             <PaymentInProgressCard
                                 attempt={payment_in_progress}
                                 actions={
-                                    <>
-                                        <Button asChild variant="outline">
-                                            <Link
-                                                href={
-                                                    payment_in_progress.check_url
-                                                }
-                                                preserveScroll
-                                            >
-                                                Check status
-                                            </Link>
-                                        </Button>
-                                        {payment &&
-                                            payment_in_progress.can_pay_another_way &&
-                                            !payAnotherWay && (
-                                                <Button
-                                                    variant="ghost"
-                                                    onClick={() =>
-                                                        setPayAnotherWay(true)
-                                                    }
-                                                >
-                                                    Pay a different way
+                                    <div className="grid w-full gap-2">
+                                        <div className="flex flex-wrap gap-2">
+                                            {payment_in_progress.can_resume && (
+                                                <Button asChild>
+                                                    <Link
+                                                        href={resumeAttempt.url(
+                                                            [
+                                                                invoice.id,
+                                                                payment_in_progress.reference,
+                                                            ],
+                                                        )}
+                                                    >
+                                                        Continue payment
+                                                    </Link>
                                                 </Button>
                                             )}
-                                    </>
+                                            <Button asChild variant="outline">
+                                                <Link
+                                                    href={
+                                                        payment_in_progress.check_url
+                                                    }
+                                                    preserveScroll
+                                                >
+                                                    Check status
+                                                </Link>
+                                            </Button>
+                                            {payment &&
+                                                payment_in_progress.can_close && (
+                                                    <ConfirmDialog
+                                                        trigger={
+                                                            <Button variant="ghost">
+                                                                Use another method
+                                                            </Button>
+                                                        }
+                                                        title={`Stop the ${payment_in_progress.gateway_name} payment?`}
+                                                        description={`We'll close the ${payment_in_progress.gateway_name} payment page first, so it can't be paid there any more. If ${payment_in_progress.gateway_name} says it was already paid, the payment is recorded instead.`}
+                                                        confirmLabel="Use another method"
+                                                        destructive={false}
+                                                        action={closeAttempt([
+                                                            invoice.id,
+                                                            payment_in_progress.reference,
+                                                        ])}
+                                                        onSuccess={() =>
+                                                            setPayAnotherWay(true)
+                                                        }
+                                                    />
+                                                )}
+                                            {payment &&
+                                                payment_in_progress.can_pay_another_way &&
+                                                !payAnotherWay && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        onClick={() =>
+                                                            setPayAnotherWay(true)
+                                                        }
+                                                    >
+                                                        Pay a different way
+                                                    </Button>
+                                                )}
+                                        </div>
+                                        <InputError message={errors.billing} />
+                                    </div>
                                 }
                             />
                         )}
