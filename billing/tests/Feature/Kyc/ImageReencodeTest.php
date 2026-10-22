@@ -236,7 +236,7 @@ test('the images are stored outside the database transaction, so a contended dec
     expect($vault->levels)->toBe([$baseline, $baseline]);
 });
 
-test('a photo already shrunk by the browser (3000 px JPEG, no metadata, quality 85) is accepted and stored upright', function () {
+test('a 3000 x 2000 quality 85 JPEG without metadata is accepted and its pixels are kept (the shape the browser resize produces)', function () {
     $image = imagecreatetruecolor(3000, 2000);
     imagefilledrectangle($image, 0, 0, 1499, 1999, imagecolorallocate($image, 220, 20, 20));
     imagefilledrectangle($image, 1500, 0, 2999, 1999, imagecolorallocate($image, 20, 20, 220));

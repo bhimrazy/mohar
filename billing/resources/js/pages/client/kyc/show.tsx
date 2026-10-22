@@ -128,7 +128,7 @@ function DocumentUpload({
                         id={id('front')}
                         name="front"
                         label="Front"
-                        hint={`JPEG, PNG or WebP, up to ${maxUploadMb} MB. Large photos are made smaller in your browser first.`}
+                        maxUploadMb={maxUploadMb}
                         accept={accept}
                         error={errors.front}
                         onBusyChange={setFrontBusy}
@@ -138,11 +138,16 @@ function DocumentUpload({
                             id={id('back')}
                             name="back"
                             label="Back"
+                            maxUploadMb={maxUploadMb}
                             accept={accept}
                             error={errors.back}
                             onBusyChange={setBackBusy}
                         />
                     )}
+                    <p className="text-sm text-muted-foreground sm:col-span-2">
+                        JPEG, PNG or WebP, up to {maxUploadMb} MB each. Large
+                        photos are made smaller in your browser first.
+                    </p>
                     {errors.type && (
                         <p className="text-sm text-danger-text sm:col-span-2">
                             {errors.type}

@@ -4,7 +4,7 @@ import { Field } from '@/components/app/field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
-import { formatBytes, resizeImage } from '@/lib/image-resize';
+import { formatBytes, prepareFile } from '@/lib/image-resize';
 import type { ResizeResult } from '@/lib/image-resize';
 
 type Props = {
@@ -12,8 +12,9 @@ type Props = {
     name: string;
     label: string;
     accept: string;
-    hint?: string;
     error?: string;
+    /** The server's size limit in MB; a photo over it that cannot be made smaller is refused here. */
+    maxUploadMb: number;
     onBusyChange?: (busy: boolean) => void;
 };
 
@@ -21,14 +22,15 @@ type State =
     | { kind: 'empty' }
     | { kind: 'working' }
     | { kind: 'refused'; name: string }
-    | { kind: 'ready'; result: ResizeResult; previewUrl: string };
+    | { kind: 'toolarge'; name: string; bytes: number }
+    | { kind: 'ready'; result: ResizeResult; previewUrl: string | null };
 
 const KEPT: Record<string, string> = {
     small: 'This photo is small enough, so it is sent as it is.',
     'not-smaller': 'This photo is already small, so it is sent as it is.',
     unsupported:
-        'We could not make this photo smaller here. It is sent as it is and checked when you upload.',
-    failed: 'We could not make this photo smaller here. It is sent as it is and checked when you upload.',
+        'Your browser cannot make this photo smaller. It is sent as it is and checked when you upload.',
+    failed: 'Making this photo smaller did not work. It is sent as it is and checked when you upload.',
 };
 
 const IMAGE_TYPE = /^image\/(jpeg|png|webp)$/;
@@ -42,8 +44,8 @@ export function PhotoField({
     name,
     label,
     accept,
-    hint,
     error,
+    maxUploadMb,
     onBusyChange,
 }: Props) {
     const input = useRef<HTMLInputElement>(null);
@@ -100,23 +102,47 @@ export function PhotoField({
 
         setState({ kind: 'working' });
 
-        const result = await resizeImage(file);
+        let result: ResizeResult | null = null;
 
-        if (token !== run.current || !input.current) {
-            return;
+        try {
+            result = await prepareFile(file, (resized) => {
+                const transfer = new DataTransfer();
+                transfer.items.add(resized);
+
+                if (input.current) {
+                    input.current.files = transfer.files;
+                }
+            });
+        } finally {
+            if (token === run.current) {
+                if (!result || result.file.size > maxUploadMb * 1024 * 1024) {
+                    // Nothing usable, or still over the server limit: do not make the client wait for a refusal.
+                    if (input.current) {
+                        input.current.value = '';
+                    }
+
+                    setState(
+                        result
+                            ? {
+                                  kind: 'toolarge',
+                                  name: file.name,
+                                  bytes: result.file.size,
+                              }
+                            : { kind: 'empty' },
+                    );
+                } else {
+                    let previewUrl: string | null = null;
+
+                    try {
+                        previewUrl = URL.createObjectURL(result.file);
+                    } catch {
+                        // The preview is optional; the upload still works.
+                    }
+
+                    setState({ kind: 'ready', result, previewUrl });
+                }
+            }
         }
-
-        if (result.resized) {
-            const transfer = new DataTransfer();
-            transfer.items.add(result.file);
-            input.current.files = transfer.files;
-        }
-
-        setState({
-            kind: 'ready',
-            result,
-            previewUrl: URL.createObjectURL(result.file),
-        });
     }
 
     function remove() {
@@ -134,7 +160,6 @@ export function PhotoField({
         <Field
             htmlFor={id}
             label={label}
-            hint={hint}
             error={error}
             className="min-w-0 grid-cols-[minmax(0,1fr)]"
         >
@@ -148,10 +173,24 @@ export function PhotoField({
                 aria-describedby={`${id}-description ${statusId}`}
                 onChange={(event) => void choose(event.target.files?.[0])}
             />
-            <div id={statusId} role="status" aria-live="polite">
+            <p role="status" className="sr-only">
+                {state.kind === 'working' && 'Preparing your photo.'}
+                {state.kind === 'refused' &&
+                    `${state.name} is not a JPEG, PNG or WebP photo.`}
+                {state.kind === 'toolarge' && `${state.name} is too large.`}
+                {state.kind === 'ready' && 'Photo ready to upload.'}
+            </p>
+            <div id={statusId}>
                 {state.kind === 'working' && (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Spinner /> Preparing your photo…
+                    </p>
+                )}
+                {state.kind === 'toolarge' && (
+                    <p className="text-sm text-danger-text">
+                        {state.name} is {formatBytes(state.bytes)}, over the{' '}
+                        {maxUploadMb} MB limit, and could not be made smaller
+                        here. Choose a smaller photo.
                     </p>
                 )}
                 {state.kind === 'refused' && (
@@ -164,11 +203,13 @@ export function PhotoField({
                 )}
                 {state.kind === 'ready' && (
                     <div className="flex items-start gap-3 rounded-md border bg-muted/40 p-2">
-                        <img
-                            src={state.previewUrl}
-                            alt={`Preview of the ${label.toLowerCase()} photo`}
-                            className="size-20 shrink-0 rounded-sm bg-background object-cover"
-                        />
+                        {state.previewUrl && (
+                            <img
+                                src={state.previewUrl}
+                                alt={`Preview of the ${label.toLowerCase()} photo`}
+                                className="size-20 shrink-0 rounded-sm bg-background object-cover"
+                            />
+                        )}
                         <div className="grid min-w-0 gap-1 text-sm">
                             <p className="flex items-center gap-1.5 font-medium">
                                 <ImageIcon
