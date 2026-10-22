@@ -13,10 +13,12 @@ use App\Modules\Core\Support\Settings;
 use App\Modules\Migration\Jobs\SendInvitations;
 use App\Modules\Migration\Models\MigrationInvitation;
 use App\Modules\Migration\Models\MigrationRun;
+use App\Modules\Migration\Support\ImportInvitations;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Models\EmailMessage;
 use App\Modules\Notifications\Models\EmailTemplate;
 use App\Modules\Notifications\Services\TemplateCatalog;
+use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -82,7 +84,7 @@ test('the page counts the imported logins without a password, by state and filte
 
 test('sending needs the execute permission and a recent password, and mails the migration template only to the login', function () {
     $run = importedRun([ClientCsv::row('1', 'asha@example.com', first: 'Asha')]);
-    EmailTemplate::query()->where('key', ClientLoginInvitations::TEMPLATE_MIGRATION)->update(['cc' => ['cc@example.test'], 'bcc' => ['bcc@example.test']]);
+    EmailTemplate::query()->where('key', 'client.migration_invitation')->update(['cc' => ['cc@example.test'], 'bcc' => ['bcc@example.test']]);
 
     actingAsStaff(['migration.runs.view']);
     $this->post(route('admin.migration.imports.invitations.send', $run))->assertForbidden();
@@ -94,7 +96,7 @@ test('sending needs the execute permission and a recent password, and mails the 
     $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors()->assertInertiaFlash('toast.message', '1 invitation is queued.');
 
     $login = User::query()->where('email', 'asha@example.com')->sole();
-    $message = EmailMessage::query()->where('template_key', ClientLoginInvitations::TEMPLATE_MIGRATION)->sole();
+    $message = EmailMessage::query()->where('template_key', 'client.migration_invitation')->sole();
     expect(MigrationInvitation::query()->sole()->status)->toBe('sent')
         ->and(invitationTokens('asha@example.com'))->toHaveCount(1)
         ->and($message->subject)->toContain('Set your password')->not->toContain('http')
@@ -181,4 +183,58 @@ test('a login staff linked to an imported client, which has its own password, is
 
     expect($existing->clients()->count())->toBe(1);
     $this->get(route('admin.migration.imports.invitations', $run))->assertInertia(fn (Assert $page) => $page->where('counts.total', 0));
+});
+
+test('a row a dead sender left sending is failed by the next sender, shown as not sent, and can be queued again', function () {
+    $run = importedRun([ClientCsv::row('1', 'a@example.com')]);
+    Queue::fake();
+    $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors();
+    // The worker was killed after claiming the row.
+    MigrationInvitation::query()->update(['status' => MigrationInvitation::SENDING, 'updated_at' => now()->subSeconds(MigrationInvitation::STALE_SECONDS + 1)]);
+
+    (new SendInvitations)->handle(app(ClientLoginInvitations::class), app(Settings::class), app(ActivityLogger::class));
+
+    expect(MigrationInvitation::query()->sole()->status)->toBe(MigrationInvitation::FAILED)->and(ClientInvitation::query()->count())->toBe(0);
+    $this->get(route('admin.migration.imports.invitations', $run))->assertInertia(fn (Assert $page) => $page
+        ->where('logins.data.0.state', 'not_invited')->where('logins.data.0.not_sent', fn (string $reason): bool => str_contains($reason, 'stopped')));
+    $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors();
+    expect(MigrationInvitation::query()->where('status', MigrationInvitation::QUEUED)->count())->toBe(1);
+});
+
+test('when links stop being sendable mid-run the sender stops, leaves the rows queued and queues no next job', function () {
+    $run = importedRun([ClientCsv::row('1', 'a@example.com'), ClientCsv::row('2', 'b@example.com')]);
+    Queue::fake();
+    $this->post(route('admin.migration.imports.invitations.send', $run))->assertSessionHasNoErrors();
+    Queue::fake();
+    config(['app.url' => 'not-a-url']);
+
+    (new SendInvitations)->handle(app(ClientLoginInvitations::class), app(Settings::class), app(ActivityLogger::class));
+
+    expect(MigrationInvitation::query()->pluck('status')->unique()->all())->toBe([MigrationInvitation::QUEUED]);
+    Queue::assertNothingPushed();
+    $this->get(route('admin.migration.imports.invitations', $run))->assertInertia(fn (Assert $page) => $page->where('blocked', fn (string $reason): bool => str_contains($reason, 'APP_URL')));
+});
+
+test('only one sender is scheduled at a time, however often sending is asked for', function () {
+    Queue::fake();
+    SendInvitations::next(60);
+    SendInvitations::next();
+    SendInvitations::next();
+
+    Queue::assertPushed(SendInvitations::class, 1);
+});
+
+test('the import lists exactly the logins Platform would invite (the two never-used rules agree)', function () {
+    $run = importedRun(array_map(fn (int $i): array => ClientCsv::row((string) $i, "login{$i}@example.com"), range(1, 6)));
+    $logins = User::query()->where('email', 'like', 'login%')->orderBy('email')->get()->values();
+    $this->travel(1)->minutes();
+    $logins[0]->forceFill(['last_login_at' => now()])->save();
+    $logins[1]->forceFill(['two_factor_secret' => 'x'])->save();
+    $logins[2]->forceFill(['password' => 'Changed-passw0rd'])->save();
+    $logins[3]->forceFill(['is_active' => false])->save();
+
+    $listed = app(ImportInvitations::class)->candidates($run, ['scope' => 'created', 'group' => null, 'status' => null])->pluck('user_id')->map(fn ($id): int => (int) $id)->sort()->values()->all();
+    $neverUsed = User::query()->whereIn('id', $logins->pluck('id'))->get()->filter(fn (User $user): bool => PlatformClientLoginInvitations::neverUsed($user))->pluck('id')->sort()->values()->all();
+
+    expect($listed)->toBe($neverUsed)->and($listed)->toHaveCount(2);
 });

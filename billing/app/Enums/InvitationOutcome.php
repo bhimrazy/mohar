@@ -4,6 +4,10 @@ namespace App\Enums;
 
 /**
  * What ClientLoginInvitations::invite() did with one login.
+ *
+ * Open enum (ADR 0010): cases may be added in a minor version, so consumers need a default branch.
+ *
+ * @open
  */
 enum InvitationOutcome: string
 {

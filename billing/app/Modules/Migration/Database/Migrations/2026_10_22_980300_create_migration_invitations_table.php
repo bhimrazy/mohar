@@ -18,6 +18,7 @@ return new class extends Migration
             $table->foreignId('client_id')->index()->constrained('clients')->cascadeOnDelete();
             $table->foreignId('user_id')->index()->constrained('users')->cascadeOnDelete();
             $table->string('status', 16);
+            $table->string('reason', 255)->nullable();
             $table->foreignId('requested_by')->nullable()->index()->constrained('users')->nullOnDelete();
             $table->timestamp('sent_at')->nullable();
             $table->timestamps();

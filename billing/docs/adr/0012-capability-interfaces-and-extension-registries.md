@@ -116,3 +116,14 @@ choose behaviour. Removing a module from `MODULES=` while its tables hold data i
 **Alignment.** `ClientCurrencyUsage::source()` is renamed `register()` (#219). `ClientMergeRegistry::participant()`
 has dotted keys (`core.contacts`) and no duplicate check; it moves to this shape in a follow-up, under the pre-1.0
 window (ADR 0010).
+
+## Addendum (2026-10-22, #255): optional services say whether they are available
+
+An optional kernel service whose null default does nothing (a Core binding that a module replaces) exposes a pre-check
+on the contract: `problem(): ?string` (a sentence for staff, or null when the service can act now) or
+`available(): bool` when there is nothing to explain. The null default answers it ("not installed"); the real binding
+answers for its own configuration (for example, `AccountLinks::problem()` for invitation links). Callers ask the
+contract and never test the class of a binding (`instanceof Null…`): a package's own unavailable binding, or a
+decorator around the null one, must answer the same way. Examples: `GatewayDirectory::available()`,
+`ClientLoginInvitations::problem()` (#255).
+

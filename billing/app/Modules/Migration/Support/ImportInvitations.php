@@ -4,9 +4,7 @@ namespace App\Modules\Migration\Support;
 
 use App\Contracts\Auth\ClientLoginInvitations;
 use App\Models\User;
-use App\Modules\Core\Support\AccountLinks;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Core\Support\NullClientLoginInvitations;
 use App\Modules\Migration\Jobs\SendInvitations;
 use App\Modules\Migration\Models\MigrationInvitation;
 use App\Modules\Migration\Models\MigrationRun;
@@ -25,12 +23,10 @@ use Illuminate\Validation\ValidationException;
  */
 class ImportInvitations
 {
-    private const INSERT_CHUNK = 500;
-
     public function __construct(private ClientLoginInvitations $invitations, private ActivityLogger $audit) {}
 
     /**
-     * Why nothing can be sent for this run now, or null.
+     * Why nothing can be sent for this run now, or null. Availability is the contract's to say (ADR 0012 addendum).
      */
     public function blocked(MigrationRun $run): ?string
     {
@@ -38,17 +34,7 @@ class ImportInvitations
             return __('Invitations can be sent once the import has finished.');
         }
 
-        if ($this->invitations instanceof NullClientLoginInvitations) {
-            return __('Invitations are not available: the module that sends them is not installed.');
-        }
-
-        $problem = AccountLinks::problem();
-
-        if ($problem === null) {
-            return null;
-        }
-
-        return __('Invitations are held until the link host is your site address. :problem', ['problem' => $problem]);
+        return $this->invitations->problem();
     }
 
     /**
@@ -69,7 +55,8 @@ class ImportInvitations
             ->where('c.status', '!=', 'closed')
             ->where('u.is_staff', false)->where('u.is_active', true)
             ->whereNull('u.last_login_at')->whereNull('u.two_factor_secret')->whereNull('u.two_factor_confirmed_at')
-            // Created by an import (a login staff chose to link is older than the import) and its password never changed.
+            // Created by an import (a login staff chose to link is older than the import), and never used: the same rule as
+            // Platform's PlatformClientLoginInvitations::neverUsed(), checked again when the invitation is sent.
             ->whereColumn('u.created_at', '>=', 'c.imported_at')
             ->where(fn (Builder $query) => $query->whereNull('u.password_changed_at')->orWhereColumn('u.password_changed_at', '<=', 'u.created_at'))
             ->whereNull('ci.accepted_at')
@@ -77,7 +64,11 @@ class ImportInvitations
             ->when($filters['group'] !== null && $filters['group'] !== 'none', fn (Builder $query) => $query->where('c.client_group_id', (int) $filters['group']))
             ->when($filters['status'] !== null, fn (Builder $query) => $query->where('c.status', $filters['status']))
             ->select(['u.id as user_id', 'c.id as client_id', 'u.name', 'u.email', 'c.first_name', 'c.last_name', 'c.company_name', 'ci.sent_at as invited_at', 'ci.expires_at'])
-            ->selectRaw("case when exists (select 1 from migration_invitations mi where mi.user_id = u.id and mi.status in ('queued', 'sending')) then 'queued' when ci.id is null then 'not_invited' when ci.expires_at > ? then 'open' else 'expired' end as state", [now()]);
+            // Waiting: queued, or being sent by a live sender (a stale `sending` row is failed by the next sender).
+            ->selectRaw("case when exists (select 1 from migration_invitations mi where mi.user_id = u.id and (mi.status = 'queued' or (mi.status = 'sending' and mi.updated_at > ?))) then 'queued' when ci.id is null then 'not_invited' when ci.expires_at > ? then 'open' else 'expired' end as state", [now()->subSeconds(MigrationInvitation::STALE_SECONDS), now()])
+            // The reason this run's latest attempt was not sent, shown beside a login that is not invited.
+            ->selectSub(fn (Builder $query) => $query->from('migration_invitations as last')->select('last.reason')->whereColumn('last.user_id', 'u.id')
+                ->where('last.migration_run_id', $run->id)->whereIn('last.status', [MigrationInvitation::FAILED, 'refused'])->orderByDesc('last.id')->limit(1), 'not_sent_reason');
     }
 
     /**
@@ -100,7 +91,7 @@ class ImportInvitations
 
     /**
      * Queues the logins that were never invited or whose invitation expired (an open invitation is not replaced in
-     * bulk), 500 rows per insert, and starts the sender. Returns how many were queued.
+     * bulk), in one statement, and starts the sender. Returns how many were queued.
      *
      * @param  Filters  $filters
      *
@@ -115,19 +106,11 @@ class ImportInvitations
         $queued = DB::transaction(function () use ($run, $filters, $actor): int {
             // One queueing per run at a time: two clicks never queue a login twice.
             MigrationRun::query()->whereKey($run->id)->lockForUpdate()->first();
-            $now = now();
-            // Read first, then insert: the inserted rows change the state the query filters on.
-            $logins = DB::query()->fromSub($this->candidates($run, $filters), 'x')->whereIn('state', ['not_invited', 'expired'])
-                ->orderBy('user_id')->get(['client_id', 'user_id']);
+            // One INSERT … SELECT: nothing is read into PHP. The bound values are cast, so both databases type them.
+            $eligible = DB::query()->fromSub($this->candidates($run, $filters), 'x')->whereIn('state', ['not_invited', 'expired'])
+                ->selectRaw('cast(? as bigint), client_id, user_id, cast(? as varchar(16)), cast(? as bigint), current_timestamp, current_timestamp', [$run->id, MigrationInvitation::QUEUED, $actor->id]);
 
-            foreach ($logins->chunk(self::INSERT_CHUNK) as $rows) {
-                MigrationInvitation::query()->insert($rows->map(fn (object $row): array => [
-                    'migration_run_id' => $run->id, 'client_id' => (int) $row->client_id, 'user_id' => (int) $row->user_id,
-                    'status' => MigrationInvitation::QUEUED, 'requested_by' => $actor->id, 'created_at' => $now, 'updated_at' => $now,
-                ])->values()->all());
-            }
-
-            return $logins->count();
+            return DB::table('migration_invitations')->insertUsing(['migration_run_id', 'client_id', 'user_id', 'status', 'requested_by', 'created_at', 'updated_at'], $eligible);
         });
 
         if ($queued === 0) {
@@ -135,7 +118,7 @@ class ImportInvitations
         }
 
         $this->audit->log('Client import invitations queued', $run, properties: ['file' => $run->file_name, 'count' => $queued, 'filters' => $filters], event: 'migration.invitations_queued', actor: $actor);
-        dispatch(new SendInvitations);
+        SendInvitations::next();
 
         return $queued;
     }

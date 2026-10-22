@@ -28,6 +28,7 @@ type Login = {
     client: string;
     client_href: string;
     state: State;
+    not_sent: string | null;
     invited_at: string | null;
     expires_at: string | null;
 };
@@ -90,6 +91,11 @@ const columns: DataTableColumn<Login>[] = [
                     label={STATES[login.state].label}
                     tone={STATES[login.state].tone}
                 />
+                {login.not_sent && (
+                    <span className="text-xs whitespace-normal text-destructive">
+                        Not sent: {login.not_sent}
+                    </span>
+                )}
                 {login.state === 'open' && login.expires_at && (
                     <span className="text-xs whitespace-normal text-muted-foreground">
                         Link works until{' '}

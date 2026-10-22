@@ -8,13 +8,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ### Client import invitations (importer B2a)
 
-- New contract `App\Contracts\Auth\ClientLoginInvitations::invite(int $clientId, int $userId, string $templateKey =
-  TEMPLATE_DEFAULT, ?int $actorId = null): InvitationOutcome` (client-import spec C3; the spec named
-  `App\Contracts\Core`, which does not exist, so it sits beside `AuthMailer`). Constants `TEMPLATE_DEFAULT`
-  (`auth.user_invitation`) and `TEMPLATE_MIGRATION` (`client.migration_invitation`). Core binds
-  `NullClientLoginInvitations` (always `Unavailable`); Platform binds `PlatformClientLoginInvitations`, which invites
-  only a never-used login and refuses while `AccountLinks::problem()` fails.
-- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Unavailable`).
+- New contract `App\Contracts\Auth\ClientLoginInvitations` (client-import spec C3; beside `AuthMailer`):
+  `problem(): ?string` (why no invitation can be sent now, ADR 0012 addendum) and `invite(int $clientId, int $userId,
+  InvitationPurpose $purpose = InvitationPurpose::LoginAdded, ?int $actorId = null): InvitationOutcome`. Core binds
+  `NullClientLoginInvitations` ("not installed", always `Unavailable`); Platform binds `PlatformClientLoginInvitations`,
+  which maps each purpose to its template and invites only a never-used login.
+- New enum `App\Enums\InvitationPurpose` (`LoginAdded`, `Import`), `@open`.
+- New enum `App\Enums\InvitationOutcome` (`Sent`, `Skipped`, `Refused`, `Unavailable`), `@open`.
 
 ### Client currency lock (#218)
 

@@ -29,7 +29,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `migration.invite_per_hour` (500). The permission `migration.runs.execute` now also covers sending invitations to
   imported logins. A new system email template `client.migration_invitation` is installed by `php artisan app:install`
   (run on every upgrade); it is always sent and cannot be switched off. Kernel: `App\Contracts\Auth\ClientLoginInvitations`
-  (Core binds a null default, Platform its invitation flow) and `App\Enums\InvitationOutcome`.
+  (Core binds a null default, Platform its invitation flow), `App\Enums\InvitationOutcome` and
+  `App\Enums\InvitationPurpose`.
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -442,7 +443,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the email address) with the new editable template **Invitation after a client import**
   (`client.migration_invitation`): never copied (CC and BCC are dropped), the link only in the button, never in the
   subject, and never resent from the email log. A login that signed in, or whose client closed, after it was queued
-  is skipped. Without the Platform module, or while the link host check fails, the button is disabled with the reason.
+  is skipped. Without the Platform module, or while the link host check fails, the button is disabled with the reason,
+  and a sender that finds links unsendable stops and leaves the rest queued. A send that fails, or a sender that dies
+  part way, marks that login "Not sent" with the reason, and it can be sent again; an invitation the template system
+  refused leaves no open invitation behind (also for invitations staff send from a client's logins). The hourly limit
+  needs a cache store shared by every worker (database or Redis).
 - The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an

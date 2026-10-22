@@ -39,6 +39,7 @@ class ImportInvitationController extends Controller
                 'client' => trim(($row->first_name ?? '').' '.($row->last_name ?? '')).($row->company_name ? ' ('.$row->company_name.')' : ''),
                 'client_href' => route('admin.clients.show', (int) $row->client_id),
                 'state' => (string) $row->state,
+                'not_sent' => $row->state === 'not_invited' ? $row->not_sent_reason : null,
                 'invited_at' => $row->invited_at === null ? null : CarbonImmutable::parse((string) $row->invited_at)->toIso8601String(),
                 'expires_at' => $row->expires_at === null ? null : CarbonImmutable::parse((string) $row->expires_at)->toIso8601String(),
             ]);
@@ -52,7 +53,8 @@ class ImportInvitationController extends Controller
             'filters' => $filters,
             'groups' => ClientGroup::query()->orderBy('name')->orderBy('id')->get(['id', 'name'])->map(fn (ClientGroup $group): array => ['value' => (string) $group->id, 'label' => $group->name]),
             'perHour' => $perHour,
-            'sending' => MigrationInvitation::query()->where('migration_run_id', $run->id)->whereIn('status', MigrationInvitation::PENDING)->count(),
+            'sending' => MigrationInvitation::query()->where('migration_run_id', $run->id)->where(fn ($query) => $query->where('status', MigrationInvitation::QUEUED)
+                ->orWhere(fn ($query) => $query->where('status', MigrationInvitation::SENDING)->where('updated_at', '>=', now()->subSeconds(MigrationInvitation::STALE_SECONDS))))->count(),
             'blocked' => $canSend ? $invitations->blocked($run) : __('You need permission to run client imports to send invitations.'),
         ]);
     }
@@ -70,7 +72,7 @@ class ImportInvitationController extends Controller
         // Nothing new to queue but rows still waiting: start the sender again (it may have stopped).
         if ($run->status === MigrationRun::COMPLETED && $counts['not_invited'] + $counts['expired'] === 0
             && MigrationInvitation::query()->where('migration_run_id', $run->id)->where('status', MigrationInvitation::QUEUED)->exists()) {
-            dispatch(new SendInvitations);
+            SendInvitations::next();
             Inertia::flash('toast', ['type' => 'info', 'message' => __('Sending the invitations that are waiting.')]);
 
             return back();
