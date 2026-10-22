@@ -78,9 +78,9 @@ test('a run posts a new client\'s opening balance once; a dry run writes nothing
         ->and($usd->action)->toBe(ImportAction::Skipped)->and($usd->issues[0]->code)->toBe('credit_currency')->and($usd->issues[0]->severity)->toBe(ImportSeverity::Error)
         // A client that existed before the import, never imported into, keeps its credit (CTO rule, §6.12).
         ->and($kept->action)->toBe(ImportAction::Skipped)->and($kept->issues[0]->message)->toBe('Existing credit kept; post the opening balance manually if it is still owed.')
-        // The once-only key is the idempotency key; gateway and external_ref stay for provider references (#263).
+        // The idempotency key, plus the pre-#263 pair the previous release reads, until the contract step (#284).
         ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->get(['amount', 'reason', 'gateway', 'external_ref', 'idempotency_key'])->toArray())
-        ->toBe([['amount' => 50000, 'reason' => 'import', 'gateway' => null, 'external_ref' => null, 'idempotency_key' => "import:run:7:client:{$client->id}"]]);
+        ->toBe([['amount' => 50000, 'reason' => 'import', 'gateway' => 'import', 'external_ref' => "run:7:client:{$client->id}", 'idempotency_key' => "import:run:7:client:{$client->id}"]]);
 });
 
 test('undo takes back exactly what the run posted, once, and keeps a balance the client has used', function () {

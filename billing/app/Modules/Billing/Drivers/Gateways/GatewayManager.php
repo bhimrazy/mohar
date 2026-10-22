@@ -19,21 +19,30 @@ use LogicException;
 class GatewayManager implements GatewayRegistry
 {
     /**
-     * Keys no driver may take: `import` marks opening-balance credit entries posted before #263 (credit_ledger.gateway),
-     * so a driver's provider references must never share that value.
+     * Keys no driver may take: `import` marks imported opening-balance entries in credit_ledger.gateway (every entry
+     * before #263, and beside the idempotency key until #284), so a driver's provider references must never share it.
      */
     public const RESERVED_KEYS = ['import'];
+
+    /** The gateways.key and credit_ledger.gateway columns hold 50 characters. */
+    private const KEY_PATTERN = '/^[a-z0-9_]{1,50}$/';
 
     /** @var array<string, GatewayDriver> */
     private array $drivers = [];
 
     public function register(GatewayDriver $driver): void
     {
-        if (in_array($driver->key(), self::RESERVED_KEYS, true)) {
-            throw new LogicException("The gateway key [{$driver->key()}] is reserved; give the driver another key.");
+        $key = $driver->key();
+
+        if (preg_match(self::KEY_PATTERN, $key) !== 1) {
+            throw new LogicException("The gateway key [{$key}] must be 1 to 50 lowercase letters, digits or underscores.");
         }
 
-        $this->drivers[$driver->key()] = $driver;
+        if (in_array($key, self::RESERVED_KEYS, true)) {
+            throw new LogicException("The gateway key [{$key}] is reserved; give the driver another key.");
+        }
+
+        $this->drivers[$key] = $driver;
     }
 
     public function drivers(): array

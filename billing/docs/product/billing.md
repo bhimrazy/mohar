@@ -68,7 +68,7 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 
 - Client balance = latest `balance_after` (row-locked append). Negative balance allowed only via reversal. **MUST**
 - Credit applied automatically (renewals, `applyCredit`) is the amount read under the client lock: credit spent concurrently lowers it, and with none left the invoice is issued unpaid (#192). **MUST**
-- Once-only keys: `gateway` + `external_ref` (unique together) name a provider movement only (a refund or dispute id). A posting Mohar makes itself (an import's opening balance, later automation credits) carries `idempotency_key` instead, unique, prefixed with the poster's name (`import:run:<run>:client:<client>`). The poster reads the key under the client lock before posting; the unique index stops a writer that did not. `import` is a reserved gateway key (pre-#263 opening balances carry it). (#263) **MUST**
+- Once-only keys: `gateway` + `external_ref` (unique together) name a provider movement only (a refund or dispute id). A posting Mohar makes itself (an import's opening balance, later automation credits) carries `idempotency_key` instead, unique, prefixed with the poster's name (`import:run:<run>:client:<client>`). The poster reads the key under the client lock before posting; the unique index stops a writer that did not. `import` is a reserved gateway key: opening balances also carry it with `external_ref` `run:…` until the contract step (#284). (#263) **MUST**
 
 ### gateways & pay_methods
 
