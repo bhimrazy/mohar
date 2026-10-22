@@ -725,6 +725,10 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Domains
 
+- Registrar refs store (registrars.md C4, ADR 0009 PR C3): a new `registrar_refs` table (migration `500600`, expand
+  only) behind the kernel `RegistrarRefs` contract, where registrar drivers keep the remote customers, contacts and
+  profiles they create for local records; a profile credential is encrypted at rest. Nothing uses it until the first
+  API registrar driver; no permission change.
 - Registrar drivers run on the kernel registrar contracts (ADR 0009, PR C2), so a package can ship a registrar
   driver without the Domains module's code. Admin → Domains → Registrars and the domain pages list the same
   capabilities as before, plus "Test connection" for drivers that offer one; "Test connection" on a driver without
