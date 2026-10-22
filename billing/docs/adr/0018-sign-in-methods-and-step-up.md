@@ -67,8 +67,9 @@ No sign-in method counts as a second factor or as a password confirmation.
 
 - `RequireRecentPasswordConfirmation` moves from Platform to `App\Http\Middleware`. The alias is registered in
   `bootstrap/app.php`, and Billing's `ConfirmPasswordForAction` copy is deleted (#81).
-- The window is `auth.step_up_seconds`, read from `AUTH_STEP_UP_SECONDS` (default 900; a whole number from 60 to 3600,
-  and any other value stops the application at boot). It does not change `password_timeout`.
+- The window is `auth.step_up_seconds`, read from `AUTH_STEP_UP_SECONDS` (default 900 when unset or empty; a whole
+  number from 60 to 3600, and any other value fails when the configuration loads). It does not change
+  `password_timeout`.
 - It is the only step-up mechanism. It reads `auth.password_confirmed_at`, which only Fortify's `confirm-password`
   sets. No module adds another form of step-up, such as an emailed link, a provider re-authentication or a module
   timestamp.

@@ -466,8 +466,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Step-up window from the environment (#273)
 
 - `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
-  to 900, the same as before. It must be a whole number from 60 to 3600; any other value stops the application at
-  boot with a message naming the variable. Documented in `.env.example`, `docs/devops/install.md` and ADR 0018 §4.
+  to 900, the same as before, and an empty value counts as unset. It must be a whole number from 60 to 3600; any
+  other value stops the application at boot with a message naming the value received. Documented in `.env.example`, `docs/devops/install.md` and ADR 0018 §4.
 
 ### Architecture tests check every target (#275)
 

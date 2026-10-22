@@ -118,8 +118,12 @@ than `APP_URL`'s host and its subdomains are rejected. A wrong value sends peopl
 value produces insecure links. When the domain changes, update `APP_URL` and run `php artisan optimize` again. The
 install pre-flight warns in production when `APP_URL` is not an `https://` address or points at localhost.
 
-`AUTH_STEP_UP_SECONDS` is optional and defaults to 900. It sets how long a password confirmation unlocks sensitive
-changes (ADR 0018 §4). It must be a whole number from 60 to 3600; any other value stops the application at boot.
+`AUTH_STEP_UP_SECONDS` is optional and defaults to 900, and an empty value counts as unset. It sets how long a
+password confirmation unlocks sensitive changes (ADR 0018 §4). It must be a whole number from 60 to 3600. Any other
+value fails when the configuration loads, and `deploy/entrypoint.sh` runs `php artisan optimize` under `set -eu` in
+every service, so the web, worker and scheduler containers exit at start and restart in a loop until the value is
+fixed. The error names the value received. `php artisan config:clear` still works, so it can be used to inspect the
+state, but it does not make a bad value valid.
 
 `CACHE_STORE` must be a store that every web and queue process shares, because cache locks (a provisioning create
 that waits for verification, per-attempt payment locks) only exclude each other through one lock store. Use `database`
