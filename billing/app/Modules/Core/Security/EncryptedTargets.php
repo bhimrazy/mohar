@@ -8,7 +8,6 @@ use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use Illuminate\Database\Eloquent\Casts\AsEncryptedArrayObject;
 use Illuminate\Database\Eloquent\Casts\AsEncryptedCollection;
-use Illuminate\Database\Eloquent\Model;
 use LogicException;
 use Throwable;
 
@@ -65,10 +64,6 @@ class EncryptedTargets
             $model = new ($entry->model);
         } catch (Throwable $exception) {
             throw new LogicException("Encrypted storage [{$key}]: the model {$entry->model} cannot be built ({$exception->getMessage()}).", previous: $exception);
-        }
-
-        if (! $model instanceof Model) {
-            throw new LogicException("Encrypted storage [{$key}]: {$entry->model} is not an Eloquent model.");
         }
 
         $columns = [];

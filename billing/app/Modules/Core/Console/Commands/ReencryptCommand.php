@@ -104,8 +104,6 @@ class ReencryptCommand extends Command
 
     /**
      * @param  array<string, EncryptedColumn|EncryptedFiles>  $targets
-     */
-    /**
      * @param  list<string>  $skipped  modules not loaded
      */
     private function reencrypt(array $targets, bool $dryRun, int $chunk, ?int $budget, array $skipped, ActivityLogger $logger, Settings $settings): int
