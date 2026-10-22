@@ -227,6 +227,9 @@ services:
     # docs/architecture.md), the bucket, reference data (all idempotent). It also builds the image.
     # `migrate --isolated=1` holds a cache lock (CACHE_STORE=database: the cache_locks table, so that one migration
     # runs first on its own) and exits 1 while another migrator runs, which stops the deploy.
+    # The first step names the cache-table migration by its path. If that file is renamed or split, the step prints
+    # "Nothing to migrate" and a first install fails in the second step on the missing cache_locks table, so
+    # tests/Unit/Deploy/MigrateServiceTest.php checks that the file exists.
     migrate:
         <<: *worker
         image: ${APP_IMAGE:-mohar-app:local} # own image

@@ -169,3 +169,29 @@ test('a migration with its own connection gets the lock timeout on that connecti
         rmdir($directory);
     }
 })->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'lock_timeout exists on PostgreSQL only');
+
+test('an INVALID index of the same name on another table is left in place and reported, never dropped', function () {
+    $testConnection = config('database.default');
+    lockTimeoutSession('pgsql_lock_ddl');
+    DB::setDefaultConnection('pgsql_lock_ddl');
+
+    try {
+        DB::table('automation_runs')->insert([
+            ['run_date' => '2026-01-01', 'task' => 'other-table-probe', 'status' => 'done'],
+            ['run_date' => '2026-01-02', 'task' => 'other-table-probe', 'status' => 'done'],
+        ]);
+        expect(fn () => DB::statement('create unique index concurrently other_table_probe_unique on automation_runs (task)'))
+            ->toThrow(QueryException::class, 'could not create unique index');
+        $oid = DB::selectOne("select oid from pg_class where relname = 'other_table_probe_unique'")?->oid;
+
+        expect(fn () => OnlineIndex::create('settings', ['key'], 'other_table_probe_unique', unique: true))
+            ->toThrow(LogicException::class, 'already exists with a different definition');
+        expect($oid)->not->toBeNull()
+            ->and(DB::selectOne("select oid from pg_class where relname = 'other_table_probe_unique'")?->oid)->toBe($oid);
+    } finally {
+        DB::statement('drop index if exists other_table_probe_unique');
+        DB::table('automation_runs')->where('task', 'other-table-probe')->delete();
+        DB::setDefaultConnection($testConnection);
+        DB::purge('pgsql_lock_ddl');
+    }
+})->skip(fn () => DB::connection()->getDriverName() !== 'pgsql', 'CONCURRENTLY exists on PostgreSQL only');

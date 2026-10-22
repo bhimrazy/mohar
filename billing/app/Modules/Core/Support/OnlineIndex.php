@@ -420,12 +420,14 @@ final class OnlineIndex
     /**
      * Drop the INVALID index of $table that an interrupted concurrent build left, never one another session is still
      * building: such a build is INVALID too until its last step, and a DROP queued behind it would remove the index
-     * once it has become valid. The order makes the check race-free. pg_index is read, then the build progress, then
-     * pg_index again: a build running at the first read either still shows in the progress view, or finished before
-     * it and the second read sees the index valid (a build commits indisvalid before it leaves the view). No new
-     * build can start on the name while the index exists. A build in progress is waited for on its SHARE UPDATE
-     * EXCLUSIVE lock, which blocks no reads or writes; lock_timeout bounds the wait, after which LockTimeout retries,
-     * then fails naming the building session. An INVALID index of another table is left for existing() to report.
+     * once it has become valid. pg_index is read, then the build progress, then pg_index again (same oid, still
+     * INVALID); no new build can start on the name while the index exists. A build in progress is waited for on its
+     * SHARE UPDATE EXCLUSIVE lock, which blocks no reads or writes; lock_timeout bounds the wait, after which
+     * LockTimeout retries, then fails naming the building session. One window remains: on PostgreSQL 18 a build sets
+     * indisvalid, releases its lock and leaves the progress view before its transaction commits, so the reads can
+     * still see it INVALID with no build shown. The DROP that follows then updates the same pg_index row, waits for
+     * the build to commit and fails with "tuple concurrently updated": a failed migration that can run again, never a
+     * dropped valid index. An INVALID index of another table is left for existing() to report.
      *
      * @param  bool  $waitForBuilder  false: leave an index another session is building alone, without waiting
      */
