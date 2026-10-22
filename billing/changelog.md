@@ -347,6 +347,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
 
+### Architecture tests check every target (#275)
+
+- The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and
+  events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
+  went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
+  No violations were found on `develop`. No change for users or operators.
+
 ### Hosted payments: continue or pay another way (#123)
 
 - After a declined card on Stripe Checkout, the client invoice now offers **Continue payment**, which reopens the same

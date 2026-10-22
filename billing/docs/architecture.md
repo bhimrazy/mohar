@@ -44,6 +44,10 @@ loads only Core + Billing.
 4. Enforced by Pest architecture tests (`tests/Arch/ArchitectureTest.php`, run in CI): sibling-module imports,
    kernel → module imports, non-interface contracts, non-final DTOs/events, Eloquent models in DTOs/events, debug
    calls, and `DB` facade use in controllers all fail the build. The module list is read from `app/Modules`. (Pest only resolves existing classes, so violations surface once branches meet in `develop`.)
+   Each rule has exactly one `expect()` target: in pest-plugin-arch 5.0, `expect([A, B])->not->toUse(X)` passes as
+   soon as one target does not use `X`, so a violation in any other target goes unreported (issue #275, upstream
+   pestphp/pest#1751). Write a `foreach` with one `arch()` per namespace instead. Each file in `tests/Arch` also
+   checks that its target namespaces match at least one class, so a typo or a moved directory cannot pass silently.
 5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
 6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
