@@ -6,16 +6,20 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
-### Resumable redirect for Khalti (#251)
+### Kept redirect URL for Khalti's Continue payment (#251)
 
-- `App\Data\Billing\RedirectInstruction` gains `bool $resumable = false` (last parameter). A driver sets it when the
-  provider serves the redirect URL again while its session is open but has no API that returns it later. Billing then
-  keeps the URL on the attempt, encrypted at rest.
+- `App\Data\Billing\RedirectInstruction` gains `bool $keepForResume = false` (last parameter). A driver sets it when
+  the provider serves the redirect URL again while its session is open but has no API that returns it later. Billing
+  keeps the URL on the attempt, encrypted at rest, only for a driver that implements `ResumesHostedPayment`, and drops
+  it once the attempt leaves Pending. Stripe leaves it false: its `resumeUrl()` reads the URL from the provider.
 - `App\Data\Billing\PaymentAttemptRef` gains `?string $resumeUrl = null` (last parameter, `#[\SensitiveParameter]`):
-  that kept URL, for `ResumesHostedPayment::resumeUrl()`. The driver checks its host and asks the provider before
-  returning it.
-- `ResumesHostedPayment`'s docblock no longer says the URL is never stored; it is still never logged or sent as a
-  prop. Additive: existing drivers and callers are unchanged. Used by `KhaltiDriver`.
+  that kept URL, populated only on the ref passed to `ResumesHostedPayment::resumeUrl()`. Refs for `lookup()`,
+  `cancelSession()` and every other driver call carry null (Billing's `PaymentAttempt::toRef(withResumeUrl: true)` is
+  used by `ResumeHostedPayment` alone). The driver checks the URL and confirms with the provider before returning it.
+- `ResumesHostedPayment`'s docblock no longer says the URL is never stored. It says Billing sends it to the browser
+  only as the redirect target, and never logs it, puts it in a page prop or returns it in JSON. After a refused
+  resume, Billing settles through `lookup()`, which a driver may answer from the call it just made. Additive: existing
+  drivers and callers are unchanged. Used by `KhaltiDriver`.
 
 ### Redactor void containers (#278)
 

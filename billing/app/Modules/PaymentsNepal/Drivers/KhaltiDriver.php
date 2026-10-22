@@ -39,12 +39,23 @@ use Throwable;
  * source of truth, and only "Completed" counts as paid. Refunds (full or partial) go through Khalti's API.
  *
  * "Continue payment" (#251): the lookup doesn't return the payment_url and Khalti doesn't document building it from
- * the pidx, so initiate() marks it resumable and Billing keeps it encrypted on the attempt. resumeUrl() hands it back
- * only while a lookup says the session is still Initiated.
+ * the pidx, so initiate() asks Billing to keep it (encrypted, on the attempt). resumeUrl() hands it back only while a
+ * lookup says the session is still Initiated.
  */
 final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo, ResumesHostedPayment
 {
     public const KEY = 'khalti';
+
+    /** How long resumeUrl()'s lookup answer may stand in for the lookup Billing makes right after a refused resume. */
+    private const RESUME_ANSWER_SECONDS = 15;
+
+    /**
+     * The answer behind a refused resumeUrl(), handed once to the next lookup() of the same pidx: Billing settles a
+     * refused resume from it, so a click costs one provider call.
+     *
+     * @var array{pidx: string, at: float, result: LookupResult}|null
+     */
+    private ?array $resumeAnswer = null;
 
     public function __construct(private ProviderHttp $http) {}
 
@@ -126,27 +137,35 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             throw new ProviderException('Khalti initiate failed (HTTP '.$response->status().') '.ProviderHttp::summary($response->json()));
         }
 
-        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')), resumable: true);
+        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')), keepForResume: true);
     }
 
     /**
      * The payment_url kept from initiate(), only while Khalti's lookup of the stored pidx says Initiated (its page is
      * served then; Pending means the payer already paid and the bank hasn't confirmed). Expired, cancelled, completed,
-     * unreachable or any other answer gives null, as does a kept URL that fails the Khalti host check.
+     * unreachable or any other answer gives null, as does a kept URL that fails the Khalti host check or names another
+     * pidx; those two are refused before Khalti is asked.
      */
     public function resumeUrl(GatewayConfig $gateway, PaymentAttemptRef $attempt): ?string
     {
-        if ($attempt->resumeUrl === null || ! $this->isKhaltiUrl($attempt->resumeUrl)
+        if ($attempt->resumeUrl === null || $attempt->providerRef === null || ! $this->isKhaltiUrl($attempt->resumeUrl)
+            || self::urlPidx($attempt->resumeUrl) !== $attempt->providerRef
             || ($attempt->expiresAt !== null && ! $attempt->expiresAt->isFuture())) {
             return null;
         }
 
+        $this->resumeAnswer = null; // always a fresh answer here, never one left by an earlier click
         $result = $this->lookup($gateway, $attempt);
         $status = $result->raw['status'] ?? null;
 
-        return $result->status === LookupResult::PENDING && ! $result->retryable && is_string($status) && mb_strtolower(trim($status)) === 'initiated'
-            ? $attempt->resumeUrl
-            : null;
+        if ($result->status === LookupResult::PENDING && ! $result->retryable && is_string($status) && mb_strtolower(trim($status)) === 'initiated') {
+            return $attempt->resumeUrl;
+        }
+
+        // Refused: Billing settles from this answer next. Never kept on a reopen, where the payer acts on the page next.
+        $this->resumeAnswer = ['pidx' => $attempt->providerRef, 'at' => microtime(true), 'result' => $result];
+
+        return null;
     }
 
     /**
@@ -201,6 +220,13 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
     {
         if ($attempt->providerRef === null || ! self::isProviderRef($attempt->providerRef)) {
             return new LookupResult(LookupResult::NOT_FOUND, raw: ['error' => 'no pidx stored for this attempt']);
+        }
+
+        $answer = $this->resumeAnswer;
+        $this->resumeAnswer = null;
+
+        if ($answer !== null && $answer['pidx'] === $attempt->providerRef && microtime(true) - $answer['at'] < self::RESUME_ANSWER_SECONDS) {
+            return $answer['result'];
         }
 
         try {
@@ -377,6 +403,14 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         return $host === $domain || str_ends_with($host, '.'.$domain);
+    }
+
+    /** The pidx query value of a kept payment_url (Khalti's own format: `https://…/?pidx=<pidx>`). */
+    private static function urlPidx(string $url): ?string
+    {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return is_string($query['pidx'] ?? null) ? $query['pidx'] : null;
     }
 
     private static function partialRefunds(): bool

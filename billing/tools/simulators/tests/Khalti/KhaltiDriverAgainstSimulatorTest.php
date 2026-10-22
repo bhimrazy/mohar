@@ -224,7 +224,7 @@ test('a session Khalti no longer serves is never resumed, and the invoice shows 
     [$invoice, $attempt] = khaltiStart();
     $this->scenario->simulator()->actions()[$action](['pidx' => $attempt->provider_ref], $this->scenario);
 
-    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true)))->toBeNull();
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull();
 
     $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertRedirect(route('client.invoices.show', $invoice->id));
     expect($attempt->fresh()->status)->toBe($settled);
@@ -234,13 +234,26 @@ test('a session Khalti no longer serves is never resumed, and the invoice shows 
     'completed' => ['pay', AttemptStatus::Succeeded],
 ]);
 
-test('a Pending session (paid, bank confirming) is not resumed: the client is told to wait (#251)', function () {
+test('a Pending session (paid, bank confirming) is not resumed: the client is told it is being confirmed (#251)', function () {
     [$invoice, $attempt] = khaltiStart();
     $this->scenario->simulator()->actions()['pending'](['pidx' => $attempt->provider_ref], $this->scenario);
+    $lookups = $this->scenario->log()->count('lookup');
 
-    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true)))->toBeNull();
-    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertSessionHasErrors();
-    expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull();
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))
+        ->assertSessionHasErrors(['billing' => 'Your payment is being confirmed. This invoice updates once it is, so you don\'t need to pay again.']);
+    // One lookup for the driver call above, and one for the click: the refused resume settles from its own answer.
+    expect($this->scenario->log()->count('lookup'))->toBe($lookups + 2)
+        ->and($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
+});
+
+test('a kept payment_url for another pidx is refused without asking Khalti (#251)', function () {
+    [, $attempt] = khaltiStart();
+    $attempt->forceFill(['resume_url' => $this->scenario->apiUrl().'/?pidx=SomeoneElsesPidx'])->save();
+    $lookups = $this->scenario->log()->count('lookup');
+
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull()
+        ->and($this->scenario->log()->count('lookup'))->toBe($lookups);
 });
 
 test('a tampered stored payment_url is refused without asking Khalti (#251)', function (string $url) {
@@ -248,7 +261,7 @@ test('a tampered stored payment_url is refused without asking Khalti (#251)', fu
     $attempt->forceFill(['resume_url' => $url])->save();
     $lookups = $this->scenario->log()->count('lookup');
 
-    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true)))->toBeNull()
+    expect(app(KhaltiDriver::class)->resumeUrl(khaltiConfig(), $attempt->fresh()->toRef(interactive: true, withResumeUrl: true)))->toBeNull()
         ->and($this->scenario->log()->count('lookup'))->toBe($lookups);
 
     $response = $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]));

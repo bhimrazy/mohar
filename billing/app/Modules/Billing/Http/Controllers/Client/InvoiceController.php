@@ -11,7 +11,6 @@ use App\Modules\Billing\Actions\CaptureInvoice;
 use App\Modules\Billing\Actions\CloseHostedPayment;
 use App\Modules\Billing\Actions\ManagePayMethods;
 use App\Modules\Billing\Actions\ResumeHostedPayment;
-use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Actions\StartHostedPayment;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Enums\AttemptStatus;
@@ -150,28 +149,25 @@ class InvoiceController extends Controller
     }
 
     /**
-     * "Continue payment": back to the provider page of this client's still-open attempt (#123). When the provider
-     * no longer offers it, the attempt is looked up so the invoice shows where it stands.
+     * "Continue payment": back to the provider page of this client's still-open attempt (#123, #251). When the provider
+     * no longer offers it, the attempt is settled from one lookup so the invoice shows where it stands.
      */
-    public function resumeAttempt(int $invoice, string $reference, ResumeHostedPayment $resume, SettlePaymentAttempt $settle): SymfonyResponse
+    public function resumeAttempt(int $invoice, string $reference, ResumeHostedPayment $resume): SymfonyResponse
     {
         $this->context->authorize('billing');
-        $attempt = $this->ownAttempt($this->find($invoice), $reference);
-        $url = $resume->handle($attempt);
+        $outcome = $resume->handle($this->ownAttempt($this->find($invoice), $reference));
 
-        if ($url !== null) {
-            return Inertia::location($url);
+        if ($outcome->url !== null) {
+            return Inertia::location($outcome->url);
         }
 
-        $status = PaymentInProgress::closable($attempt) ? $settle->handle($attempt, interactive: true) : $attempt->status;
-
-        if ($status->isOpen()) {
-            throw new BillingException(__('We couldn\'t reopen the payment page. Try again in a few minutes, or use another method.'));
+        if ($outcome->error !== null) {
+            throw new BillingException($outcome->error);
         }
 
-        Inertia::flash('toast', $this->attemptToast($status));
+        Inertia::flash('toast', $this->attemptToast($outcome->status));
 
-        return to_route('client.invoices.show', $attempt->invoice_id);
+        return to_route('client.invoices.show', $invoice);
     }
 
     /**

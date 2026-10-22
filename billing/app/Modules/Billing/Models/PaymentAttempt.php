@@ -130,8 +130,12 @@ class PaymentAttempt extends Model
         return Money::of($this->amount, $this->currency);
     }
 
-    public function toRef(bool $interactive = false): PaymentAttemptRef
+    /**
+     * @param  bool  $withResumeUrl  decrypt and include the kept provider page (#251): ResumeHostedPayment only, so
+     *                               lookup(), cancelSession() and every other driver call never receive it
+     */
+    public function toRef(bool $interactive = false, bool $withResumeUrl = false): PaymentAttemptRef
     {
-        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at, $interactive, $this->resume_url);
+        return new PaymentAttemptRef($this->reference, $this->money(), $this->provider_ref, $this->provider_txn_id, $this->expires_at, $interactive, $withResumeUrl ? $this->resume_url : null);
     }
 }

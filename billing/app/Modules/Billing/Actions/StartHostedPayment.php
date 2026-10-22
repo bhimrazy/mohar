@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Actions;
 
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Orders\PaymentGuard;
 use App\Data\Billing\FormPost;
 use App\Data\Billing\PaymentIntent;
@@ -101,11 +102,11 @@ class StartHostedPayment
         }
 
         // The provider's own session expiry, when it states one, decides how long the invoice stays locked. A resumable
-        // provider page is kept (encrypted) for "Continue payment" (#251).
+        // provider page is kept (encrypted) for "Continue payment" (#251), only for a driver that can reopen it.
         $attempt->update(array_filter([
             'provider_ref' => $instruction->providerRef,
             'expires_at' => $instruction->expiresAt,
-            'resume_url' => $instruction instanceof RedirectInstruction && $instruction->resumable ? $instruction->url : null,
+            'resume_url' => $instruction instanceof RedirectInstruction && $instruction->keepForResume && $driver instanceof ResumesHostedPayment ? $instruction->url : null,
         ], fn (mixed $value): bool => $value !== null));
         $this->log->log($gatewayKey, 'request', 'hosted payment started', ['reference' => $attempt->reference, 'amount' => $amount->amount, 'currency' => $amount->currency], $invoice->id);
 
