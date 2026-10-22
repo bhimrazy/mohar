@@ -1,6 +1,6 @@
 <?php
 
-// Security re-check of #286 at d2bd85df: the step-down paths. Uses the helpers in ImageReencodeTest.php (run both files together).
+// Security re-check of #286 at d2bd85df: the step-down paths. The image helpers come from Support/image-fixtures.php.
 
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Models\KycDocument;
@@ -8,6 +8,8 @@ use App\Modules\Kyc\Services\ImageSanitiser;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+
+require_once __DIR__.'/Support/image-fixtures.php';
 
 beforeEach(function () {
     Storage::fake(KycDocument::DISK);
