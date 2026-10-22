@@ -379,6 +379,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   emails the client (new editable template "Identity document decision"), with the reason for a decline and one
   button to the verification page. Each opening, image view, approval and decline is in the activity log, without
   the number or the image.
+- Staff review: when the 15-minute window ends, the page hides the numbers and images at once and reloads, and the
+  browser history of the review page is cleared on the first page after the window ends, so Back or a restored tab no
+  longer brings the numbers back (#240). Logging out while documents are shown clears it too, and so does every visit
+  to the login or two-factor challenge page, where a session that ended on the server (idle expiry, deactivated
+  account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
+  recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
+  admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
 
 ### Client import
 
@@ -565,6 +572,13 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Services
 
+- Import accounts: a currency change on a client at the same moment as a confirmed import can no longer leave the
+  client with an imported service in its old currency (#239). Each account reads the client again under a share lock
+  before its service is created. If the currency changed since the review, the account is not imported and the
+  report says why, for example "The client's currency changed from NPR to USD since the review, so it was not
+  imported in USD. Review the account again."; review it again to import it in the new currency. A currency change
+  that reaches the client while its service is being created waits for it and is then refused as usual. No
+  migration and no permission change.
 - Import accounts, step 1 (fetch and match; the page follows): staff with the import permission fetch every account
   on a server that can list them (cPanel/WHM). The fetch runs on the queue, and each account is matched once when it
   finishes: proposed when exactly one open client has its contact email and exactly one product uses its package on
