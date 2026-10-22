@@ -113,7 +113,10 @@ class ImportInvitations
             $now = now()->format('Y-m-d H:i:s');
             $at = DB::getDriverName() === 'pgsql' ? 'cast(? as timestamp)' : '?';
             $eligible = DB::query()->fromSub($this->candidates($run, $filters), 'x')->whereIn('state', ['not_invited', 'expired'])
-                ->selectRaw("cast(? as bigint), client_id, user_id, cast(? as varchar(16)), cast(? as bigint), {$at}, {$at}", [$run->id, MigrationInvitation::QUEUED, $actor->id, $now, $now]);
+                ->selectRaw("cast(? as bigint), client_id, user_id, cast(? as varchar(16)), cast(? as bigint), {$at}, {$at}", [$run->id, MigrationInvitation::QUEUED, $actor->id, $now, $now])
+                // In login order: the sender takes rows by id, so a capped hour sends the oldest logins first, not
+                // whichever the query plan returned first (PostgreSQL's hash joins do not keep any order).
+                ->orderBy('user_id');
 
             return DB::table('migration_invitations')->insertUsing(['migration_run_id', 'client_id', 'user_id', 'status', 'requested_by', 'created_at', 'updated_at'], $eligible);
         });
