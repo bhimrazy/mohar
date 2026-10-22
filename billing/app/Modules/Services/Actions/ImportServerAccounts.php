@@ -30,6 +30,11 @@ use Illuminate\Validation\ValidationException;
  *   the server has it suspended; no invoice, welcome mail, module command or password. The live-only unique
  *   (server_id, username) index makes a second import of the same account fail; it is reported as already held.
  *   ServiceImported follows each commit, and each account is audited against the staff member.
+ *   Lock order (ADR 0021, client currency): the client FOR SHARE, then the service insert, its report line and the
+ *   import's count. The service copies the client's currency, so the client's status and currency are checked again
+ *   under that lock; a currency change (Client::updateDetails, FOR UPDATE) either waits for the service and is then
+ *   refused, or commits first and the account is reported as not imported. No server is called: the accounts come
+ *   from the stored list.
  * - finish(): imported accounts are marked linked in the stored list, the counts refreshed, the choices cleared.
  *
  * This is the explicit staff action security standards §7 asks for: only accounts staff named and confirmed are linked.
@@ -167,10 +172,7 @@ class ImportServerAccounts
             $problem = match (true) {
                 $account === null => AccountImportMatcher::text('The account is no longer in the fetched list.'),
                 $held->has(strtolower($row['username'])) => AccountImportMatcher::text('A live service on this server already holds this account.'),
-                $client === null || $client->status !== 'active' => AccountImportMatcher::text('The client is no longer active.'),
-                $client->currency !== $row['currency'] => AccountImportMatcher::text('The client\'s currency changed since the review.'),
-                $product === null => AccountImportMatcher::text('The product no longer provisions on this server.'),
-                default => null,
+                default => $this->clientProblem($client, $row['currency']) ?? ($product === null ? AccountImportMatcher::text('The product no longer provisions on this server.') : null),
             };
 
             if ($problem !== null) {
@@ -181,7 +183,17 @@ class ImportServerAccounts
 
             try {
                 // The service and its report line commit together, so a chunk that fails later keeps both.
-                $service = DB::transaction(function () use ($server, $import, $account, $row, $product, &$report): Service {
+                $service = DB::transaction(function () use ($server, $import, $account, $row, $product, &$report): ?Service {
+                    // The check above read the client without a lock; the service copies its currency, so decide again
+                    // under a share lock that a currency change has to wait for (class docblock, lock order).
+                    $problem = $this->clientProblem(Client::query()->whereKey($row['client_id'])->sharedLock()->first(['id', 'status', 'currency']), $row['currency']);
+
+                    if ($problem !== null) {
+                        $report[] = $this->report($import, ['username' => $row['username'], 'imported' => false, 'message' => $problem, 'service_id' => null]);
+
+                        return null;
+                    }
+
                     $service = $this->create($server, $account, $row, $product, $row['currency']);
                     $report[] = $this->report($import, ['username' => $row['username'], 'imported' => true, 'message' => AccountImportMatcher::text('Imported.'), 'service_id' => $service->id]);
 
@@ -193,6 +205,10 @@ class ImportServerAccounts
                 continue;
             }
 
+            if ($service === null) {
+                continue;
+            }
+
             ServiceImported::dispatch($service->id, $service->client_id, $server->id, $server->driver, 'server_import');
             $this->activity->log("Service {$service->label()} imported from server {$server->name}", $service, $service->client_id, [
                 'server' => $server->name, 'username' => $service->username, 'product' => $product->name, 'staff_id' => $staff?->id,
@@ -200,6 +216,19 @@ class ImportServerAccounts
         }
 
         return $report;
+    }
+
+    /**
+     * Why a reviewed account can no longer go to this client: inactive, or in another currency than the review priced
+     * it in (the service is never priced in the new currency).
+     */
+    private function clientProblem(?Client $client, string $currency): ?string
+    {
+        return match (true) {
+            $client === null || $client->status !== 'active' => AccountImportMatcher::text('The client is no longer active.'),
+            $client->currency !== $currency => AccountImportMatcher::text('The client\'s currency changed from :reviewed to :current since the review, so it was not imported in :current. Review the account again.', ['reviewed' => $currency, 'current' => $client->currency]),
+            default => null,
+        };
     }
 
     /**
