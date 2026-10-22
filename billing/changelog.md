@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Step-up for sensitive actions works with any set of modules (#81).** The `password.recent` middleware moved from
+  the Platform module to the application kernel (`App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in
+  `bootstrap/app.php`). Installations that leave out Platform (`MODULES=Domains`, `MODULES=Services` and so on) no
+  longer get a 500 error on sensitive Domains, Services, Kyc, Notifications and Storefront actions: they get the usual
+  confirm-password prompt (423 for JSON clients). Billing's and Migration's own fallbacks are removed; Migration's
+  used to redirect to the confirm page, and now behaves like every other module. The window is still 900 seconds;
+  its setting moved from `platform.password_confirmation_seconds` to `auth.step_up_seconds` in `config/auth.php`.
+  Anyone who edited the old key in `app/Modules/Platform/Config/platform.php` sets the new one instead. No schema or
+  permission change.
 - **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
   transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
   longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a

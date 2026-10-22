@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Http\Controllers\Admin\ActivityLogController;
 use App\Modules\Platform\Http\Controllers\Admin\AutomationController;
 use App\Modules\Platform\Http\Controllers\Admin\ClientContactController;
@@ -17,7 +18,6 @@ use App\Modules\Platform\Http\Controllers\Admin\StaffController;
 use App\Modules\Platform\Http\Controllers\Admin\StaffInvitationController;
 use App\Modules\Platform\Http\Controllers\Public\ClientInvitationController;
 use App\Modules\Platform\Http\Controllers\Public\StaffInvitationController as AcceptInvitationController;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use Illuminate\Support\Facades\Route;
 
 Route::adminArea(fn () => Route::name('platform.')->group(function (): void {
