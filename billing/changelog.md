@@ -8,6 +8,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Application key rotation (#25).** New command `php artisan security:reencrypt` re-encrypts every stored secret
+  with the current `APP_KEY`: the 22 encrypted-cast columns of the module models, secret settings, staff and client
+  two-factor secrets and recovery codes, the new install secrets, and the identity images on the objects disk (27
+  targets; `--dry-run` lists them with counts). It works in chunks with a checkpoint per target, so an interrupted run
+  resumes (a half-switched identity image is finished on the next run), and a value the app writes during the run is
+  never overwritten. A real run refuses to start while `MODULES` leaves modules out, unless `--partial` is given. It
+  writes one audit-log entry with counts only (event `security.reencrypted`). Exit codes: 0 done, 1 values no key
+  decrypts (left unchanged and listed by id), 2 invalid options or modules missing, 3 more to do, 4 another run holds
+  the lock. The runbook is `docs/devops/key-rotation.md` (ADR 0022): new key, old key into `APP_PREVIOUS_KEYS`,
+  restart every PHP process (Docker: `deploy/bin/deploy`, then `retire`, because the previous colour cannot read the
+  new key), re-encrypt, verify, remove the old key. **Operators:** run `php artisan migrate` (new tables
+  `reencryption_checkpoints` and `install_secrets`, migrations `2026_10_22_000100` and `000110`, expand only).
+  `APP_KEY` and `APP_PREVIOUS_KEYS` can now come from a file named by `APP_KEY_FILE` / `APP_PREVIOUS_KEYS_FILE`
+  (absolute, or relative to the app directory; previous keys separated by commas or new lines; Docker secrets:
+  `deploy/compose.secrets.example.yaml` with the new `DEPLOY_COMPOSE_OVERRIDE` setting of `deploy/bin/deploy`;
+  systemd credentials); a non-empty variable still wins. `app:install` (run by every deploy) now fails when a
+  variable and its file hold different keys, when the key file is under `public/`, and when a previous key does not
+  fit the cipher; in production it warns when the key is a published one or not random, when a key file sits inside
+  the application directory, and when `.env` or `bootstrap/cache/config.php` is readable by other users. Import
+  email hashes (duplicate checks, the email-keyed id map) now use an install secret instead of a key derived from
+  `APP_KEY`, so a rotation no longer makes a re-import duplicate clients. On an upgrade, migration
+  `2026_10_22_980300` (Migration, data only) pins the secret from the configured key that reproduces a stored hash (checked against staged emails and the
+  emails of imported clients), so stored hashes keep matching; `security:reencrypt` pins it too if it is still missing.
+  When several keys are configured and no stored hash can be checked, both stop with a message (migrate fails,
+  `security:reencrypt` exits 2) instead of guessing: run `migrate` under the old key, then rotate. A run with `--only`
+  reports the other targets as not checked, exits 3 and is not logged as complete. The KYC retention task re-reads a document's files under lock before deleting
+  them. Set `PASSKEYS_USER_HANDLE_SECRET` before a first rotation (see the runbook). Backups: the backup sections of
+  `install.md`, `production.md` and `cpanel.md` now say to exclude `.env` and `bootstrap/cache/config.php` from file
+  and host backups and to keep the key (and old keys, for older dumps) in a secrets store; before, `production.md`
+  listed `deploy/.env` among the things to back up. No permission change.
 - **Step-up for sensitive actions works with any set of modules (#81).** The `password.recent` middleware moved from
   the Platform module to the application kernel (`App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in
   `bootstrap/app.php`). Installations that leave out Platform (`MODULES=Domains`, `MODULES=Services` and so on) no
@@ -21,7 +51,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
   single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
   finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
-
 - **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
   transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
   longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a

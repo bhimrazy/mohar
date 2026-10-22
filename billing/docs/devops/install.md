@@ -131,8 +131,11 @@ Then generate the application key **once**:
 php artisan key:generate
 ```
 
-Back up `.env`. `APP_KEY` encrypts stored secrets (gateway, registrar and server credentials, secret settings); if
-it is lost they cannot be decrypted. When you rotate it, keep the old one in `APP_PREVIOUS_KEYS`.
+Store a copy of `APP_KEY` in a password manager or secrets store. It encrypts stored secrets (gateway, registrar and
+server credentials, secret settings); if it is lost they cannot be decrypted. Keep `.env` at mode 600, owned by the
+PHP user, and out of file backups. The key can also come from the environment or from a file named by
+`APP_KEY_FILE`; rotation (with `APP_PREVIOUS_KEYS` and `php artisan security:reencrypt`) is in
+[key-rotation.md](key-rotation.md).
 
 ## 4. Database, storage and the install command
 
@@ -320,10 +323,11 @@ Three things, kept apart, and a restore you have actually tried.
    versioning or replication to a second bucket, or sync it to another provider on a schedule (for example
    `rclone sync`). A database restore without the bucket leaves links to files that no longer exist.
 
-3. **`APP_KEY` (and `.env`).** Store the key in a password manager or secrets store, **separately from the database
-   dumps**. Without it, every encrypted value in a dump (gateway, registrar and server credentials, secret
-   settings) is unrecoverable. And a dump stored together with the key gives whoever reads it all of those
-   credentials.
+3. **`APP_KEY`.** Store the key in a password manager or secrets store, **separately from the database dumps**,
+   and never back up `.env` or `bootstrap/cache/config.php` (exclude them from file and host backups). Without the
+   key, every encrypted value in a dump (gateway, registrar and server credentials, secret settings) is
+   unrecoverable. A dump stored together with the key gives whoever reads it all of those credentials. After a
+   rotation, keep the old key as long as dumps taken under it ([key-rotation.md](key-rotation.md#backups-and-old-keys)).
 
 **Restore test.** At least once before go-live, and then every quarter, restore the latest dump into a scratch
 database (`createdb billing_restore && pg_restore --no-owner --dbname=billing_restore <file>`). Point a copy of the

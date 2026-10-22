@@ -24,14 +24,25 @@ class ModulesServiceProvider extends ServiceProvider
     }
 
     /**
+     * Every module on disk, Core first, loaded or not.
+     *
+     * @return list<string>
+     */
+    public static function availableModules(): array
+    {
+        return array_values(collect(glob(app_path('Modules/*'), GLOB_ONLYDIR) ?: [])
+            ->map(fn (string $path): string => basename($path))
+            ->sortBy(fn (string $module): int => $module === 'Core' ? 0 : 1)
+            ->values()
+            ->all());
+    }
+
+    /**
      * @return list<string>
      */
     public static function enabledModules(): array
     {
-        $available = collect(glob(app_path('Modules/*'), GLOB_ONLYDIR) ?: [])
-            ->map(fn (string $path): string => basename($path))
-            ->sortBy(fn (string $module): int => $module === 'Core' ? 0 : 1)
-            ->values();
+        $available = collect(self::availableModules());
 
         $only = array_filter(array_map('trim', explode(',', (string) config('modules.only', ''))));
 

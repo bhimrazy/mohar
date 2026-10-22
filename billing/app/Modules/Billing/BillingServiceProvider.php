@@ -21,8 +21,10 @@ use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Import\OpeningBalanceImporter;
 use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\InvoiceItem;
+use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Billing\Services\BillingAutomation;
@@ -49,6 +51,8 @@ use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -93,6 +97,11 @@ class BillingServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('billing_gateways', new EncryptedModel(Gateway::class));
+        $encrypted->register('billing_pay_methods', new EncryptedModel(PayMethod::class));
+
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
