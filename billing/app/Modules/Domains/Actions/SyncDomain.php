@@ -2,12 +2,15 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
 use App\Contracts\Domains\Registrar\SyncsDomains;
 use App\Contracts\Domains\Registrar\TransfersDomains;
 use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Domains\Registrar\SyncResult;
 use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Enums\BillableType;
+use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferFailed;
 use App\Events\Domains\DomainTransferred;
@@ -57,6 +60,7 @@ class SyncDomain
             return ['changes' => [], 'error' => null];
         } catch (RegistrarException $exception) {
             $domain->forceFill(['last_synced_at' => now(), 'last_sync_status' => 'error', 'last_error' => $exception->getMessage()])->save();
+            $this->flagUnconfirmedRegistration($domain, $exception->getMessage());
 
             return ['changes' => [], 'error' => $exception->getMessage()];
         }
@@ -64,6 +68,57 @@ class SyncDomain
         $domain->forceFill(['last_synced_at' => now(), 'last_sync_status' => 'ok'])->save();
 
         return ['changes' => $changes, 'error' => null];
+    }
+
+    /**
+     * A registration whose answer was lost keeps its claim. The order id may be recorded from the registrar's own
+     * submission lookup, inside that claim's window, and from nowhere else: sync never links an order it merely finds.
+     */
+    private function linkFromSubmission(Domain $domain, ?int $staffId): void
+    {
+        $claimed = $domain->registrar_meta['submission'] ?? null;
+
+        if ($domain->status !== DomainStatus::PendingRegistration || $claimed === null || isset($domain->registrar_meta['remote']['order_id'])
+            || ! $this->gateway->supports($domain, 'reconcile')) {
+            return;
+        }
+
+        $at = CarbonImmutable::parse((string) $claimed);
+
+        try {
+            $lookup = $this->gateway->forDomain(
+                $domain,
+                'reconcile',
+                ReconcilesSubmissions::class,
+                fn (ReconcilesSubmissions $registrar, RegistrarConfig $config): SubmissionLookup => $registrar->findSubmission($config, $domain->toRef(), 'register', $at),
+                ['command' => 'register', 'submitted_at' => $at->toIso8601String()],
+                $staffId,
+            );
+        } catch (RegistrarException) {
+            return;
+        }
+
+        if (in_array($lookup->status, [ReconcileStatus::Executed, ReconcileStatus::InProgress], true)) {
+            $this->rememberRemote($domain, $lookup->remote, false);
+            $domain->refresh();
+        }
+    }
+
+    /**
+     * A registration that is still not confirmed a quarter of an hour after it was submitted, and that sync cannot
+     * settle (the registrar's answer gave no order to follow), is listed in Needs attention instead of waiting silently.
+     */
+    private function flagUnconfirmedRegistration(Domain $domain, string $reason): void
+    {
+        $submitted = $domain->registrar_meta['submitted_at'] ?? null;
+
+        if ($domain->status !== DomainStatus::PendingRegistration || $domain->needs_review || $submitted === null
+            || CarbonImmutable::parse((string) $submitted)->gt(now()->subMinutes(SubmitToRegistrar::IN_FLIGHT_MINUTES))) {
+            return;
+        }
+
+        $domain->forceFill(['needs_review' => true, 'last_error' => $reason])->save();
+        $this->activity->log("Staff task: registration of {$domain->name} not confirmed at the registrar", $domain, $domain->client_id);
     }
 
     /**
@@ -115,6 +170,10 @@ class SyncDomain
      */
     private function sync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
+        if (! $notifyOnly) {
+            $this->linkFromSubmission($domain, $staffId);
+        }
+
         $result = $this->gateway->forDomain($domain, 'sync', SyncsDomains::class, fn (SyncsDomains $registrar, RegistrarConfig $config): SyncResult => $registrar->sync($config, $domain->toRef()), staffId: $staffId);
         $apply = ! $notifyOnly;
         $this->rememberRemote($domain, $result->remote, $notifyOnly);

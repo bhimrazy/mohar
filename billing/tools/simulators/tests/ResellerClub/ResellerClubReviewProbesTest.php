@@ -110,7 +110,7 @@ test('M1: findSubmission(renew) does not report Executed before any renewal ran'
         ->and($lookup->status)->toBe(ReconcileStatus::NotExecuted);
 });
 
-test('B4: a second renew() for the same host expiry is refused instead of renewing (and charging) again', function () {
+test('B4: a second renew() for the same host expiry takes ResellerClub\'s expiry and orders nothing (no second charge)', function () {
     $domain = rb335Domain('asha-sim', rb335Client('asha@example.test'));
     app(SubmitToRegistrar::class)->handle($domain);
     $config = app(RegistrarManager::class)->config(ResellerClubDriver::KEY);
@@ -119,6 +119,7 @@ test('B4: a second renew() for the same host expiry is refused instead of renewi
     app(ResellerClubDriver::class)->renew($config, $ref, 1);
     $balance = (int) $this->scenario->state()->get('config', 'balance');
 
-    expect(fn () => app(ResellerClubDriver::class)->renew($config, $ref, 1))->toThrow(RegistrarException::class);
+    expect(app(ResellerClubDriver::class)->renew($config, $ref, 1)->status)->toBe('completed');
+    expect($this->scenario->log()->count('renew'))->toBe(1);
     expect((int) $this->scenario->state()->get('config', 'balance'))->toBe($balance);
 });

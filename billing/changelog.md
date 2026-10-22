@@ -18,8 +18,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   reconcile step, created since the submission began), and any other order of the name is a conflict for staff, so a
   name in the reseller account cannot be taken over by typing it or its transfer code. In one-customer-per-client
   mode the ResellerClub username is generated from our client id (`client-{id}@{host of APP_URL}`) and an existing
-  customer is adopted only on that exact username; the client's email is only a contact email. A renewal is sent only
-  when ResellerClub's expiry date equals ours, so a repeat after a lost renewal is refused instead of charged twice.
+  customer is adopted only on that exact username; the client's email is only a contact email. Reads, sync and the EPP code act only on the order id recorded from our own register
+  or transfer answer (or the submission lookup inside our own window); sync never links an order it finds by searching,
+  and says "no order is linked" when none is recorded (domains imported without one need the order id set by hand). A
+  renewal is sent only when ResellerClub's expiry date equals ours; when ResellerClub is ahead, our expiry is updated
+  from it and nothing is ordered again. A wrong transfer code gets its own message, apart from "code already sent". A
+  registration that is still unconfirmed 15 minutes after submission and cannot be followed is listed in Needs attention
+  and its sync reports the error instead of ok.
   Sync never cancels a domain on an unknown registry answer or a registration that never reached ResellerClub. Calls
   of a register, transfer or renew chain are time-bounded to fit the 180 s job, and the outbound proxy must be an
   http, https or socks5h address that passes the outbound policy. `.np` names never reach

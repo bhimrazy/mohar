@@ -263,13 +263,23 @@ test('sync leaves a registration that never reached ResellerClub for staff inste
     expect($domain->fresh()->status)->toBe(DomainStatus::PendingRegistration);
 });
 
-test('sync cancels an active domain with no order only when the registry says the name is free', function () {
+test('sync cancels an active domain whose recorded order is gone only when the registry says the name is free', function () {
     $domain = rcDomain('asha-sim');
-    $domain->forceFill(['status' => DomainStatus::Active, 'expiry_date' => now()->addMonths(6)->toDateString()])->save();
+    $domain->forceFill(['status' => DomainStatus::Active, 'expiry_date' => now()->addMonths(6)->toDateString(), 'registrar_meta' => ['remote' => ['order_id' => 99]]])->save();
 
     app(SyncDomain::class)->handle($domain->fresh());
 
     expect($domain->fresh()->status)->toBe(DomainStatus::Cancelled);
+});
+
+test('sync of an active domain with no recorded order id changes nothing and says no order is linked', function () {
+    $domain = rcDomain('asha-sim');
+    $domain->forceFill(['status' => DomainStatus::Active, 'expiry_date' => now()->addMonths(6)->toDateString()])->save();
+
+    $sync = app(SyncDomain::class)->handle($domain->fresh());
+
+    expect($sync['error'])->toContain('No ResellerClub order is linked')
+        ->and($domain->fresh()->status)->toBe(DomainStatus::Active);
 });
 
 test('the order is found past the first search page of a busy account', function () {
