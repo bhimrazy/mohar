@@ -241,7 +241,7 @@ final class Scenario
         $slices = intdiv($ceiling - $floor + 1, 1000);
         $worker = getenv('TEST_TOKEN');
 
-        if ($slices < 1 || ! is_string($worker) || ! ctype_digit($worker) || $worker === '') {
+        if ($slices < 1 || ! is_string($worker) || ! ctype_digit($worker)) {
             return [$floor, $ceiling];
         }
 
