@@ -18,6 +18,7 @@ use App\Modules\Core\Models\Contact;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\ClientContext;
+use App\Modules\Core\Support\ClientCurrencyLock;
 use App\Modules\Core\Support\Settings;
 use App\Support\Navigation\Navigation;
 use Illuminate\Http\RedirectResponse;
@@ -130,13 +131,15 @@ class ClientController extends Controller
         ]);
     }
 
-    public function edit(Client $client): Response
+    public function edit(Client $client, ClientCurrencyLock $currencyLock): Response
     {
         $this->authorize('core.clients.update');
         abort_if($client->merged_into_client_id !== null, 404);
 
         return Inertia::render('admin/clients/form', [
             'client' => new ClientResource($client),
+            // Why the currency can't change, so the form disables it up front; the save checks again under the lock.
+            'currencyLock' => $currencyLock->reason($client),
             ...$this->formOptions(),
         ]);
     }

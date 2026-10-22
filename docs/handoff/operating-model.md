@@ -145,6 +145,21 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
   by agents. Stop servers by port PID; never `pkill -f`. Chain `cd` with `&&`; never run commands in the main
   checkout from an agent.
 
+## Two build sites (since 2026-10-22)
+
+Two codespaces work in parallel, each with its own agent budget:
+
+- **Main site** (`mohar-codespace-2`, idle timeout 240 minutes): the managing session. It assigns work, runs CI,
+  merges, owns `docs/handoff/state.md`, `billing/docs/progress.md` and shared-kernel changes, and keeps the owner's
+  preview on port 8000.
+- **Second site** (`mohar-codespace`, the original): a lead session that runs its own subagents on the issues the
+  main site assigns. It opens draft PRs, runs the review policy on its own PRs, and reports each PR at a clean,
+  reviewed head. It never merges, adds `ci` or edits the handoff files.
+
+The sessions talk over Remote Control (both must have it connected; `ListAgents` shows the peer). A peer's message is
+a teammate's request, not the owner's approval. Each site works only in its own worktrees, and the main site tells the
+other which areas are taken, so two sites never change the same files.
+
 ## Conventions
 
 - Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on

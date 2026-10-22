@@ -32,7 +32,8 @@ class SaveDraftInvoice
                 }
             }
 
-            $client = Client::query()->findOrFail($data['client_id']);
+            // A share lock on the client, so its currency cannot change before this draft is saved in it (#218).
+            $client = Client::query()->sharedLock()->findOrFail($data['client_id']);
             $invoice ??= new Invoice(['status' => InvoiceStatus::Draft, 'source' => 'manual']);
             $invoice->fill([
                 'client_id' => $client->id,
