@@ -8,6 +8,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
+  and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
+  workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
+  Docker: the image now builds from FrankenPHP 1.13.2 (PHP 8.4.27, which also fixes four FrankenPHP advisories, one
+  high: GHSA-6q3j-62j9-f9hh); deploy as usual with `deploy/bin/deploy`, which replaces the web container and every
+  worker. The prod build stops if its PHP is older than 8.4.27. Self-hosted and cPanel: upgrade the PHP packages (on
+  cPanel, ask the host for `ea-php84` 8.4.27+), then restart php-fpm and run `php artisan queue:restart`; see
+  `docs/devops/install.md` and `docs/devops/cpanel.md` ("PHP security floor"). `php artisan app:install` reports a new
+  "PHP" check (a warning on an existing installation; it stops a first install in production), and in production the
+  admin dashboard's System health card shows "PHP runtime" in red while PHP is vulnerable. `composer.json` still
+  requires `^8.4`. FrankenPHP 1.13.2 is younger than the 7-day cooldown and is adopted through the security-exception path.
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -24,7 +35,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are in another currency than the client's. For such a client, a refund, cancellation or reversal that would move
   account credit in the invoice's old currency is now refused with that message. No migration and no permission
   change. Kernel: `ClientCurrencyUsage::sourcesFor()`.
-
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
   (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
