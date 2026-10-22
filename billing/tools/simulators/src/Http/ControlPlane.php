@@ -71,8 +71,15 @@ final class ControlPlane
         $simulator = $this->scenario->simulator();
         $action = $simulator instanceof HasControlActions ? ($simulator->actions()[$name] ?? null) : null;
 
-        return $action === null
-            ? Response::json(['error' => "No action [{$name}]."], 404)
-            : Response::json($action($input, $this->scenario));
+        if ($action === null) {
+            return Response::json(['error' => "No action [{$name}]."], 404);
+        }
+
+        try {
+            return Response::json($action($input, $this->scenario));
+        } catch (\InvalidArgumentException $refused) {
+            // The action refused its input (an unknown order, a state it cannot move to): the caller's mistake.
+            return Response::json(['error' => $refused->getMessage()], 400);
+        }
     }
 }
