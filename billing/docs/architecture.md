@@ -288,6 +288,28 @@ migrations must be ones the previous release can run against:
 `php artisan deploy:check-migrations` enforces rules 1 to 3: `--since=origin/develop` locally before a pull request,
 and `--pending` in the new image before every deploy (the deploy script stops on a finding). It is not part of CI.
 
+Locks, for every new migration (the old release keeps serving while it runs):
+
+5. **DDL on an existing table runs under `LockTimeout::run($table, fn () => …)`** (`App\Modules\Core\Support`).
+   Any `ALTER TABLE` takes ACCESS EXCLUSIVE, even a metadata-only `ADD COLUMN`. Behind an open transaction on the
+   table it would wait in the lock queue, and every later read and write of the table would wait behind it. On
+   PostgreSQL the helper sets `lock_timeout` (`DB_MIGRATION_LOCK_TIMEOUT`, default 3s) with `SET LOCAL` in a
+   transaction of its own, or a savepoint inside the migration's. It retries 4 times with a 1, 2, 4 s backoff, then
+   fails with the table and the sessions in the way. Reads queue for at most one timeout per attempt, not for as
+   long as the blocker lives. One table per call, and the closure must be safe to run again (`hasColumn` guards).
+   Inside the migration's transaction, locks taken by earlier statements stay held through the backoff, so on a
+   large table prefer `public $withinTransaction = false;` with one call per table. On SQLite it just runs the DDL.
+   Migrations merged before this rule are not rewritten.
+6. **Indexes go through `OnlineIndex`**, which applies rule 5 itself. A CONCURRENTLY build cannot run in a
+   transaction, so it sets `lock_timeout` for the session and restores it afterwards. Such a build waits for every
+   older transaction in the database, on any table, so it gets `DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT` (default
+   60s) and 3 attempts. A timed-out attempt leaves an INVALID index, which the next attempt drops first. An
+   existing index of the same name is reused only when the table, columns, uniqueness and partial-index predicate
+   all match: PostgreSQL compares `pg_get_expr(indpred, indrelid)` with the predicate rebuilt on a temporary copy
+   of the table's columns, and SQLite compares the `WHERE` of `sqlite_master.sql` ignoring case, spacing, identifier
+   quotes and enclosing parentheses, but never the case of string literals. Any difference throws: an index is
+   never silently reused with another `WHERE`.
+
 ## Testing (Pest)
 
 - Feature tests per behaviour in `tests/Feature/<Module>/`; unit tests for pure calculation (proration, tax).

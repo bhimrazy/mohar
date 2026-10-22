@@ -464,6 +464,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
 
+### Migrations wait briefly for table locks (#290)
+
+- Migration DDL on PostgreSQL no longer waits indefinitely behind a long transaction. Before, an `ALTER TABLE` behind
+  one held up every later read and write of the table until that transaction ended. `LockTimeout::run()` sets
+  `lock_timeout` (default 3s), retries 4 times with a 1, 2, 4 s backoff, then stops the migration with an error naming
+  the table and the sessions in the way. `OnlineIndex` builds and drops use it too. Concurrent index builds wait for
+  every older transaction, so they get 60s and 3 attempts, with the timeout set for the session and restored
+  afterwards. New migrations use it (`docs/architecture.md`, rules 5 and 6); migrations already merged are unchanged.
+- `OnlineIndex` now compares the partial-index `WHERE` before it reuses an existing index of the same name. Before,
+  an index with the same columns but another predicate, or none, was kept without a word; now the migration fails.
+- **Operators:** no schema or permission change. A deploy can now stop at a migration that cannot get its lock:
+  let the named transaction finish or end it, then deploy again. `DB_MIGRATION_LOCK_TIMEOUT` and
+  `DB_MIGRATION_CONCURRENT_LOCK_TIMEOUT` (PostgreSQL durations such as `5s`) change the waits.
+
 ### Architecture tests check every target (#275)
 
 - The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and

@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
 use LogicException;
 use RuntimeException;
+use stdClass;
 use Throwable;
 
 /**
@@ -43,7 +44,7 @@ final class LockTimeout
      * @param  string  $table  the table the DDL locks, named in the failure message
      * @param  Closure(): TResult  $ddl  the statement(s); run again from the start on each attempt
      * @param  string|null  $timeout  a PostgreSQL duration in ms or s, such as "500ms" or "3s"; default
-     *                                 `database.migrations.lock_timeout` (DB_MIGRATION_LOCK_TIMEOUT, 3s)
+     *                                `database.migrations.lock_timeout` (DB_MIGRATION_LOCK_TIMEOUT, 3s)
      * @return TResult
      */
     public static function run(string $table, Closure $ddl, ?string $timeout = null, int $attempts = self::ATTEMPTS, bool $transaction = true): mixed
@@ -160,7 +161,7 @@ final class LockTimeout
             $label = 'no session holds a lock on the table now; the oldest open transactions';
         }
 
-        $described = array_map(fn (object $session): string => sprintf(
+        $described = array_map(fn (stdClass $session): string => sprintf(
             'pid %d (%s for %ds%s, application "%s")',
             $session->pid,
             $session->state ?? 'unknown state',
@@ -170,9 +171,9 @@ final class LockTimeout
         ), $sessions);
 
         return sprintf(
-            'DDL on table %s did not get its lock within %s in %d attempts, so it stopped instead of queueing in front of '
-            .'the table\'s reads and writes. In the way: %s. Let that transaction finish (or end it with '
-            .'pg_terminate_backend(pid)) and run the migration again.',
+            'DDL on table %s did not get its lock within %s in %d attempts, so it stopped instead of waiting on (a waiting '
+            .'ALTER holds up every later read and write of the table). In the way: %s. Let that transaction finish (or end '
+            .'it with pg_terminate_backend(pid)) and run the migration again.',
             $table, $timeout, $attempts, $label.': '.($described === [] ? 'none found' : implode('; ', $described)),
         );
     }

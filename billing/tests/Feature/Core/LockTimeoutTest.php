@@ -38,7 +38,7 @@ test('an ALTER behind an open transaction gives up after its retries and names t
 
     try {
         expect(fn () => LockTimeout::run('automation_runs', addProbeNote(...), timeout: '200ms', attempts: 3))
-            ->toThrow(RuntimeException::class, "DDL on table automation_runs did not get its lock within 200ms in 3 attempts, so it stopped instead of queueing in front of the table's reads and writes. In the way: sessions holding a lock on automation_runs: pid {$pid} (idle in transaction for");
+            ->toThrow(RuntimeException::class, "DDL on table automation_runs did not get its lock within 200ms in 3 attempts, so it stopped instead of waiting on (a waiting ALTER holds up every later read and write of the table). In the way: sessions holding a lock on automation_runs: pid {$pid} (idle in transaction for");
     } finally {
         $blocker->rollBack();
         DB::purge('pgsql_lock_blocker');
