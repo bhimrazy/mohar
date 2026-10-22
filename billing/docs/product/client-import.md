@@ -242,7 +242,7 @@ A crashed chunk is retried; rows already applied are recorded and skipped, so a 
   `MigrationRunCompleted` is dispatched once (§15).
 - **Invitations (separate action):** "Send invitations" lists how many owner logins have no password, with filters
   (client group, status, created by this run). Sending needs step-up, is queued, and is throttled
-  (`migration.invite_per_hour`, default 500, as in `migration.md` §9). It goes through a kernel contract to Platform's
+  (`migration.invite_per_hour`, default 100, as in `migration.md` §9). It goes through a kernel contract to Platform's
   invitation flow (§16, C3), with the editable template `client.migration_invitation` ("We have moved to a new client
   area. Set your password to sign in."). Logins of closed clients are never invited.
   **As built (importer B2a):** the contract is `App\Contracts\Auth\ClientLoginInvitations` (C3); the throttle is install-wide and counts invitations sent in the last hour; an open
@@ -771,8 +771,8 @@ The questions below were answered by accepting each recommendation as written.
    "unknown" until the client confirms? Recommendation: granted with a note; for CSV, blank stays unknown.
 7. **Closed clients (Q7).** Import them as closed without logins (keeps history for invoices later), or skip?
    Recommendation: import.
-8. **Invitation volume (Q8).** 500 an hour means 50,000 invitations take about four days. Acceptable, or should the
-   default be higher (depends on the host's mail provider)? Recommendation: keep 500, send in waves by group.
+8. **Invitation volume (Q8).** 100 an hour means 50,000 invitations take about three weeks. Acceptable, or should the
+   default be higher (depends on the host's mail provider)? Recommendation: keep 100 (owner decision 2026-10-22: cPanel and Google Workspace caps), send in waves by group.
 9. **Dashboard (Q9).** Exclude imported clients from "new clients"? Recommendation: yes.
 10. **WHMCS before 8.0 (Q10).** Support it with contacts only and no logins, or require 8.0+? Recommendation: 8.0+ for
     logins, contacts-only below.

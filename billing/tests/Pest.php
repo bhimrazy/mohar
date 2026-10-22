@@ -126,7 +126,8 @@ function releaseArchCache(): void
 /**
  * The given arch-rule targets that match no class. A rule over a namespace with no classes passes without checking
  * anything (a typo, a renamed directory), so every file in tests/Arch asserts its targets against this.
- * A target may use `*` for one namespace segment, as the arch plugin allows.
+ * A target may use `*` for one namespace segment, as the arch plugin allows, and may be a single class: a rule
+ * over a class that was renamed or deleted (`expect(Foo::class)->toBeFinal()`) also passes without checking anything.
  *
  * @param  list<string>  $namespaces
  * @return list<string>
@@ -134,7 +135,8 @@ function releaseArchCache(): void
 function archTargetsWithoutClasses(array $namespaces): array
 {
     return array_values(array_filter($namespaces, function (string $namespace): bool {
-        $pattern = '/^'.strtr(preg_quote($namespace, '/'), ['\\*' => '[^\\\\]+']).'\\\\/';
+        // The namespace's classes, or the class itself when the target names one.
+        $pattern = '/^'.strtr(preg_quote($namespace, '/'), ['\\*' => '[^\\\\]+']).'(\\\\|$)/';
 
         try {
             $objects = ObjectsRepository::getInstance()->allByNamespace($namespace);

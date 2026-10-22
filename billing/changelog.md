@@ -8,6 +8,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
+  unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
+  `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
+  `import`) as `import:<external_ref>`, in batches of 1,000; their `gateway` and `external_ref` are left as they are.
+  Imported opening balances now carry the idempotency key; in this release they also keep `gateway` `import` and
+  their `external_ref`, so a previous-release worker running beside the new one during a deploy still finds them (a
+  later release stops writing that pair, #284). A gateway driver can no longer register the key `import`, or a key
+  outside `[a-z0-9_]{1,50}`: it fails at boot with a LogicException. No permission or user-facing change.
+- **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
+  13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
+  escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
+  schema change. Pest, PHPUnit and the other transitive packages stay at their cooldown-compliant versions.
+- **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
@@ -449,6 +462,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   followed by an end tag and then a child element (`<object><param name="password"></object><p>…`) masks the rest.
   The marker is found by a forward walk with constant extra memory; a raw `<html>` inside a non-secret JSON string still
   counts as a marker, which only allows the next-tag bound and never exposes a secret value.
+- **Key rotation counts distinct keys (#279).** A key listed in both `APP_KEY` and `APP_PREVIOUS_KEYS` (or as `base64:`
+  and decoded) counts once, so restoring the old `APP_KEY` no longer makes `migrate` refuse again. The refusal now says
+  to restore the key the email hashes were made with or remove the stale key from `APP_PREVIOUS_KEYS`; the key-rotation
+  runbook says the same. No schema or permission change.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
@@ -472,12 +489,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
 
+### Stripe smoke command without Billing (#269)
+
+- `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
+  route is not registered (PaymentsStripe loaded without Billing). It used to fail with an exception. No schema,
+  permission or configuration change.
+
+### Step-up window from the environment (#273)
+
+- `AUTH_STEP_UP_SECONDS` sets how long a password confirmation unlocks sensitive changes. It is optional and defaults
+  to 900, the same as before, and an empty value counts as unset. It must be a whole number from 60 to 3600; any
+  other value stops the application at boot with a message naming the value received. Documented in `.env.example`, `docs/devops/install.md` and ADR 0018 §4.
+
 ### Architecture tests check every target (#275)
 
 - The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and
   events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
   went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
   No violations were found on `develop`. No change for users or operators.
+- The target check now also accepts single classes, and the concrete driver registries and the base `DriverRegistry`
+  are covered, so renaming one of them fails the build instead of leaving its rule empty (#277). No change for users
+  or operators.
 
 ### Hosted payments: continue or pay another way (#123)
 
