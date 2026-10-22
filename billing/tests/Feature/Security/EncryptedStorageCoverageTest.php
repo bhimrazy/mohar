@@ -21,7 +21,7 @@ test('every encrypted cast in the code is a re-encryption target', function () {
     $declared = [];
 
     foreach (appSources() as $path => $source) {
-        if (preg_match_all("/'(\\w+)'\\s*=>\\s*(?:'encrypted(?::\\w+)?'|AsEncrypted\\w+::class)/", $source, $matches) === 0) {
+        if (preg_match_all("/['\"](\\w+)['\"]\\s*=>\\s*(?:['\"]encrypted(?::\\w+)?['\"]|AsEncrypted\\w+::(?:class|of\\())/", $source, $matches) === 0) {
             continue;
         }
 
@@ -33,8 +33,8 @@ test('every encrypted cast in the code is a re-encryption target', function () {
         }
     }
 
-    expect($declared)->toHaveCount(22)
-        ->and(array_values(array_diff($declared, $targets)))->toBe([], 'Encrypted casts security:reencrypt does not cover (keep models in app/Models or app/Modules/<Module>/Models)');
+    expect($declared)->toHaveCount(23)
+        ->and(array_values(array_diff($declared, $targets)))->toBe([], 'Encrypted casts security:reencrypt does not cover: register the model in EncryptedStorage (new EncryptedModel(...))');
 });
 
 test('every direct use of the encrypter is covered by a target or known to be short-lived', function () {
@@ -47,6 +47,7 @@ test('every direct use of the encrypter is covered by a target or known to be sh
         'Modules/Orders/Data/CartItem.php' => 'short-lived: carts expire, and an unreadable EPP code is asked for again',
         'Modules/Migration/Support/EncryptedFile.php' => 'short-lived: an import upload is deleted once staged',
         'Modules/Core/Security/Reencryptor.php' => 'the re-encryption itself',
+        'Modules/Core/Support/InstallSecrets.php' => 'install_secrets.value',
     ];
     $targets = array_keys(app(EncryptedTargets::class)->all());
     $found = [];
@@ -64,4 +65,27 @@ test('every direct use of the encrypter is covered by a target or known to be sh
             expect($targets)->toContain($reason);
         }
     }
+});
+
+test('nothing else derives stored values from APP_KEY', function () {
+    // A value keyed from APP_KEY changes with every rotation: store it under an install secret (InstallSecrets) or
+    // list it here with why a change is harmless.
+    $known = [
+        'Modules/Core/Install/AppKeyCheck.php' => 'checks the key',
+        'Modules/Core/Console/Commands/ReencryptCommand.php' => 'checks the key is set',
+        'Modules/Core/Security/Reencryptor.php' => 'the re-encryption itself',
+        'Modules/Core/Support/AccountLinks.php' => 'signed links, which the previous keys still verify',
+        'Modules/Kyc/Actions/DecideDocument.php' => 'a confirm-then-apply digest, valid for one decision',
+        'Modules/Billing/Drivers/Gateways/SandboxCardDriver.php' => 'the sandbox gateway, development only',
+        'Modules/Migration/Models/MigrationRecord.php' => 'only the initial value of the install secret',
+    ];
+    $found = [];
+
+    foreach (appSources() as $path => $source) {
+        if (preg_match('/config\(\s*[\'"]app\.(key|previous_keys)[\'"]/', $source) === 1) {
+            $found[] = $path;
+        }
+    }
+
+    expect(array_values(array_diff($found, array_keys($known))))->toBe([]);
 });

@@ -7,6 +7,7 @@ use App\Modules\Core\Security\EncryptedTargets;
 use App\Modules\Core\Security\Reencryptor;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
+use App\Providers\ModulesServiceProvider;
 use App\Support\Security\EncryptedColumn;
 use App\Support\Security\EncryptedFiles;
 use Illuminate\Console\Attributes\Description;
@@ -14,24 +15,29 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
+use LogicException;
 
 /**
  * Re-encrypts every stored secret with the current APP_KEY after a rotation (docs/devops/key-rotation.md).
  *
- * Exit codes: 0 every value is on the current key; 1 some value no key decrypts, or a write failed its check (those
- * values are unchanged); 2 invalid options or no APP_KEY; 3 work remains (a dry run found values on an old key, or
- * --limit stopped the run: run it again).
+ * Exit codes: 0 every value is on the current key; 1 some value no key decrypts, a write failed its check (those
+ * values are unchanged), or a registration is broken; 2 invalid options, no APP_KEY, or (without --partial) some
+ * modules are not loaded; 3 work remains (a dry run found values on an old key, --limit stopped the run, or the app
+ * wrote values during it: run it again); 4 another run holds the lock.
  */
 #[Signature('security:reencrypt
     {--dry-run : Count the values per column and key without changing anything}
     {--only=* : Only these targets (table.column, or table.files), repeatable}
     {--chunk=500 : Rows read per query}
     {--limit= : Stop after this many values; the next run resumes}
-    {--restart : Ignore the checkpoints of an interrupted run}')]
+    {--restart : Ignore the checkpoints of an interrupted run}
+    {--partial : Run although some modules are not loaded (their storage is skipped)}')]
 #[Description('Re-encrypt stored secrets (encrypted columns, secret settings, encrypted files) with the current APP_KEY')]
 class ReencryptCommand extends Command
 {
     public const INCOMPLETE = 3;
+
+    public const LOCKED = 4;
 
     private const LOCK = 'security:reencrypt';
 
@@ -52,7 +58,23 @@ class ReencryptCommand extends Command
             return self::INVALID;
         }
 
-        $targets = $discovery->all();
+        try {
+            $targets = $discovery->all();
+        } catch (LogicException $exception) {
+            $this->components->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
+        $dryRun = (bool) $this->option('dry-run');
+        $skipped = array_values(array_diff(ModulesServiceProvider::availableModules(), ModulesServiceProvider::enabledModules()));
+
+        if ($skipped !== [] && ! $dryRun && ! $this->option('partial')) {
+            $this->components->error('Modules not loaded: '.implode(', ', $skipped).'. Their encrypted storage would stay on the old key. Load every module (unset MODULES), or pass --partial.');
+
+            return self::INVALID;
+        }
+
         $only = array_values(array_filter((array) $this->option('only')));
 
         if ($unknown = array_diff($only, array_keys($targets))) {
@@ -65,17 +87,16 @@ class ReencryptCommand extends Command
             $targets = array_intersect_key($targets, array_flip($only));
         }
 
-        $dryRun = (bool) $this->option('dry-run');
         $lock = Cache::lock(self::LOCK, 6 * 3600);
 
         if (! $dryRun && ! $lock->get()) {
             $this->components->error('Another security:reencrypt run is in progress.');
 
-            return self::FAILURE;
+            return self::LOCKED;
         }
 
         try {
-            return $this->reencrypt($targets, $dryRun, $chunk, $limit, $logger, $settings);
+            return $this->reencrypt($targets, $dryRun, $chunk, $limit, $skipped, $logger, $settings);
         } finally {
             $dryRun || $lock->release();
         }
@@ -84,12 +105,11 @@ class ReencryptCommand extends Command
     /**
      * @param  array<string, EncryptedColumn|EncryptedFiles>  $targets
      */
-    private function reencrypt(array $targets, bool $dryRun, int $chunk, ?int $budget, ActivityLogger $logger, Settings $settings): int
+    /**
+     * @param  list<string>  $skipped  modules not loaded
+     */
+    private function reencrypt(array $targets, bool $dryRun, int $chunk, ?int $budget, array $skipped, ActivityLogger $logger, Settings $settings): int
     {
-        if (! $dryRun && $this->option('restart')) {
-            ReencryptionCheckpoint::query()->delete();
-        }
-
         $reencryptor = app(Reencryptor::class);
         $results = [];
         $rows = [];
@@ -104,7 +124,7 @@ class ReencryptCommand extends Command
                 continue;
             }
 
-            $result = $reencryptor->process($name, $target, $dryRun, $chunk, $budget);
+            $result = $reencryptor->process($name, $target, $dryRun, $chunk, $budget, (bool) $this->option('restart'));
             $results[$name] = $result['counts'];
             $complete = $complete && $result['complete'];
             $c = $result['counts'];
@@ -127,18 +147,23 @@ class ReencryptCommand extends Command
 
         if (! $dryRun) {
             if ($complete) {
-                ReencryptionCheckpoint::query()->delete();
+                ReencryptionCheckpoint::query()->whereIn('target', array_keys($results))->delete();
             }
 
             $settings->forgetCached();
             $logger->log('Stored secrets were re-encrypted with the current application key.', properties: [
                 'complete' => $complete,
+                'skipped_modules' => $skipped,
                 'totals' => $totals,
                 'targets' => array_map(fn (array $counts): array => array_filter($counts), $results),
             ], event: 'security.reencrypted');
         }
 
-        return $this->conclude($dryRun, $complete, $totals);
+        if ($skipped !== []) {
+            $this->components->warn('Modules not loaded, so their storage was not covered: '.implode(', ', $skipped).'.');
+        }
+
+        return $this->conclude($dryRun, $complete && $skipped === [], $totals);
     }
 
     /**
@@ -153,7 +178,7 @@ class ReencryptCommand extends Command
         }
 
         if (! $complete) {
-            $this->components->warn('Stopped at --limit. Run the command again to continue from the checkpoint.');
+            $this->components->warn('Not finished: stopped at --limit, or modules were skipped. Run the command again (with every module loaded) to finish.');
 
             return self::INCOMPLETE;
         }

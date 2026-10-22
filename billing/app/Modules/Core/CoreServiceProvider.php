@@ -25,6 +25,7 @@ use App\Modules\Core\Install\RegionalSettings;
 use App\Modules\Core\Install\SystemRoles;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
+use App\Modules\Core\Models\InstallSecret;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\AutomationStatus;
 use App\Modules\Core\Support\CachedCurrencyDirectory;
@@ -34,6 +35,7 @@ use App\Modules\Core\Support\CurrencyRollup;
 use App\Modules\Core\Support\DateFormats;
 use App\Modules\Core\Support\DefaultBrandProvider;
 use App\Modules\Core\Support\InMemoryMergeFieldRegistry;
+use App\Modules\Core\Support\InstallSecrets;
 use App\Modules\Core\Support\LaravelAuthMailer;
 use App\Modules\Core\Support\NullCatalogUsage;
 use App\Modules\Core\Support\NullClientServiceDirectory;
@@ -48,8 +50,6 @@ use App\Modules\Core\Support\NullSystemMailer;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
-use App\Support\Security\EncryptedColumn;
-use App\Support\Security\EncryptedStorage;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
@@ -57,6 +57,9 @@ use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
 use App\Support\Queues;
 use App\Support\Search\GlobalSearch;
+use App\Support\Security\EncryptedColumn;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Illuminate\Console\Scheduling\Schedule;
@@ -75,6 +78,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->scoped(CurrencyRollup::class);
 
         $this->app->singleton(Settings::class);
+        $this->app->singleton(InstallSecrets::class);
         $this->app->singleton(RegionalDefaults::class);
         // The company time zone (ADR 0013) follows the application's until staff set one; the settings form needs a value.
         config(['system.timezone' => config('system.timezone', config('app.timezone', 'UTC'))]);
@@ -119,9 +123,10 @@ class CoreServiceProvider extends ModuleServiceProvider
         // Encrypted values without an encrypted cast, for `security:reencrypt`: secret settings (a JSON string with the
         // "enc:v1:" prefix) and Fortify's two-factor secret and recovery codes (encrypted by Fortify itself).
         $encrypted = $this->app->make(EncryptedStorage::class);
-        $encrypted->register('settings.value', new EncryptedColumn('settings', 'value', 'key', intKey: false, prefix: Settings::ENCRYPTED_PREFIX, json: true));
-        $encrypted->register('users.two_factor_secret', new EncryptedColumn('users', 'two_factor_secret'));
-        $encrypted->register('users.two_factor_recovery_codes', new EncryptedColumn('users', 'two_factor_recovery_codes'));
+        $encrypted->register('core_settings', new EncryptedColumn('settings', 'value', 'key', intKey: false, prefix: Settings::ENCRYPTED_PREFIX, json: true));
+        $encrypted->register('core_two_factor_secret', new EncryptedColumn('users', 'two_factor_secret'));
+        $encrypted->register('core_install_secrets', new EncryptedModel(InstallSecret::class));
+        $encrypted->register('core_two_factor_recovery_codes', new EncryptedColumn('users', 'two_factor_recovery_codes'));
 
         // One dev worker (composer dev) for every queue, in priority order, from the Queues constants (ADR 0014). The
         // automation connection keeps its own worker in Platform.
