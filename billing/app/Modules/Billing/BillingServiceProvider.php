@@ -36,6 +36,7 @@ use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
+use App\Modules\Billing\Support\InvoiceBsDates;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Core\Support\BusinessCalendar;
@@ -324,6 +325,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $bool('quotes.require_tos', 'Quotes require accepting terms'),
             $bool('quotes.auto_invoice_on_accept', 'Invoice quotes automatically on acceptance'),
             $int('quotes.valid_days', 'Default quote validity (days)'),
+            $bool('show_bs_dates', 'Show the Bikram Sambat date beside the AD date on invoices', 'Issue and due dates on invoice pages, PDFs and invoice emails also show the BS date, e.g. 12 Jan 2026 (28 Poush 2082 BS).'),
             $bool('pdf.attach_to_emails', 'Attach PDFs to invoice emails'),
             new SettingDefinition('billing.pdf.paper', 'PDF paper size', 'select', options: ['A4' => 'A4', 'letter' => 'Letter']),
         ], 'billing.settings.manage');
@@ -367,6 +369,7 @@ class BillingServiceProvider extends ModuleServiceProvider
     {
         $money = fn (int $amount): string => app(MoneyFormatter::class)->format(Money::of($amount, $invoice->currency));
         $rate = fn (string $value): string => rtrim(rtrim($value, '0'), '.');
+        $bsDates = app(InvoiceBsDates::class);
 
         return [
             'client_id' => $invoice->client_id,
@@ -394,6 +397,9 @@ class BillingServiceProvider extends ModuleServiceProvider
             ])->values()->all(),
             'issue_date' => $invoice->issue_date?->toDateString(),
             'due_date' => $invoice->due_date?->toDateString(),
+            // "28 Poush 2082 BS" when the BS date setting is on, else null (templates print it in brackets after the date).
+            'issue_date_bs' => $bsDates->label($invoice->issue_date),
+            'due_date_bs' => $bsDates->label($invoice->due_date),
             'payment_gateway' => $invoice->payment_gateway,
             'url' => route('client.invoices.show', $invoice),
             'pdf_url' => route('client.invoices.pdf', $invoice),

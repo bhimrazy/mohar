@@ -11,6 +11,7 @@ import { Money } from '@/components/app/money';
 import { Page } from '@/components/app/page';
 import { PageHeader } from '@/components/app/page-header';
 import { SectionCard } from '@/components/app/section-card';
+import { InvoiceDate } from '@/components/billing/invoice-date';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PayPanel } from '@/components/billing/pay-panel';
@@ -168,7 +169,10 @@ export default function ClientInvoiceShow({
                             {invoice.issue_date && (
                                 <span>
                                     Issued{' '}
-                                    <DateTime value={invoice.issue_date} />
+                                    <InvoiceDate
+                                        value={invoice.issue_date}
+                                        bs={invoice.issue_date_bs}
+                                    />
                                 </span>
                             )}
                             {invoice.due_date && (
@@ -176,7 +180,10 @@ export default function ClientInvoiceShow({
                                     <span aria-hidden="true">·</span>
                                     <span>
                                         Due{' '}
-                                        <DateTime value={invoice.due_date} />
+                                        <InvoiceDate
+                                        value={invoice.due_date}
+                                        bs={invoice.due_date_bs}
+                                    />
                                     </span>
                                 </>
                             )}

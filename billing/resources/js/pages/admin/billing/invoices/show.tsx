@@ -22,6 +22,7 @@ import { SectionCard } from '@/components/app/section-card';
 import { StatCard } from '@/components/app/stat-card';
 import { StatusBadge } from '@/components/app/status-badge';
 import { FormDialog } from '@/components/billing/form-dialog';
+import { InvoiceDate } from '@/components/billing/invoice-date';
 import { InvoiceTotals } from '@/components/billing/invoice-totals';
 import { LineItems } from '@/components/billing/line-items';
 import { PaymentInProgressCard } from '@/components/billing/payment-in-progress';
@@ -377,7 +378,10 @@ export default function InvoiceShow({
                                     <span aria-hidden="true">·</span>
                                     <span>
                                         Due{' '}
-                                        <DateTime value={invoice.due_date} />
+                                        <InvoiceDate
+                                            value={invoice.due_date}
+                                            bs={invoice.due_date_bs}
+                                        />
                                     </span>
                                 </>
                             )}
@@ -548,6 +552,11 @@ export default function InvoiceShow({
                             <DateTime
                                 value={invoice.paid_at ?? invoice.due_date}
                             />
+                        }
+                        hint={
+                            !invoice.paid_at && invoice.due_date_bs
+                                ? invoice.due_date_bs
+                                : undefined
                         }
                     />
                 </div>
@@ -739,8 +748,9 @@ export default function InvoiceShow({
                                     {
                                         label: 'Issued',
                                         value: invoice.issue_date && (
-                                            <DateTime
+                                            <InvoiceDate
                                                 value={invoice.issue_date}
+                                                bs={invoice.issue_date_bs}
                                             />
                                         ),
                                     },
