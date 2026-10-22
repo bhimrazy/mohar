@@ -54,7 +54,7 @@ beforeEach(function () {
 test('upgrade and rotation in one restart with nothing to check: migrate and security:reencrypt refuse, nothing is pinned', function () {
     ehsRestart($this->k2, [$this->k1]);
 
-    expect(fn () => ehsMigrate())->toThrow(InstallSecretUnavailable::class, 'run `php artisan migrate`, then rotate');
+    expect(fn () => ehsMigrate())->toThrow(InstallSecretUnavailable::class, 'then run `php artisan migrate` again');
 
     ehsRestart($this->k2, [$this->k1]);
     $this->artisan('security:reencrypt')->expectsOutputToContain('match none of the configured keys')->assertExitCode(2);
