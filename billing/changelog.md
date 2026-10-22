@@ -29,9 +29,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   the application directory, and when `.env` or `bootstrap/cache/config.php` is readable by other users. Import
   email hashes (duplicate checks, the email-keyed id map) now use an install secret instead of a key derived from
   `APP_KEY`, so a rotation no longer makes a re-import duplicate clients. On an upgrade, migration
-  `2026_10_22_980300` (Migration, data only) pins the secret from the current key, so stored hashes keep matching;
-  `security:reencrypt` pins it too if it is still missing. A real run with `--only` reports the other targets as not
-  checked and is not logged as complete. The KYC retention task re-reads a document's files under lock before deleting
+  `2026_10_22_980300` (Migration, data only) pins the secret from the configured key that reproduces a stored hash (checked against staged emails and the
+  emails of imported clients), so stored hashes keep matching; `security:reencrypt` pins it too if it is still missing.
+  When several keys are configured and no stored hash can be checked, both stop with a message (migrate fails,
+  `security:reencrypt` exits 2) instead of guessing: run `migrate` under the old key, then rotate. A run with `--only`
+  reports the other targets as not checked, exits 3 and is not logged as complete. The KYC retention task re-reads a document's files under lock before deleting
   them. Set `PASSKEYS_USER_HANDLE_SECRET` before a first rotation (see the runbook). Backups: the backup sections of
   `install.md`, `production.md` and `cpanel.md` now say to exclude `.env` and `bootstrap/cache/config.php` from file
   and host backups and to keep the key (and old keys, for older dumps) in a secrets store; before, `production.md`

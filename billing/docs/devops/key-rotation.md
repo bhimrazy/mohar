@@ -35,9 +35,11 @@ well, so they keep working until they expire.
 
 **Keyed hashes.** The import's email hashes (duplicate checks and the email-keyed id map) use an install secret
 (`install_secrets`), not `APP_KEY`, so a rotation does not change them. On an install upgraded from an earlier
-version, `php artisan migrate` pins the secret from the current key, the one the stored hashes were made with, and
-`security:reencrypt` pins it at its start if it is still missing, after checking which configured key matches a
-stored hash. Key order in `APP_PREVIOUS_KEYS` does not matter for this, and neither does the number of rotations. Passkeys: Fortify derives the passkey user handle from
+version, `php artisan migrate` pins the secret, and `security:reencrypt` pins it at its start if it is still missing.
+Both first check which configured key reproduces a stored hash, from a staged email or the email of an imported
+client. When several keys are configured and no hash can be checked (the staged rows were purged and the imported
+clients changed their emails), both stop with a message instead of guessing (migrate fails, `security:reencrypt`
+exits 2). Upgrade and run `migrate` under the key in use first, and rotate in a later restart. Key order in `APP_PREVIOUS_KEYS` does not matter for this, and neither does the number of rotations. Passkeys: Fortify derives the passkey user handle from
 `APP_KEY` unless `PASSKEYS_USER_HANDLE_SECRET` is set. Existing passkeys keep working after a rotation, but set that
 variable to a fixed random value before rotating, so new registrations keep the same handle.
 
@@ -98,8 +100,8 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    php artisan security:reencrypt`. A server: `php artisan security:reencrypt`. The command reads each table in chunks
    (`--chunk`, 500 by default) and saves a checkpoint after each one. If it is interrupted, run it again and it
    continues; `--restart` starts over. `--limit=<n>` stops after n values, which splits a large install into several
-   runs. `--only` re-encrypts just the named targets; it ends with exit 0 but says that the other targets were not
-   checked, and its audit entry is not marked complete. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
+   runs. `--only` re-encrypts just the named targets; the other targets are not checked, so it ends with exit 3
+   and its audit entry is not marked complete. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
    one chunk is held in memory. A value the app writes during the run is left as the app wrote it. An identity image
    is written under a new name, recorded in the checkpoint, and the old file is deleted once the row points at the new
    one; a run killed in between finishes that on the next run. A real run needs every module loaded, so no module's
@@ -108,13 +110,13 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    writes one audit-log entry ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts
    per target, never values.
 
-    | Exit code | Meaning                                                                                                                          |
-    | --------- | -------------------------------------------------------------------------------------------------------------------------------- |
-    | 0         | every stored value is on the current key                                                                                         |
-    | 1         | some values no configured key decrypts, or a write failed its check; they are unchanged and listed by id                         |
-    | 2         | invalid options, no `APP_KEY`, or modules not loaded (without `--partial`)                                                       |
-    | 3         | not finished: stopped at `--limit`, the app wrote values during the run, modules were skipped, or (dry run) values on an old key |
-    | 4         | another `security:reencrypt` run holds the lock; wait for it                                                                     |
+    | Exit code | Meaning                                                                                                                                              |
+    | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | 0         | every stored value is on the current key                                                                                                             |
+    | 1         | some values no configured key decrypts, or a write failed its check; they are unchanged and listed by id                                             |
+    | 2         | invalid options, no `APP_KEY`, or modules not loaded (without `--partial`)                                                                           |
+    | 3         | not finished: `--only` was given, stopped at `--limit`, the app wrote values during the run, modules were skipped, or (dry run) values on an old key |
+    | 4         | another `security:reencrypt` run holds the lock; wait for it                                                                                         |
 
 6. **Verify.** With every module loaded, `php artisan security:reencrypt --dry-run` exits 0. Sign in as staff with two-factor authentication,
    test one gateway connection (Admin → Setup → Gateways) and one server connection (Admin → Services → Servers), and open a KYC document if you use

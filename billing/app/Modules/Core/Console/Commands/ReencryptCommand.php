@@ -7,6 +7,7 @@ use App\Modules\Core\Security\EncryptedTargets;
 use App\Modules\Core\Security\Reencryptor;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\InstallSecrets;
+use App\Modules\Core\Support\InstallSecretUnavailable;
 use App\Modules\Core\Support\Settings;
 use App\Providers\ModulesServiceProvider;
 use App\Support\Security\EncryptedColumn;
@@ -97,7 +98,13 @@ class ReencryptCommand extends Command
         try {
             if (! $dryRun) {
                 // Keyed-hash secrets are pinned before anything moves, while the keys that made the hashes are configured.
-                app(InstallSecrets::class)->seedMissing();
+                try {
+                    app(InstallSecrets::class)->seedMissing();
+                } catch (InstallSecretUnavailable $e) {
+                    $this->components->error($e->getMessage());
+
+                    return self::INVALID;
+                }
             }
 
             $reencryptor = app(Reencryptor::class)->forRun($dryRun ? null : $lock->owner());
@@ -204,7 +211,7 @@ class ReencryptCommand extends Command
         if ($only !== []) {
             $this->components->info('The selected targets are on the current key ('.implode(', ', $only).'). Other targets were not checked: run without --only (or --dry-run) to confirm the rest.');
 
-            return self::SUCCESS;
+            return self::INCOMPLETE;
         }
 
         $this->components->info($dryRun ? 'Every stored value is on the current key.' : "Done: {$totals['reencrypted']} value(s) re-encrypted; every stored value is on the current key.");

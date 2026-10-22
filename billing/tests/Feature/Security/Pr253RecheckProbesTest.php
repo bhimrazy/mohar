@@ -162,7 +162,7 @@ describe('PR #253 re-check: identity image crash windows and concurrent deletes'
             'pending' => ['key' => $document->id, 'column' => 'front_path', 'old' => $document->front_path, 'new' => $new]]);
     }
 
-    function r253Run(int $exit = 0): void
+    function r253Run(int $exit = 3): void
     {
         test()->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode($exit);
     }

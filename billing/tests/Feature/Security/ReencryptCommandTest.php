@@ -108,7 +108,7 @@ test('an interrupted run resumes after the last finished chunk', function () {
     expect(ReencryptionCheckpoint::query()->sole()->last_key)->toBe((string) $servers[1]->id);
 
     $writes = -100; // no more crashes
-    $this->artisan('security:reencrypt', ['--only' => ['servers.password'], '--chunk' => 2])->assertExitCode(0);
+    $this->artisan('security:reencrypt', ['--only' => ['servers.password'], '--chunk' => 2])->assertExitCode(3);
 
     $totals = ActivityLog::query()->where('event', 'security.reencrypted')->sole()->properties['totals'];
     // Rows 1-2 came from the checkpoint; row 3 was already re-encrypted by the killed run; 4-5 now.
@@ -123,7 +123,7 @@ test('--limit stops early with exit code 3 and the next run continues', function
     $this->artisan('security:reencrypt', ['--only' => ['servers.password'], '--limit' => 2])->assertExitCode(3);
     expect(ReencryptionCheckpoint::query()->sole()->completed)->toBeFalse();
 
-    $this->artisan('security:reencrypt', ['--only' => ['servers.password']])->assertExitCode(0);
+    $this->artisan('security:reencrypt', ['--only' => ['servers.password']])->assertExitCode(3);
     expect(ReencryptionCheckpoint::query()->count())->toBe(0);
 });
 
@@ -218,12 +218,12 @@ test('a run killed after switching an identity image but before deleting the old
 
     // The state a run killed right after the switch commits leaves: the row on the new file, the old file still there
     // and the pending record (written under another key's fingerprint, which settling does not depend on).
-    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(3);
     $newPath = $document->fresh()->front_path;
     Storage::disk(KycDocument::DISK)->put($oldPath, onlyKey($this->old)->encrypt('scan', false));
     ReencryptionCheckpoint::query()->create(['target' => 'kyc_documents.files', 'key_fingerprint' => 'x', 'counts' => [], 'pending' => ['key' => $document->id, 'column' => 'front_path', 'old' => $oldPath, 'new' => $newPath]]);
 
-    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(3);
 
     expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([$newPath])
         ->and(onlyKey($this->new)->decrypt(Storage::disk(KycDocument::DISK)->get($newPath), false))->toBe('scan');

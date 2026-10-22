@@ -140,7 +140,7 @@ describe('PR #253 probes: two processes (PostgreSQL)', function () {
             expect($current->decrypt($row->password, false))->toBe($expected, "server {$row->id}");
         }
 
-        expect($results['run']['exit'])->toBeIn([0, 3]);
+        expect($results['run']['exit'])->toBe(3);
     });
 
     test('two runs at once: the second is refused by the database lock, and without a shared lock store nothing is lost either', function (string $store) {
@@ -165,8 +165,9 @@ describe('PR #253 probes: two processes (PostgreSQL)', function () {
 
         if ($store === 'database') {
             // One finished; the other was refused (exit 1, the same code as "undecryptable values") or ran after it.
-            expect($codes[0])->toBe(0)
-                ->and(str_contains($results['a']['output'].$results['b']['output'], 'Another security:reencrypt run is in progress') || $codes === [0, 0])->toBeTrue();
+            // Both runs use --only, which ends with exit 3 (ADR 0022 §3).
+            expect($codes)->toContain(3)
+                ->and(str_contains($results['a']['output'].$results['b']['output'], 'Another security:reencrypt run is in progress') || $codes === [3, 3])->toBeTrue();
         } else {
             expect(array_diff($codes, [0, 3]))->toBe([]);
         }
@@ -190,7 +191,7 @@ describe('PR #253 probes: identity files', function () {
         $loadedByPrune = KycDocument::query()->findOrFail($document->id);
 
         p253UseKeys($this->new, [$this->old]);
-        $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+        $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(3);
 
         expect(app(DocumentVault::class)->delete($loadedByPrune))->toBeTrue()
             ->and(KycDocument::query()->find($document->id))->toBeNull()
@@ -213,7 +214,7 @@ describe('PR #253 probes: identity files', function () {
 
         expect(fn () => $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->run())->toThrow(RuntimeException::class);
         $crash = false;
-        $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+        $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(3);
 
         expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([$document->fresh()->front_path]);
     });
