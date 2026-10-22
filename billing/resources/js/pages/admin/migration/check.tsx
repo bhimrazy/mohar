@@ -9,6 +9,7 @@ import {
     HelpCircle,
     Pencil,
     Receipt,
+    Send,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
@@ -38,6 +39,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ClientImportController from '@/actions/App/Modules/Migration/Http/Controllers/Admin/ClientImportController';
+import ImportInvitationController from '@/actions/App/Modules/Migration/Http/Controllers/Admin/ImportInvitationController';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { cn } from '@/lib/utils';
 import type { LaravelPaginated } from '@/types/app';
@@ -434,6 +436,18 @@ export default function ImportCheck({
                                 </div>
                             ))}
                         </dl>
+                        {run.status === 'completed' && (
+                            <Button variant="outline" className="mt-4" asChild>
+                                <Link
+                                    href={ImportInvitationController.index(
+                                        run.id,
+                                    )}
+                                >
+                                    <Send />
+                                    Send invitations
+                                </Link>
+                            </Button>
+                        )}
                     </SectionCard>
                 )}
 

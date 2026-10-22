@@ -2,6 +2,7 @@
 
 namespace App\Modules\Platform;
 
+use App\Contracts\Auth\ClientLoginInvitations;
 use App\Events\Core\ExchangeRatesUpdated;
 use App\Models\User;
 use App\Modules\Core\Models\Contact;
@@ -24,6 +25,7 @@ use App\Modules\Platform\Services\Impersonation;
 use App\Modules\Platform\Services\PermissionGuard;
 use App\Modules\Platform\Services\SettingsCatalog;
 use App\Modules\Platform\Support\ExchangeRateTask;
+use App\Modules\Platform\Support\PlatformClientLoginInvitations;
 use App\Modules\Platform\Support\PlatformDashboard;
 use App\Support\Automation\Automation;
 use App\Support\Clients\ClientMergeRegistry;
@@ -60,6 +62,7 @@ class PlatformServiceProvider extends ModuleServiceProvider
         $this->app->singleton(PermissionGuard::class);
         $this->app->singleton(SettingsCatalog::class);
         $this->app->scoped(Impersonation::class);
+        $this->app->bind(ClientLoginInvitations::class, PlatformClientLoginInvitations::class);
     }
 
     protected function bootModule(): void

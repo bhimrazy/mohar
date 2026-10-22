@@ -36,7 +36,7 @@ final class MailFramer
             $family === 'service' => $this->service($key, $context),
             $family === 'domain' => $this->domain($key, $context),
             $family === 'ticket' => $this->ticket($key, $context),
-            $family === 'auth' => $this->account($key, $context),
+            $family === 'auth', $key === 'client.migration_invitation' => $this->account($key, $context),
             $key === 'kyc.document_decided' => new MailFrame(label: self::text('Identity verification'), statusTone: data_get($context, 'kyc.approved') ? 'success' : 'warning', statusLabel: data_get($context, 'kyc.approved') ? self::text('Approved') : self::text('Declined')),
             $key === 'client.welcome' => new MailFrame(label: self::text('Your account'), statusTone: 'success', statusLabel: self::text('Ready')),
             $family === 'affiliate' => new MailFrame(label: self::text('Affiliate programme'), statusTone: 'success', statusLabel: $key === 'affiliate.withdrawal_processed' ? self::text('Paid out') : self::text('Active')),
@@ -230,7 +230,7 @@ final class MailFramer
         [$tone, $label, $when] = match ($key) {
             'auth.password_reset' => ['accent', self::text('Reset requested'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.email_verification' => ['accent', self::text('Confirm your email'), null],
-            'auth.user_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
+            'auth.user_invitation', 'client.migration_invitation' => ['accent', self::text('Invitation'), $expires !== null ? self::text('link works until :time', ['time' => $expires]) : null],
             'auth.password_changed' => ['warning', self::text('Password changed'), $this->date(MailClock::today())],
             'auth.new_login_alert' => ['warning', self::text('New login'), $this->date(MailClock::today())],
             default => ['info', self::text('Account change'), $this->date(MailClock::today())],

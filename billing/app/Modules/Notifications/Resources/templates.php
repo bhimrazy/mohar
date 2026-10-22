@@ -73,6 +73,13 @@ This invitation works once, for {{ auth.expires_in }}: until {{ auth.expires_at 
 
 If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
 MD),
+    $secret('client.migration_invitation', 'client', 'general', 'Invitation after a client import', 'Set your password for the new {{ company.name }} client area', 'Set your password', 'Set your password', <<<'MD'
+Hello {{ user.first_name }}, {{ company.name }} has moved to a new client area, and your account is already in it. Set a password to sign in; your old password does not work here.
+
+This link works once, for {{ auth.expires_in }}: until {{ auth.expires_at }}. If it runs out, contact {{ support.email }} for a new one.
+
+If you weren't expecting this, you can ignore this email. If this wasn't you, contact {{ support.email }}.
+MD),
     $client('auth.new_login_alert', 'general', 'New login alert', 'New login to your {{ company.name }} account', <<<'MD'
 # New login to your account
 
