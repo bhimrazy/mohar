@@ -91,6 +91,11 @@ the same metadata on the session and on `payment_intent_data`: `mohar_reference`
   (`POST /v1/checkout/sessions/<id>/expire`; only an `open` session can be expired, so this can't touch a paid
   one) and the lookup closes the attempt at once, so the customer can pay another way without waiting 35 minutes.
   The session id comes from a server-side cache keyed by our reference, never from the browser.
+- **Declined card (#123):** Checkout keeps the session open after a decline, so the invoice offers "Continue
+  payment" and "Use another method" to the invoice owner. Continue retrieves the stored session and redirects to its
+  `url` only while it is `open` and on the checkout host. Use another method expires the stored session
+  (`ResumesHostedPayment` and `CancelsHostedPayment`), then the lookup settles the attempt: `expired` frees the
+  invoice, and a paid session is booked.
 - The poller (`billing.payments.reconcile`) settles attempts whose customer never came back.
 
 ### 3.2 Lookup status mapping
