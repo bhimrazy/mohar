@@ -28,3 +28,25 @@ test('remembering the same record again replaces it, and its secret is stored en
         ->and($row->secret)->not->toContain('Profile-Pass')
         ->and($refs->find('opensrs', 'profile', 'client', 7)?->secret)->toBe('Profile-Pass-2');
 });
+
+// Adopted from review/pr-262-probes (#265): a value longer than its column is refused the same way on SQLite and
+// PostgreSQL, instead of being stored on one and raising a QueryException on the other.
+test('an over-long ref value is refused the same way on every database', function (RegistrarRef $ref) {
+    expect(fn () => app(RegistrarRefs::class)->remember($ref))->toThrow(InvalidArgumentException::class)
+        ->and(DB::table('registrar_refs')->count())->toBe(0);
+})->with([
+    'ref type' => fn () => new RegistrarRef('resellerclub', 'customer_contact_profile', 'client', 1, '9'),
+    'sha512 payload hash' => fn () => new RegistrarRef('resellerclub', 'contact', 'client', 1, '9', hash('sha512', 'contact')),
+]);
+
+// Adopted from review/pr-262-probes (#265).
+test('remembering the same ref three times keeps one row and the last remote id', function () {
+    $refs = app(RegistrarRefs::class);
+
+    foreach (['1', '2', '3'] as $remote) {
+        $refs->remember(new RegistrarRef('resellerclub', 'customer', 'client', 5, $remote));
+    }
+
+    expect(DB::table('registrar_refs')->count())->toBe(1)
+        ->and($refs->find('resellerclub', 'customer', 'client', 5)?->remoteId)->toBe('3');
+});
