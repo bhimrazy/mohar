@@ -100,17 +100,22 @@ A dash means the comment did not report that figure.
 
 ## Memory
 
-The 8 GB that production.md used to give as the minimum came from adding up the compose memory limits (5,888 MB at
-the peak of a deploy). Limits are ceilings; the measurements say what the stack uses.
+The earlier, larger minimum in production.md came from adding up the compose memory limits (5,888 MB at the peak of
+a deploy). Limits are ceilings; the measurements say what the stack uses.
 
-| Run                                                                                                                                  | Total memory of all containers (without k6)                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Runner, small profile, 50,000 clients, one colour (artifact `load-test-small-large-39472898451`, `docker-stats.ndjson`, 218 samples) | peak 857 MB (PDF phase); 790 MB at 40 users; 764 MB during the billing day; 790 MB during the queue drain |
-| Drill, full production stack, demo data (956 invoices), `deploy/bin/deploy` blue then green, VM of 3.6 GB (3,665 MB by `free -m`)    | peak 691 MiB with both colours' web containers and pools running, sampled every 3 s                       |
+Where the numbers come from: the runner figures are from the load-test stack (`loadtest/compose.loadtest.yaml`, one
+colour, capped at 2 CPU and 4 GB by a systemd slice, the small profile's per-service limits), not from
+`deploy/compose.prod.yaml`; the drill figure is from `deploy/compose.prod.yaml` itself. **4 GB is the smallest size
+tested, not a measured floor**: nothing smaller was run, and no run came near the cap.
 
-Per service on the runner, the highest values over the phases: PostgreSQL 340 MB (`shared_buffers=256MB`), the
-scheduler 179 MB during the billing day, the web container 111 MB, the three pools and the automation worker 44–74 MB
-each, RustFS 80 MB, Caddy 27 MB. The kernel and page cache come on top of that, which is why 4 GB, not 1 GB, is the minimum.
+| Run                                                                                                                                  | Total memory of all containers (without k6)                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Runner, small profile, 50,000 clients, one colour (artifact `load-test-small-large-39472898451`, `docker-stats.ndjson`, 218 samples) | peak 857 MiB (PDF phase, only 2 samples had all 9 containers); 790 MiB at 40 users; 790 MiB during the queue drain. The billing day (764 MiB) is partial: only 6 of the 9 containers ran (the pools were stopped), so it is not comparable |
+| Drill, full production stack, demo data (956 invoices), `deploy/bin/deploy` blue then green, VM of 3.6 GB (3,665 MB by `free -m`)    | peak 691 MiB (total of the containers) with both colours' web containers and pools running, sampled every 3 s                                                                                                                              |
+
+Per service on the runner, the highest value of any sample over all phases (MiB): PostgreSQL 340 (`shared_buffers=256MB`),
+the web container 185 (PDF phase), the scheduler 179 (billing day), the three pools and the automation worker 45–74
+each, RustFS 80, Caddy 27. The kernel and page cache come on top of that, which is why 4 GB, not 1 GB, is the minimum.
 
 So a 4 GB host runs the stack in steady state with room to spare, and the drill's deploy fitted a 3.6 GB VM although
 the limits then added up to more than the VM had. What these two runs do not cover, and so what a 4 GB host has not
@@ -125,7 +130,7 @@ deploy at the large volume, treat deploys on a 4 GB host with a database of that
 | Sign                                                                                                         | What to do                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | Sign-in and dashboards have a multi-second p95 while the median is fine (measured at 40 active users: 3–5 s) | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), not yet measured |
-| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                    | Run `deploy/bin/deploy retire` after each deploy, then move to 8 GB                                                         |
+| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                    | Run `deploy/bin/deploy retire` after each deploy, then move to the medium profile (4 vCPU, 8 GB)                            |
 | Over 50,000 clients, or more than 40 people in the admin and client area at once                             | Not measured; run the medium or large profile from Actions → Load test before sizing                                        |
 
 ## Where the small host runs out

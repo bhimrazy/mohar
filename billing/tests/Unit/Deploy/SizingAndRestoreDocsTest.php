@@ -15,9 +15,11 @@ function d6Repo(string $path): string
 test('every doc that states a server size gives the same minimum, 2 vCPU and 4 GB', function (string $path) {
     $text = d6Repo($path);
 
+    // The medium profile (4 vCPU, 8 GB) is the only place left that names 8 GB.
+    $withoutMedium = (string) preg_replace('/4 vCPU(,| and) 8 GB/', '', $text);
+
     expect($text)->toMatch('/2 vCPU(,| and| \/) ?4 GB/')
-        ->and($text)->not->toMatch('/\b8 GB (is the minimum|of memory as a minimum|of memory\. Less)/')
-        ->and($text)->not->toContain('8 GB is the minimum');
+        ->and($withoutMedium)->not->toMatch('/\b8 GB\b/');
 })->with([
     'production.md' => 'billing/docs/devops/production.md',
     'install.md' => 'billing/docs/devops/install.md',
@@ -43,6 +45,9 @@ test('no restore step removes a stack with a bare `down -v`, which leaves the bl
     'docs site' => 'docs-site/src/content/docs/operate/backups.mdx',
 ]);
 
-test('deploy/bin/deploy uses no GNU-only realpath option, so it runs on macOS', function () {
-    expect(d6Repo('deploy/bin/deploy'))->not->toContain('realpath -m');
+test('deploy/bin/deploy resolves its state directory without GNU-only realpath options, so it runs on macOS', function () {
+    $script = d6Repo('deploy/bin/deploy');
+
+    expect($script)->not->toContain('realpath')
+        ->and($script)->toContain('pwd -P');
 });

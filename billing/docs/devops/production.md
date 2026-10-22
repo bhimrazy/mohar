@@ -40,8 +40,9 @@ The scheduler gets the same 3,660 s: the daily automation pipeline runs inside i
 testing), and `schedule:work` waits for a run in progress when it is stopped. An idle scheduler still stops in well
 under a second. Its 512 MB covers `schedule:work`, `schedule:run` and the pipeline, which PHP allows up to 256 MB.
 
-**Sizing.** The minimum is **2 vCPU and 4 GB**, the same host [sizing.md](sizing.md) measured: at 50,000 clients on that
-host (one colour, the load-test profile) all containers together used at most 857 MB, and the p95 over all pages
+**Sizing.** The minimum is **2 vCPU and 4 GB**, the smallest host [sizing.md](sizing.md) tested (not a measured floor;
+nothing smaller was run). On the load-test stack (`loadtest/compose.loadtest.yaml`, not this compose file) capped at that size, at 50,000 clients with
+one colour, all containers together used at most 857 MiB, and the p95 over all pages
 was 424 ms at 40 active users. A full blue-green deploy, with both colours' web containers and pools running, also
 ran on a 3.6 GB Docker VM (peak 691 MiB in total; demo data, not 50,000 clients: see the restore drill below).
 The memory limits in the table are ceilings, not what is used: they add up to 4,736 MB between deploys and 5,888 MB at the peak of a deploy
@@ -236,11 +237,11 @@ a secrets store, apart from both; host and file backups exclude `deploy/.env` ([
   `umask 077` inside the container, so the archive is readable by root only:
 
     ```bash
-    compose="docker compose -f /srv/billing/deploy/compose.prod.yaml"
-    $compose stop rustfs
-    $compose run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
+    compose=(docker compose -f /srv/billing/deploy/compose.prod.yaml)
+    "${compose[@]}" stop rustfs
+    "${compose[@]}" run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
       -c 'umask 077 && tar czf /backup/objects-$(date +%F).tgz -C /data .'
-    $compose start rustfs
+    "${compose[@]}" start rustfs
     ```
 
 - **`APP_KEY`** (and the earlier keys, for dumps taken before a rotation) in a password manager or secrets store, never
@@ -255,13 +256,14 @@ Copy the files off the host, and test a restore every quarter.
 Into an empty stack (a new host, or after removing the volumes). You need `deploy/.env` with the same `APP_KEY` as the
 backup (from your password manager, see above); on a new host also clone the repository at the release you run.
 
-To empty a stack you want to restore over, remove it with both colours' profiles, or the app and worker containers of
+**`down -v` destroys the database, the bucket and Caddy's certificates (the `caddy-data` volume), for good.** Take
+and check the backups first. To empty a stack you want to restore over, remove it with both colours' profiles, or the app and worker containers of
 the colours stay running with their volumes in use (`down -v` alone removes only `postgres`, `rustfs` and `caddy`, and
 `--remove-orphans` does not help):
 
 ```bash
 docker compose -f deploy/compose.prod.yaml --profile blue --profile green down -v
-rm -rf deploy/state     # the live colour of the old stack
+rm -rf "${DEPLOY_STATE_DIR:-deploy/state}"   # the live colour of the old stack
 ```
 
 ```bash
@@ -275,7 +277,7 @@ docker compose -f deploy/compose.prod.yaml start rustfs
 deploy/bin/deploy
 ```
 
-`deploy/bin/deploy` does the rest: it builds the image if the host has none, finds nothing to migrate, starts a colour,
+`deploy/bin/deploy` does the rest: it builds the checkout as the app image (unless you pass `--image`, then it uses that), finds nothing to migrate, starts a colour,
 writes Caddy's upstream and starts Caddy, then the workers and the scheduler (a plain `up` would start no app colour,
 and Caddy refuses to start without an upstream).
 

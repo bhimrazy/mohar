@@ -11,8 +11,8 @@ Everything runs in containers on one Linux host: the app, its workers and schedu
 a web server that gets the TLS certificate for you.
 
 - A Linux host with Docker Engine and the Docker Compose v2 plugin.
-- At least 2 vCPU and 4 GB of memory. That is the host the load test measured, with 50,000 clients: the containers
-  together used under 1 GB. During an upgrade the old and the new version of the app run side by side for a short
+- At least 2 vCPU and 4 GB of memory. That is the smallest host the load test tried (50,000 clients; the containers
+  together used under 1 GB); nothing smaller was measured. During an upgrade the old and the new version of the app run side by side for a short
   time; keep an eye on free memory then, and stop the old version afterwards (`deploy/bin/deploy retire`).
 - A domain name for the app, such as `billing.example.com`, with DNS `A` (and `AAAA` for IPv6) records pointing at
   the host.

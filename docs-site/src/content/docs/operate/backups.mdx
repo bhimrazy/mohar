@@ -41,18 +41,20 @@ object storage volume. The copy stops object storage for a few seconds, so no fi
 PDF downloads fail meanwhile, so run it outside the automation window.
 
 ```bash
-compose="docker compose -f /srv/billing/deploy/compose.prod.yaml"
-$compose stop rustfs
-$compose run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
+compose=(docker compose -f /srv/billing/deploy/compose.prod.yaml)
+"${compose[@]}" stop rustfs
+"${compose[@]}" run --rm --no-deps --user 0:0 -v /backups:/backup --entrypoint sh rustfs \
   -c 'umask 077 && tar czf /backup/objects-$(date +%F).tgz -C /data .'
-$compose start rustfs
+"${compose[@]}" start rustfs
 ```
 
 The copy runs as root so it can write to a root-owned `/backups`, and the archive is readable by root only.
 
 **Restore** into an empty stack (a new host, or after removing the volumes), with the same `APP_KEY` as the backup.
 To remove a stack you want to restore over, name both colours, or its app containers keep running:
-`docker compose -f deploy/compose.prod.yaml --profile blue --profile green down -v`, then `rm -rf deploy/state`.
+`docker compose -f deploy/compose.prod.yaml --profile blue --profile green down -v`, then remove the state directory
+(`rm -rf "${DEPLOY_STATE_DIR:-deploy/state}"`). **`down -v` destroys the database, the object storage and the web server's
+certificates for good**: check your backups first.
 
 <Steps>
 

@@ -26,9 +26,9 @@ cd "$root"
 
 env_file="${DEPLOY_ENV_FILE:-deploy/.env}"
 project="${DEPLOY_PROJECT:-mohar}"
-# An absolute path without the GNU-only realpath option, which macOS lacks (local runs on Docker Desktop).
-mkdir -p "${DEPLOY_STATE_DIR:-deploy/state}"
-DEPLOY_STATE_DIR="$(cd "${DEPLOY_STATE_DIR:-deploy/state}" && pwd)"
+# An absolute path without the GNU-only path-resolving option, which macOS lacks (local runs on Docker Desktop).
+mkdir -p -- "${DEPLOY_STATE_DIR:-deploy/state}"
+DEPLOY_STATE_DIR="$(cd -- "${DEPLOY_STATE_DIR:-deploy/state}" && pwd -P)"
 export DEPLOY_STATE_DIR
 state="$DEPLOY_STATE_DIR/deploy.env"
 upstream="$DEPLOY_STATE_DIR/live/upstream.caddy"
