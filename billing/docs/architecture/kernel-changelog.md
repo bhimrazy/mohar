@@ -6,6 +6,37 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Registrar driver contracts, ADR 0009 PR C1
+
+Additive; Domains moves onto these in PR C2, which removes its module SPI.
+
+- `App\Contracts\Domains\Registrar\RegistrarDriver` (provider contract, extends `IntegrationDriver`):
+  `settingsFields(): list<SettingField>`, `register(RegistrarConfig, RegistrationRequest)`, `renew(RegistrarConfig,
+  DomainRef, int $years)`, `info(RegistrarConfig, DomainRef)`. Capability interfaces in the same namespace:
+  `ChecksAvailability`, `SuggestsNames`, `TransfersDomains` (`transfer` and `transferSync`), `RestoresDomains`
+  (`restore(config, domain, years)`, replacing `renew(restore: true)`), `ManagesNameservers`, `ManagesLock`,
+  `ManagesContacts` (get and set), `ProvidesEppCode`, `ManagesIdProtection`, `SyncsDomains`, `ReconcilesSubmissions`
+  (C2, `findSubmission(config, domain, command, submittedAt): SubmissionLookup`) and `TestsRegistrarConnection`
+  (`testConnection(RegistrarConfig): ConnectionCheck`).
+- `App\Contracts\Domains\Registrar\RegistrarRefs` (consumer contract, C4): `find(registrarKey, refType, localType,
+  localId, payloadHash = '')` and `remember(RegistrarRef)`. Implemented by Domains in PR C3 (#265).
+- `App\Data\Domains\Registrar`: `RegistrarConfig(key, settings, testMode, secretSettingKeys)` with `setting()` and
+  `secrets()` (the name matches `ServerConnection::$secretSettingKeys`); `RegistrationRequest::secrets()` (the transfer
+  code), which the host adds to its redaction set for the call; `ContactSet::ROLES` and `ContactSet::FIELDS`, the
+  kernel contact shape (Domains' `DomainContact` constants now point at them; formats in the `ContactSet` docblock); `DomainRef` (the ADR 0009 §2 fields plus a trailing `periodYears`); `RegistrarRef`; and the result DTOs
+  from the Domains module, unchanged apart from `RegistrationRequest::$domain` being a `DomainRef`, `eppCode` and
+  `EppCodeResult::$code` marked `#[\SensitiveParameter]`, and `RegistrarResult::withMessage()` /
+  `SubmissionLookup::withMessage()` (a copy with a new message, for host-side masking).
+- `TransferSyncResult::withReason()` and `App\Data\Integrations\ConnectionCheck::mapText(Closure)` (additive): copies with
+  replaced text, so the host masks what a driver says before showing it. `RegistrarTimeout` takes a trailing
+  `?Throwable $previous`.
+- `App\Support\Domains\RegistrarDriverRegistry` (final, singleton in `AppServiceProvider`): the `DriverRegistry`
+  API plus `supports(key, capability)` and `fields(key)`, and one constant per capability name
+  (`RegistrarDriverRegistry::AVAILABILITY` … `TEST_CONNECTION`). Capability names are the strings the admin already
+  shows; `register`, `renew` and `info` map to the core interface, `transfer` and `transfer_sync` to
+  `TransfersDomains`, and `test_connection` is new. `RegistrarException` (without HTTP rendering), `RegistrarTimeout` and
+  `CapabilityNotSupported` in the same namespace.
+
 ### Client import invitations (importer B2a)
 
 - New contract `App\Contracts\Auth\ClientLoginInvitations` (client-import spec C3; beside `AuthMailer`):
