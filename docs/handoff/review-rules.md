@@ -14,7 +14,9 @@ checklist; this file holds what they have in common. The brief gives the PR numb
 - Heavy commands (`npm ci`, builds, phpstan, test suites) go through `$MOHAR_ROOT/scripts/heavy.sh` with
   `export XDEBUG_MODE=off`. Run targeted tests only; CI runs the full suite on SQLite and PostgreSQL.
 - PostgreSQL: use the shared server with your own database, `eval "$($MOHAR_ROOT/scripts/pg.sh <slug>)"`, then
-  the tests you need. Don't start private containers. Drop the database when done.
+  the tests you need. Don't start private containers. Drop only your own database when done
+  (`docker exec mohar-pg dropdb -U billing --if-exists <db>`); `pg.sh --prune` is for the CTO, since it drops every idle
+  test database on the shared server.
 - Dev servers on the port range in your brief; stop them by port PID (`ss -ltnp | grep :<port>`), never `pkill -f`.
 
 ## Verdict

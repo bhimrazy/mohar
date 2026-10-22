@@ -169,7 +169,7 @@ other which areas are taken, so two sites never change the same files.
 - Branches `feature/<slug>` from `develop`; `develop` is integration; `main` is release. Review probes on
   `review/pr-<n>-probes`, archived as tags after adoption. Snapshot branches `wip/<branch>-snapshot` are deleted once
   the work lands.
-- Conventional Commits with the attribution trailer the harness specifies. PR bodies: summary, spec coverage,
+- Conventional Commits with no attribution trailer or footer (no `Co-Authored-By: Claude`; owner rule, 2026-10-22). PR bodies: summary, spec coverage,
   shared-kernel changes, security notes, tests, screenshots.
 - Screenshots: headless Playwright, under `billing/docs/screenshots/<module>/`, through `npm run images:optimize`
   (CI fails on images over 500 KB).
