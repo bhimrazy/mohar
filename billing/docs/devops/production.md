@@ -117,6 +117,12 @@ All commands run from the repository root (a clone at the release you deploy).
 5. **First deploy.** It checks and runs the migrations again (nothing to do), starts the blue colour, writes Caddy's
    upstream and starts Caddy, then the workers and the scheduler.
 
+    The `migrate` service runs `migrate --isolated=1`: a second deploy started meanwhile stops with "The [migrate]
+    command is already running." A migrator that was killed keeps the lock for up to an hour; once you are sure none
+    is running, release it with `docker compose -f deploy/compose.prod.yaml run --rm migrate php artisan tinker
+   --execute 'Cache::lock("framework/command-migrate")->forceRelease();'`. A migration can also stop on a table lock
+    it cannot get (`DB_MIGRATION_LOCK_TIMEOUT`, docs/architecture.md rule 5): the error names the session in the way.
+
     ```bash
     deploy/bin/deploy
     ```

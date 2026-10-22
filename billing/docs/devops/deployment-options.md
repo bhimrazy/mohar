@@ -87,13 +87,13 @@ Read-only root filesystem: `read_only: true` with tmpfs for `/tmp`, `/app/bootst
 
 One image, four commands:
 
-| Service             | Command                                                                         | Replicas                                                                                        |
-| ------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `app`               | `frankenphp run`                                                                | 1+                                                                                              |
-| `worker-*`          | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600`    | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks` / `default`) |
-| `worker-automation` | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600` | exactly 1 (Run now; its own connection, `retry_after` 3,900 s, `install.md` §6)                 |
-| `scheduler`         | `php artisan schedule:work`                                                     | exactly 1                                                                                       |
-| `migrate`           | `php artisan migrate --force && php artisan app:install --no-interaction`       | one-shot                                                                                        |
+| Service             | Command                                                                                | Replicas                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `app`               | `frankenphp run`                                                                       | 1+                                                                                              |
+| `worker-*`          | `php artisan queue:work --queue=... --tries=3 --timeout=200 --max-time=3600`           | 1 per pool (ADR 0014: `payments,provisioning,registrar` / `notifications,webhooks` / `default`) |
+| `worker-automation` | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600`        | exactly 1 (Run now; its own connection, `retry_after` 3,900 s, `install.md` §6)                 |
+| `scheduler`         | `php artisan schedule:work`                                                            | exactly 1                                                                                       |
+| `migrate`           | `php artisan migrate --isolated=1 --force && php artisan app:install --no-interaction` | one-shot                                                                                        |
 
 `--max-time` restarts workers hourly; `stop_grace_period` must exceed the longest job timeout (Laravel's
 Supervisor advice for `stopwaitsecs`), so 210 s for the provisioning pool and over 3,600 s for `worker-automation`.

@@ -2,8 +2,12 @@
 
 namespace App\Modules\Core\Support;
 
+use Closure;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use LogicException;
+use RuntimeException;
+use Throwable;
 
 /**
  * Index changes that are safe on large, busy tables (PostgreSQL and SQLite, ADR 0006).
@@ -12,8 +16,15 @@ use LogicException;
  * run inside a transaction, so the calling migration must set `public $withinTransaction = false;`; inside a
  * transaction this throws instead of silently taking a write-blocking lock (pass `allowLocking: true` only for a
  * table known to be small, or in tests). An existing index of the same name is reused only if it is on the same
- * table with the same columns and uniqueness; anything else throws. An INVALID index left by an interrupted
- * concurrent build is dropped and rebuilt. SQLite gets the same statements without CONCURRENTLY.
+ * table with the same columns, uniqueness and partial-index predicate (WHERE); anything else throws. An INVALID
+ * index left by an interrupted concurrent build is dropped and rebuilt. SQLite gets the same statements without
+ * CONCURRENTLY.
+ *
+ * Every build and drop runs under LockTimeout. A concurrent build waits for every transaction older than itself,
+ * on any table, so it gets the longer `database.migrations.concurrent_lock_timeout` (60s: ordinary transactions
+ * finish, a stuck one fails the build instead of hanging the deploy). A lock timeout there leaves an INVALID index:
+ * the next attempt drops it first, and after the last failed attempt it is dropped too. An index another session is
+ * still building is never dropped (dropIfInvalid()).
  *
  *   OnlineIndex::create('orders', ['client_id', 'id']);                                  // orders_client_id_id_index
  *   OnlineIndex::create('tld_prices', ['tld_id', 'currency', 'years'], 'tld_prices_default_price_unique', unique: true, where: 'client_group_id is null');
@@ -24,6 +35,11 @@ final class OnlineIndex
 {
     /** PostgreSQL truncates longer identifiers, after which lookups by the full name no longer find the index. */
     public const MAX_NAME_LENGTH = 63;
+
+    public const CONCURRENT_ATTEMPTS = 3;
+
+    /** A temporary copy of the table's columns, used to have PostgreSQL write a predicate in its own form. */
+    private const PREDICATE_PROBE = 'online_index_predicate_probe';
 
     /**
      * @param  list<literal-string>  $columns  column names written in code; ignored when $expression is given
@@ -43,39 +59,43 @@ final class OnlineIndex
 
         $concurrently = self::concurrently($name, $allowLocking);
 
-        if ($driver === 'pgsql') {
-            self::dropIfInvalid($name, $concurrently);
-        }
-
-        $existing = self::existing($name);
-
-        if ($existing !== null) {
-            $expected = ['table' => $table, 'columns' => $expression !== null ? null : $columns, 'unique' => $unique];
-
-            if ($existing['table'] !== $table || $existing['unique'] !== $unique || ($expected['columns'] !== null && $existing['columns'] !== $columns)) {
-                throw new LogicException(sprintf(
-                    'Index %s already exists with a different definition (%s%s (%s)); expected %s%s (%s).',
-                    $name, $existing['unique'] ? 'unique on ' : 'on ', $existing['table'], implode(', ', $existing['columns']),
-                    $unique ? 'unique on ' : 'on ', $table, $expression ?? implode(', ', $columns),
-                ));
+        $build = function () use ($table, $columns, $name, $unique, $where, $expression, $using, $driver, $concurrently): void {
+            if ($driver === 'pgsql') {
+                self::dropIfInvalid($table, $name, $concurrently);
             }
 
-            return;
+            $existing = self::existing($name);
+
+            if ($existing !== null) {
+                self::assertSameDefinition($existing, $table, $columns, $name, $unique, $where, $expression);
+
+                return;
+            }
+
+            $grammar = DB::connection()->getQueryGrammar();
+            $target = $expression ?? implode(', ', array_map(fn (string $column): string => $grammar->wrap($column), $columns));
+
+            DB::statement(sprintf(
+                'create %sindex%s %s on %s%s (%s)%s',
+                $unique ? 'unique ' : '',
+                $concurrently ? ' concurrently' : '',
+                $grammar->wrap($name),
+                $grammar->wrapTable($table),
+                $using !== null ? ' using '.$using : '',
+                $target,
+                $where !== null ? ' where '.$where : '',
+            ));
+        };
+
+        try {
+            self::underLockTimeout($table, $concurrently, $build);
+        } catch (Throwable $failure) {
+            if ($concurrently) {
+                self::dropLeftoverOf($table, $name, $failure);
+            }
+
+            throw $failure;
         }
-
-        $grammar = DB::connection()->getQueryGrammar();
-        $target = $expression ?? implode(', ', array_map(fn (string $column): string => $grammar->wrap($column), $columns));
-
-        DB::statement(sprintf(
-            'create %sindex%s %s on %s%s (%s)%s',
-            $unique ? 'unique ' : '',
-            $concurrently ? ' concurrently' : '',
-            $grammar->wrap($name),
-            $grammar->wrapTable($table),
-            $using !== null ? ' using '.$using : '',
-            $target,
-            $where !== null ? ' where '.$where : '',
-        ));
     }
 
     /**
@@ -117,7 +137,7 @@ final class OnlineIndex
         }
 
         $concurrently = self::concurrently($name, $allowLocking);
-        DB::statement(sprintf('drop index%s %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+        self::underLockTimeout($table, $concurrently, fn () => DB::statement(sprintf('drop index%s %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name))));
     }
 
     /**
@@ -169,7 +189,7 @@ final class OnlineIndex
     }
 
     /**
-     * @return array{table: string, columns: list<string>, unique: bool}|null
+     * @return array{table: string, columns: list<string>, unique: bool, predicate: string|null}|null
      */
     private static function existing(string $name): ?array
     {
@@ -177,16 +197,22 @@ final class OnlineIndex
             $row = DB::selectOne(
                 'select t.relname as table_name, i.indisunique as is_unique,
                     array_to_string(array(select coalesce(a.attname, \'\') from unnest(i.indkey) with ordinality k(attnum, n)
-                        left join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum order by k.n), \',\') as columns
+                        left join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum order by k.n), \',\') as columns,
+                    pg_get_expr(i.indpred, i.indrelid) as predicate
                  from pg_index i join pg_class c on c.oid = i.indexrelid join pg_class t on t.oid = i.indrelid
                  where c.relname = ? and pg_table_is_visible(c.oid)',
                 [$name],
             );
 
-            return $row === null ? null : ['table' => (string) $row->table_name, 'columns' => self::columnList((string) $row->columns), 'unique' => (bool) $row->is_unique];
+            return $row === null ? null : [
+                'table' => (string) $row->table_name,
+                'columns' => self::columnList((string) $row->columns),
+                'unique' => (bool) $row->is_unique,
+                'predicate' => $row->predicate !== null ? (string) $row->predicate : null,
+            ];
         }
 
-        $row = DB::selectOne("select tbl_name from sqlite_master where type = 'index' and name = ?", [$name]);
+        $row = DB::selectOne("select tbl_name, sql from sqlite_master where type = 'index' and name = ?", [$name]);
 
         if ($row === null) {
             return null;
@@ -197,7 +223,190 @@ final class OnlineIndex
         $flags = DB::selectOne('select "unique" as is_unique from pragma_index_list(?) where name = ?', [$table, $name]);
         $unique = $flags !== null && (bool) $flags->is_unique;
 
-        return ['table' => $table, 'columns' => array_values($columns), 'unique' => $unique];
+        // sqlite_master keeps the CREATE INDEX statement as written; indexes behind a UNIQUE constraint have none.
+        $predicate = $row->sql !== null ? self::sqliteWhere((string) $row->sql) : null;
+
+        return ['table' => $table, 'columns' => array_values($columns), 'unique' => $unique, 'predicate' => $predicate];
+    }
+
+    /**
+     * @param  Closure(): mixed  $ddl
+     */
+    private static function underLockTimeout(string $table, bool $concurrently, Closure $ddl): void
+    {
+        if ($concurrently) {
+            LockTimeout::run($table, $ddl, (string) config('database.migrations.concurrent_lock_timeout', '60s'), self::CONCURRENT_ATTEMPTS, transaction: false);
+
+            return;
+        }
+
+        LockTimeout::run($table, $ddl);
+    }
+
+    /**
+     * @param  array{table: string, columns: list<string>, unique: bool, predicate: string|null}  $existing
+     * @param  list<string>  $columns
+     */
+    private static function assertSameDefinition(array $existing, string $table, array $columns, string $name, bool $unique, ?string $where, ?string $expression): void
+    {
+        if ($existing['table'] !== $table || $existing['unique'] !== $unique || ($expression === null && $existing['columns'] !== $columns)) {
+            throw new LogicException(sprintf(
+                'Index %s already exists with a different definition (%s%s (%s)); expected %s%s (%s).',
+                $name, $existing['unique'] ? 'unique on ' : 'on ', $existing['table'], implode(', ', $existing['columns']),
+                $unique ? 'unique on ' : 'on ', $table, $expression ?? implode(', ', $columns),
+            ));
+        }
+
+        if (! self::samePredicate($table, $existing['predicate'], $where)) {
+            throw new LogicException(sprintf(
+                'Index %s already exists with a different predicate (%s); expected %s. An index is never reused with another WHERE: drop it in a migration of its own, or pick another name.',
+                $name,
+                $existing['predicate'] !== null ? 'where '.$existing['predicate'] : 'not partial',
+                $where !== null ? 'where '.$where : 'not partial',
+            ));
+        }
+    }
+
+    private static function samePredicate(string $table, ?string $existing, ?string $expected): bool
+    {
+        if ($existing === null || $expected === null) {
+            return $existing === $expected;
+        }
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return self::pgsqlPredicate($table, $expected) === $existing;
+        }
+
+        return self::normalise($existing) === self::normalise($expected);
+    }
+
+    /**
+     * The predicate as PostgreSQL stores it (casts added, IN turned into = ANY), so it compares with pg_get_expr()
+     * exactly: build the same partial index on a temporary, empty copy of the table's columns and read it back.
+     */
+    private static function pgsqlPredicate(string $table, string $where): string
+    {
+        $probe = self::PREDICATE_PROBE;
+        DB::statement("drop table if exists pg_temp.{$probe}");
+        DB::statement(sprintf('create temporary table %s (like %s)', $probe, DB::connection()->getQueryGrammar()->wrapTable($table)));
+        try {
+            DB::statement(sprintf('create index %s_index on pg_temp.%s ((1)) where %s', $probe, $probe, self::withoutQualifier($where, $table)));
+        } catch (QueryException $exception) {
+            if (($exception->errorInfo[0] ?? $exception->getCode()) === '55P03') {
+                throw $exception;
+            }
+
+            throw new LogicException("The predicate of index on {$table} could not be compared with the existing one ({$exception->errorInfo[2]}). Write it with unqualified columns or columns qualified by the table name only: where {$where}", 0, $exception);
+        }
+
+        $row = DB::selectOne("select pg_get_expr(i.indpred, i.indrelid) as predicate from pg_index i where i.indexrelid = 'pg_temp.{$probe}_index'::regclass");
+        DB::statement("drop table pg_temp.{$probe}");
+
+        return (string) $row?->predicate;
+    }
+
+    /**
+     * The predicate with "table." qualifiers removed outside string literals: the probe copy has another name, and
+     * PostgreSQL stores the predicate of a one-table index unqualified anyway.
+     */
+    private static function withoutQualifier(string $where, string $table): string
+    {
+        $parts = preg_split("/('(?:[^']|'')*')/", $where, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$where];
+        $qualifier = '/(?<![\w."])"?'.preg_quote($table, '/').'"?\s*\.\s*(?=["\w])/i';
+
+        foreach ($parts as $index => $part) {
+            $parts[$index] = $index % 2 === 0 ? (string) preg_replace($qualifier, '', $part) : $part;
+        }
+
+        return implode('', $parts);
+    }
+
+    /**
+     * The WHERE of a CREATE INDEX statement: the first "where" outside quotes and parentheses.
+     */
+    private static function sqliteWhere(string $sql): ?string
+    {
+        $depth = 0;
+        $quote = null;
+        $length = strlen($sql);
+
+        for ($i = 0; $i < $length; $i++) {
+            $character = $sql[$i];
+
+            if ($quote !== null) {
+                $quote = $character === $quote ? null : $quote;
+
+                continue;
+            }
+
+            if (in_array($character, ["'", '"', '`', '['], true)) {
+                $quote = $character === '[' ? ']' : $character;
+            } elseif ($character === '(') {
+                $depth++;
+            } elseif ($character === ')') {
+                $depth--;
+            } elseif ($depth === 0 && $i > 0 && (ctype_space($sql[$i - 1]) || $sql[$i - 1] === ')') && preg_match('/\Gwhere\b/i', $sql, $match, 0, $i) === 1) {
+                return trim(substr($sql, $i + 5));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Case, spacing, identifier quotes and enclosing parentheses do not change a predicate; string literals keep
+     * their case.
+     */
+    private static function normalise(string $predicate): string
+    {
+        $parts = preg_split("/('(?:[^']|'')*')/", $predicate, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$predicate];
+
+        foreach ($parts as $index => $part) {
+            if ($index % 2 === 0) {
+                $part = strtolower(str_replace(['"', '`'], '', $part));
+                $part = (string) preg_replace('/\s+/', ' ', $part);
+                $parts[$index] = (string) preg_replace('/\s*([(),=<>!+*\/-])\s*/', '$1', $part);
+            }
+        }
+
+        $normalised = trim(implode('', $parts));
+
+        while (str_starts_with($normalised, '(') && str_ends_with($normalised, ')') && self::enclosed($normalised)) {
+            $normalised = trim(substr($normalised, 1, -1));
+        }
+
+        return str_replace('!=', '<>', $normalised);
+    }
+
+    /**
+     * Whether the opening parenthesis at the start closes only at the very end, as in "(a or b)" but not "(a) or (b)".
+     */
+    private static function enclosed(string $predicate): bool
+    {
+        $depth = 0;
+        $quoted = false;
+        $last = strlen($predicate) - 1;
+
+        for ($i = 0; $i <= $last; $i++) {
+            $character = $predicate[$i];
+            $quoted = $character === "'" ? ! $quoted : $quoted;
+
+            if ($quoted) {
+                continue;
+            }
+
+            $depth += match ($character) {
+                '(' => 1,
+                ')' => -1,
+                default => 0,
+            };
+
+            if ($depth === 0 && $i < $last) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -208,15 +417,83 @@ final class OnlineIndex
         return $columns === '' ? [] : explode(',', $columns);
     }
 
-    private static function dropIfInvalid(string $name, bool $concurrently): void
+    /**
+     * Drop the INVALID index of $table that an interrupted concurrent build left, never one another session is still
+     * building: such a build is INVALID too until its last step, and a DROP queued behind it would remove the index
+     * once it has become valid. pg_index is read, then the build progress, then pg_index again (same oid, still
+     * INVALID); no new build can start on the name while the index exists. A build in progress is waited for on its
+     * SHARE UPDATE EXCLUSIVE lock, which blocks no reads or writes; lock_timeout bounds the wait, after which
+     * LockTimeout retries, then fails naming the building session. One window remains: on PostgreSQL 18 a build sets
+     * indisvalid, releases its lock and leaves the progress view before its transaction commits, so the reads can
+     * still see it INVALID with no build shown. The DROP that follows then updates the same pg_index row, waits for
+     * the build to commit and fails with "tuple concurrently updated": a failed migration that can run again, never a
+     * dropped valid index. An INVALID index of another table is left for existing() to report.
+     *
+     * @param  bool  $waitForBuilder  false: leave an index another session is building alone, without waiting
+     */
+    private static function dropIfInvalid(string $table, string $name, bool $concurrently, bool $waitForBuilder = true): void
     {
-        $invalid = DB::selectOne(
-            'select 1 as invalid from pg_index i join pg_class c on c.oid = i.indexrelid where c.relname = ? and not i.indisvalid and pg_table_is_visible(c.oid)',
+        while (($index = self::indexState($name)) !== null && ! $index['valid'] && $index['table'] === $table) {
+            $builder = DB::selectOne(
+                'select p.pid from pg_stat_progress_create_index p
+                 where p.datid = (select oid from pg_database where datname = current_database())
+                   and (p.index_relid = ? or p.relid = ?) and p.pid <> pg_backend_pid() limit 1',
+                [$index['oid'], $index['table_oid']],
+            );
+
+            if ($builder !== null) {
+                if (! $waitForBuilder) {
+                    return;
+                }
+
+                DB::transaction(fn () => DB::statement(sprintf('lock table %s in share update exclusive mode', DB::connection()->getQueryGrammar()->wrapTable($table))));
+
+                continue;
+            }
+
+            $again = self::indexState($name);
+
+            if ($again !== null && $again['oid'] === $index['oid'] && ! $again['valid']) {
+                DB::statement(sprintf('drop index%s if exists %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+
+                return;
+            }
+        }
+    }
+
+    /**
+     * The index as the catalog shows it now; each call reads it again.
+     *
+     * @phpstan-impure
+     *
+     * @return array{oid: int, valid: bool, table: string, table_oid: int}|null
+     */
+    private static function indexState(string $name): ?array
+    {
+        $row = DB::selectOne(
+            'select c.oid, i.indisvalid as valid, t.relname as table_name, t.oid as table_oid
+             from pg_index i join pg_class c on c.oid = i.indexrelid join pg_class t on t.oid = i.indrelid
+             where c.relname = ? and pg_table_is_visible(c.oid)',
             [$name],
         );
 
-        if ($invalid !== null) {
-            DB::statement(sprintf('drop index%s if exists %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+        return $row === null ? null : ['oid' => (int) $row->oid, 'valid' => (bool) $row->valid, 'table' => (string) $row->table_name, 'table_oid' => (int) $row->table_oid];
+    }
+
+    /**
+     * After a failed concurrent build, drop the INVALID index it left: a ready one is maintained on every write, and a
+     * unique one already rejects rows, while the deploy reports that nothing changed. One attempt under the concurrent
+     * timeout; when that fails too, the error names the index to drop by hand.
+     */
+    private static function dropLeftoverOf(string $table, string $name, Throwable $failure): void
+    {
+        try {
+            LockTimeout::run($table, fn () => self::dropIfInvalid($table, $name, true, waitForBuilder: false), (string) config('database.migrations.concurrent_lock_timeout', '60s'), 1, transaction: false);
+        } catch (Throwable $cleanup) {
+            throw new RuntimeException(sprintf(
+                '%s The INVALID index %s that the failed build left could not be dropped (%s); drop it with DROP INDEX CONCURRENTLY %s before the old release meets it.',
+                $failure->getMessage(), $name, $cleanup->getMessage(), $name,
+            ), 0, $failure);
         }
     }
 }
