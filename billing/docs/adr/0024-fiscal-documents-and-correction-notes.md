@@ -68,7 +68,9 @@ Notes store the same fields. A later correction to the BS table therefore moves 
   lines. The cap for a line is its gross amount less the credits already allocated to it.
 - The cap for an invoice is the tax-invoice value + Σ debit value adjustments − Σ credit value adjustments. The sums
   count notes and value adjustments written before this ADR alike. `credited_total` and `debited_total` are caches
-  of those sums. `InvoiceSettlement::adjust` is their only writer.
+  of those sums. `InvoiceSettlement::adjust` is their only writer. A value adjustment written before this ADR
+  carries no tax split (`CancelInvoice.php:55`, `RefundTransaction.php:187`). For caps and for the remainder rule
+  only, its split is prorated from the invoice's value snapshot. The register never reads these rows (§8).
 - Rounding is half-up per line and per tax level. The note that takes a line's remainder to zero takes the exact
   remaining tax at each level, so a fully credited invoice nets to zero tax in minor units.
 
@@ -142,8 +144,14 @@ final class CreditNoteIssued implements DomainEvent, ShouldDispatchAfterCommit
 
 - `billing.nepal_vat.enabled` is an explicit opt-in. It is not derived from the seller's country and VAT number. It
   records `enabled_from`, a company date, and the change is written to the activity log.
-- Invoices numbered before `enabled_from` keep their existing adjustments. Their tax split is prorated from the
-  invoice snapshot when the register reads them.
+- **Enabling is refused** while any value adjustment of the old kind (`cancellation`, `item_cancellation`, `refund`,
+  `late_fee`) on a numbered invoice is dated on or after `enabled_from`, using the company date of its `created_at`.
+  Staff pick a later `enabled_from`, or settle those rows first. The register therefore never holds an old-style
+  adjustment, and it has no "before credit notes" rows and does no proration when it reads (CTO decision on B6,
+  `vat-register.md` §3 and §12 as revised in #327).
+- Invoices numbered before `enabled_from` take notes like any other. When the mode is enabled, their value snapshot
+  (§2) is backfilled from `total` plus their existing value adjustments. Those adjustments count toward caps and the
+  remainder rule through the proration in §3.
 - Switching the mode off is refused once a note exists.
 
 ### 9. Database triggers
