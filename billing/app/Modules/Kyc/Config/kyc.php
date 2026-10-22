@@ -47,6 +47,9 @@ return [
     /** Seconds an upload waits for another upload's image decode to finish before it is refused ("try again"). */
     'image_decode_wait_seconds' => 5,
 
+    /** Seconds kyc:reencode-images waits for an upload's decode before it leaves that document for its next run. */
+    'reencode_decode_wait_seconds' => 30,
+
     /** Days documents are kept after the client account is closed (owner, 2026-10-21). */
     'retention_days' => 90,
 

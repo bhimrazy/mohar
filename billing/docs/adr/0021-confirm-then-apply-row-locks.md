@@ -87,7 +87,8 @@ Dry runs read without locks and write nothing (ADR 0019).
   full, a closed or held invoice).
 - **Import:** run rows (claim), then the migration record, then the target row (client).
 - **Identity documents (KYC):** client, then its `kyc_documents` rows. `StoreDocument` (upload or replace),
-  `DecideDocument` (staff approve or decline) and the retention listener all lock the client first.
+  `DecideDocument` (staff approve or decline), the retention listener and `kyc:reencode-images` (`StoredImageReencoder`,
+  #287; race test `ReencodeStoredImagesRaceTest`) all lock the client first.
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 
 ### 4. Test obligation
