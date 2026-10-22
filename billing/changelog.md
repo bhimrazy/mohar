@@ -13,6 +13,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
   unedited templates to the new text; edited templates keep their text and the editor offers the new default. Invoice
   PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
+- **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
+  unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
+  `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
+  `import`) as `import:<external_ref>`, in batches of 1,000; their `gateway` and `external_ref` are left as they are.
+  Imported opening balances now carry the idempotency key; in this release they also keep `gateway` `import` and
+  their `external_ref`, so a previous-release worker running beside the new one during a deploy still finds them (a
+  later release stops writing that pair, #284). A gateway driver can no longer register the key `import`, or a key
+  outside `[a-z0-9_]{1,50}`: it fails at boot with a LogicException. No permission or user-facing change.
 - **Dependency security bump (#11).** `laravel/framework` 13.34.0 → 13.36.0 and `laravel/wayfinder` 0.1.21 → 0.1.22.
   13.35 hardens SQL in cursor pagination and `whereRowValues` (laravel/framework#61837); 13.36 makes Mail Markdown
   escape inline markdown in user input (#61755). Run `composer install` and `php artisan view:clear`; no config or
@@ -450,6 +458,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Security
 
+- **Key rotation counts distinct keys (#279).** A key listed in both `APP_KEY` and `APP_PREVIOUS_KEYS` (or as `base64:`
+  and decoded) counts once, so restoring the old `APP_KEY` no longer makes `migrate` refuse again. The refusal now says
+  to restore the key the email hashes were made with or remove the stale key from `APP_PREVIOUS_KEYS`; the key-rotation
+  runbook says the same. No schema or permission change.
 - **Integration logs mask more secret shapes (#190).** The module, registrar and gateway logs, transaction and refund
   provider answers, and error text shown to staff now also mask: a JSON value quoted after a label
   (`HTTP 500: {"api-key":"…"}`, nested, arrays, escaped quotes), XML element values (`<password>`, EPP
@@ -494,6 +506,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
   went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
   No violations were found on `develop`. No change for users or operators.
+- The target check now also accepts single classes, and the concrete driver registries and the base `DriverRegistry`
+  are covered, so renaming one of them fails the build instead of leaving its rule empty (#277). No change for users
+  or operators.
 
 ### Hosted payments: continue or pay another way (#123)
 

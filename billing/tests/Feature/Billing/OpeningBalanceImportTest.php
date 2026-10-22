@@ -15,6 +15,7 @@ use App\Modules\Core\Models\Currency;
 use App\Support\Migration\ImportRegistry;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 require_once __DIR__.'/helpers.php';
@@ -77,8 +78,9 @@ test('a run posts a new client\'s opening balance once; a dry run writes nothing
         ->and($usd->action)->toBe(ImportAction::Skipped)->and($usd->issues[0]->code)->toBe('credit_currency')->and($usd->issues[0]->severity)->toBe(ImportSeverity::Error)
         // A client that existed before the import, never imported into, keeps its credit (CTO rule, §6.12).
         ->and($kept->action)->toBe(ImportAction::Skipped)->and($kept->issues[0]->message)->toBe('Existing credit kept; post the opening balance manually if it is still owed.')
-        ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->get(['amount', 'reason', 'gateway', 'external_ref'])->toArray())
-        ->toBe([['amount' => 50000, 'reason' => 'import', 'gateway' => 'import', 'external_ref' => "run:7:client:{$client->id}"]]);
+        // The idempotency key, plus the pre-#263 pair the previous release reads, until the contract step (#284).
+        ->and(CreditLedgerEntry::query()->where('client_id', $client->id)->get(['amount', 'reason', 'gateway', 'external_ref', 'idempotency_key'])->toArray())
+        ->toBe([['amount' => 50000, 'reason' => 'import', 'gateway' => 'import', 'external_ref' => "run:7:client:{$client->id}", 'idempotency_key' => "import:run:7:client:{$client->id}"]]);
 });
 
 test('undo takes back exactly what the run posted, once, and keeps a balance the client has used', function () {
@@ -99,6 +101,38 @@ test('undo takes back exactly what the run posted, once, and keeps a balance the
         ->and($ledger->balance($kept->id, 'NPR')->amount)->toBe(99900)
         // Another run's undo finds nothing of its own to reverse.
         ->and(openingRevert($kept, 99)->action)->toBe(ImportAction::Unchanged);
+});
+
+test('entries posted before the idempotency key are copied to it, and a re-run or undo of their run still finds them once', function () {
+    $client = billingClient(['currency' => 'NPR']);
+    $other = billingClient(['currency' => 'NPR']);
+    $ledger = app(CreditLedgerService::class);
+    // As the importer wrote them before #263, beside a provider movement that must not be touched.
+    $ledger->post($client->id, Money::of(100000, 'NPR'), CreditReason::Import, gateway: 'import', externalRef: "run:7:client:{$client->id}");
+    $ledger->post($other->id, Money::of(100000, 'NPR'), CreditReason::Import, gateway: 'import', externalRef: "run:7:client:{$other->id}");
+    $provider = $ledger->post($client->id, Money::of(500, 'NPR'), CreditReason::Overpayment, gateway: 'stripe', externalRef: 're_1');
+
+    (require base_path('app/Modules/Billing/Database/Migrations/2026_10_22_300630_add_idempotency_key_to_credit_ledger.php'))->backfill();
+    // A row the previous release wrote after the copy (both releases run during a blue-green deploy).
+    CreditLedgerEntry::query()->where('client_id', $other->id)->update(['idempotency_key' => null]);
+
+    expect(CreditLedgerEntry::query()->where('client_id', $client->id)->where('reason', CreditReason::Import)->value('idempotency_key'))->toBe("import:run:7:client:{$client->id}")
+        ->and($provider->fresh()?->idempotency_key)->toBeNull()
+        // The same run redelivered with a larger amount: the run already posted for this client, so nothing more.
+        ->and(openingImporter()->upsert(openingRecord($client, 150000), openingContext(), $client->id)->action)->toBe(ImportAction::Unchanged)
+        ->and(openingImporter()->upsert(openingRecord($other, 150000), openingContext(), $other->id)->action)->toBe(ImportAction::Unchanged)
+        ->and(openingRevert($other)->action)->toBe(ImportAction::Reverted)
+        ->and(openingRevert($other)->action)->toBe(ImportAction::Unchanged)
+        ->and($ledger->balance($other->id, 'NPR')->amount)->toBe(0);
+});
+
+test('a second posting with the same idempotency key is refused by the unique index', function () {
+    $client = billingClient(['currency' => 'NPR']);
+    $ledger = app(CreditLedgerService::class);
+    $ledger->post($client->id, Money::of(100, 'NPR'), CreditReason::Import, idempotencyKey: 'import:run:1:client:1');
+
+    expect(fn () => $ledger->post($client->id, Money::of(100, 'NPR'), CreditReason::Import, idempotencyKey: 'import:run:1:client:1'))
+        ->toThrow(UniqueConstraintViolationException::class);
 });
 
 describe('opening balances racing staff credit movements (PostgreSQL)', function () {

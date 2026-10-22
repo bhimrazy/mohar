@@ -87,6 +87,9 @@ class MigrationRecord extends Model
     public static function emailHashKey(array $keys): string
     {
         $derive = fn (string $key): string => hash_hmac('sha256', 'migration.email_hash', $key);
+        $keys = array_values(array_unique($keys));
+        // The framework reads a `base64:` key as its decoded bytes, so both spellings of one key are one key.
+        $distinct = count(array_unique(array_map(fn (string $key): string => str_starts_with($key, 'base64:') ? (base64_decode(substr($key, 7), true) ?: $key) : $key, $keys)));
 
         if (! self::query()->whereNotNull('email_hash')->exists() && ! MigrationIdMap::query()->where('source_id', 'like', 'email:%')->exists()) {
             return $derive($keys[0] ?? '');
@@ -100,11 +103,11 @@ class MigrationRecord extends Model
             }
         }
 
-        if (count($keys) <= 1) {
+        if ($distinct <= 1) {
             return $derive($keys[0] ?? '');
         }
 
-        throw new InstallSecretUnavailable('Stored import email hashes match none of the configured keys (APP_KEY, APP_PREVIOUS_KEYS), so the email-hash secret cannot be set. Restore the key in use before the rotation as APP_KEY, run `php artisan migrate`, then rotate in a later restart.');
+        throw new InstallSecretUnavailable('Stored import email hashes match none of the configured keys (APP_KEY, APP_PREVIOUS_KEYS), so the email-hash secret cannot be set. Restore the key the hashes were made with (the APP_KEY in use before the rotation) as APP_KEY, or remove the stale key from APP_PREVIOUS_KEYS, then run `php artisan migrate` again and rotate in a later restart.');
     }
 
     /**
