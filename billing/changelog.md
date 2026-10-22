@@ -470,6 +470,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   events, database use in provisioning drivers) passed whenever one target was clean, so a violation in the others
   went unreported. Each rule now has one target, and each file fails if one of its target namespaces has no classes.
   No violations were found on `develop`. No change for users or operators.
+- The target check now also accepts single classes, and the concrete driver registries and the base `DriverRegistry`
+  are covered, so renaming one of them fails the build instead of leaving its rule empty (#277). No change for users
+  or operators.
 
 ### Hosted payments: continue or pay another way (#123)
 

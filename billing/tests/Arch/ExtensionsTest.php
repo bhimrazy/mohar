@@ -88,6 +88,8 @@ test('every arch target in this file matches at least one class', function () us
     expect($importerNamespaces)->not->toBe([])
         ->and(archTargetsWithoutClasses([
             'App', 'App\Modules', 'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Domains\Drivers\Registrars', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
+            // Single-class targets: a rename would otherwise leave the rule checking nothing.
+            'App\Support\Services\ProvisioningDriverRegistry', 'App\Support\Domains\RegistrarDriverRegistry', 'App\Support\Integrations\DriverRegistry',
         ]))->toBe([]);
 });
 

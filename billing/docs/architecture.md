@@ -51,6 +51,9 @@ loads only Core + Billing.
    soon as one target does not use `X`, so a violation in any other target goes unreported (issue #275, upstream
    pestphp/pest#1751). Write a `foreach` with one `arch()` per namespace instead. Each file in `tests/Arch` also
    checks that its target namespaces match at least one class, so a typo or a moved directory cannot pass silently.
+   Targets may be single classes: list them in that guard too (`archTargetsWithoutClasses()`), because
+   `expect(Foo::class)->toBeFinal()` over a renamed class passes without checking anything. The same one-target rule
+   holds for `not->toBeUsedIn()`, which negates a check that stops at the first clean target (#277).
 5. Need a new contract/event/DTO? Ask the CTO — shared kernel changes are reviewed centrally.
 6. Each module binds its contract implementations in `registerModule()`. In tests of a consuming module,
    bind a fake (`$this->app->instance(PriceBook::class, new FakePriceBook)`), never the real sibling.
