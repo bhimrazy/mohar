@@ -6,6 +6,7 @@ use App\Modules\Core\Models\Currency;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Pest\Arch\Repositories\ObjectsRepository;
+use Symfony\Component\Finder\Exception\DirectoryNotFoundException;
 use Tests\TestCase;
 
 /*
@@ -120,4 +121,33 @@ function releaseArchCache(): void
     (fn () => self::$instance = null)->bindTo(null, ObjectsRepository::class)();
     gc_collect_cycles();
     gc_mem_caches();
+}
+
+/**
+ * The given arch-rule targets that match no class. A rule over a namespace with no classes passes without checking
+ * anything (a typo, a renamed directory), so every file in tests/Arch asserts its targets against this.
+ * A target may use `*` for one namespace segment, as the arch plugin allows.
+ *
+ * @param  list<string>  $namespaces
+ * @return list<string>
+ */
+function archTargetsWithoutClasses(array $namespaces): array
+{
+    return array_values(array_filter($namespaces, function (string $namespace): bool {
+        $pattern = '/^'.strtr(preg_quote($namespace, '/'), ['\\*' => '[^\\\\]+']).'\\\\/';
+
+        try {
+            $objects = ObjectsRepository::getInstance()->allByNamespace($namespace);
+        } catch (DirectoryNotFoundException) {
+            return true; // a wildcard target whose directories do not exist
+        }
+
+        foreach ($objects as $object) {
+            if (preg_match($pattern, $object->name) === 1) {
+                return false;
+            }
+        }
+
+        return true;
+    }));
 }
