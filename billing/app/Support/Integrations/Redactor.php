@@ -92,7 +92,7 @@ final class Redactor
      * separator are consumed, so the value is read by valueEnd() when the name is secret and scanned again when not.
      * Every repeat is possessive or bounded, so no input backtracks more than a constant per position.
      */
-    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.\-\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63}+)((?:\\\\?["\'])?[ \t]{0,16}+(?:=>?|:)[ \t]{0,16}+)(?!\/\/)/';
+    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63}+)((?:\\\\?["\'])?[ \t]{0,16}+(?:=>?|:)[ \t]*+)(?!\/\/)/';
 
     /** An authorization scheme in front of a credential (`Authorization: Key …` is Khalti, `whm`/`cpanel` are WHM). */
     private const AUTH_SCHEME_PATTERN = '/\G(?:Bearer|Basic|Digest|Token|Key|whm|cpanel|OAuth|HMAC)[ \t]++/i';

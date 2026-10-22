@@ -31,6 +31,8 @@ test('secrets in query strings and form bodies are masked, value tails included'
     'tail after a semicolon' => ['passwd=ab;cd&domain=a.np', 'passwd=[redacted]&domain=a.np'],
     'tail after a comma' => ['token=abc,def, user=x', 'token=[redacted], user=x'],
     'cookie attribute is not a tail' => ['session=abc; Path=/; HttpOnly', 'session=[redacted]; Path=/; HttpOnly'],
+    'command-line flag' => ['whmapi1 createacct --password=S3cr3t username=bob', 'whmapi1 createacct --password=[redacted] username=bob'],
+    'padded header' => ['X-Auth-Token:'.str_repeat(' ', 40).'T1', 'X-Auth-Token:'.str_repeat(' ', 40).'[redacted]'],
     'array field' => ['password[]=P1&password_confirmation=P1x', 'password[]=[redacted]&password_confirmation=[redacted]'],
     'percent-encoded url' => ['next=https%3A%2F%2Fh.test%2F%3Fapi_key%3DENC1%26a%3Db', 'next=https%3A%2F%2Fh.test%2F%3Fapi_key%3D[redacted]%26a%3Db'],
 ]);
