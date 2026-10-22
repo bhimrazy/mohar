@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **ResellerClub registrar (#280).** Hosts can register, transfer, renew and restore domains through ResellerClub:
+  Admin → Domains → Registrars → ResellerClub takes the reseller id and API key (and separate demo credentials for
+  test mode), one default customer or one customer per client, and an optional outbound proxy for the API allow-list.
+  The driver also checks availability, syncs status and expiry, follows transfers, and sets name servers, the transfer
+  lock, privacy and contacts, and returns the EPP code. Orders are placed without a ResellerClub invoice (the price
+  comes off the reseller balance). Before it registers or transfers, it searches the account for an order of that name,
+  so an attempt whose answer was lost is never sent twice; a renewal names the current expiry. `.np` names never reach
+  it. Verified against the ResellerClub simulator only (no live or demo account). No schema or permission change; the
+  registrar shows up as a new, unconfigured entry.
+
 - **ResellerClub simulator (#280, ADR 0016 S6).** Developers and CI can run ResellerClub's HTTP API as a local TLS
   simulator (`php artisan simulate:start resellerclub`): customers and contacts, availability, register, transfer with
   a later auth code, renew bound to the current expiry, restore, name servers, theft lock, privacy, contact changes,

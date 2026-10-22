@@ -65,7 +65,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
     public function settingsFields(): array
     {
         return [
-            new SettingField('reseller_id', 'Reseller id', required: true, help: 'Shown under Manage Profile in the ResellerClub panel.'),
+            new SettingField('reseller_id', 'Reseller id', help: 'Shown under Manage Profile in the ResellerClub panel. Used when test mode is off.'),
             new SettingField('api_key', 'API key', FieldType::Secret, help: 'Settings → API in the ResellerClub panel. Regenerating it stops the old key at once.'),
             new SettingField('demo_reseller_id', 'Demo reseller id', help: 'Used only in test mode, with the demo account. The demo account is wiped every day.'),
             new SettingField('demo_api_key', 'Demo API key', FieldType::Secret, help: 'Used only in test mode. Live credentials are never sent to the demo host.'),
@@ -154,7 +154,7 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
             'invoice-option' => 'NoInvoice', 'auto-renew' => 'false',
         ]);
 
-        return $this->actionResult($config, $domain, $answer);
+        return $this->actionResult($config, $domain, $answer, previousEnd: (string) $details['endtime']);
     }
 
     public function restore(RegistrarConfig $config, DomainRef $domain, int $years): RegistrarResult
@@ -371,23 +371,35 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
     }
 
     /**
-     * Completed when ResellerClub says Success, else pending (sync settles it). A completed change that moves the
-     * expiry is read back for the registry's new date; a failed read-back leaves the date to the host.
+     * Completed when ResellerClub says Success, pending when it says PendingExecution (sync settles it). Any other
+     * actionstatus is not a confirmation: the order is read again, and counts as completed only when it is Active (and,
+     * for a renewal, its expiry moved past $previousEnd). A completed change that moves the expiry is read back for the
+     * registry's new date; a failed read-back leaves the date to the host.
      */
-    private function actionResult(RegistrarConfig $config, DomainRef $domain, mixed $answer, bool $readBack = true): RegistrarResult
+    private function actionResult(RegistrarConfig $config, DomainRef $domain, mixed $answer, bool $readBack = true, ?string $previousEnd = null): RegistrarResult
     {
-        $status = self::status($answer);
+        $answer = (array) $answer;
+        $said = $answer['actionstatus'] ?? null;
+        $status = $said === 'Success' ? 'completed' : 'pending';
         $expiry = null;
 
-        if ($readBack && $status === 'completed') {
+        if ($readBack && ($status === 'completed' || $said !== 'PendingExecution')) {
             try {
-                $expiry = self::epoch($this->details($config, $domain, ['OrderDetails'])['endtime'] ?? null);
+                $details = $this->details($config, $domain, ['OrderDetails']);
+                $expiry = self::epoch($details['endtime'] ?? null);
+
+                if ($said !== 'Success') {
+                    $moved = $previousEnd === null || (int) ($details['endtime'] ?? 0) > (int) $previousEnd;
+                    $status = ($details['currentstatus'] ?? null) === 'Active' && $moved ? 'completed' : 'pending';
+                }
             } catch (RegistrarException) {
                 $expiry = null;
             }
         }
 
-        return new RegistrarResult($status, $expiry, (string) (((array) $answer)['actionstatusdesc'] ?? '') ?: null, remote: self::orderRemote((array) $answer));
+        $message = (string) ($answer['actionstatusdesc'] ?? '');
+
+        return new RegistrarResult($status, $status === 'completed' ? $expiry : null, $message === '' ? null : $message, remote: self::orderRemote($answer));
     }
 
     /**
@@ -400,6 +412,9 @@ final class ResellerClubDriver implements ChecksAvailability, ManagesContacts, M
         return new RegistrarResult($active ? 'completed' : 'pending', $active ? self::epoch($order['orders.endtime'] ?? null) : null, $message, remote: ['order_id' => (int) $order['orders.orderid']]);
     }
 
+    /**
+     * @return 'completed'|'pending'
+     */
     private static function status(mixed $answer): string
     {
         return (((array) $answer)['actionstatus'] ?? null) === 'Success' ? 'completed' : 'pending';

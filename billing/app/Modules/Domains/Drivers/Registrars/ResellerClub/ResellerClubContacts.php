@@ -116,7 +116,7 @@ final class ResellerClubContacts
             $payload += ($contact['state'] ?? '') === '' ? [] : ['state' => (string) $contact['state']];
             ksort($payload);
             $hash = hash('sha256', (string) json_encode($payload));
-            $ids[$param] = $this->refs->find(self::KEY, 'contact', 'client', $domain->clientId, $hash)?->remoteId ?? $this->create($config, $domain, $payload, $hash);
+            $ids[$param] = $this->refs->find(self::KEY, 'contact', 'client', $domain->clientId, $hash)->remoteId ?? $this->create($config, $domain, $payload, $hash);
         }
 
         return $ids;

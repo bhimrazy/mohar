@@ -4,6 +4,7 @@ namespace Tests\Fakes\Domains;
 
 use App\Contracts\Domains\Registrar\RegistrarDriver;
 use App\Contracts\Integrations\IntegrationDriver;
+use App\Data\Integrations\SettingField;
 use App\Support\Domains\RegistrarDriverRegistry;
 use Closure;
 use LogicException;
@@ -38,7 +39,7 @@ class FakeRegistrar
         $this->capabilities = array_values(array_diff(array_keys(app(RegistrarDriverRegistry::class)->capabilities()), ['reconcile']));
     }
 
-    /** @var list<\App\Data\Integrations\SettingField> the replaced driver's settings, if it replaced one */
+    /** @var list<SettingField> the replaced driver's settings, if it replaced one */
     public array $settingsFields = [];
 
     public static function install(string $key = 'fake'): self
