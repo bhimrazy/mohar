@@ -1,0 +1,176 @@
+<?php
+
+/*
+ * Parity guard for #252: nothing develop's Redactor masks may become readable. The baseline is a frozen, test-only copy
+ * of develop's Redactor (Tests\Fixtures\Redactor\DevelopRedactor). The corpus is deterministic: every string literal in
+ * the Redactor test and probe files, plus generated variants of label/value separators, line endings, attribute orders,
+ * XML content shapes (CDATA, comments, child elements) and encodings.
+ *
+ * A token counts as masked by develop when it is in the input and missing from develop's output; it must then be
+ * missing from this Redactor's output too. This Redactor may mask more.
+ */
+
+use App\Support\Integrations\Redactor;
+use Tests\Fixtures\Redactor\DevelopRedactor;
+
+/** String literals from the Redactor test and probe files that look like input (contain `=`, `:` or `<`). */
+function redactorParityLiterals(): array
+{
+    $literals = [];
+
+    foreach (glob(__DIR__.'/*Redactor*Test.php') ?: [] as $file) {
+        if (str_ends_with($file, 'RedactorParityTest.php')) {
+            continue;
+        }
+
+        foreach (token_get_all((string) file_get_contents($file)) as $token) {
+            if (is_array($token) && $token[0] === T_CONSTANT_ENCAPSED_STRING) {
+                $body = substr($token[1], 1, -1);
+                $literal = $token[1][0] === "'" ? str_replace(['\\\\', "\\'"], ['\\', "'"], $body) : stripcslashes($body);
+
+                if (strpbrk($literal, '=:<') !== false) {
+                    $literals[] = $literal;
+                }
+            }
+        }
+    }
+
+    return $literals;
+}
+
+/** Generated variants. */
+function redactorParityVariants(): array
+{
+    $names = ['password', 'api_key', 'token', 'client_secret', 'Authorization', 'access_token', 'Session', 'hash', 'domain'];
+    $values = ['PARSECRET1', 'QWxhZGRpbjpvcGVuc2VzYW1l==', 'abcPAR=def', 'hunter2:PARNEXT', 'cs_live_a1B2c3D4', 'pi_a1B2c3D4.', 'Bearer PARBEARER'];
+    $separators = ['=', ':', ': ', ' = ', ' : ', ":\t", '=>', ":\n", ":\r\n", "=\r\n", ":\r", ": \n  "];
+    $wraps = [['', ''], ['msg ', "\nHost: a.test"], ['a:b:', '&next=1'], ['url?x=1&', ';'], ['(', ') retry'], ['', "\r\nContent-Type: text/plain"]];
+    $variants = [];
+
+    foreach ($names as $name) {
+        foreach ($values as $value) {
+            foreach ($separators as $separator) {
+                foreach ($wraps as [$before, $after]) {
+                    $variants[] = $before.$name.$separator.$value.$after;
+                }
+            }
+
+            $variants[] = json_encode([$name => $value, 'next' => 'ok']);
+            $variants[] = json_encode(['message' => $name.'='.$value]);
+            $variants[] = 'q='.urlencode($name.'='.$value);
+            $variants[] = urlencode($name).'%3D'.urlencode($value).'%26x%3D1';
+            $variants[] = htmlspecialchars('<param name="'.$name.'">'.$value.'</param>');
+            $variants[] = '"'.$name.'": "'.addslashes($value).'"';
+            $variants[] = "'".$name."' => '".$value."'";
+        }
+    }
+
+    $elements = [
+        fn (string $n, string $c): string => "<{$n}>{$c}</{$n}>",
+        fn (string $n, string $c): string => "<ns:{$n}>{$c}</ns:{$n}>",
+        fn (string $n, string $c): string => "<param name=\"{$n}\">{$c}</param>",
+        fn (string $n, string $c): string => "<param value=\"x\" name='{$n}'>{$c}</param>",
+        fn (string $n, string $c): string => "<PARAM NAME = \"{$n}\">{$c}</PARAM>",
+        fn (string $n, string $c): string => "<item key=\"{$n}\" type=\"string\">{$c}</item>",
+        fn (string $n, string $c): string => "<item type=\"string\" key=\"{$n}\">{$c}</item>",
+        fn (string $n, string $c): string => "<input name=\"{$n}\" value=\"{$c}\">",
+        fn (string $n, string $c): string => "<link key=\"{$n}\">{$c}",
+    ];
+    $contents = [
+        fn (string $v, string $eol): string => $v,
+        fn (string $v, string $eol): string => " {$v} ",
+        fn (string $v, string $eol): string => "<![CDATA[{$v}]]>",
+        fn (string $v, string $eol): string => "{$eol}  <![CDATA[{$v}]]>{$eol}",
+        fn (string $v, string $eol): string => "<!-- note -->{$v}",
+        fn (string $v, string $eol): string => "<![CDATA[a]]>{$v}",
+        fn (string $v, string $eol): string => "<value>{$v}</value>",
+        fn (string $v, string $eol): string => "{$eol}  <value><string>{$v}</string></value>{$eol}",
+    ];
+
+    foreach (['password', 'api_key', 'Token', 'domain'] as $name) {
+        foreach ($elements as $element) {
+            foreach ($contents as $content) {
+                foreach (["\n", "\r\n"] as $eol) {
+                    $xml = $element($name, $content('PARXML1', $eol));
+                    $variants[] = $xml;
+                    $variants[] = "<methodCall>{$eol}{$xml}{$eol}<param name=\"domain\">a.com.np</param></methodCall>";
+                }
+            }
+        }
+    }
+
+    return $variants;
+}
+
+/** @return list<string> */
+function redactorParityCorpus(): array
+{
+    return array_values(array_unique([...redactorParityLiterals(), ...redactorParityVariants()]));
+}
+
+/**
+ * Whether develop masked $token by over-redaction this PR undoes on purpose (changelog, RedactorShapesTest), so it is
+ * not a secret: every occurrence is a name (an element name, a `key`/`name` attribute value, a capitalised header
+ * label at a line start), or it is a documented reference value (ResellerClub `auth-userid=…`, a Stripe-style id
+ * after a `Session:` or `hash:` label).
+ */
+function redactorParityReadableOnPurpose(string $input, string $token): bool
+{
+    $quoted = preg_quote($token, '/');
+    $occurrences = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'(?![A-Za-z0-9_])/', $input);
+    $names = preg_match_all('/<\/?(?:[\w.-]+:)?\K'.$quoted.'(?![\w.:-])/', $input)
+        + preg_match_all('/\b(?:key|name)[ \t]*=[ \t]*["\']?\K'.$quoted.'(?![A-Za-z0-9_])/i', $input)
+        + preg_match_all('/(?:^|[\r\n])(?=[A-Z])[\w-]*?(?<![A-Za-z0-9_])\K'.$quoted.'(?=[\w-]*[ \t]*:)(?![A-Za-z0-9_])/', $input);
+
+    if ($names >= $occurrences) {
+        return true;
+    }
+
+    return preg_match('/\bauth-userid[ \t]*=[ \t]*'.$quoted.'(?![A-Za-z0-9_])/i', $input) === 1
+        || (preg_match('/^(?:cs|pi|ch|evt|cus|in|sub|re|py|seti)_(?:live_|test_)?[A-Za-z0-9]{4,}$/', $token) === 1
+            && preg_match('/\b(?:session|hash)[ \t]*:\s*'.$quoted.'(?![A-Za-z0-9_])/i', $input) === 1);
+}
+
+/** Secret tokens in $input that $output no longer contains. */
+function redactorParityMaskedTokens(string $input, string $output): array
+{
+    preg_match_all('/[A-Za-z0-9_]{4,}/', $input, $tokens);
+
+    return array_values(array_filter(
+        array_unique($tokens[0]),
+        fn (string $token): bool => $token !== 'redacted' && ! str_contains($output, $token)
+            && ! redactorParityReadableOnPurpose($input, $token),
+    ));
+}
+
+test('the parity corpus is deterministic and covers the probe files and the generated shapes', function () {
+    $corpus = redactorParityCorpus();
+
+    expect($corpus)->toBe(redactorParityCorpus())
+        ->and(count(redactorParityLiterals()))->toBeGreaterThan(150)
+        ->and(count($corpus))->toBeGreaterThan(5000)
+        ->and($corpus)->toContain("token:\nQWxhZGRpbjpvcGVuc2VzYW1l==", '<param name="password"><value>VOIDNEST1</value></param>');
+});
+
+test('everything develop masks stays masked', function () {
+    $develop = new DevelopRedactor;
+    $redactor = new Redactor;
+    $leaks = [];
+
+    foreach (redactorParityCorpus() as $input) {
+        $surfaces = [
+            'maskValues' => [$develop->maskValues($input, []), $redactor->maskValues($input, [])],
+            'redact' => [(string) $develop->redact(['note' => $input])['note'], (string) $redactor->redact(['note' => $input])['note']],
+        ];
+
+        foreach ($surfaces as $surface => [$before, $after]) {
+            foreach (redactorParityMaskedTokens($input, $before) as $token) {
+                if (str_contains($after, $token)) {
+                    $leaks[] = $surface.' '.json_encode($input).' leaks '.$token;
+                }
+            }
+        }
+    }
+
+    expect($leaks)->toBe([]);
+});
