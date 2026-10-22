@@ -75,6 +75,7 @@ export type Transaction = {
     type: string;
     status: string;
     gateway: string;
+    gateway_label?: string | null;
     gateway_txn_id: string | null;
     amount_in: number;
     amount_out: number;

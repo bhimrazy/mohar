@@ -75,6 +75,7 @@ import {
     releasedClass,
 } from '@/components/billing/pending-refund';
 import { show as showClient } from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
+import { countryName } from '@/lib/country';
 import { labelWithCurrency } from '@/lib/money';
 
 type Props = {
@@ -775,7 +776,7 @@ export default function InvoiceShow({
                                                 .filter(Boolean)
                                                 .join(' '),
                                             snapshot.state,
-                                            snapshot.country,
+                                            countryName(snapshot.country),
                                         ]
                                             .filter(Boolean)
                                             .join(', '),

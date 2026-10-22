@@ -2,6 +2,7 @@
 
 namespace App\Modules\Billing\Http\Resources;
 
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\Transaction;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -23,6 +24,8 @@ class TransactionResource extends JsonResource
             'type' => $this->type->value,
             'status' => $this->status->value,
             'gateway' => $this->gateway,
+            // The staff-set name ("eSewa"), so the client area never title-cases the key ("Esewa").
+            'gateway_label' => $this->gatewayNames($request)[$this->gateway] ?? null,
             'gateway_txn_id' => $this->gateway_txn_id,
             'amount_in' => $this->amount_in,
             'amount_out' => $this->amount_out,
@@ -45,5 +48,22 @@ class TransactionResource extends JsonResource
             'client' => $this->whenLoaded('client', fn (): array => ['id' => $this->client->id, 'display_name' => $this->client->display_name]),
             'occurred_at' => $this->occurred_at->toIso8601String(),
         ];
+    }
+
+    /**
+     * Display names of every gateway, read once per request.
+     *
+     * @return array<string, string>
+     */
+    private function gatewayNames(Request $request): array
+    {
+        $names = $request->attributes->get('gateway_names');
+
+        if (! is_array($names)) {
+            $names = Gateway::query()->pluck('display_name', 'key')->all();
+            $request->attributes->set('gateway_names', $names);
+        }
+
+        return $names;
     }
 }

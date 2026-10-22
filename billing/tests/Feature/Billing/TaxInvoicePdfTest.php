@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\Quote;
 use App\Modules\Billing\Models\TaxRule;
 use App\Modules\Billing\Services\InvoicePdf;
 use App\Modules\Core\Models\Client;
@@ -77,4 +78,37 @@ test('invoice dates follow the date format setting and ignore values off the lis
 
     app(Settings::class)->set('core.date_format', 'YYYY-MM-DD');
     expect(renderInvoiceHtml($invoice->fresh()))->toContain($due->format('M j, Y'))->not->toContain('YYYY');
+});
+
+test('the quote PDF prints its valid-until date in the date format setting', function () {
+    $quote = Quote::factory()->create(['client_id' => Client::factory()->create(['currency' => 'NPR'])->id, 'currency' => 'NPR', 'valid_until' => '2026-11-05', 'tax1_amount' => 0, 'tax2_amount' => 0]);
+
+    app(Settings::class)->set('core.date_format', 'j M Y');
+    $html = view('billing::pdf.quote', app(InvoicePdf::class)->quoteViewData($quote))->render();
+
+    expect($html)->toContain('5 Nov 2026')->not->toContain('2026-11-05');
+});
+
+test('the seller block prints one PAN/VAT line when the PAN is the VAT number', function () {
+    billingSettings(['tax.home_country' => 'NP', 'seller.pan' => '600000001', 'seller.vat_number' => '600000001', 'seller.gstin' => '']);
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    $html = renderInvoiceHtml($invoice->fresh());
+
+    expect(substr_count($html, '600000001'))->toBe(1)->and($html)->toContain('PAN/VAT No.: 600000001');
+});
+
+test('the seller block prints both lines when the PAN and the VAT number differ', function () {
+    billingSettings(['tax.home_country' => 'NP', 'seller.pan' => '600000001', 'seller.vat_number' => '600000002', 'seller.gstin' => '']);
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    $html = renderInvoiceHtml($invoice->fresh());
+
+    expect($html)->toContain('PAN: 600000001')->toContain('VAT No.: 600000002');
+});
+
+test('the buyer country is printed as a name, not a code', function () {
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']), [1_000_000]);
+
+    expect(renderInvoiceHtml($invoice->fresh()))->toContain('Nepal');
 });

@@ -54,6 +54,7 @@ amount, taxable (bool), tax_amount (cached), period_start, period_end, sort_orde
 
 - Issued invoices are **immutable** (lines, amounts, tax, number, issue date). Changes are expressed as adjustments; due date, gateway, notes remain editable. **MUST**
 - Numbered credit-note documents with PDF: **SHOULD** (`billing.credit_notes_numbered: true`). Unnumbered ledger entries are the v1 minimum.
+  Superseded for tax invoices by `vat-register.md`: numbered credit and debit notes (`tax_notes`) are the only way to change a tax invoice, and each writes one adjustment row here.
 - Balance formula: `balance = total + Σ debit − Σ credit − amount_paid` (credit includes applied account credit). **MUST**
 
 ### transactions

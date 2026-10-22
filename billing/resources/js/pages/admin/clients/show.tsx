@@ -44,6 +44,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { countryName } from '@/lib/country';
 import { navIcon } from '@/lib/nav-icons';
 import type { ClientRecord } from '@/types';
 
@@ -100,7 +101,7 @@ function address(client: ClientRecord): string {
         client.address_1,
         client.address_2,
         [client.city, client.state, client.postcode].filter(Boolean).join(' '),
-        client.country,
+        countryName(client.country),
     ]
         .filter(Boolean)
         .join(', ');
