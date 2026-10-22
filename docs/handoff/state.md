@@ -1,6 +1,6 @@
 # Current state
 
-Last updated: 2026-10-22 10:30 UTC (16:15 NPT) by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
+Last updated: 2026-10-22 evening by the CTO session, on the owner's Mac (the codespace hit its usage limit). Update this file whenever a PR merges, a workstream starts or
 stops, or the owner makes a decision. Keep it short: history goes in `history.md` and `docs/reviews/`.
 
 ## Summary
@@ -8,6 +8,16 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 - Progress toward "a product a host would switch to": **53/100** (CEO review round 3, 2026-10-20 afternoon,
   `docs/reviews/2026-10-20-ceo-round-3.md`; rubric in `docs/reviews/readme.md`). The merges below have not been scored
   yet; the next CEO round scores them.
+- Merged on 2026-10-22, later (after the 10:30 UTC update): registrar contracts and drivers on the kernel (#262, #264,
+  #265; ADR 0009 PR C1 to C3), Laravel 13.36 (#242), the local merge gate (#188), macOS tooling (#271), deploy smoke
+  runs the full seed (#282), credit ledger idempotency key (#283), KYC image re-encode (#286), its backfill (#314),
+  browser resize (#312) and unlock races (#308), optional BS dates on invoices (#293), invitation rate default 100
+  an hour (#291), step-up window from `AUTH_STEP_UP_SECONDS` (#296) and downloads that ask for the password (#299),
+  Redactor void-container fix (#294), logout clears browser history (#304), `lock_timeout` for migration DDL
+  (#306), key-list dedupe (#300), Arch rule guards (#301), PostgreSQL test names within 63 bytes (#297), Stripe
+  smoke route guard (#295), `develop` built on every push and E2E only on `main` pushes (#319), the CEO and CTO
+  reviews (#315, #318; CTO engineering score 63/100), sizing and restore docs (#320), and the owner decisions
+  (#289) and pause state (#270) docs.
 - Merged on 2026-10-22 on the Mac: #266 hosted resume (#123), #256 chargebacks (#232, #230, #221), #259 importer B2b
   opening balances, #268 password.recent in the kernel (#81), #276 Arch rules one per target (#275; Pest bug
   pestphp/pest#1751), #253 key rotation (#25), #255 importer B2a invitations, #252 Redactor gaps (#190). #112 closed
@@ -22,19 +32,19 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
   sandbox (#213), deployment D4 (#167), ADR 0021 row locks (#227), billing go-live fixes (#229), the e2e fix (#234), the load-test harness and sizing guide (#108), the npm advisory fix (#206), audits only on
   dependency changes (#210, #214), and the process review (#204). Details: `billing/docs/progress.md`.
 - Owner decisions in force:
-  - 2026-10-22: invitations default 100/hour, staff-initiated; missing PAN warns only; optional BS date beside AD
-    (#207); payments and importer verified against simulators only for now (no bank, WHMCS or cPanel accounts);
-    KYC photos resized in the browser (#288). Details: `requirements.md`, Features.
-  - **Nepal is the main market.** Clients register `.np` themselves; Mohar shows the host's nameservers.
-  - The repository is **public** and named **`bhimrazy/mohar`**; `main` is a readme-and-licence page, all rights
-    reserved.
-  - Subagents run on Opus (money, auth, kernel, security, re-checks) or Sonnet (docs, mechanical fixes) by task
-    (10-21; Fable's weekly limit resets 10-25).
-  - Security audits block only dependency changes; no nightly audit while `main` is the default branch (10-21).
-  - KYC (#197): Owner and Admin approve documents; off by default; documents deleted 90 days after the account
-    closes (10-21).
-  - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
-    accountant's answer (10-21).
+    - 2026-10-22: invitations default 100/hour, staff-initiated; missing PAN warns only; optional BS date beside AD
+      (#207); payments and importer verified against simulators only for now (no bank, WHMCS or cPanel accounts);
+      KYC photos resized in the browser (#288). Details: `requirements.md`, Features.
+    - **Nepal is the main market.** Clients register `.np` themselves; Mohar shows the host's nameservers.
+    - The repository is **public** and named **`bhimrazy/mohar`**; `main` is a readme-and-licence page, all rights
+      reserved.
+    - Subagents run on Opus (money, auth, kernel, security, re-checks) or Sonnet (docs, mechanical fixes) by task
+      (10-21; Fable's weekly limit resets 10-25).
+    - Security audits block only dependency changes; no nightly audit while `main` is the default branch (10-21).
+    - KYC (#197): Owner and Admin approve documents; off by default; documents deleted 90 days after the account
+      closes (10-21).
+    - Invoices use AD dates; an optional "BS beside AD" switch later (#207); BS fiscal-year numbering waits for an
+      accountant's answer (10-21).
 - Load test on the GitHub runner (small profile 2 vCPU / 4 GB, 50k clients; `billing/docs/devops/sizing.md`): p95
   424 ms at 40 users, billing day 285 s, no errors. Tail latency at 40 users (dashboard p95 5.1 s, sign-in p50
   2.4 s) is the remaining performance finding. Memory: the stack used at most 857 MiB there; 4 GB is the minimum
@@ -54,22 +64,23 @@ stops, or the owner makes a decision. Keep it short: history goes in `history.md
 
 ## Open pull requests and running work
 
-| PR | Workstream | Status (2026-10-22 10:30 UTC) |
-| --- | --- | --- |
-| #320 | Sizing and restore docs (CEO review 2026-10-22) | Draft, fix round 1. Minimum 2 vCPU / 4 GB in every doc (smallest size tested, not a measured floor); restore drill run once on macOS (all checks passed, 42 s); `down -v` needs both profiles; `deploy/bin/deploy` portable. Unmeasured: deploy at 50k clients, Linux restore, real-size restore. |
-| #271 | macOS tooling: `MOHAR_ROOT`, portable scripts, `linux.sh`, Mailpit, screenshot helper | Draft; CTO's. Merge after a slop-review. |
-| #262 / #264 / #265 | Registrar contracts (ADR 0009 PR C1–C3) | Engineer resuming: C1 architecture items, C2 wip fixes (unblocked by #252), develop merged up the stack. Then architect + board re-checks. |
-| #242 | Laravel 13.36 (#11) | Cooldown clears 13:25 UTC 10-22: add `ci`, merge on green. |
-| #188 | Local merge gate | Kept for private periods: DevOps review, macOS port and a real run in progress. |
-| #128 | Gateway expansion spec | Draft. Owner questions in the PR. |
+| PR             | Workstream                                                                              | Status (2026-10-22 evening)                                                  |
+| -------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| #321           | eSewa and Khalti simulators, NPR lifecycle end to end (#208)                            | Draft, in re-review.                                                         |
+| not yet opened | Flaky-test fix (#310 `AuthThrottleTest` freeze time, #209 `PortRetryTest` serialise)    | In flight. Fixed the same day, filed as issues and re-run (operating model). |
+| not yet opened | Registrar prep for #280 (follow-ups before the first API driver, ADR 0009 PR C reviews) | In flight. The ResellerClub driver comes after #280.                         |
+| not yet opened | VAT register and credit-note spec                                                       | In flight (spec only).                                                       |
+| #128           | Gateway expansion spec                                                                  | Draft. Owner questions in the PR.                                            |
 
 After each merge close the issue by hand (`develop` ignores closing keywords). When resolving Markdown conflicts, run
 `npx vp check --fix` before pushing (a hand-merged changelog failed CI on #252).
 
-- Queue, in order: issue triage (98 open; close stale follow-ups); #241 vite-plus 1.3.0 (from 10-23 06:00 UTC);
-  #233 KYC EXIF stripping; #126 deploy smoke seed; #254 Redactor follow-ups and ADR 0023; #278, #279, #277; #263
-  credit ledger idempotency key; #267, #269, #250, #257, #258, #216, #225, #272–#274; #244 Node and Debian images
-  (after 10-28); #208 simulators (low); tail latency (#205). The periodic review round is overdue.
+- Queue, in order: #280 registrar follow-ups, then the ResellerClub driver; issue triage (close stale follow-ups);
+  #241 vite-plus 1.3.0 (from 10-23 06:00 UTC); #254 Redactor follow-ups and ADR 0023 (the CTO review's redesign
+  after two fix rounds); #267, #269, #216, #225, #272–#274; #244 Node and Debian images (after 10-28); tail latency
+  (#205). Done today and off the queue: #233, #126, #278, #279, #277, #263, #250, #257, #258.
+- Proposed, awaiting the owner: changelog fragments (`billing/changelog.d/<pr>.md`, assembled at release) to end
+  changelog conflicts and the extra CI runs they cause (CTO review 2026-10-22, recommendation 2).
 - Owner questions from importer B2: how Nepali hosts invite migrated clients today; whether 500 invitations per
   hour is right; whether a missing PAN is a warning or blocks the import.
 
@@ -79,18 +90,18 @@ After each merge close the issue by hand (`develop` ignores closing keywords). W
   accountant).
 - connectIPS merchant enrolment (weeks of lead time); a WHMCS dev licence or fake-data export for importer fixtures; a
   cPanel trial VPS.
+- Changelog fragments: adopt them or keep one `changelog.md` (proposed, see Queue).
 - Repository settings: auto-merge, delete head branches, and Actions write for the token (re-running flaky jobs).
 - Five behaviours in #211 ("Owner to confirm"), now merged with the conservative choice; confirm or change.
 - Business: licence and price in NPR, support model, security policy page, trademark search.
 
 ## Open issues worth knowing
 
-98 open (2026-10-22 10:40 UTC). Go-live (label `go-live`): #11 Laravel 13.36 (PR #242) and #126 deploy smoke seed.
-The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
+Go-live (label `go-live`): #11 and #126 merged today, so none is open from the earlier list. The 40-user tail latency (#205) is a known performance finding without the label. Full list: `gh issue list --label go-live`.
 
 ## Scheduled
 
-- On or after 2026-10-22: bump `laravel/framework` to 13.36.x and `laravel/wayfinder` to 0.1.22 (#11).
+- From 2026-10-23 06:00 UTC: vite-plus 1.3.0 (#241). The Laravel 13.36 bump (#11) merged in #242.
 
 ## Local-only state on the codespaces
 
