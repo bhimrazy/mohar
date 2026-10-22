@@ -135,6 +135,14 @@ public function timing(string $metric, int $milliseconds, array $attributes = []
 - Every job that calls a provider is `ShouldBeUnique` or protected by a lock, sets `$tries` and `$backoff`, uses
   `ShouldBeEncrypted` if its payload holds personal data, and is idempotent (ADR 0011).
 
+### Lock store (amended 2026-10-22, #64)
+
+Cache locks (`Cache::lock`) guard provisioning, payment attempts and other flows that have no database constraint to
+fall back on. They hold only when every web and queue process shares one lock store, so `CACHE_STORE` must be
+`database`, `redis` or another network store. `file` is single-host only. `array` and `null` give no cross-process
+exclusion. `app:install` fails on those two for a first production install and warns otherwise; the admin health card
+reports it in production.
+
 ### Performance budgets
 
 Query-count tests, as `DashboardQueryCountTest` does for the dashboard in #41, are required for:

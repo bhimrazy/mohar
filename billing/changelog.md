@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
+  or `null` stops a first production install and warns on an existing installation; `file` warns that it is safe on a
+  single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
+  finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
+
 - **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
   and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
   workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
