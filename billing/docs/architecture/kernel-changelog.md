@@ -31,9 +31,10 @@ Additive; Domains moves onto these in PR C2, which removes its module SPI.
   replaced text, so the host masks what a driver says before showing it. `RegistrarTimeout` takes a trailing
   `?Throwable $previous`.
 - `App\Support\Domains\RegistrarDriverRegistry` (final, singleton in `AppServiceProvider`): the `DriverRegistry`
-  API plus `supports(key, capability)` and `fields(key)`. Capability names are the strings the admin already shows;
-  `register`, `renew` and `info` map to the core interface, `transfer` and `transfer_sync` to `TransfersDomains`, and
-  `test_connection` is new. `RegistrarException` (without HTTP rendering), `RegistrarTimeout` and
+  API plus `supports(key, capability)` and `fields(key)`, and one constant per capability name
+  (`RegistrarDriverRegistry::AVAILABILITY` … `TEST_CONNECTION`). Capability names are the strings the admin already
+  shows; `register`, `renew` and `info` map to the core interface, `transfer` and `transfer_sync` to
+  `TransfersDomains`, and `test_connection` is new. `RegistrarException` (without HTTP rendering), `RegistrarTimeout` and
   `CapabilityNotSupported` in the same namespace.
 
 ### Client import invitations (importer B2a)

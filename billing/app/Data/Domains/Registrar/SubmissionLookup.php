@@ -37,7 +37,7 @@ final readonly class SubmissionLookup
     /**
      * A copy with another message, so the host can replace driver text (for example with a masked version).
      */
-    public function withMessage(string $message): static
+    public function withMessage(string $message): self
     {
         return new self($this->status, $this->expiryDate, $this->remote, $message);
     }
