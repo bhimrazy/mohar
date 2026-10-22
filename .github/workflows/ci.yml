@@ -15,11 +15,12 @@
 name: CI
 
 on:
-    # develop is not built on every merge (Actions minutes budget, operating-model.md): each PR runs CI once before
-    # merging, and the CTO dispatches a develop run after a batch of merges.
+    # Pushes to develop and main run the main job, so every merge is tested on the commit that actually landed.
+    # A merged PR therefore runs CI twice (its PR run, then the push run); see billing/docs/devops/ci.md.
     push:
         branches:
             - main
+            - develop
     pull_request:
         branches:
             - main
@@ -323,7 +324,7 @@ jobs:
         name: E2E simulators (hosting lifecycle)
         if: >-
             github.event_name == 'workflow_dispatch' ||
-            github.event_name == 'push' ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
             (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'e2e')
                 && (github.event.action != 'labeled' || github.event.label.name == 'e2e'))
         runs-on: ubuntu-24.04
