@@ -29,13 +29,18 @@ class StoreDocument
      */
     public function handle(int $clientId, DocumentType $type, string $number, UploadedFile $front, ?UploadedFile $back, ?int $userId): KycDocument
     {
-        $stored = [$this->vault->put($clientId, $front)];
-
-        if ($back !== null) {
-            $stored[] = $this->vault->put($clientId, $back);
-        }
+        $stored = [];
 
         try {
+            // A back image that is refused must not leave the front's file behind. put() must stay outside the
+            // transaction below: it takes the image-decode cache lock, and on PostgreSQL a contended database lock
+            // inside a transaction aborts it (a 500) instead of refusing with "try again".
+            $stored[] = $this->vault->put($clientId, $front, 'front');
+
+            if ($back !== null) {
+                $stored[] = $this->vault->put($clientId, $back, 'back');
+            }
+
             [$document, $replaced] = DB::transaction(function () use ($clientId, $type, $number, $stored, $userId): array {
                 $client = Client::query()->lockForUpdate()->findOrFail($clientId);
                 // Lock order (ADR 0021): the client, then its documents. DecideDocument takes the same order.

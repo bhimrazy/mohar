@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Http\Client\Request;
+use Illuminate\Routing\RouteCollection;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Http;
 use Symfony\Component\Console\Exception\InvalidOptionException;
 
@@ -50,6 +52,33 @@ test('the smoke command takes the key from a hidden prompt or the environment, n
     app()->detectEnvironment(fn () => 'production');
     $this->artisan('payments:stripe-smoke')
         ->expectsOutputToContain('not allowed in this environment')->assertFailed();
+
+    Http::assertNothingSent();
+});
+
+test('the smoke command stops with a clear error when the Billing return route is not registered', function () {
+    Http::fake();
+    $router = app('router');
+    $original = $router->getRoutes();
+    $pruned = new RouteCollection;
+
+    foreach ($original->getRoutes() as $route) {
+        if ($route->getName() !== 'billing.gateways.return') {
+            $pruned->add($route);
+        }
+    }
+
+    $property = new ReflectionProperty(Router::class, 'routes');
+    $property->setValue($router, $pruned);
+
+    try {
+        putenv('STRIPE_SMOKE_SECRET_KEY='.STRIPE_SECRET);
+        $this->artisan('payments:stripe-smoke')
+            ->expectsOutputToContain('billing.gateways.return route is not registered')
+            ->assertFailed();
+    } finally {
+        $property->setValue($router, $original);
+    }
 
     Http::assertNothingSent();
 });

@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
+  (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
+  permission change. Documents uploaded before the upgrade are not rewritten and keep their
+  metadata until they are replaced or deleted by retention. Six new settings in `kyc.php`: `max_image_pixels`
+  (25 000 000), `max_buffered_jpeg_pixels` (20 000 000), `stored_image_pixels` (16 000 000), `stored_webp_pixels`
+  (8 000 000), `step_down_pixels` (12 000 000, 8 000 000) and `image_decode_wait_seconds` (5). Image decoding takes
+  the cache lock `kyc:image-decode`, so it needs the shared lock store the install already checks. The document
+  upload route has a new rate limiter `kyc-upload` (20 a minute per IP address) on top of 10 a minute per user.
 - **Credit ledger idempotency key (#263).** New nullable column `credit_ledger.idempotency_key` with a partial
   unique index (`credit_ledger_idempotency_key_unique`, built concurrently on PostgreSQL), migration
   `2026_10_22_300630`, expand only. The migration copies the key of existing imported opening balances (gateway
@@ -454,6 +462,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Security
 
 - **Downloads behind a recent-password check (#272).** A link to a protected file (today only the Migration "rows with errors" CSV) used to bounce back to the page and look dead. Clicking it now opens the confirm-password dialog and starts the download after the password is confirmed. A link opened in a new tab goes to the confirm-password page and returns to the file. The file is never sent without a recent confirmation. No schema or permission change.
+- **Identity images are re-encoded (#233).** Each uploaded JPEG, PNG or WebP is decoded and encoded again in the same
+  format before it is encrypted. EXIF (GPS position, device, embedded thumbnails), colour profiles, text chunks, JPEG
+  comments and bytes appended after the image data are not stored; a payload built into the pixel data of a lossless
+  PNG is not removed. The EXIF orientation is applied to the pixels, so staff see the photo upright. Refused with a validation
+  error: a file that cannot be decoded ("Upload a photo or scan as JPEG, PNG or WebP."), an image above 25 megapixels
+  or a progressive or CMYK JPEG above 20 megapixels (from its header, before decoding), and an upload that waits more
+  than 5 seconds for another upload's decode ("Other photos are being processed. Try again in a moment."). Decodes
+  run one at a time per cache lock store, and uploads are limited to 20 a minute per IP address. Images above 16
+  megapixels (WebP: 8 megapixels) are scaled down to that size. A stored image is at most 5 MB: a larger result is
+  encoded again at quality 75, then scaled to 12 and 8 megapixels (an opaque PNG becomes a JPEG), and is refused only
+  if it is still larger.
 - **Key rotation counts distinct keys (#279).** A key listed in both `APP_KEY` and `APP_PREVIOUS_KEYS` (or as `base64:`
   and decoded) counts once, so restoring the old `APP_KEY` no longer makes `migrate` refuse again. The refusal now says
   to restore the key the email hashes were made with or remove the stale key from `APP_PREVIOUS_KEYS`; the key-rotation
@@ -480,6 +499,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
+### PostgreSQL test database names (#285)
+
+- `scripts/pg.sh` gives a slug longer than 42 characters a shortened database name (55 bytes: its first 46 bytes, `_`,
+  and 8 hex digits of its SHA-256). Shorter slugs keep their names. Parallel test workers and the race tests' extra
+  databases now stay within PostgreSQL's 63-byte limit, so they no longer collide. No change for users or operators.
+
+### Stripe smoke command without Billing (#269)
+
+- `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
+  route is not registered (PaymentsStripe loaded without Billing). It used to fail with an exception. No schema,
+  permission or configuration change.
 
 ### Step-up window from the environment (#273)
 
