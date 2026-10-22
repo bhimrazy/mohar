@@ -12,6 +12,7 @@ use App\Modules\Kyc\Actions\PruneDocuments;
 use App\Modules\Kyc\Enums\DocumentStatus;
 use App\Modules\Kyc\Enums\KycStatus;
 use App\Modules\Kyc\Http\Controllers\Admin\ReviewController;
+use App\Modules\Kyc\Http\Middleware\ClearEndedReviewHistory;
 use App\Modules\Kyc\Http\Middleware\ShareKycBanner;
 use App\Modules\Kyc\Listeners\ScheduleDocumentRetention;
 use App\Modules\Kyc\Models\KycDocument;
@@ -47,6 +48,7 @@ class KycServiceProvider extends ModuleServiceProvider
     protected function bootModule(): void
     {
         $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ShareKycBanner::class);
+        $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', ClearEndedReviewHistory::class);
 
         // A document number never reaches the session, also when an action (not the form request) refuses the upload.
         $this->callAfterResolving(ExceptionHandler::class, function (object $handler): void {
