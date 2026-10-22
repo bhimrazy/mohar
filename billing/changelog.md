@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
+  permission change. The default text of the invoice emails and the service suspension email changed: the Issued, Due,
+  Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
+  unedited templates to the new text; edited templates keep their text and the editor offers the new default. Invoice
+  PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
 - **Identity images are re-encoded (#233).** PHP's `gd` extension with JPEG, PNG and WebP support is now required
   (`ext-gd` in `composer.json`; the production image already has it and its build checks the codecs). No schema or
   permission change. Documents uploaded before the upgrade are not rewritten and keep their
@@ -504,6 +509,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
+
+### Bikram Sambat dates beside AD dates on invoices (#207)
+
+- Admin → Settings → Billing → "Show the Bikram Sambat date beside the AD date on invoices" (off by default). When on,
+  the issue and due dates on the admin and client invoice pages, the invoice PDF and the key-facts rows of invoice
+  emails also show the BS date: "12 Jan 2026 (28 Poush 2082 BS)". Month names are in English transliteration.
+- BS dates cover 2000–2095 BS (14 April 1943 to 14 April 2039); a date outside that range shows the AD date only.
+  Years after the current panchang (about 2084 BS onwards) are projections from public calendar tables. Fiscal-year
+  invoice numbering in BS is not part of this change.
 
 ### PostgreSQL test database names (#285)
 
