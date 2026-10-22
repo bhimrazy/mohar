@@ -2,9 +2,6 @@
 
 namespace App\Modules\Domains\Http\Controllers\Admin;
 
-use App\Contracts\Domains\Registrar\TestsRegistrarConnection;
-use App\Data\Domains\Registrar\RegistrarConfig;
-use App\Data\Integrations\ConnectionCheck;
 use App\Data\Integrations\SettingField;
 use App\Enums\FieldType;
 use App\Http\Controllers\Controller;
@@ -71,9 +68,9 @@ class RegistrarController extends Controller
         $this->authorize('domains.registrars.manage');
         abort_unless($registrars->has($registrar), 404);
 
-        // Through the gateway: the disabled-registrar check, the command log and masking of whatever the driver says.
+        // Through the gateway, so it is logged and whatever the driver says is masked; it runs on a disabled account too.
         try {
-            $result = $gateway->call($registrar, 'test_connection', TestsRegistrarConnection::class, fn (TestsRegistrarConnection $driver, RegistrarConfig $config): ConnectionCheck => $driver->testConnection($config));
+            $result = $gateway->testConnection($registrar);
             Inertia::flash('toast', ['type' => $result->ok ? 'success' : 'error', 'message' => $result->message]);
         } catch (CapabilityNotSupported) {
             Inertia::flash('toast', ['type' => 'error', 'message' => __('The :name registrar has no connection test.', ['name' => $registrars->get($registrar)->name()])]);
