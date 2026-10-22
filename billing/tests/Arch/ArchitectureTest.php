@@ -40,7 +40,7 @@ foreach (FEATURE_MODULES as $module) {
 }
 
 arch('Core and the shared kernel do not depend on feature modules')
-    ->expect(['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support'])
+    ->expect(['App\Modules\Core', 'App\Contracts', 'App\Data', 'App\Events', 'App\Enums', 'App\Support', 'App\Http'])
     ->not->toUse(array_map(fn (string $module): string => "App\\Modules\\{$module}", [...FEATURE_MODULES, ...READ_MODEL_MODULES]));
 
 arch('contracts are interfaces')

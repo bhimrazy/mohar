@@ -33,7 +33,9 @@ and get the security reviewer's sign-off.
 - Every route that mutates something behind a sensitive permission uses the `password.recent` middleware
   (`tests/Feature/Security/SensitiveRouteStepUpTest.php` calls every admin route, records the permissions it
   checks, and repeats the call without a recent password; exemptions are listed there with a reason). The
-  password must have been confirmed within `auth.step_up_seconds` (default 900; `App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in `bootstrap/app.php` so it resolves with any set of modules). Pages that edit
+  password must have been confirmed within `auth.step_up_seconds` (default 900;
+  `App\Http\Middleware\RequireRecentPasswordConfirmation`, aliased in `bootstrap/app.php` so it resolves with
+  any set of modules). Pages that edit
   sensitive data use `password.confirm`. The UI wraps sensitive buttons in `useSensitiveAction()`, which asks for the
   password and retries.
 - Seeded roles list their permissions explicitly. Seeders update existing system roles; they don't only
