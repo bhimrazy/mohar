@@ -13,6 +13,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
   finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
 
+- **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
+  transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
+  longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
+  different code is refused with "The code of an existing currency cannot be changed. To use another code, add a new
+  currency." Staff who need another code add a new currency. No schema or permission change. Installations where a
+  code was already renamed keep their records under the old code; nothing repairs them automatically.
 - **Security: upgrade PHP to 8.4.27 or newer (CVE-2026-109618, CVE-2026-109619).** PHP 8.4.26 and older (8.5.11
   and older) allow unauthenticated remote code execution through every web SAPI, FrankenPHP included, with no
   workaround besides upgrading. **Operators: upgrade PHP to 8.4.27+ (8.5.12+ on 8.5) and rebuild or pull the image.**
@@ -361,6 +367,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   emails the client (new editable template "Identity document decision"), with the reason for a decline and one
   button to the verification page. Each opening, image view, approval and decline is in the activity log, without
   the number or the image.
+- Staff review: when the 15-minute window ends, the page hides the numbers and images at once and reloads, and the
+  browser history of the review page is cleared on the first page after the window ends, so Back or a restored tab no
+  longer brings the numbers back (#240). Logging out while documents are shown clears it too, and so does every visit
+  to the login or two-factor challenge page, where a session that ended on the server (idle expiry, deactivated
+  account) leads. A new **Hide documents** button ends the window early for that client; it needs no password and is
+  recorded in the activity log ("Identity documents hidden again", event `kyc.documents.closed`). New route `POST
+  admin/kyc/clients/{client}/lock` (permission `kyc.documents.view` or `kyc.documents.review`); no schema change.
 
 ### Client import
 
@@ -687,6 +700,9 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Platform admin
 
+- Currencies: the ISO code is fixed once a currency exists. The edit form shows it read-only with the reason, the
+  update request refuses a different code, saving display settings never writes the code, and the `Currency` model
+  refuses any other attempt to rename it (#238).
 - Automation → Run now queues one run at a time: while a run waits or runs, another request is not queued, and the
   page says "An automation run is already queued or running." During the scheduled run it says "An automation run
   is in progress"; a request queued just before a scheduled run starts is skipped and recorded in the activity log
