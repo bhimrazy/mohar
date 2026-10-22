@@ -48,7 +48,7 @@ class MigrationServiceProvider extends ModuleServiceProvider
             new SettingDefinition('migration.csv.max_rows', 'Most rows per file', 'integer', rules: ['integer', 'min:100', 'max:500000']),
             new SettingDefinition('migration.csv.max_columns', 'Most columns per file', 'integer', rules: ['integer', 'min:10', 'max:500']),
             new SettingDefinition('migration.staging_days', 'Days an unapplied upload is kept', 'integer', 'Its rows are then purged; counts stay.', rules: ['integer', 'min:1', 'max:30']),
-            new SettingDefinition('migration.invite_per_hour', 'Invitations sent per hour', 'integer', 'Invitations to imported logins are sent at most this many an hour. Keep it within your mail provider\'s limit.', rules: ['integer', 'min:1', 'max:10000']),
+            new SettingDefinition('migration.invite_per_hour', 'Invitations sent per hour', 'integer', 'Invitations to imported logins are sent at most this many an hour. Check your mail provider\'s hourly sending limit before raising it.', rules: ['integer', 'min:1', 'max:10000']),
             new SettingDefinition('migration.undo_days', 'Days an applied import keeps its rows', 'integer', 'After that its row details are purged; counts and outcomes stay.', rules: ['integer', 'min:1', 'max:30']),
         ], 'migration.runs.execute');
 
