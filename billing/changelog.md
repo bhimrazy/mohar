@@ -16,6 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Simulator scenarios pick ports below the ephemeral range, per test worker (#209).** The simulators (dev-only) chose
+  ports with `:0`, which the kernel takes from the range outgoing connections use, so a port could vanish before the
+  simulator bound it and `PortRetryTest` failed under parallel runs. Ports now come from 20000 up to the kernel's
+  ephemeral range, each probed by binding, in a slice per parallel worker. No schema or setting change.
 - **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
   at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second
   levels such as `asha.np`, is never sent to a registrar, even when staff created it with a registrar key. It stays
