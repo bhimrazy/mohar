@@ -10,22 +10,25 @@ use OutOfRangeException;
  * Converts calendar dates between the Gregorian calendar (AD) and Bikram Sambat (BS), Nepal's official calendar.
  *
  * BS month lengths follow the published panchang and cannot be computed, so they come from the table below
- * (1 Baisakh 2000 BS = 14 April 1943 AD). Dates outside 2000–2100 BS are refused with an OutOfRangeException.
+ * (1 Baisakh 2000 BS = 14 April 1943 AD). Dates outside 2000–2095 BS are refused with an OutOfRangeException.
+ * Pass calendar dates (date-cast fields such as an invoice's issue_date): the object's own year, month and day are
+ * used, so a UTC timestamp converts the UTC day, which can differ from the day in Nepal.
  *
- * Source of the table: the BS calendar data of the open-source projects nepali-datetime
- * (github.com/amitgaru/nepali-datetime, nepali_datetime/data/calendar_bs.csv, Apache-2.0) and nepali-date-converter
- * (github.com/sbmdkl/nepali-date-converter, src/config.ts, MIT), compared year by year on 2026-10-22. They agree on
- * every year from 2000 to 2098 except 2062 and 2087, where this table follows nepali-date-converter (a third table,
- * github.com/ernilambar/nepali-date, agrees with it). 2099 and 2100 are from nepali-datetime, the only one of the
- * three that covers 2100. Years after the current panchang (about 2084 onwards) are projections that every source
- * publishes the same way and may still change when the official calendar for that year is published; correct the
- * row here if it does. Reference dates checked against published calendars are in tests/Unit/Billing/BikramSambatTest.php.
+ * Source of the table (names, licences and notices: THIRD_PARTY_NOTICES.md at the repository root): the BS calendar
+ * data of nepali-datetime (github.com/amitgaru/nepali-datetime, nepali_datetime/data/calendar_bs.csv) and
+ * nepali-date-converter (github.com/sbmdkl/nepali-date-converter, src/config.ts), compared year by year on
+ * 2026-10-22. They agree on every year from 2000 to 2098 except 2062 and 2087, where this table follows
+ * nepali-date-converter (a third table, github.com/ernilambar/nepali-date, agrees with it); they also differ on 2099.
+ * The table stops at 2095: both sources give 2096 only 364 days, which no BS year has, so their rows from 2096 on
+ * cannot be trusted. Years after the current panchang (about 2084 onwards) are projections that may change when the
+ * official calendar for that year is published; correct the row here if it does. Reference dates checked against
+ * published calendars are in tests/Unit/Billing/BikramSambatTest.php.
  */
 final class BikramSambat
 {
     public const FIRST_YEAR = 2000;
 
-    public const LAST_YEAR = 2100;
+    public const LAST_YEAR = 2095;
 
     /** English transliterations, Baisakh (1) to Chaitra (12). */
     public const MONTHS = ['Baisakh', 'Jestha', 'Asar', 'Shrawan', 'Bhadra', 'Asoj', 'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra'];
@@ -131,11 +134,6 @@ final class BikramSambat
         2093 => [30, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
         2094 => [31, 31, 32, 31, 31, 30, 30, 30, 29, 30, 30, 30],
         2095 => [31, 31, 32, 31, 31, 31, 30, 29, 30, 30, 30, 30],
-        2096 => [30, 31, 32, 32, 31, 30, 30, 29, 30, 29, 30, 30],
-        2097 => [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 30, 30],
-        2098 => [31, 31, 32, 31, 31, 31, 29, 30, 29, 30, 29, 31],
-        2099 => [31, 31, 32, 31, 31, 31, 30, 29, 29, 30, 30, 30],
-        2100 => [31, 32, 31, 32, 30, 31, 30, 29, 30, 29, 30, 30],
     ];
 
     /** The BS date of an AD calendar date (its own year, month and day; the time and time zone are ignored). */

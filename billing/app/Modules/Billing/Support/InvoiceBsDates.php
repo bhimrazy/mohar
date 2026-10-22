@@ -20,7 +20,7 @@ final class InvoiceBsDates
 
     /**
      * "28 Poush 2082 BS", or null when the setting is off, there is no date, or the date is outside the BS table
-     * (1943 to 2044 AD), where the AD date alone is shown.
+     * (14 Apr 1943 to 14 Apr 2039 AD), where the AD date alone is shown.
      */
     public function label(?DateTimeInterface $date): ?string
     {

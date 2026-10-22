@@ -474,7 +474,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Admin → Settings → Billing → "Show the Bikram Sambat date beside the AD date on invoices" (off by default). When on,
   the issue and due dates on the admin and client invoice pages, the invoice PDF and the key-facts rows of invoice
   emails also show the BS date: "12 Jan 2026 (28 Poush 2082 BS)". Month names are in English transliteration.
-- BS dates cover 2000–2100 BS (April 1943 to April 2044); a date outside that range shows the AD date only. Fiscal-year
+- BS dates cover 2000–2095 BS (14 April 1943 to 14 April 2039); a date outside that range shows the AD date only.
+  Years after the current panchang (about 2084 BS onwards) are projections from public calendar tables. Fiscal-year
   invoice numbering in BS is not part of this change.
 
 ### Architecture tests check every target (#275)

@@ -175,8 +175,9 @@ Order within the global daily pipeline: _(Services/Domains renewal generation)_ 
   off), the invoice PDF, and the key-facts rows (Issued, Due, Was due, Charge date) of the invoice emails and the
   service suspension email (merge fields `invoice.issue_date_bs`, `invoice.due_date_bs`). Subjects, preheaders and
   sentences keep the AD date only.
-- Conversion: `App\Modules\Billing\Support\BikramSambat`, a month-length table for 2000–2100 BS (14 Apr 1943 to
-  12 Apr 2044 AD) with its sources in the class comment. Dates outside the table are refused (`OutOfRangeException`);
+- Conversion: `App\Modules\Billing\Support\BikramSambat`, a month-length table for 2000–2095 BS (14 Apr 1943 to
+  14 Apr 2039 AD) with its sources in the class comment and `THIRD_PARTY_NOTICES.md`. The table stops at 2095 because
+  both source tables give 2096 only 364 days. The BS label has a fixed format and does not follow the date format setting. Dates outside the table are refused (`OutOfRangeException`);
   the invoice then shows the AD date alone. Rows after the current panchang are projections and are corrected when
   Nepal's official calendar for that year is published.
 - A PDF rendered with BS dates is cached under its own path (`…-<locale>-bs.pdf`), so switching the setting never

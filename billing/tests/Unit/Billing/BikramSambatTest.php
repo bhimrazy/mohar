@@ -77,21 +77,28 @@ test('every day of the table converts there and back', function () {
         $date = $date->addDay();
     }
 
-    expect([$previous->year, $previous->month])->toBe([2100, 12]);
+    expect([$previous->year, $previous->month])->toBe([2095, 12]);
+});
+
+test('every year in the table has 365 or 366 days', function () {
+    foreach (range(BikramSambat::FIRST_YEAR, BikramSambat::LAST_YEAR) as $year) {
+        expect(array_sum(array_map(fn (int $month): int => BikramSambat::daysInMonth($year, $month), range(1, 12))))->toBeIn([365, 366], "BS {$year}");
+    }
 });
 
 test('AD dates outside the table are refused', function (string $ad) {
     expect(fn () => BikramSambat::fromAd(CarbonImmutable::parse($ad)))->toThrow(OutOfRangeException::class, 'outside the Bikram Sambat table');
 })->with([
     'the day before 1 Baisakh 2000' => '1943-04-13',
-    'the day after Chaitra 2100' => '2044-04-13',
+    'the day after Chaitra 2095' => '2039-04-15',
+    'the old 2100 limit' => '2044-04-12',
 ]);
 
 test('BS dates that do not exist or are outside the table are refused', function (int $year, int $month, int $day) {
     expect(fn () => BikramSambat::toAd($year, $month, $day))->toThrow(OutOfRangeException::class);
 })->with([
     'year 1999 BS' => [1999, 12, 30],
-    'year 2101 BS' => [2101, 1, 1],
+    'year 2096 BS (364 days in every source)' => [2096, 1, 1],
     'month 13' => [2082, 13, 1],
     'day 30 of a 29-day Mangsir' => [2082, 8, 30],
     'day 0' => [2082, 1, 0],

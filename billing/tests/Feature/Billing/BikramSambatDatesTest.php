@@ -112,3 +112,22 @@ test('with the setting on, invoice emails show both dates; off, only the AD date
         return str_contains($mail->plainText, '26 Jan 2026') && $both === $on && ($on || ! str_contains($mail->plainText, ' BS)'));
     });
 })->with(['on' => true, 'off' => false]);
+
+test('a due date outside the BS table shows the AD date alone on the page, the PDF and the email', function () {
+    Mail::fake();
+    seedEmailTemplates();
+    billingSettings(['show_bs_dates' => true, 'pdf.attach_to_emails' => false]);
+    billingStaff();
+    $invoice = issueInvoice(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'email' => 'payer@example.test']), [1_000_000], CarbonImmutable::parse('2044-04-14'));
+
+    $this->get(route('admin.billing.invoices.show', $invoice))->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->where('invoice.issue_date_bs', '28 Poush 2082 BS')->where('invoice.due_date_bs', null));
+
+    expect(view('billing::pdf.invoice', app(InvoicePdf::class)->viewData($invoice))->render())
+        ->toContain('Issued 12 Jan 2026 (28 Poush 2082 BS)')->toContain('Due 14 Apr 2044')->not->toContain('Due 14 Apr 2044 (');
+
+    $this->post(route('admin.billing.invoices.remind', $invoice))->assertRedirect();
+
+    Mail::assertSent(TemplatedMail::class, fn (TemplatedMail $mail): bool => str_contains($mail->plainText, '14 Apr 2044')
+        && ! str_contains($mail->plainText, '14 Apr 2044 (') && str_contains($mail->plainText, '12 Jan 2026 (28 Poush 2082 BS)'));
+});
