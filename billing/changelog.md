@@ -46,6 +46,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
   (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
   templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
+- **Payment follow-ups (#232, #230, #221).**
+    - **A won Stripe dispute that was never booked as a chargeback is acknowledged (#232).** On a Stripe webhook
+      destination without `charge.dispute.funds_withdrawn`, an inquiry that escalated and was then won reached its
+      `charge.dispute.closed` with no chargeback booked, and Billing answered 409 until Stripe stopped retrying. When the
+      dispute's balance transactions show both the withdrawal and the reinstatement, Billing now answers 200 and records
+      nothing (no money moved on our side), with the gateway log result "dispute won with no chargeback booked; funds
+      reinstated at the provider, nothing recorded". A `charge.dispute.created` or `funds_withdrawn` retrieved after
+      the win is ignored, so no chargeback is booked late. The inquiry's to-do stays on "Disputes to review" for staff
+      to mark reviewed. Failed deliveries from before the upgrade are not replayed: resend them from the Stripe
+      Dashboard if you want them in the log.
+    - **The open-payment poller looks up every five minutes (#230).** As with the late sweep (#222), each lookup is
+      stamped when it finishes, so the next five-minute run skipped the attempt and pending hosted payments (eSewa,
+      Khalti) were looked up every ten minutes. A time-travel test showed the 10:05 run skipping it. The cut-off is
+      now taken once, when the run starts, with up to 60 seconds of slack (half the interval when
+      `billing.gateways.lookup_interval_minutes` is 1); the back-off after 12 lookups (every sixth interval) uses the
+      same cut-off.
+    - **New outgoing webhooks `payment.reinstated` and `payment.reversed` (#221).** A won dispute fires the new event
+      `PaymentReinstated` once per dispute, also when the invoice still owes more or the money went to staff review
+      (`invoice.paid` still follows only when the win settles the invoice). Webhook endpoints can subscribe to
+      `payment.reinstated` (the `chargeback_reversal` transaction) and to `payment.reversed` (the chargeback, or a
+      refund with "reverse effects"), which was not offered before. An endpoint subscribed to all events (`*`) receives
+      both from the upgrade on; others only once staff add them on the endpoint's form (Admin → Webhooks).
+    - No migration and no permission change. Kernel: new event `App\Events\Billing\PaymentReinstated`; new
+      `CallbackEvent::$fundsReinstated`.
+
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any

@@ -6,6 +6,19 @@ the same PR updates every in-repo implementer and gets the principal-architect g
 
 ## Unreleased (pre-1.0)
 
+### Payment follow-ups (#232, #221)
+
+- New event `App\Events\Billing\PaymentReinstated(?invoiceId, clientId, transactionId, chargebackTransactionId,
+  amount, currency, reviewAmount = 0)` (compatible addition, #221): a won dispute undid a chargeback. The counterpart
+  of `PaymentReversed`; dispatched after commit by Billing's `RecordDisputeWon` once per booked win, whether or not
+  the invoice is settled again (`reviewAmount` is the part held for staff review). Implements `DomainEvent` and
+  `ShouldDispatchAfterCommit`. Notifications publishes it as the `payment.reinstated` webhook, and `PaymentReversed`
+  as `payment.reversed`; with Notifications absent nothing listens.
+- `App\Data\Billing\CallbackEvent` gains a trailing `bool $fundsReinstated = false` (compatible, #232): on
+  `DISPUTE_WON`, the provider's record shows the disputed money withdrawn and reinstated, so a win with no booked
+  chargeback is acknowledged (200, nothing recorded) instead of refused with 409. Set by the Stripe driver from the
+  dispute's balance transactions; other drivers keep the 409-and-retry behaviour.
+
 ### Client currency lock (#218)
 
 - `App\Support\Clients\ClientCurrencyUsage::sourcesFor(int $clientId): list<string>` (new method, additive): the keys

@@ -163,7 +163,7 @@ duration_ms, next_attempt_at, created_at, updated_at` — unique `(event_id, end
 
 ## 8. Outbound webhooks
 
-- Event types: dotted snake versions of events, e.g. `invoice.paid`, `payment.received`, `service.suspended`, `domain.renewed`, `ticket.opened`, `client.registered`, `order.placed`, `affiliate.commission_earned`; plus `webhook.ping`. **MUST**
+- Event types: dotted snake versions of events, e.g. `invoice.paid`, `payment.received`, `payment.reversed` (a chargeback, or a refund with reverse effects), `payment.reinstated` (a won dispute undid the chargeback, #221; sent for every win, also when the invoice still owes more), `service.suspended`, `domain.renewed`, `ticket.opened`, `client.registered`, `order.placed`, `affiliate.commission_earned`; plus `webhook.ping`. **MUST**
 - Envelope: `{"id": "<uuid>", "type": "invoice.paid", "created_at": "<ISO-8601 UTC>", "api_version": "2026-10", "data": {"object": {…resource snapshot…}, "ids": {…}}}`. No secrets ever (passwords, tokens, EPP codes, card data). **MUST**
 - Headers: `Content-Type: application/json`, `User-Agent: <AppName>-Webhooks/1`, `X-Webhook-Id`, `X-Webhook-Event`, `X-Webhook-Timestamp` (unix), `X-Webhook-Signature: v1=<hex HMAC-SHA256(secret, "{timestamp}.{raw_body}")>`; during rotation both `v1=` values, comma-separated. Receivers should reject timestamps older than 5 minutes. **MUST**
 - Delivery: POST, connect timeout 5 s, total 10 s, redirects not followed; 2xx = success. Others/timeouts retry with backoff 1 m, 5 m, 30 m, 2 h, 6 h, 12 h, 24 h (`webhooks.max_attempts: 8`), then `abandoned`. **MUST**
