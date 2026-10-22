@@ -235,7 +235,7 @@ CSV export) contains:
   reads `WHMCS_API_IDENTIFIER`/`WHMCS_API_SECRET`. The HTTP log middleware redacts `identifier, secret, accesskey, password`.
   `import:whmcs purge` deletes the credentials and staging data. Post-cutover runbook: revoke the WHMCS credential and allow-list entry.
 - **Passwords:** none are imported. Users are created with a random unusable hash. After cutover, `invite-users` sends "set your password"
-  links through a dedicated password broker (`migration.invite_expiry_days: 14`, throttle `migration.invite_per_hour: 500`). Staff re-enrol in 2FA.
+  links through a dedicated password broker (`migration.invite_expiry_days: 14`, throttle `migration.invite_per_hour: 100`). Staff re-enrol in 2FA.
   Note: the public docs show `GetClientPassword` returning a bcrypt-format hash, but that action is deprecated since 8.0 and does not cover
   the 8.x user model. Hash import is therefore **out of scope** (it would also widen our attack surface).
 - **Pay methods:** only `RemoteCreditCard`/`RemoteBankAccount` entries with a `remote_token` are imported. This requires the gateway map to
