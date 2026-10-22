@@ -139,6 +139,19 @@ From the client area you can order services, pay invoices, manage domains and co
 
 [Open the client area]({{ system.client_area_url }})
 MD.$signOff),
+    $client('kyc.document_decided', 'general', 'Identity document decision', '{% if kyc.approved %}Your {{ kyc.document }} is approved{% else %}Your {{ kyc.document }} was declined{% endif %}', <<<'MD'
+# {% if kyc.approved %}{{ kyc.document }} approved{% else %}{{ kyc.document }} declined{% endif %}
+
+{% if kyc.approved %}{% if kyc.verified %}Thank you. Your identity is now verified, and there is nothing more to do.{% else %}Thank you. We checked your {{ kyc.document }} and approved it. The verification page shows what is left.{% endif %}{% else %}We could not accept your {{ kyc.document }}: {{ kyc.reason }} Please upload a new photo when you can. Your account keeps working as usual.{% endif %}
+
+{% if kyc.approved %}[View your verification]({{ kyc.url }}){% else %}[Upload a new photo]({{ kyc.url }}){% endif %}
+
+| Document | {{ kyc.document }} |
+|---|---|
+| Decision | {% if kyc.approved %}Approved{% else %}Declined{% endif %} |
+
+Questions? Reply to this email and our team will help.
+MD.$signOff),
     $client('order.confirmation', 'general', 'Order confirmation', 'Order #{{ order.number }} from {{ company.name }}: {{ order.total | money(order.currency) }} received', <<<'MD'
 # Thanks for your order
 
@@ -815,6 +828,7 @@ $preheaders = [
     'auth.access_granted' => 'Log in as usual to see {{ notice.account }}.',
     'auth.owner_changed' => '{{ notice.email }} now owns {{ notice.account }}.',
     'auth.two_factor_reset' => 'Set it up again from your security settings.',
+    'kyc.document_decided' => '{% if kyc.approved %}Approved after review.{% else %}What to fix: {{ kyc.reason }}{% endif %}',
     'client.welcome' => 'Your account is ready. Log in to order services, pay invoices and get help.',
     'order.confirmation' => 'Thanks for your order. We\'ll email you as soon as each service is ready.',
     'quote.delivered' => '{{ quote.subject }}. Valid until {{ quote.valid_until | date }}. Accept it online to place the order.',

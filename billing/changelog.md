@@ -18,17 +18,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   quotes now read the client under a share lock, and a checkout whose client currency changed after the cart was
   priced is refused ("The account currency changed while this order was placed."), so a change and a client's first
   invoice or order can't cross. Account credit (staff adjustments, manual payments without invoices) is refused when
-  its amount is not in the client's currency. Saving a quote now locks the quote first and checks its stage again, so
-  an edit can no longer overwrite a quote accepted or converted at the same moment. Clients changed before the upgrade are not corrected:
-  look for clients whose invoices are in another currency than the client's. No migration and no permission change.
-  Kernel: `ClientCurrencyUsage::sourcesFor()`.
+  its amount is not in the client's currency ("Account credit must be in the client currency (NPR)."). Saving a quote
+  now locks the quote first and checks its stage again, so an edit can no longer overwrite a quote accepted or
+  converted at the same moment. Clients changed before the upgrade are not corrected: look for clients whose invoices
+  are in another currency than the client's. For such a client, a refund, cancellation or reversal that would move
+  account credit in the invoice's old currency is now refused with that message. No migration and no permission
+  change. Kernel: `ClientCurrencyUsage::sourcesFor()`.
 
 - **Identity verification (KYC) module, off by default (#197).** A new `kyc_documents` table (migration
   `770100`, expand only). Nothing changes until a host turns on Admin → Settings → Identity verification
-  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). The daily housekeeping stage gains
+  (`kyc.enabled`, new permission `kyc.settings.manage`, granted by `*` and `kyc.*`). Two new **sensitive**
+  permissions, which `kyc.*` does not grant: `kyc.documents.view` (queue and documents) and `kyc.documents.review`
+  (approve or decline). `php artisan app:install` resets the system roles, so the Support role gains
+  `kyc.documents.view` (with an audit entry); deciding stays with full administrators unless a role is given the review
+  permission. Opening documents and every decision ask for a recent password. The daily housekeeping stage gains
   the task `kyc.prune_documents`. Identity images are stored encrypted with `APP_KEY` on the `objects` disk: keep the
-  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read.
-
+  old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
+  (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
+  templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
@@ -331,7 +338,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - A document waiting for review or declined can be uploaded again, and the old images are deleted; an approved one
   cannot be replaced. Documents are deleted 90 days after the account is closed (a reopened account keeps them), by
   the daily task `kyc.prune_documents`, at most 500 per run.
-- Staff review (approve, or decline with a reason) follows in the next pull request.
+- Staff review: Admin → Clients → Identity verification shows summary cards (pending review, declined, verified, not
+  started), a status filter and search, so staff can find any client's verification state; the client profile links
+  to it. Numbers and images stay hidden until the staff member confirms their password for that client; they then
+  show for up to 15 minutes (never longer than the password confirmation), through signed links bound to that staff
+  member. Approve and Decline stay disabled until the documents were shown. A decline needs a reason. Every decision
+  emails the client (new editable template "Identity document decision"), with the reason for a decline and one
+  button to the verification page. Each opening, image view, approval and decline is in the activity log, without
+  the number or the image.
 
 ### Client import
 

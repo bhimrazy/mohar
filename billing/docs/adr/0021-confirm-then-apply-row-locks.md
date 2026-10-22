@@ -71,17 +71,19 @@ Dry runs read without locks and write nothing (ADR 0019).
 - **Client currency (#218):** a currency change (`Client::updateDetails`, the admin client edit) locks the client
   `FOR UPDATE`, then asks `ClientCurrencyUsage` and writes, all under that lock. A row that copies the client's currency
   reads the client under a lock first: `FOR UPDATE` where the path above already takes it (`IssueInvoice` with credit,
-  `PlaceOrder`, which prices the order in the currency of the locked row), `FOR SHARE` otherwise (`IssueInvoice`
-  without credit, `SaveDraftInvoice`, `Quotes::save`). `SaveDraftInvoice` locks an existing draft, and `Quotes::save`
-  an existing quote, before the client (quote, then client, the order `Quotes::convert` and `accept` take through
-  `IssueInvoice`); each checks the row's state again under its lock. `CreditLedgerService::post` refuses an amount in
-  another currency than the client row it locks.
-  Test: `ClientCurrencyChangeRaceTest`.
+  `PlaceOrder`, which refuses the order when the locked row's currency differs from the one its gateways, fraud total
+  and price overrides were worked out in), `FOR SHARE` otherwise (`IssueInvoice` without credit, `SaveDraftInvoice`,
+  `Quotes::save`). `SaveDraftInvoice` locks an existing draft, and `Quotes::save` an existing quote, before the client
+  (quote, then client, the order `Quotes::convert` and `accept` take through `IssueInvoice`); each checks the row's
+  state again under its lock. `CreditLedgerService::post` refuses an amount in another currency than the client row it
+  locks. Tests: `ClientCurrencyChangeRaceTest`, `ClientCurrencyLockProbeTest`, `CreditCurrencyGuardTest`.
 - **Multi-invoice payments (#224):** a payment of several invoices in one transaction (`PaymentBatches::settle`,
   `RecordManualTransaction`) locks all of them up front, in id order, before any client lock. `ApplyPayment` locks the
   client after the invoice, before its row is inserted, only when it will post credit (overpayment, a deposit paid in
   full, a closed or held invoice).
 - **Import:** run rows (claim), then the migration record, then the target row (client).
+- **Identity documents (KYC):** client, then its `kyc_documents` rows. `StoreDocument` (upload or replace),
+  `DecideDocument` (staff approve or decline) and the retention listener all lock the client first.
 - A new path that locks more than one table states its order in the action's docblock and is added to this list.
 
 ### 4. Test obligation
@@ -110,5 +112,6 @@ A PR that adds a multi-row lock path, or changes an order above, ships a two-pro
     - `CheckRun` writes the digest in a second save after the `ready` transition;
     - service and domain creation do not lock the client, so a service created at the same instant as an apply can
       miss the currency check. This is accepted for imports. Services and domains created by a checkout are covered
-      by `PlaceOrder`'s client lock (#218); the server account import (`ImportServerAccounts`) and a manual payment
-      without invoices (`RecordManualTransaction`) still read the client's currency without a lock.
+      by `PlaceOrder`'s client lock (#218). A manual payment without invoices (`RecordManualTransaction`) reads the
+      client's currency without a lock, but its credit is refused by `CreditLedgerService::post` when the currency
+      changed in between. The server account import (`ImportServerAccounts`) still reads it without a lock (#239).

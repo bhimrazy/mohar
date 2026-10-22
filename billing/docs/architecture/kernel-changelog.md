@@ -12,6 +12,13 @@ the same PR updates every in-repo implementer and gets the principal-architect g
   of every source that holds amounts for one client, in registration order. Unlike `clientsInUse()` it asks every
   source, so Core's client edit can name what blocks a currency change. `register()` and `clientsInUse()` are unchanged.
 
+### Client identity verification (#231)
+
+- New event `App\Events\Kyc\DocumentDecided(clientId, documentId)` (compatible addition): staff approved or
+  declined an identity document. Dispatched after commit by the Kyc module; details come from the `kyc_document`
+  merge-field resolver (outcome, type, reason, link; never the number or images). Notifications maps it to the
+  editable `kyc.document_decided` client email. With Notifications absent nothing listens.
+
 ### Billing go-live fixes (#229)
 
 - `App\Data\Billing\CallbackEvent::DISPUTE_INQUIRY` (new constant): a dispute the provider has not withdrawn funds
