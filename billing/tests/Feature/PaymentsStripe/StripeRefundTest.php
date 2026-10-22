@@ -8,6 +8,7 @@ use App\Modules\Billing\Enums\RefundMode;
 use App\Modules\Billing\Enums\TransactionStatus;
 use App\Modules\Billing\Enums\TransactionType;
 use App\Modules\Billing\Exceptions\BillingException;
+use App\Modules\Billing\Models\Gateway;
 use App\Modules\Billing\Models\GatewayLog;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
@@ -204,3 +205,31 @@ test('a refund that never left (no key, bad PaymentIntent) is a definite decline
         ->and(Transaction::query()->where('type', TransactionType::Refund)->sole()->status)->toBe(TransactionStatus::Failed);
     Http::assertNothingSent();
 });
+
+test('a Check replay that Stripe never processed (rejected key, no key, idempotency conflict) says nothing about the original and releases nothing', function (?int $code, bool $clearKey) {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push($code === 400 ? ['error' => ['type' => 'idempotency_error', 'message' => 'other parameters']] : stripeFixture('error_invalid_key'), $code ?? 200)]);
+    $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    if ($clearKey) {
+        $gateway = Gateway::query()->where('key', StripeDriver::KEY)->sole();
+        $gateway->update(['config' => [...$gateway->config, 'secret_key' => '']]);
+    }
+
+    expect(app(RefundTransaction::class)->check($pending)->status)->toBe(TransactionStatus::Pending)
+        ->and($payment->fresh()->refundable_remaining)->toBe(1_500);
+})->with([
+    '401' => [401, false],
+    '403' => [403, false],
+    'idempotency conflict (400)' => [400, false],
+    'key removed' => [null, true],
+]);
+
+test('a Check replay Stripe processed and refused (400, 402, 404) releases the amount', function (int $code) {
+    $payment = paidStripePayment();
+    Http::fake([STRIPE_API.'refunds' => Http::sequence()->pushFailedConnection('timed out')->push(['error' => ['type' => 'invalid_request_error', 'message' => 'refused']], $code)]);
+    $pending = app(RefundTransaction::class)->handle($payment, 1_000, RefundMode::Gateway);
+
+    expect(app(RefundTransaction::class)->check($pending)->status)->toBe(TransactionStatus::Failed)
+        ->and($payment->fresh()->refundable_remaining)->toBe(2_500);
+})->with([400, 402, 404]);

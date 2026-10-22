@@ -162,6 +162,20 @@ class Transaction extends Model
         return isset($this->raw[self::REFUND_STATE]['answer']) || $this->created_at === null || $this->created_at->lte(now()->subMinutes(self::REFUND_STALE_MINUTES));
     }
 
+    /** A refund a provider that can be asked keeps leaving unknown, after this long, may be settled by hand. */
+    public const REFUND_LOOKUP_STUCK_HOURS = 72;
+
+    /**
+     * A pending refund whose provider can be asked but whose last check answered "unknown", for three days: the way
+     * out for staff who verified it in the provider's dashboard.
+     */
+    public function stuckAtLookup(): bool
+    {
+        return $this->awaitsProviderConfirmation()
+            && ($this->raw[self::REFUND_STATE]['lookup']['answer'] ?? null) === 'error'
+            && $this->created_at !== null && $this->created_at->lte(now()->subHours(self::REFUND_LOOKUP_STUCK_HOURS));
+    }
+
     /**
      * Gateway refunds the provider has not confirmed (the "Refunds waiting for the provider" to-do and filter),
      * by default only those that have waited past the stale limit.

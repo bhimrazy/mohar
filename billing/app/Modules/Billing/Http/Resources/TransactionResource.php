@@ -41,6 +41,7 @@ class TransactionResource extends JsonResource
             // A gateway refund the provider never confirmed: staff check it or resolve it by hand (staff only).
             'awaiting_confirmation' => $this->when($staff, $this->awaitsProviderConfirmation()),
             'can_resolve' => $this->when($staff, $this->canBeResolved()),
+            'stuck_at_lookup' => $this->when($staff, $this->stuckAtLookup()),
             'description' => $this->description,
             'parent_transaction_id' => $this->parent_transaction_id,
             'invoice_id' => $this->invoice_id,

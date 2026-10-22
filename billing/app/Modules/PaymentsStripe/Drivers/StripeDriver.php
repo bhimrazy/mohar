@@ -303,6 +303,7 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
             'amount' => $amount,
             'payment_intent' => $request->providerTxnId,
             'error' => $response->successful() ? null : StripeClient::errorSummary($response),
+            'error_type' => $response->successful() || ! is_string($response->json('error.type')) ? null : $response->json('error.type'),
         ], fn (mixed $value): bool => $value !== null);
 
         // A server error, a rate limit, or "the first request with this key is still running" (409) says nothing
@@ -322,6 +323,29 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
     }
 
     /**
+     * What a repeated refund request may say about the original one. refund() answers DECLINED for anything refused
+     * or never sent, which is right when sending the first time but not here: a replay that Stripe never processed
+     * (a rolled or restricted key 401/403, a key we can't send, an idempotency conflict) says nothing about the
+     * original. Only these count as a definite "no": Stripe processed the request and refused it (400, 402 or 404
+     * with an error that is not an idempotency error), or it returned the refund as failed or cancelled (2xx).
+     * Everything else is unknown.
+     */
+    private function replayAnswer(ChargeResult $result): ChargeResult
+    {
+        if ($result->status !== ChargeResult::DECLINED) {
+            return $result;
+        }
+
+        $http = $result->raw['http_status'] ?? null;
+        $refused = in_array($http, [400, 402, 404], true) && ($result->raw['error_type'] ?? null) !== 'idempotency_error';
+        $failed = is_int($http) && $http >= 200 && $http < 300;
+
+        return $refused || $failed
+            ? $result
+            : new ChargeResult(ChargeResult::ERROR, $result->txnId, declineReason: $result->declineReason, raw: $result->raw);
+    }
+
+    /**
      * Ask Stripe about a refund we sent. Inside Stripe's 24-hour idempotency window the original request is repeated
      * with the same key (our refund row id): Stripe answers with the original result, or makes the refund once if it
      * never saw the request, so the answer is definite and maps as refund() maps it. After the window the key is
@@ -338,7 +362,7 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         $sentAt = $request->sentAt;
 
         if ($sentAt !== null && $sentAt->gt(now()->subHours(self::IDEMPOTENCY_WINDOW_HOURS - 1))) {
-            return $this->refund($gateway, $request);
+            return $this->replayAnswer($this->refund($gateway, $request));
         }
 
         try {

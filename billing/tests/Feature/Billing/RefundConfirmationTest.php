@@ -6,7 +6,6 @@ use App\Data\Billing\ChargeResult;
 use App\Data\Billing\GatewayConfig;
 use App\Data\Billing\RefundRequest;
 use App\Events\Billing\PaymentReversed;
-use App\Modules\Billing\Actions\RecordChargeback;
 use App\Modules\Billing\Actions\RefundTransaction;
 use App\Modules\Billing\Drivers\Gateways\GatewayManager;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
@@ -412,16 +411,56 @@ test('the callback and Check refund cannot book one provider refund twice', func
         ->and($payment->fresh()->refundable_remaining)->toBe(6_000);
 });
 
-test('releasing a refund never restores more than the payment can still give back after a chargeback', function () {
-    [$payment, $pending] = pendingRefund();
-    $chargeback = app(RecordChargeback::class)->handle($payment->fresh(), 10_000, 'dp_1');
-    // The dispute covered the whole 100.00, but only 60.00 was refundable: 40.00 is the unabsorbed part.
-    $chargeback->update(['review_amount' => 4_000]);
+test('releasing after a dispute larger than what was left gives back only what the payment can still return', function () {
+    $payment = refundablePayment();
+    ScriptedRefundDriver::$answer = ChargeResult::ERROR;
+    $pending = app(RefundTransaction::class)->handle($payment, 4_000, RefundMode::Gateway);
+
+    // An 80.00 dispute arrives while the refund waits: 60.00 is left on the payment, 20.00 is not absorbed.
+    sandboxWebhook(['type' => 'charge.dispute', 'txn_id' => 'dp_rr5', 'parent_txn_id' => $payment->gateway_txn_id, 'amount' => 8_000, 'currency' => 'USD'])->assertOk();
+    expect(Transaction::query()->where('type', TransactionType::Chargeback)->sole())->amount_out->toBe(8_000);
 
     app(RefundTransaction::class)->release($pending);
 
-    expect($payment->fresh()->refundable_remaining)->toBe(0);
+    // 100.00 paid - 80.00 charged back = 20.00 can still be given back.
+    expect($payment->fresh()->refundable_remaining)->toBe(2_000);
 });
+
+test('a refund the provider can be asked about but keeps answering "unknown" can be settled by hand after three days', function () {
+    useLookupDriver();
+    [$payment, $pending] = pendingRefund();
+    ScriptedLookupDriver::$lookup = new ChargeResult(ChargeResult::ERROR, declineReason: 'unreachable');
+    app(RefundTransaction::class)->check($pending);
+
+    // Not yet: Check refund is the way.
+    expect(fn () => app(RefundTransaction::class)->resolve($pending->fresh(), false))->toThrow(BillingException::class, 'Use Check refund');
+
+    $pending->forceFill(['created_at' => now()->subHours(73)])->save();
+    expect($pending->fresh()->stuckAtLookup())->toBeTrue();
+
+    // A reference is still required to confirm, and a reference booked elsewhere is refused.
+    expect(fn () => app(RefundTransaction::class)->resolve($pending->fresh(), true))->toThrow(BillingException::class, 'reference');
+
+    $staff = billingStaff();
+    confirmPassword();
+    $this->post(route('admin.billing.transactions.refund.resolve', $pending), ['outcome' => 'confirmed', 'provider_reference' => 're_seen_in_dashboard'])->assertSessionHasNoErrors();
+
+    expect($pending->fresh())->status->toBe(TransactionStatus::Succeeded)->gateway_txn_id->toBe('re_seen_in_dashboard')
+        ->and(ActivityLog::query()->where('description', 'Refund confirmed at the provider by staff')->where('user_id', $staff->id)->exists())->toBeTrue();
+});
+
+test('the hand settlement of a provider that can be asked needs three days and a last check that answered unknown', function (string $lastCheck, int $hours) {
+    useLookupDriver();
+    [, $pending] = pendingRefund();
+    ScriptedLookupDriver::$lookup = new ChargeResult($lastCheck, declineReason: 'x');
+    app(RefundTransaction::class)->check($pending);
+    $pending->forceFill(['created_at' => now()->subHours($hours)])->save();
+
+    expect(fn () => app(RefundTransaction::class)->resolve($pending->fresh(), false))->toThrow(BillingException::class);
+})->with([
+    'pending answer, old' => [ChargeResult::PENDING, 100],
+    'unknown answer, young' => [ChargeResult::ERROR, 48],
+]);
 
 test('staff without the refund permission can neither check nor resolve a pending refund', function () {
     [, $pending] = pendingRefund();

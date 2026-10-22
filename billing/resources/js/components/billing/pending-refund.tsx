@@ -85,6 +85,81 @@ function CheckRefundButton({ refund }: { refund: Transaction }) {
     );
 }
 
+function HandSettlement({
+    refund,
+    name,
+    amount,
+    canAsk,
+}: {
+    refund: Transaction;
+    name: string;
+    amount: string;
+    canAsk: boolean;
+}) {
+    return (
+        <>
+            <div className="flex flex-wrap gap-2">
+                <FormDialog
+                    trigger={
+                        <Button variant="outline" size="sm">
+                            Confirmed at the provider
+                        </Button>
+                    }
+                    title={`Record the ${amount} refund as made?`}
+                    description={`Only after you saw this refund in the ${name} portal. It is booked as money out, and can't be undone.`}
+                    submitLabel="Record refund"
+                    action={resolveRefund(refund.id)}
+                    initial={{
+                        outcome: 'confirmed',
+                        provider_reference: '',
+                    }}
+                >
+                    {(form) => (
+                        <Field
+                            htmlFor={`refund-ref-${refund.id}`}
+                            label={`${name} refund reference`}
+                            hint="The reference or transaction ID the portal shows for this refund."
+                            error={form.errors.provider_reference}
+                        >
+                            <Input
+                                id={`refund-ref-${refund.id}`}
+                                value={form.data.provider_reference}
+                                onChange={(event) =>
+                                    form.setData(
+                                        'provider_reference',
+                                        event.target.value,
+                                    )
+                                }
+                                required
+                            />
+                        </Field>
+                    )}
+                </FormDialog>
+                <ConfirmDialog
+                    trigger={
+                        <Button variant="outline" size="sm">
+                            Not refunded
+                        </Button>
+                    }
+                    title={`Release this ${amount} refund?`}
+                    description={`Use only after you checked the ${name} portal and found no refund of ${amount}. The amount becomes refundable again, so it can be refunded a second time. ${name} won't tell us if it refunds it later, so a wrong release can mean paying the client twice.`}
+                    confirmLabel="Release refund"
+                    method="post"
+                    action={resolveRefund(refund.id)}
+                    data={{ outcome: 'not_refunded' }}
+                />
+            </div>
+            <p className="text-sm">
+                {canAsk
+                    ? `${name} can be asked, but has not answered.`
+                    : `${name} can't be asked.`}{' '}
+                Look for the refund in its portal: <strong>Confirmed</strong> if
+                it is there, <strong>Not refunded</strong> if it is not.
+            </p>
+        </>
+    );
+}
+
 /**
  * What staff can do with a gateway refund the provider has not confirmed. A provider that can be asked gets "Check
  * refund"; one that can't gets the two hand-settling choices, each with when to use it.
@@ -114,74 +189,36 @@ function PendingRefundRow({
                         ? `The request to ${name} is still running. Actions appear here if it doesn't answer.`
                         : `Staff with refund access can settle it.`}
                 </p>
-            ) : canAsk ? (
-                <>
-                    <div className="flex flex-wrap gap-2">
-                        <CheckRefundButton refund={refund} />
-                    </div>
-                    <p className="text-sm">
-                        Check refund asks {name} now whether it made this
-                        refund.
-                    </p>
-                </>
             ) : (
                 <>
-                    <div className="flex flex-wrap gap-2">
-                        <FormDialog
-                            trigger={
-                                <Button variant="outline" size="sm">
-                                    Confirmed at the provider
-                                </Button>
-                            }
-                            title={`Record the ${amount} refund as made?`}
-                            description={`Only after you saw this refund in the ${name} portal. It is booked as money out, and can't be undone.`}
-                            submitLabel="Record refund"
-                            action={resolveRefund(refund.id)}
-                            initial={{
-                                outcome: 'confirmed',
-                                provider_reference: '',
-                            }}
-                        >
-                            {(form) => (
-                                <Field
-                                    htmlFor={`refund-ref-${refund.id}`}
-                                    label={`${name} refund reference`}
-                                    hint="The reference or transaction ID the portal shows for this refund."
-                                    error={form.errors.provider_reference}
-                                >
-                                    <Input
-                                        id={`refund-ref-${refund.id}`}
-                                        value={form.data.provider_reference}
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'provider_reference',
-                                                event.target.value,
-                                            )
-                                        }
-                                        required
-                                    />
-                                </Field>
+                    {canAsk && (
+                        <>
+                            <div className="flex flex-wrap gap-2">
+                                <CheckRefundButton refund={refund} />
+                            </div>
+                            <p className="text-sm">
+                                Check refund asks {name} now whether it made
+                                this refund.
+                            </p>
+                        </>
+                    )}
+                    {canAsk && !refund.stuck_at_lookup ? null : (
+                        <>
+                            {canAsk && (
+                                <p className="text-sm font-medium">
+                                    {name} hasn't given a definite answer in 3
+                                    days. Check the {name} Dashboard, then
+                                    settle it here.
+                                </p>
                             )}
-                        </FormDialog>
-                        <ConfirmDialog
-                            trigger={
-                                <Button variant="outline" size="sm">
-                                    Not refunded
-                                </Button>
-                            }
-                            title={`Release this ${amount} refund?`}
-                            description={`Use only after you checked the ${name} portal and found no refund of ${amount}. The amount becomes refundable again, so it can be refunded a second time. ${name} won't tell us if it refunds it later, so a wrong release can mean paying the client twice.`}
-                            confirmLabel="Release refund"
-                            method="post"
-                            action={resolveRefund(refund.id)}
-                            data={{ outcome: 'not_refunded' }}
-                        />
-                    </div>
-                    <p className="text-sm">
-                        {name} can't be asked. Look for the refund in its
-                        portal: <strong>Confirmed</strong> if it is there,{' '}
-                        <strong>Not refunded</strong> if it is not.
-                    </p>
+                            <HandSettlement
+                                refund={refund}
+                                name={name}
+                                amount={amount}
+                                canAsk={canAsk}
+                            />
+                        </>
+                    )}
                 </>
             )}
         </div>

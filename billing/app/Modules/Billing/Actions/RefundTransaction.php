@@ -159,9 +159,25 @@ class RefundTransaction
 
         if ($result->status === ChargeResult::DECLINED) {
             $this->release($refund);
+        } else {
+            $this->recordLookup($refund, $result->status);
         }
 
         return $refund->fresh() ?? $refund;
+    }
+
+    /** What the last check answered, so a refund that stays unknown can be settled by hand after three days. */
+    private function recordLookup(Transaction $refund, string $answer): void
+    {
+        DB::transaction(function () use ($refund, $answer): void {
+            $locked = Transaction::query()->lockForUpdate()->find($refund->id);
+
+            if ($locked !== null && $locked->status === TransactionStatus::Pending) {
+                $raw = $locked->raw ?? [];
+                $raw[Transaction::REFUND_STATE]['lookup'] = ['answer' => $answer, 'at' => now()->toIso8601String()];
+                $locked->forceFill(['raw' => $raw])->save();
+            }
+        });
     }
 
     /**
@@ -173,7 +189,8 @@ class RefundTransaction
     {
         $driver = $this->gateways->driver($refund->gateway);
 
-        if ($driver instanceof LooksUpRefunds) {
+        // A provider that can be asked is asked; staff settle by hand only after three days of "unknown".
+        if ($driver instanceof LooksUpRefunds && ! $refund->fresh()?->stuckAtLookup()) {
             throw new BillingException(__(':gateway can be asked about this refund. Use Check refund.', ['gateway' => $driver->name()]));
         }
 
@@ -186,6 +203,10 @@ class RefundTransaction
         return DB::transaction(function () use ($refund, $confirmed, $providerReference): Transaction {
             $locked = Transaction::query()->lockForUpdate()->findOrFail($refund->id);
             $this->resolvable($locked);
+
+            if ($this->gateways->driver($locked->gateway) instanceof LooksUpRefunds && ! $locked->stuckAtLookup()) {
+                throw new BillingException(__('This refund can be asked about at the provider. Use Check refund.'));
+            }
 
             if (! $confirmed) {
                 $this->release($locked);
@@ -239,11 +260,10 @@ class RefundTransaction
         $refund->update(['status' => TransactionStatus::Failed, 'refundable_remaining' => 0]);
 
         if ($payment !== null) {
+            // A chargeback row's amount_out is the whole dispute (what the payment gave, the credit taken back and the
+            // unabsorbed part), so it is the part of the charge the provider no longer holds for us.
             $others = (int) Transaction::query()->where('parent_transaction_id', $payment->id)->whereKeyNot($refund->id)
                 ->whereIn('type', [TransactionType::Refund, TransactionType::Chargeback])->whereIn('status', [TransactionStatus::Succeeded, TransactionStatus::Pending])->sum('amount_out');
-            // A chargeback's unabsorbed part (review_amount) was taken from this payment too, though its row is capped.
-            $others += (int) Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::Chargeback)
-                ->where('status', TransactionStatus::Succeeded)->sum('review_amount');
             $won = (int) Transaction::query()->where('parent_transaction_id', $payment->id)->where('type', TransactionType::ChargebackReversal)
                 ->where('status', TransactionStatus::Succeeded)->sum('amount_in');
             $payment->update(['refundable_remaining' => min($payment->refundable_remaining + $refund->amount_out, max(0, $payment->amount_in - $others + $won))]);
