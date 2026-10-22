@@ -125,6 +125,9 @@ final class Redactor
     /** ...or at one of these when it is followed by a space, a quote, another end character or the end of the text. */
     private const VALUE_SOFT_END = ',;)]}\'';
 
+    /** Names remembered by isSensitiveKey() before the cache starts over. */
+    private const KEY_CACHE_SIZE = 2048;
+
     /** @var array<string, bool> */
     private array $keyCache = [];
 
@@ -206,7 +209,16 @@ final class Redactor
             return true;
         }
 
-        return $this->keyCache[$key] ??= $this->matchesSecretName($key, $lower);
+        if (isset($this->keyCache[$key])) {
+            return $this->keyCache[$key];
+        }
+
+        // Text supplies the names, so a hostile answer full of distinct names must not grow the cache without bound.
+        if (count($this->keyCache) >= self::KEY_CACHE_SIZE) {
+            $this->keyCache = [];
+        }
+
+        return $this->keyCache[$key] = $this->matchesSecretName($key, $lower);
     }
 
     /**

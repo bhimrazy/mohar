@@ -126,36 +126,27 @@ function adversarialInput(int $bytes, Closure $unit): string
     return $text;
 }
 
-test('a 1 MB adversarial input is masked in linear time and bounded memory', function (Closure $unit) {
-    $small = adversarialInput(256 * 1024, $unit);
+/** Best of $runs timings of masking $text, each on a fresh instance so one run's key cache does not flatter the next. */
+function maskSeconds(string $text, int $runs = 3): float
+{
+    $best = INF;
+
+    for ($run = 0; $run < $runs; $run++) {
+        $started = hrtime(true);
+        (new Redactor)->maskValues($text, ['hunter22']);
+        $best = min($best, (hrtime(true) - $started) / 1e9);
+    }
+
+    return $best;
+}
+
+test('a 1 MB adversarial input is masked in under 2 s with bounded memory', function (Closure $unit) {
     $large = adversarialInput(1024 * 1024, $unit);
-    (new Redactor)->maskValues(substr($small, 0, 4096), ['hunter22']);
-
-    // Best of three runs, each on a fresh instance so the key cache one run fills does not flatter the next; the best
-    // run is the one least disturbed by other work on a shared machine.
-    $seconds = function (string $text): float {
-        $best = INF;
-
-        for ($run = 0; $run < 3; $run++) {
-            $started = hrtime(true);
-            (new Redactor)->maskValues($text, ['hunter22']);
-            $best = min($best, (hrtime(true) - $started) / 1e9);
-        }
-
-        return $best;
-    };
-    $smallSeconds = $seconds($small);
 
     memory_reset_peak_usage();
     $before = memory_get_usage();
-    $largeSeconds = $seconds($large);
 
-    // Four times the input: a linear scan costs about 4x, a quadratic one 16x. The bound is 6x because 256 KB fits a
-    // core's L2 cache and 1 MB does not: linear code measured 4.5-5.2x here and 2.9-3.5x from 1 MB to 4 MB (EPYC 7763,
-    // 512 KB L2 per core). Below 0.25 s at 1 MB the ratio is noise on a shared machine (the quadratic shapes this guards
-    // against took 10-48 s); 2 s absorbs a loaded CI runner.
-    expect($largeSeconds)->toBeLessThan(2.0)
-        ->and($largeSeconds)->toBeLessThan(max(0.25, $smallSeconds * 6))
+    expect(maskSeconds($large))->toBeLessThan(2.0)
         ->and(memory_get_peak_usage() - $before)->toBeLessThan(24 * 1024 * 1024);
 })->with([
     'colon-joined labels' => [fn (): string => 'a:'],
@@ -176,4 +167,22 @@ test('a 1 MB adversarial input is masked in linear time and bounded memory', fun
     'encoded pairs' => [fn (): string => '%3Fa%3D'],
     'cli flags' => [fn (): string => ' -u a:b'],
     'long names' => [fn (): string => str_repeat('n', 300).'='],
+]);
+
+/*
+ * Four times the input costs about four times the time when the scan is linear and 16x when it is quadratic (#252 B1).
+ * Measured from 1 MB to 4 MB: 256 KB fits a core's L2 cache and 1 MB does not, so linear code measured up to 7.4x
+ * from 256 KB to 1 MB on this machine (EPYC 7763, 512 KB L2 per core) and 2.9-4.0x from 1 MB to 4 MB.
+ */
+test('the shapes that once ran quadratic scale linearly from 1 MB to 4 MB', function (Closure $unit) {
+    $small = adversarialInput(1024 * 1024, $unit);
+    $large = adversarialInput(4 * 1024 * 1024, $unit);
+
+    expect(maskSeconds($large, 2))->toBeLessThan(max(0.25, maskSeconds($small, 2) * 4.5));
+})->with([
+    'distinct unclosed secret elements' => [fn (int $i): string => '<password'.base_convert((string) $i, 10, 36).'>x'],
+    'distinct namespaced EPP pw' => [fn (int $i): string => '<a'.base_convert((string) $i, 10, 36).':pw>x'],
+    'distinct labelled items' => [fn (int $i): string => '<i'.base_convert((string) $i, 10, 36).' key="password">'],
+    'unclosed secret elements' => [fn (): string => '<password>'],
+    'secret pairs' => [fn (): string => 'token=a&'],
 ]);
