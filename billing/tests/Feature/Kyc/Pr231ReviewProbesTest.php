@@ -21,9 +21,9 @@ use Inertia\Testing\AssertableInertia;
  * @param  array<string, list<string>>  $workers
  * @return array<string, array<string, mixed>>
  */
-function kycRaceWorkers(array $workers, float $timeoutSeconds = 30.0): array
+function kycRaceWorkers(array $workers, float $timeoutSeconds = 30.0, string $file = 'kyc-race-worker.php'): array
 {
-    $script = __DIR__.'/Support/kyc-race-worker.php';
+    $script = __DIR__.'/Support/'.$file;
     $running = [];
 
     try {
