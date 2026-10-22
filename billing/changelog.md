@@ -320,11 +320,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
 
-### Fixed
-
-- The end-to-end hosting scenario (`php artisan simulate:e2e`) now runs in NPR, the install default: the product, invoices and
-  Stripe payments are in NPR instead of forcing USD at install. Test-only; no behaviour change.
-
 ### Identity verification (KYC)
 
 - Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
@@ -490,6 +485,8 @@ a time: medians of three runs before and three after, on the same database, on a
   simulators on a throwaway database. It covers install, a trusted cPanel server, an order paid on Stripe Checkout,
   provisioning, overdue suspension and unsuspension, cancellation, a refund, a dispute, forged and duplicate webhooks,
   and a create that times out and is adopted. CI runs it in its own job, `E2E simulators`.
+- `simulate:e2e` runs in NPR, the install default: the product, invoices and Stripe payments are in NPR instead of
+  forcing USD at install.
 - A refund or dispute webhook that arrives before its payment is booked (Stripe can send a dispute first) is answered
   409 and logged in the gateway log as "payment not booked yet; retry expected"; Stripe's retry books it.
 - The Stripe gateway reaches its API and checks its checkout host through the integration endpoints
