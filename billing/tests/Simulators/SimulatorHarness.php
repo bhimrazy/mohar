@@ -2,6 +2,10 @@
 
 namespace Tests\Simulators;
 
+use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
+use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
+use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Modules\PaymentsStripe\Drivers\StripeDriver;
 use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\PendingRequest;
@@ -10,13 +14,15 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 use Mohar\Simulators\Kernel\Processes;
 use Mohar\Simulators\Kernel\Scenario;
+use Mohar\Simulators\Providers\Esewa\EsewaSimulator;
+use Mohar\Simulators\Providers\Khalti\KhaltiSimulator;
 use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
 use RuntimeException;
 
 /**
- * The end-to-end harness (ADR 0016 §4): the app runs in process, the `whm` and `stripe` simulators run as real TLS
- * processes, callbacks are pulled from the outbox and posted to the app with their exact bytes and headers, and the
+ * The end-to-end harness (ADR 0016 §4): the app runs in process, the `whm`, `stripe`, `khalti` and `esewa` simulators
+ * run as real TLS processes, callbacks are pulled from the outbox and posted to the app with their exact bytes and headers, and the
  * customer's browser is an HTTP client that trusts the scenario CA and shows each redirect.
  *
  * It refuses to run against anything but a throwaway database (`billing_e2e_*` from `simulate:e2e`, or SQLite in
@@ -28,6 +34,10 @@ trait SimulatorHarness
 
     public Scenario $stripe;
 
+    public Scenario $khalti;
+
+    public Scenario $esewa;
+
     /** @var list<array{id: int, url: string, body: string, headers: array<string, string>}> */
     public array $lastDeliveries = [];
 
@@ -37,10 +47,17 @@ trait SimulatorHarness
 
         $this->whm = Processes::start(WhmSimulator::class);
         $this->stripe = Processes::start(StripeSimulator::class);
+        $this->khalti = Processes::start(KhaltiSimulator::class);
+        $this->esewa = Processes::start(EsewaSimulator::class);
+        $payments = [$this->stripe, $this->khalti, $this->esewa];
+        // One CA bundle that trusts each payment scenario's CA (WHM is trusted through its pin instead).
+        $bundle = $this->stripe->directory.'/payments-ca.pem';
+        file_put_contents($bundle, implode('', array_map(fn (Scenario $scenario): string => (string) file_get_contents($scenario->ca()->bundlePath()), $payments)));
+        $endpoints = array_merge(...array_map(fn (Scenario $scenario): array => json_decode($scenario->simulator()->appConfiguration($scenario)['env']['INTEGRATION_ENDPOINTS'], true), $payments));
         config([
             'integrations.outbound.allow_loopback' => true,
-            'integrations.endpoints.overrides' => $this->stripe->simulator()->appConfiguration($this->stripe)['env']['INTEGRATION_ENDPOINTS'],
-            'integrations.endpoints.ca_bundle' => $this->stripe->ca()->bundlePath(),
+            'integrations.endpoints.overrides' => json_encode($endpoints, JSON_UNESCAPED_SLASHES),
+            'integrations.endpoints.ca_bundle' => $bundle,
         ]);
         app()->forgetInstance(Endpoints::class);
         $this->stripe->simulator()->actions()['webhook_url'](['url' => route('billing.webhooks', StripeDriver::KEY)], $this->stripe);
@@ -72,11 +89,39 @@ trait SimulatorHarness
 
     public function stopSimulators(): void
     {
-        foreach (['whm', 'stripe'] as $name) {
+        foreach (['whm', 'stripe', 'khalti', 'esewa'] as $name) {
             if (isset($this->{$name})) {
                 Processes::stop($this->{$name});
             }
         }
+    }
+
+    /**
+     * The customer pays the invoice with Khalti or eSewa on the simulator's page, and the browser follows the return into
+     * the app. Returns that return URL, so a test can follow it again.
+     */
+    public function payWithWallet(Invoice $invoice, string $gateway): string
+    {
+        $scenario = $gateway === KhaltiDriver::KEY ? $this->khalti : $this->esewa;
+        $redirect = (string) $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => $gateway])->headers->get('Location');
+
+        if ($gateway === EsewaDriver::KEY) {
+            // The app's checkout page auto-posts the signed form to eSewa, which books the session and opens its page.
+            $form = $this->get($redirect)->inertiaProps('form');
+            $redirect = (string) $this->browser($scenario)->asForm()->post($form['action'], (array) $form['fields'])->header('Location');
+        }
+
+        if (! str_starts_with($redirect, $scenario->apiUrl().'/')) {
+            $why = json_encode([app('session.store')->get('errors'), app('session.store')->get('inertia.flash_data.toast')]);
+
+            throw new RuntimeException("The app did not send the customer to the {$gateway} simulator: {$redirect} {$why}");
+        }
+
+        $choice = $gateway === KhaltiDriver::KEY ? $scenario->apiUrl().'/pay/'.PaymentAttempt::query()->where('invoice_id', $invoice->id)->latest('id')->firstOrFail()->provider_ref.'/pay' : $redirect.'/pay';
+        $return = (string) $this->browser($scenario)->post($choice)->header('Location');
+        $this->get($return)->assertRedirect();
+
+        return $return;
     }
 
     /** The customer's browser on a simulator: trusts its CA and shows us each redirect instead of following it. */
