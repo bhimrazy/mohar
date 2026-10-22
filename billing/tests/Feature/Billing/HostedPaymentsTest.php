@@ -299,8 +299,8 @@ test('the sandbox hosted page can be continued or closed from the invoice', func
     $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => 'sandbox_card'])->assertRedirect();
     $attempt = PaymentAttempt::query()->sole();
 
-    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]), ['X-Inertia' => 'true'])
-        ->assertStatus(409)->assertHeader('X-Inertia-Location', route('billing.sandbox.checkout', $attempt->reference));
+    $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))
+        ->assertRedirect(route('billing.sandbox.checkout', $attempt->reference));
 
     $this->post(route('client.invoices.attempts.close', [$invoice->id, $attempt->reference]))->assertSessionHasNoErrors();
 

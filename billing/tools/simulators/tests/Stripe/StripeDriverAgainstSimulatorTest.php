@@ -245,8 +245,8 @@ test('after a declined card the client continues the open session, then uses ano
     $attempt = PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole();
 
     // Continue payment: back to the same open session, with Stripe's own URL read from the session now.
-    $resume = $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]), ['X-Inertia' => 'true'])->assertStatus(409);
-    expect(strstr((string) $resume->headers->get('X-Inertia-Location'), '#', true))->toBe($checkout)
+    $resume = $this->get(route('client.invoices.attempts.resume', [$invoice->id, $attempt->reference]))->assertRedirect();
+    expect(strstr((string) $resume->headers->get('Location'), '#', true))->toBe($checkout)
         ->and(browser()->get($checkout)->status())->toBe(200);
 
     // Use another method: the session is expired at Stripe, then the lookup frees the invoice.

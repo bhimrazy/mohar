@@ -70,7 +70,7 @@ test('after a declined card the invoice offers to continue the open session or u
     // The session URL is fetched from Stripe on click, never sent as a prop.
     expect(json_encode($this->get(route('client.invoices.show', $invoice->id))->viewData('page')))->not->toContain('checkout.stripe.com');
 
-    $this->get(resumeUrl($attempt), ['X-Inertia' => 'true'])->assertStatus(409)->assertHeader('X-Inertia-Location', $open['url']);
+    $this->get(resumeUrl($attempt))->assertRedirect($open['url']);
     expect($attempt->fresh()->status)->toBe(AttemptStatus::Pending);
 });
 
