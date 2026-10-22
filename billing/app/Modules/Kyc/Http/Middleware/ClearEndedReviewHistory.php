@@ -5,6 +5,7 @@ namespace App\Modules\Kyc\Http\Middleware;
 use App\Modules\Kyc\Services\ReviewUnlocks;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,9 +23,10 @@ class ClearEndedReviewHistory
      */
     public function handle(Request $request, Closure $next): Response
     {
-        $holder = $request->hasSession() ? $request->user()?->getAuthIdentifier() : null;
+        $holder = $request->hasSession() ? Auth::id() : null;
 
-        if ($holder === null) {
+        // A hover prefetch would take the one-time flag into a response the browser may never use; wait for a visit.
+        if ($holder === null || $request->header('Purpose') === 'prefetch') {
             return $next($request);
         }
 
@@ -36,7 +38,7 @@ class ClearEndedReviewHistory
         $response = $next($request);
 
         // Logout flushes the session, so the flag goes into the new one and reaches the next page.
-        if ($held && $request->user()?->getAuthIdentifier() !== $holder) {
+        if ($held && Auth::id() !== $holder) {
             Inertia::clearHistory();
         }
 

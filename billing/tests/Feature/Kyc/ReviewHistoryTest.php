@@ -5,6 +5,7 @@ use App\Modules\Core\Models\Client;
 use App\Modules\Kyc\Models\KycDocument;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Storage;
+use Inertia\Inertia;
 
 /*
  * Issue #240: the review page's history is encrypted, and cleared (Inertia clearHistory) once the document unlock
@@ -57,6 +58,16 @@ test('an unlock that ended while the staff member was on another page clears the
 
     expect(($this->page)(route('admin.kyc.index')))->toHaveKey('clearHistory', true)
         ->and(($this->page)())->not->toHaveKey('clearHistory');
+});
+
+test('a hover prefetch does not use up the history clearing; the next visit gets it', function () {
+    ($this->unlock)();
+    $this->travel(16)->minutes();
+
+    $prefetch = $this->get(route('admin.kyc.index'), ['X-Inertia' => 'true', 'X-Inertia-Version' => Inertia::getVersion(), 'Purpose' => 'prefetch'])->assertOk()->json();
+
+    expect($prefetch)->not->toHaveKey('clearHistory')
+        ->and(($this->page)(route('admin.kyc.index')))->toHaveKey('clearHistory', true);
 });
 
 test('an unlock cut short by the end of the password step-up clears the history when it ends', function () {
