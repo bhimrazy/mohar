@@ -99,6 +99,22 @@ function redactorParityVariants(): array
         }
     }
 
+    foreach (['license', 'auth'] as $tag) {
+        foreach (['"', "'"] as $q) {
+            $variants[] = "<{$tag} key={$q}PARKEYATTR1{$q}/>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR2{$q} />";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR3{$q}></{$tag}>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR4{$q}>\n  </{$tag}>";
+            $variants[] = "<{$tag} type={$q}trial{$q} key={$q}PARKEYATTR5{$q} expires={$q}2027-01-01{$q}/>";
+            $variants[] = "<{$tag} user={$q}u{$q} key={$q}PARKEYATTR6{$q}/>";
+            $variants[] = "<{$tag} key={$q}PARKEYATTR7{$q} name={$q}main{$q}/>";
+            $variants[] = "<response>\n<{$tag} id={$q}7{$q} key={$q}PARKEYATTR8{$q}/>\n</response>";
+        }
+
+        $variants[] = "<{$tag} key=PARKEYATTR9/>";
+        $variants[] = "<{$tag} key=PARKEYATTR10 />";
+    }
+
     foreach (['key=PARKEY1', 'api-key=PARKEY2', 'x&key=PARKEY3&y=1', "password:\nhunter2:", "password:\nHunter2:", "secret:\nPARCOLON1:\r\nHost: a.test"] as $literal) {
         $variants[] = $literal;
     }
@@ -114,8 +130,8 @@ function redactorParityCorpus(): array
 
 /**
  * Whether develop masked $token by over-redaction this PR undoes on purpose (changelog, RedactorShapesTest), so it is
- * not a secret: every occurrence is a name (an element name, the quoted value of a `key`/`name` attribute inside a
- * tag, or a capitalised header label at a line start with a value after `: `), or it is a documented reference value
+ * not a secret: every occurrence is a name (an element name, the quoted value of a `key`/`name` attribute on an
+ * element that carries its value elsewhere, or a capitalised header label at a line start with a value after `: `), or it is a documented reference value
  * (ResellerClub `auth-userid=…`, a Stripe-style id after a `Session:` or `hash:` label).
  */
 function redactorParityReadableOnPurpose(string $input, string $token): bool
@@ -123,7 +139,7 @@ function redactorParityReadableOnPurpose(string $input, string $token): bool
     $quoted = preg_quote($token, '/');
     $occurrences = preg_match_all('/(?<![A-Za-z0-9_])'.$quoted.'(?![A-Za-z0-9_])/', $input);
     $names = preg_match_all('/<\/?(?:[\w.-]+:)?\K'.$quoted.'(?![\w.:-])/', $input)
-        + preg_match_all('/<[\w.:-]+(?:[ \t\r\n]+[\w.:-]+[ \t]*=[ \t]*(?:"[^"<>]*"|\'[^\'<>]*\'))*?[ \t\r\n]+(?:key|name)[ \t]*=[ \t]*(["\'])\K'.$quoted.'(?=\1)/i', $input)
+        + redactorParityLabelCount($input, $quoted)
         + preg_match_all('/(?:^|[\r\n])(?=[A-Z])[\w-]*?(?<![A-Za-z0-9_])\K'.$quoted.'(?=[\w-]*[ \t]*:[ \t]+[^ \t\r\n])(?![A-Za-z0-9_])/', $input);
 
     if ($names >= $occurrences) {
@@ -133,6 +149,27 @@ function redactorParityReadableOnPurpose(string $input, string $token): bool
     return preg_match('/\bauth-userid[ \t]*=[ \t]*'.$quoted.'(?![A-Za-z0-9_])/i', $input) === 1
         || (preg_match('/^(?:cs|pi|ch|evt|cus|in|sub|re|py|seti)_(?:live_|test_)?[A-Za-z0-9]{4,}$/', $token) === 1
             && preg_match('/\b(?:session|hash)[ \t]*:\s*'.$quoted.'(?![A-Za-z0-9_])/i', $input) === 1);
+}
+
+/**
+ * Quoted `key`/`name` attribute values equal to the token that label the element: the element carries its value
+ * elsewhere, in a `value` attribute or in content (not self-closing, and the next non-blank text is not an end tag).
+ * A label that is the element's only value (`<license key="…"/>`) is not counted, so parity checks it.
+ */
+function redactorParityLabelCount(string $input, string $quoted): int
+{
+    preg_match_all('/<[\w.:-]+((?:[ \t\r\n]+[\w.:-]+[ \t]*=[ \t]*(?:"[^"<>]*"|\'[^\'<>]*\'))*?)[ \t\r\n]+(?:key|name)[ \t]*=[ \t]*(["\'])'.$quoted.'\2([^<>]*)>/i', $input, $tags, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+    $count = 0;
+
+    foreach ($tags as $tag) {
+        $end = $tag[0][1] + strlen($tag[0][0]);
+        $after = substr($input, $end + strspn($input, " \t\r\n", $end));
+        $hasValue = preg_match('/(?<![\w.:-])value[ \t]*=/i', $tag[1][0].' '.$tag[3][0]) === 1;
+        $hasContent = ! str_ends_with(rtrim($tag[3][0]), '/') && $after !== '' && ! str_starts_with($after, '</');
+        $count += (int) ($hasValue || $hasContent);
+    }
+
+    return $count;
 }
 
 /** Secret tokens in $input that $output no longer contains. */
