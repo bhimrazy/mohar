@@ -210,18 +210,79 @@ test('decoding waits for the decode lock; while another upload holds it the uplo
     expect(Cache::lock(ImageSanitiser::LOCK, 1)->get())->toBeTrue();
 });
 
-test('a re-encoded image larger than the upload limit is refused', function () {
-    // Noise saved at JPEG quality 10 is small; encoded again at quality 90 it is several times larger.
-    $noise = imagecreatetruecolor(800, 800);
-    for ($i = 0; $i < 800 * 800; $i++) {
-        imagesetpixel($noise, $i % 800, intdiv($i, 800), mt_rand(0, 0xFFFFFF));
+/**
+ * $width × $height of colour noise, detail JPEG cannot compress away. Images wider than 800 pixels repeat a 256-pixel
+ * tile so they build in well under a second (JPEG does not gain from the repetition; PNG does).
+ */
+function reencodeNoise(int $width, int $height, bool $alpha = false): GdImage
+{
+    mt_srand(286);
+    $side = $width > 800 ? 256 : max($width, $height);
+    $tile = imagecreatetruecolor($side, $side);
+    imagealphablending($tile, false);
+    for ($i = 0; $i < $side * $side; $i++) {
+        imagesetpixel($tile, $i % $side, intdiv($i, $side), $alpha ? mt_rand(0, 0x7FFFFFFF) : mt_rand(0, 0xFFFFFF));
     }
-    ob_start();
-    imagejpeg($noise, null, 10);
-    $small = (string) ob_get_clean();
-    config(['kyc.max_upload_kb' => 120]);
-    expect(strlen($small))->toBeLessThan(120 * 1024);
+    $image = imagecreatetruecolor($width, $height);
+    imagealphablending($image, false);
+    // Without it imagepng writes an RGB PNG (colour type 2), with it an RGBA one (6).
+    imagesavealpha($image, $alpha);
+    for ($x = 0; $x < $width; $x += $side) {
+        for ($y = 0; $y < $height; $y += $side) {
+            imagecopy($image, $tile, $x, $y, 0, 0, $side, $side);
+        }
+    }
 
-    reencodeSubmit($small)->assertSessionHasErrors(['front' => 'The image must be 120 KB or smaller.']);
-    expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([]);
+    return $image;
+}
+
+function reencodeBytes(GdImage $image, string $format, int $quality = 0): string
+{
+    ob_start();
+    $format === 'jpeg' ? imagejpeg($image, null, $quality) : imagepng($image, null, 9);
+
+    return (string) ob_get_clean();
+}
+
+test('a detailed 16 MP photo that is over 5 MB at quality 90 is stepped down until it fits', function (int $sourceQuality, array $size) {
+    // Saved at a low quality the upload is under 5 MB; encoded again at quality 90 the blocks make it larger than 5 MB.
+    $upload = reencodeBytes(reencodeNoise(4000, 4000), 'jpeg', $sourceQuality);
+    expect(strlen($upload))->toBeLessThan(5 * 1024 * 1024);
+
+    reencodeSubmit($upload)->assertSessionHasNoErrors();
+    $stored = reencodeStoredFront();
+    $info = getimagesizefromstring($stored);
+
+    expect(strlen($stored))->toBeLessThanOrEqual(5 * 1024 * 1024)
+        ->and([$info[0], $info[1]])->toBe($size)
+        ->and($info['mime'])->toBe('image/jpeg')
+        ->and(KycDocument::query()->sole()->front_mime)->toBe('image/jpeg');
+})->with([
+    'quality 75 is enough' => [10, [4000, 4000]],
+    'needs 12 MP as well' => [20, [3464, 3464]],
+]);
+
+test('an image still larger than the upload limit after every step is refused', function () {
+    config(['kyc.max_upload_kb' => 80, 'kyc.step_down_pixels' => [600_000]]);
+    $upload = reencodeBytes(reencodeNoise(800, 800), 'jpeg', 10);
+    expect(strlen($upload))->toBeLessThan(80 * 1024);
+
+    reencodeSubmit($upload)->assertSessionHasErrors(['front' => 'The image must be 80 KB or smaller.']);
+    expect(KycDocument::query()->count())->toBe(0)
+        ->and(Storage::disk(KycDocument::DISK)->allFiles())->toBe([]);
+});
+
+test('a PNG over the limit becomes a JPEG when it is opaque, and stays a smaller PNG when it has transparency', function () {
+    config(['kyc.max_upload_kb' => 200, 'kyc.step_down_pixels' => [40_000]]);
+    $sanitiser = app(ImageSanitiser::class);
+
+    $opaque = $sanitiser->clean(reencodeBytes(reencodeNoise(400, 400), 'png'), 'front');
+    $transparent = $sanitiser->clean(reencodeBytes(reencodeNoise(400, 400, alpha: true), 'png'), 'front');
+
+    expect($opaque['mime'])->toBe('image/jpeg')
+        ->and(getimagesizefromstring($opaque['bytes'])['mime'])->toBe('image/jpeg')
+        ->and(strlen($opaque['bytes']))->toBeLessThanOrEqual(200 * 1024)
+        ->and($transparent['mime'])->toBe('image/png')
+        ->and(array_slice(getimagesizefromstring($transparent['bytes']), 0, 2))->toBe([200, 200])
+        ->and(strlen($transparent['bytes']))->toBeLessThanOrEqual(200 * 1024);
 });

@@ -70,11 +70,17 @@ admin review routes stay available, so staff can finish the queue after the feat
   GPS, device and thumbnails, colour profiles, text chunks, JPEG comments) and bytes appended after the image data are
   dropped; a payload built into the pixel data of a lossless PNG is not. The EXIF orientation is applied to the pixels
   first. Refused with a validation error: files GD cannot decode; images above 25 megapixels (read from the header,
-  before decoding); a re-encoded file larger than the 5 MB upload limit; and, when another upload's decode holds the
-  lock for more than 15 seconds, "try again in a moment". Images above 16 megapixels are scaled down to 16 megapixels.
+  before decoding); and, when another upload's decode holds the lock for more than 15 seconds, "try again in a
+  moment". Images above 16 megapixels are scaled down to 16 megapixels.
+- The stored file is at most 5 MB (the upload limit). A larger result is encoded again from the same decoded pixels:
+  JPEG or WebP at quality 90, then 75, then 75 scaled to 12 and then 8 megapixels (`kyc.step_down_pixels`). An opaque
+  PNG that is too large becomes a JPEG and follows the same steps; a PNG with an alpha channel or `tRNS` chunk stays a
+  PNG and is only scaled. Only an image still above 5 MB at 8 megapixels is refused ("The image must be 5 MB or
+  smaller.").
 - One decode runs at a time across the web processes that share the cache lock store (`kyc:image-decode`). Measured
-  in the production image with `memory_limit=256M`, one request decoding a 25 MP image peaks at 221 MB for an RGBA PNG
-  and at 188–198 MB for JPEG and WebP, framework boot included, so two at once could exceed the 512 MB container.
+  in the production image with `memory_limit=256M`, one request decoding a 25 MP image, steps included, peaks at
+  221 MB of PHP memory for an RGBA PNG and at 188–207 MB for JPEG and WebP, framework boot included. libwebp's encoder
+  allocates outside PHP's limit: a detailed WebP reaches 360–430 MB resident, against 220–250 MB for JPEG and PNG.
 - A document can be replaced while it waits for staff or after it was declined; an approved one cannot. The replaced
   row is marked superseded in the same transaction and its files are deleted after the commit; if that fails, the
   retention job deletes them later.

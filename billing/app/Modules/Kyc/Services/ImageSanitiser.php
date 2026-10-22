@@ -16,7 +16,8 @@ use RuntimeException;
  *
  * Memory: the dimensions are checked from the header before decoding (kyc.max_image_pixels), a large photo is scaled
  * down before it is turned (kyc.stored_image_pixels), and one decode runs at a time across all web processes that
- * share the cache lock store, because a single 25 MP decode needs about 200 MB.
+ * share the cache lock store, because a single 25 MP decode needs about 200 MB. A result above the upload limit is
+ * encoded again from the same pixels at a lower quality and then smaller (steps()); only the last step can refuse.
  */
 class ImageSanitiser
 {
@@ -32,7 +33,8 @@ class ImageSanitiser
     /**
      * @return array{bytes: string, mime: string}
      *
-     * @throws ValidationException when the bytes are not a JPEG, PNG or WebP image GD can decode, or are too large
+     * @throws ValidationException when the bytes are not a JPEG, PNG or WebP image GD can decode, are too large, or the
+     *                             decode lock stays taken
      */
     public function clean(string $bytes, string $field): array
     {
@@ -50,28 +52,19 @@ class ImageSanitiser
         }
 
         try {
-            $encoded = Cache::lock(self::LOCK, self::LOCK_TTL_SECONDS)
-                ->block((int) config('kyc.image_decode_wait_seconds', 15), fn (): string => $this->reencode($bytes, $type, $field));
+            return Cache::lock(self::LOCK, self::LOCK_TTL_SECONDS)
+                ->block((int) config('kyc.image_decode_wait_seconds', 15), fn (): array => $this->reencode($bytes, $type, $field));
         } catch (LockTimeoutException) {
             throw $this->refuse($field, __('Other photos are being processed. Try again in a moment.'));
         }
-
-        // The stored copy obeys the upload limit too: the review page and security:reencrypt hold it in memory.
-        $maxKb = (int) config('kyc.max_upload_kb', 5120);
-
-        if ($maxKb * 1024 < strlen($encoded)) {
-            throw $this->refuse($field, $maxKb >= 1024
-                ? __('The image must be :count MB or smaller.', ['count' => intdiv($maxKb, 1024)])
-                : __('The image must be :count KB or smaller.', ['count' => $maxKb]));
-        }
-
-        return ['bytes' => $encoded, 'mime' => self::TYPES[$type]];
     }
 
     /**
      * Decode, scale, turn and encode. Runs only under self::LOCK; the images are freed when it returns.
+     *
+     * @return array{bytes: string, mime: string}
      */
-    private function reencode(string $bytes, int $type, string $field): string
+    private function reencode(string $bytes, int $type, string $field): array
     {
         $image = @imagecreatefromstring($bytes);
 
@@ -80,11 +73,59 @@ class ImageSanitiser
         }
 
         // One statement each, so only two images are alive at a time.
-        $image = $this->shrink($image);
+        $image = $this->scaledTo($image, (int) config('kyc.stored_image_pixels', 16_000_000));
         $image = $this->orient($image, $this->orientation($bytes, $type));
-        $encoded = $this->encode($image, $type);
 
-        return $type === IMAGETYPE_JPEG ? $this->withoutComments($encoded) : $encoded;
+        // The stored copy obeys the upload limit too: the review page and security:reencrypt hold it in memory.
+        $maxKb = (int) config('kyc.max_upload_kb', 5120);
+
+        foreach ($this->steps($type, $bytes) as [$format, $quality, $pixels]) {
+            $candidate = $pixels === null ? $image : $this->scaledTo($image, $pixels);
+            $encoded = $this->encode($candidate, $format, $quality);
+            unset($candidate);
+
+            if (strlen($encoded) <= $maxKb * 1024) {
+                return ['bytes' => $format === IMAGETYPE_JPEG ? $this->withoutComments($encoded) : $encoded, 'mime' => self::TYPES[$format]];
+            }
+        }
+
+        throw $this->refuse($field, $maxKb >= 1024
+            ? __('The image must be :count MB or smaller.', ['count' => intdiv($maxKb, 1024)])
+            : __('The image must be :count KB or smaller.', ['count' => $maxKb]));
+    }
+
+    /**
+     * The encodings tried in order until one fits the upload limit: the same format at quality 90, then quality 75,
+     * then quality 75 scaled to each of kyc.step_down_pixels. A PNG stays lossless and is scaled when it has (or may
+     * have) transparency; an opaque PNG that is too large becomes a JPEG and follows the JPEG steps.
+     *
+     * @return list<array{0: int, 1: int, 2: ?int}> format, quality (ignored for PNG), pixel target or null for as is
+     */
+    private function steps(int $type, string $bytes): array
+    {
+        /** @var list<int> $smaller */
+        $smaller = config('kyc.step_down_pixels', [12_000_000, 8_000_000]);
+
+        if ($type === IMAGETYPE_PNG && $this->pngMayBeTransparent($bytes)) {
+            return [[IMAGETYPE_PNG, 0, null], ...array_map(fn (int $pixels): array => [IMAGETYPE_PNG, 0, $pixels], $smaller)];
+        }
+
+        $lossy = $type === IMAGETYPE_WEBP ? IMAGETYPE_WEBP : IMAGETYPE_JPEG;
+
+        return [
+            ...($type === IMAGETYPE_PNG ? [[IMAGETYPE_PNG, 0, null]] : []),
+            [$lossy, 90, null],
+            [$lossy, 75, null],
+            ...array_map(fn (int $pixels): array => [$lossy, 75, $pixels], $smaller),
+        ];
+    }
+
+    /**
+     * Read from the header: colour type 4 or 6 (an alpha channel), or a tRNS chunk before the pixel data.
+     */
+    private function pngMayBeTransparent(string $bytes): bool
+    {
+        return in_array(ord($bytes[25] ?? "\0"), [4, 6], true) || $this->chunk($bytes, 8, 'tRNS', riff: false, stopAt: 'IDAT') !== null;
     }
 
     /**
@@ -118,7 +159,7 @@ class ImageSanitiser
         return ValidationException::withMessages([$field => $message]);
     }
 
-    private function encode(GdImage $image, int $type): string
+    private function encode(GdImage $image, int $type, int $quality): string
     {
         imagealphablending($image, false);
         imagesavealpha($image, true);
@@ -126,9 +167,9 @@ class ImageSanitiser
 
         try {
             $written = match ($type) {
-                IMAGETYPE_JPEG => imagejpeg($image, null, 90),
+                IMAGETYPE_JPEG => imagejpeg($image, null, $quality),
                 IMAGETYPE_PNG => imagepng($image, null, 6),
-                default => imagewebp($image, null, 90),
+                default => imagewebp($image, null, $quality),
             };
         } finally {
             $encoded = (string) ob_get_clean();
@@ -142,12 +183,10 @@ class ImageSanitiser
     }
 
     /**
-     * Scale an image above kyc.stored_image_pixels down to that size, keeping its aspect ratio, so the rotation that
-     * may follow copies the smaller image.
+     * The image scaled down to at most $target pixels, keeping its aspect ratio; the same image when it is not larger.
      */
-    private function shrink(GdImage $image): GdImage
+    private function scaledTo(GdImage $image, int $target): GdImage
     {
-        $target = (int) config('kyc.stored_image_pixels', 16_000_000);
         $width = imagesx($image);
         $height = imagesy($image);
 
@@ -244,9 +283,9 @@ class ImageSanitiser
 
     /**
      * Walk PNG chunks (big-endian length, type, data, CRC) or RIFF chunks (type, little-endian length, data padded to
-     * an even length) from $offset and return the data of the first chunk named $name.
+     * an even length) from $offset and return the data of the first chunk named $name, or null once $stopAt is reached.
      */
-    private function chunk(string $bytes, int $offset, string $name, bool $riff): ?string
+    private function chunk(string $bytes, int $offset, string $name, bool $riff, ?string $stopAt = null): ?string
     {
         $length = strlen($bytes);
 
@@ -257,6 +296,10 @@ class ImageSanitiser
 
             if ($type === $name) {
                 return substr($bytes, $offset + 8, $size);
+            }
+
+            if ($type === $stopAt) {
+                return null;
             }
 
             $offset += 8 + $size + ($riff ? $size % 2 : 4);

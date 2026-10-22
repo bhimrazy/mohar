@@ -13,7 +13,8 @@ return [
     /**
      * Largest image, in pixels (width × height), that is decoded for re-encoding; checked from the header first. 25
      * megapixels takes a 24 MP phone photo (5712 × 4284). Measured in the production image (memory_limit 256M), one
-     * request decoding a 25 MP image peaks at 221 MB for an RGBA PNG and 188–198 MB for JPEG and WebP, boot included.
+     * request decoding a 25 MP image, steps included, peaks at 221 MB for an RGBA PNG and 188–207 MB for JPEG and WebP,
+     * boot included; libwebp's encoder allocates outside that limit (360–430 MB resident for a detailed WebP).
      * That bound is per request, not per container, so decodes are serialised by a cache lock (ImageSanitiser::LOCK).
      */
     'max_image_pixels' => 25_000_000,
@@ -23,6 +24,13 @@ return [
      * document readable (300 dpi or more over an ID card).
      */
     'stored_image_pixels' => 16_000_000,
+
+    /**
+     * A re-encoded image larger than max_upload_kb is encoded again, from the same decoded pixels: JPEG or WebP at
+     * quality 90, then 75, then 75 scaled to each of these pixel counts (an opaque PNG becomes a JPEG; a PNG with
+     * transparency stays PNG and is only scaled). It is refused only when the last step is still too large.
+     */
+    'step_down_pixels' => [12_000_000, 8_000_000],
 
     /** Seconds an upload waits for another upload's image decode to finish before it is refused ("try again"). */
     'image_decode_wait_seconds' => 15,
