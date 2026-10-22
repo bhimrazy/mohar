@@ -1,4 +1,4 @@
-import { Form } from '@inertiajs/react';
+import { Form, setLayoutProps } from '@inertiajs/react';
 import { Head } from '@/components/app/head';
 import InputError from '@/components/input-error';
 import PasswordInput from '@/components/password-input';
@@ -12,7 +12,18 @@ import {
 } from '@/actions/Laravel/Passkeys/Http/Controllers/PasskeyConfirmationController';
 import PasskeyVerify from '@/components/passkey-verify';
 
-export default function ConfirmPassword() {
+export default function ConfirmPassword({
+    download = false,
+}: {
+    download?: boolean;
+}) {
+    if (download) {
+        setLayoutProps({
+            description:
+                "Enter your password to download this file; you won't be asked again for 15 minutes. The download starts as soon as you confirm.",
+        });
+    }
+
     return (
         <>
             <Head title="Confirm password" />

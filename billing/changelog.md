@@ -475,6 +475,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   followed by an end tag and then a child element (`<object><param name="password"></object><p>…`) masks the rest.
   The marker is found by a forward walk with constant extra memory; a raw `<html>` inside a non-secret JSON string still
   counts as a marker, which only allows the next-tag bound and never exposes a secret value.
+- **Downloads behind a recent-password check (#272).** A link to a protected file (today only the Migration "rows with errors" CSV) used to bounce back to the page and look dead. Clicking it now opens the confirm-password dialog and starts the download after the password is confirmed. A link opened in a new tab goes to the confirm-password page and returns to the file. The file is never sent without a recent confirmation. No schema or permission change.
 - **Encrypted browser history is cleared on every logout (#250).** Before, only a logout with a KYC document unlock
   open cleared it, so any page that encrypts its history stayed restorable with Back or a restored tab until the tab
   closed. Now the history is cleared for staff and clients whenever a request ends or swaps the login (logout, deleting
