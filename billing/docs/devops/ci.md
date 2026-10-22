@@ -153,7 +153,7 @@ any other label never cancels a running test.
 
 | Workflow                               | Label          | Runs                                                                                    | Minutes                     |
 | -------------------------------------- | -------------- | --------------------------------------------------------------------------------------- | --------------------------- |
-| `deploy-smoke.yml`                     | `deploy-smoke` | install on fresh PostgreSQL and RustFS, check `/up`, sign-in and a queued job           | see `production.md`         |
+| `deploy-smoke.yml`                     | `deploy-smoke` | install on fresh PostgreSQL and RustFS, check `/up`, sign-in, a queued job, `db:seed`   | see `production.md`         |
 | `load-test.yml` (`loadtest/README.md`) | `load-test`    | small profile, large volume; any profile or volume from Actions; results as an artifact | see `docs/devops/sizing.md` |
 
 Both use the standard Linux runner: 4 CPUs and 16 GB for a public repository (2 CPUs and 8 GB for a private one).

@@ -13,7 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   Was due and Charge date rows print the BS date when the setting is on. `app:install` (run on every upgrade) brings
   unedited templates to the new text; edited templates keep their text and the editor offers the new default. Invoice
   PDFs rendered with BS dates are cached under a new path ending in `-bs.pdf`.
-
+- **Importer invitation rate.** The default of `migration.invite_per_hour` drops from 500 to 100, because cPanel/Exim and Google Workspace sending caps make 500 risky for deliverability. Installs that never changed the setting now send 100 an hour; raise it in Admin → Settings (1–10,000) if your mail provider allows more. No schema or permission change.
 - **Integration log masking (#190).** No schema or permission change. New log rows mask more secret shapes (see
   Security below); rows written before the upgrade are not rewritten. Payment payload text values (`error`,
   `message`) now get the same text rules as module logs, so a `name=value` secret inside them is masked.
