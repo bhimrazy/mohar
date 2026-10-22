@@ -13,7 +13,9 @@
 # reach Caddy's access log; a queued RunAutomationJob processed by the live colour's automation worker (its own queue
 # connection); UID 10001 on a read-only root; PHP stream TLS verifies public certificates; compiled views stay per
 # container. Then a blue-green deploy to green and a rollback to blue under a steady request loop: no failed request,
-# the live upstream, one scheduler and one automation worker, and the old colour's workers drained.
+# the live upstream, one scheduler and one automation worker, and the old colour's workers drained. Last, the full
+# demo seeder (`db:seed --force`) on the stack's PostgreSQL with real commits, run once with APP_ENV=local because
+# the stack itself runs as production, which skips demo data (#126).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -258,6 +260,20 @@ deploy/bin/deploy rollback || fail "rollback"
 stop_loop "rollback"
 assert_live blue green
 queued_job blue
+
+step "full demo seed on PostgreSQL (real commits, non-production APP_ENV)"
+# The stack is APP_ENV=production, where DatabaseSeeder skips demo data. Override APP_ENV for this one-off container
+# only (deploy/.env.smoke and the running services stay production), skip the config cache so the override is read,
+# and refuse to seed under production all the same: demo accounts have a known password.
+seed_env=local
+[ "$seed_env" != production ] || fail "refusing to seed demo data with APP_ENV=production"
+APP_IMAGE="$image" "${compose[@]}" run --rm -T -e APP_ENV="$seed_env" -e APP_OPTIMIZE=0 migrate \
+    sh -c 'test "$APP_ENV" != production && php artisan db:seed --force --no-interaction' > "$work/seed.log" 2>&1 \
+    || { tail -40 "$work/seed.log" >&2; fail "db:seed --force (APP_ENV=$seed_env)"; }
+grep -qi 'demo data skipped' "$work/seed.log" && fail "the seeder skipped demo data: APP_ENV was not applied"
+seeded="$("${compose[@]}" exec -T postgres psql -U billing -d billing -Atc 'select count(*) from users')"
+[ "${seeded:-0}" -gt 1 ] || fail "no demo accounts after db:seed (users = ${seeded:-none})"
+pass "db:seed --force ran the demo seeders on PostgreSQL after migrations (APP_ENV=$seed_env, users = $seeded)"
 
 failed=0
 step "all checks passed"
