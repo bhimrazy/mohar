@@ -499,6 +499,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
 
+### PostgreSQL test database names (#285)
+
+- `scripts/pg.sh` gives a slug longer than 42 characters a shortened database name (55 bytes: its first 46 bytes, `_`,
+  and 8 hex digits of its SHA-256). Shorter slugs keep their names. Parallel test workers and the race tests' extra
+  databases now stay within PostgreSQL's 63-byte limit, so they no longer collide. No change for users or operators.
+
 ### Stripe smoke command without Billing (#269)
 
 - `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
