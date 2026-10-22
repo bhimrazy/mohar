@@ -10,6 +10,8 @@ use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Navigation\Navigation;
 use App\Support\Navigation\NavItem;
 use App\Support\Permissions\PermissionRegistry;
+use App\Support\Security\EncryptedModel;
+use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
@@ -29,6 +31,11 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
+        // Encrypted casts, for `security:reencrypt` (ADR 0022).
+        $encrypted = $this->app->make(EncryptedStorage::class);
+        $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
+        $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
+
         // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
         $router = $this->app->make(Router::class);
 

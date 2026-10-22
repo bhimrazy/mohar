@@ -14,8 +14,9 @@ use Illuminate\Database\Eloquent\Model;
  * @property string|null $last_key
  * @property bool $completed
  * @property array<string, int> $counts
+ * @property array{key: int|string, column: string, old: string, new: string}|null $pending
  */
-#[Fillable(['target', 'key_fingerprint', 'last_key', 'completed', 'counts'])]
+#[Fillable(['target', 'key_fingerprint', 'last_key', 'completed', 'counts', 'pending'])]
 class ReencryptionCheckpoint extends Model
 {
     protected function casts(): array
@@ -23,6 +24,7 @@ class ReencryptionCheckpoint extends Model
         return [
             'completed' => 'boolean',
             'counts' => 'array',
+            'pending' => 'array',
         ];
     }
 }

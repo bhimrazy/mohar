@@ -6,9 +6,9 @@ the key may live in production, the warnings `app:install` gives about it, and h
 
 ## What the key protects
 
-**Stored secrets, which `php artisan security:reencrypt` re-encrypts.** The command finds every column with an
-Eloquent encrypted cast by loading the models, plus the values modules register in
-`App\Support\Security\EncryptedStorage`. Its dry run lists them. At the time of writing that is 26 targets:
+**Stored secrets, which `php artisan security:reencrypt` re-encrypts.** Each module registers its encrypted data
+in `App\Support\Security\EncryptedStorage` (ADR 0022): its models with encrypted casts, other encrypted columns,
+and encrypted files. The dry run lists the targets. At the time of writing there are 27:
 
 | Area          | Targets                                                                                                                                                                                   |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -19,7 +19,7 @@ Eloquent encrypted cast by loading the models, plus the values modules register 
 | Notifications | `webhook_endpoints.secret`, `webhook_endpoints.previous_secret`                                                                                                                           |
 | Identity      | `kyc_documents.number`, `kyc_documents.files` (the images on the objects disk)                                                                                                            |
 | Import        | `migration_runs.header`, `migration_runs.found_values`, `migration_records.raw`, `migration_records.normalized`, `migration_records.before`                                               |
-| Core          | `settings.value` (secret settings, `enc:v1:`), `users.two_factor_secret`, `users.two_factor_recovery_codes`                                                                               |
+| Core          | `settings.value` (secret settings, `enc:v1:`), `users.two_factor_secret`, `users.two_factor_recovery_codes`, `install_secrets.value`                                                      |
 
 **Short-lived data, which expires by itself.** After a rotation these stay readable while the old key is in
 `APP_PREVIOUS_KEYS`. When the old key is removed, whatever is left of them can no longer be read:
@@ -33,6 +33,13 @@ Eloquent encrypted cast by loading the models, plus the values modules register 
 Signed links (password resets, verification, KYC image links, previews) are checked against the previous keys as
 well, so they keep working until they expire.
 
+**Keyed hashes.** The import's email hashes (duplicate checks and the email-keyed id map) use an install secret
+(`install_secrets`), not `APP_KEY`, so a rotation does not change them. On an install upgraded from an earlier
+version, the secret is created on the first import check, from the key the old hashes were made with: if you rotate
+before that, put the old key first in `APP_PREVIOUS_KEYS`. Passkeys: Fortify derives the passkey user handle from
+`APP_KEY` unless `PASSKEYS_USER_HANDLE_SECRET` is set. Existing passkeys keep working after a rotation, but set that
+variable to a fixed random value before rotating, so new registrations keep the same handle.
+
 ## Where the key lives
 
 Never in the image, the repository or a backup of the code. Pick one of these:
@@ -43,8 +50,10 @@ Never in the image, the repository or a backup of the code. Pick one of these:
 2. **Environment injection.** Real environment variables win over `.env`. A secret manager that starts the process
    with `APP_KEY` set (`EnvironmentFile=` written by the manager's agent, or a wrapper such as
    `APP_KEY="$(<manager> read …)" php artisan …`) needs nothing in `.env`.
-3. **A file named by `APP_KEY_FILE`** (and `APP_PREVIOUS_KEYS_FILE`, comma-separated keys). The app reads the file
-   when it loads its configuration. A non-empty `APP_KEY` wins over the file, so leave it empty.
+3. **A file named by `APP_KEY_FILE`** (and `APP_PREVIOUS_KEYS_FILE`, keys separated by commas or new lines). Use an
+   absolute path; a relative one is taken from the application directory. The app reads the file once, when it loads
+   its configuration. A non-empty `APP_KEY` wins over the file, so leave it empty: `app:install` fails when both are
+   set to different keys.
     - Docker: copy `deploy/compose.secrets.example.yaml` to `deploy/compose.secrets.yaml`, put the keys in files
       outside the repository (the example uses `/etc/mohar/secrets`, owned by UID 10001, mode 0400), and set
       `DEPLOY_COMPOSE_OVERRIDE=deploy/compose.secrets.yaml` for `deploy/bin/deploy`. Compose mounts them at
@@ -57,10 +66,12 @@ stack that directory is a tmpfs per container. On a server, keep `bootstrap/cach
 out of backups.
 
 `php artisan app:install` (every deploy runs it) checks the key. It fails when the key is missing, when `APP_KEY_FILE`
-cannot be read, or when the key does not fit the cipher. In production it warns when the key is a published one (the
-image build's placeholder, or the key in an example file), is not random, sits in a key file inside the application
-directory, or is read from a `.env` that other users can read. It also warns about previous keys that do not fit the
-cipher or repeat the current key.
+cannot be read, when the key or a previous key does not fit the cipher, when `APP_KEY` and `APP_KEY_FILE` (or
+`APP_PREVIOUS_KEYS` and its file) hold different keys, and when the key file is under `public/`. In production it
+warns when the key is a published one (the image build's placeholder, or the key in an example file), is not random,
+sits in a key file inside the application directory, or is readable by other users in `.env` or in the cached
+configuration (`bootstrap/cache/config.php`, which holds the key in plain text). It also warns when
+`APP_PREVIOUS_KEYS` repeats the current key.
 
 ## Rotating the key
 
@@ -86,17 +97,24 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    php artisan security:reencrypt`. A server: `php artisan security:reencrypt`. The command reads each table in chunks
    (`--chunk`, 500 by default) and saves a checkpoint after each one. If it is interrupted, run it again and it
    continues; `--restart` starts over. `--limit=<n>` stops after n values, which splits a large install into several
-   runs. A value the app writes during the run is left as the app wrote it. The command writes one audit-log entry
-   ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts per target, never values.
+   runs. Lower `--chunk` for large `longText` tables (`server_account_imports.accounts`, `migration_records.raw`):
+   one chunk is held in memory. A value the app writes during the run is left as the app wrote it. An identity image
+   is written under a new name, recorded in the checkpoint, and the old file is deleted once the row points at the new
+   one; a run killed in between finishes that on the next run. A real run needs every module loaded, so no module's
+   data stays on the old key: it refuses to start (exit 2) when `MODULES` leaves modules out, unless you pass
+   `--partial`, which names the skipped modules in the summary and the audit entry and ends with exit 3. The command
+   writes one audit-log entry ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts
+   per target, never values.
 
-    | Exit code | Meaning                                                                                                    |
-    | --------- | ---------------------------------------------------------------------------------------------------------- |
-    | 0         | every stored value is on the current key                                                                   |
-    | 1         | some values no configured key decrypts, or a write failed its check; they are unchanged and listed by id   |
-    | 2         | invalid options, or no `APP_KEY`                                                                           |
-    | 3         | not finished: stopped at `--limit`, the app wrote values during the run, or (dry run) values on an old key |
+    | Exit code | Meaning                                                                                                                          |
+    | --------- | -------------------------------------------------------------------------------------------------------------------------------- |
+    | 0         | every stored value is on the current key                                                                                         |
+    | 1         | some values no configured key decrypts, or a write failed its check; they are unchanged and listed by id                         |
+    | 2         | invalid options, no `APP_KEY`, or modules not loaded (without `--partial`)                                                       |
+    | 3         | not finished: stopped at `--limit`, the app wrote values during the run, modules were skipped, or (dry run) values on an old key |
+    | 4         | another `security:reencrypt` run holds the lock; wait for it                                                                     |
 
-6. **Verify.** `php artisan security:reencrypt --dry-run` exits 0. Sign in as staff with two-factor authentication,
+6. **Verify.** With every module loaded, `php artisan security:reencrypt --dry-run` exits 0. Sign in as staff with two-factor authentication,
    test one gateway connection (Admin → Setup → Gateways) and one server connection (Admin → Services → Servers), and open a KYC document if you use
    identity checks.
 7. **Wait for the short-lived data** listed above: the queues drained and no failed jobs you still want to retry,

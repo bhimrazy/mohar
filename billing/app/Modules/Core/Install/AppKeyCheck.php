@@ -38,6 +38,14 @@ final class AppKeyCheck
             return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY does not fit the configured cipher. Generate one with `php artisan key:generate --show`.');
         }
 
+        if ($conflict = $this->conflict($key, $file)) {
+            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, $conflict);
+        }
+
+        if ($file !== null && $fromFile && str_starts_with((string) realpath($file), (string) realpath(public_path()).DIRECTORY_SEPARATOR)) {
+            return new EnvironmentCheck('APP_KEY', CheckStatus::Failed, 'APP_KEY_FILE is under public/, where the web server serves it: anyone can download the key. Move it out (e.g. /run/secrets) and rotate the key (docs/devops/key-rotation.md).');
+        }
+
         $problems = app()->isProduction() ? $this->productionProblems($key, $raw, $fromFile ? $file : null) : [];
 
         foreach ((array) config('app.previous_keys') as $previous) {
@@ -78,6 +86,12 @@ final class AppKeyCheck
             $problems[] = 'APP_KEY_FILE is inside the application directory, where code deploys, images and code backups pick it up. Keep it outside (e.g. /run/secrets).';
         }
 
+        $cached = app()->getCachedConfigPath();
+
+        if (is_file($cached) && (fileperms($cached) & 0o077) !== 0) {
+            $problems[] = 'The cached configuration ('.$cached.') holds APP_KEY in plain text and other users on this server can read it. Make bootstrap/cache readable by the PHP user only.';
+        }
+
         $dotenv = base_path('.env');
 
         if (is_file($dotenv) && (fileperms($dotenv) & 0o077) !== 0 && preg_match('/^APP_KEY=["\']?'.preg_quote($key, '/').'/m', (string) file_get_contents($dotenv)) === 1) {
@@ -85,6 +99,30 @@ final class AppKeyCheck
         }
 
         return $problems;
+    }
+
+    /**
+     * APP_KEY (or APP_PREVIOUS_KEYS) set in the environment while its *_FILE holds something else: the variable wins,
+     * so a rotation made by changing the file would silently keep the old key in use.
+     */
+    private function conflict(string $key, ?string $file): ?string
+    {
+        $fileKey = $file !== null && is_file($file) && is_readable($file) ? trim((string) file_get_contents($file)) : '';
+
+        if (config('app.key_source') === 'env' && $fileKey !== '' && ! hash_equals($fileKey, $key)) {
+            return 'APP_KEY and the file APP_KEY_FILE names hold different keys; APP_KEY is the one in use. Keep only one of them.';
+        }
+
+        $previousFile = config('app.previous_keys_file');
+        $listed = is_string($previousFile) && is_file($previousFile) && is_readable($previousFile)
+            ? array_values(array_filter(preg_split('/[\s,]+/', trim((string) file_get_contents($previousFile))) ?: []))
+            : [];
+
+        if ($listed !== [] && $listed !== array_values((array) config('app.previous_keys'))) {
+            return 'APP_PREVIOUS_KEYS and the file APP_PREVIOUS_KEYS_FILE names hold different keys; the variable is the one in use. Keep only one of them.';
+        }
+
+        return null;
     }
 
     /** Whether the key is the one an example environment file in the application ships with. */

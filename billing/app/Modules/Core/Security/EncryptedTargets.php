@@ -4,35 +4,43 @@ namespace App\Modules\Core\Security;
 
 use App\Support\Security\EncryptedColumn;
 use App\Support\Security\EncryptedFiles;
+use App\Support\Security\EncryptedModel;
 use App\Support\Security\EncryptedStorage;
 use Illuminate\Database\Eloquent\Casts\AsEncryptedArrayObject;
 use Illuminate\Database\Eloquent\Casts\AsEncryptedCollection;
 use Illuminate\Database\Eloquent\Model;
-use ReflectionClass;
-use Symfony\Component\Finder\Finder;
+use LogicException;
 use Throwable;
 
 /**
- * Everything `security:reencrypt` covers: every column behind an Eloquent encrypted cast, found by loading each model
- * in app/Models and app/Modules/<Module>/Models (every module, loaded or not, since its tables may exist), plus what
- * modules register in EncryptedStorage. tests/Feature/Security/EncryptedStorageCoverageTest checks the source for
- * encrypted casts this discovery would miss.
+ * What `security:reencrypt` covers: the storage the loaded modules register in EncryptedStorage, with each registered
+ * model expanded into its encrypted-cast columns. Targets are named `table.column` (`table.files` for file sets),
+ * which is what operators pass to `--only` and what checkpoints are kept under.
  */
 class EncryptedTargets
 {
-    private const CASTS = ['encrypted', 'encrypted:array', 'encrypted:collection', 'encrypted:json', 'encrypted:object', AsEncryptedArrayObject::class, AsEncryptedCollection::class];
+    private const CASTS = ['encrypted', AsEncryptedArrayObject::class, AsEncryptedCollection::class];
 
     public function __construct(private EncryptedStorage $storage) {}
 
     /**
      * @return array<string, EncryptedColumn|EncryptedFiles> by name, sorted
+     *
+     * @throws LogicException when a registered model cannot be built or has no encrypted cast, or two registrations
+     *                        name the same storage
      */
     public function all(): array
     {
         $targets = [];
 
-        foreach ([...$this->castColumns(), ...array_values($this->storage->all())] as $target) {
-            $targets[$target->name()] = $target;
+        foreach ($this->storage->all() as $key => $entry) {
+            foreach ($entry instanceof EncryptedModel ? $this->columns($key, $entry) : [$entry] as $target) {
+                if (isset($targets[$target->name()])) {
+                    throw new LogicException("Encrypted storage [{$key}] covers {$target->name()}, which another registration already covers.");
+                }
+
+                $targets[$target->name()] = $target;
+            }
         }
 
         ksort($targets);
@@ -41,53 +49,46 @@ class EncryptedTargets
     }
 
     /**
-     * @return list<EncryptedColumn>
+     * Whether a cast stores an encrypter payload.
      */
-    public function castColumns(): array
+    public static function isEncryptedCast(mixed $cast): bool
     {
-        $columns = [];
-
-        foreach ($this->models() as $class) {
-            try {
-                $model = new $class;
-            } catch (Throwable) {
-                continue;
-            }
-
-            foreach ($model->getCasts() as $column => $cast) {
-                if (in_array(explode(':', (string) $cast, 2)[0], self::CASTS, true) || in_array((string) $cast, self::CASTS, true)) {
-                    $columns[] = new EncryptedColumn(
-                        $model->getTable(),
-                        (string) $column,
-                        $model->getKeyName(),
-                        intKey: in_array($model->getKeyType(), ['int', 'integer'], true),
-                        connection: $model->getConnectionName(),
-                    );
-                }
-            }
-        }
-
-        return $columns;
+        return in_array(explode(':', (string) $cast, 2)[0], self::CASTS, true);
     }
 
     /**
-     * @return list<class-string<Model>>
+     * @return list<EncryptedColumn>
      */
-    public function models(): array
+    private function columns(string $key, EncryptedModel $entry): array
     {
-        $directories = array_filter(['Models', ...array_map(fn (string $path): string => 'Modules/'.basename(dirname($path)).'/Models', glob(app_path('Modules/*/Models'), GLOB_ONLYDIR) ?: [])], fn (string $relative): bool => is_dir(app_path($relative)));
-        $models = [];
+        try {
+            $model = new ($entry->model);
+        } catch (Throwable $exception) {
+            throw new LogicException("Encrypted storage [{$key}]: the model {$entry->model} cannot be built ({$exception->getMessage()}).", previous: $exception);
+        }
 
-        foreach ($directories as $relative) {
-            foreach ((new Finder)->files()->name('*.php')->in(app_path($relative))->sortByName() as $file) {
-                $class = 'App\\'.str_replace(['/', '.php'], ['\\', ''], $relative.'/'.$file->getRelativePathname());
+        if (! $model instanceof Model) {
+            throw new LogicException("Encrypted storage [{$key}]: {$entry->model} is not an Eloquent model.");
+        }
 
-                if (class_exists($class) && is_subclass_of($class, Model::class) && ! (new ReflectionClass($class))->isAbstract()) {
-                    $models[] = $class;
-                }
+        $columns = [];
+
+        foreach ($model->getCasts() as $column => $cast) {
+            if (self::isEncryptedCast($cast)) {
+                $columns[] = new EncryptedColumn(
+                    $model->getTable(),
+                    (string) $column,
+                    $model->getKeyName(),
+                    intKey: in_array($model->getKeyType(), ['int', 'integer'], true),
+                    connection: $model->getConnectionName(),
+                );
             }
         }
 
-        return $models;
+        if ($columns === []) {
+            throw new LogicException("Encrypted storage [{$key}]: {$entry->model} has no encrypted cast.");
+        }
+
+        return $columns;
     }
 }

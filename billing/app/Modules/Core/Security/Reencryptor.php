@@ -5,9 +5,11 @@ namespace App\Modules\Core\Security;
 use App\Modules\Core\Models\ReencryptionCheckpoint;
 use App\Support\Security\EncryptedColumn;
 use App\Support\Security\EncryptedFiles;
+use Closure;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Contracts\Encryption\Encrypter as EncrypterContract;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -62,9 +64,9 @@ class Reencryptor
      *
      * @return array{counts: array<string, int>, complete: bool, undecryptable_ids: list<int|string>}
      */
-    public function process(string $name, EncryptedColumn|EncryptedFiles $target, bool $dryRun, int $chunk, ?int &$budget): array
+    public function process(string $name, EncryptedColumn|EncryptedFiles $target, bool $dryRun, int $chunk, ?int &$budget, bool $restart = false): array
     {
-        $checkpoint = $dryRun ? null : $this->checkpoint($name);
+        $checkpoint = $dryRun ? null : $this->checkpoint($name, $target, $restart);
 
         if ($checkpoint?->completed) {
             return ['counts' => $checkpoint->counts, 'complete' => true, 'undecryptable_ids' => []];
@@ -83,7 +85,7 @@ class Reencryptor
                 $this->undecryptableRow = false;
                 $target instanceof EncryptedColumn
                     ? $this->column($target, $row, $dryRun, $counts)
-                    : $this->files($target, $row, $dryRun, $counts);
+                    : $this->files($name, $target, $row, $dryRun, $counts);
 
                 if ($this->undecryptableRow && count($ids) < self::SAMPLE_IDS) {
                     $ids[] = $row->k;
@@ -151,9 +153,14 @@ class Reencryptor
     }
 
     /**
+     * A file on an old key is written under a new random name, recorded as pending in the checkpoint first, then the
+     * row is switched to it under a lock (the parent row first, then this one, as the module's own writers lock), and
+     * the old file is deleted once that commits. A run killed anywhere in between is settled by settle() on the next
+     * run, which keeps the file the row points at and deletes the other.
+     *
      * @param  array<string, int>  $counts
      */
-    private function files(EncryptedFiles $target, stdClass $row, bool $dryRun, array &$counts): void
+    private function files(string $name, EncryptedFiles $target, stdClass $row, bool $dryRun, array &$counts): void
     {
         $disk = Storage::disk($target->disk);
 
@@ -179,28 +186,86 @@ class Reencryptor
             }
 
             $newPath = (dirname($path) === '.' ? '' : dirname($path).'/').Str::uuid()->toString();
+            $this->pending($name, ['key' => $row->k, 'column' => $column, 'old' => $path, 'new' => $newPath]);
             $disk->put($newPath, $this->current->encrypt($plaintext, false));
 
             if (! $this->decryptsTo((string) $disk->get($newPath), $plaintext)) {
                 $disk->delete($newPath);
+                $this->pending($name, null);
                 $counts['failed']++;
 
                 continue;
             }
 
-            $switched = $this->connection($target->connection)->table($target->table)
-                ->where($target->keyColumn, $row->k)->where($column, $path)->update([$column => $newPath]);
+            $switched = $this->underLock($target, $row->k, function (Builder $locked) use ($target, $row, $column, $path, $newPath): bool {
+                if ($locked->value($column) !== $path) {
+                    return false; // deleted, or given another file meanwhile
+                }
 
-            if ($switched === 0) {
-                $disk->delete($newPath); // the row was deleted or got another file meanwhile
-                $counts['changed']++;
+                $this->connection($target->connection)->table($target->table)->where($target->keyColumn, $row->k)->update([$column => $newPath]);
 
-                continue;
+                return true;
+            });
+
+            // After the commit: a crash before this line is settled from the pending record.
+            $disk->delete($switched ? $path : $newPath);
+
+            $this->pending($name, null);
+            $counts[$switched ? 'reencrypted' : 'changed']++;
+        }
+    }
+
+    /**
+     * Finish what a killed run left: keep whichever file the row points at and delete the other.
+     *
+     * @param  array{key: int|string, column: string, old: string, new: string}  $pending
+     */
+    private function settle(EncryptedFiles $target, array $pending): void
+    {
+        $disk = Storage::disk($target->disk);
+
+        $this->underLock($target, $pending['key'], function (Builder $locked) use ($pending, $disk): void {
+            $disk->delete($locked->value($pending['column']) === $pending['new'] ? $pending['old'] : $pending['new']);
+        });
+    }
+
+    /**
+     * Run $callback in a transaction holding the row's lock (and its parent's first), given the locked row's query.
+     *
+     * @template T
+     *
+     * @param  Closure(Builder): T  $callback
+     * @return T
+     */
+    private function underLock(EncryptedFiles $target, int|string $key, Closure $callback): mixed
+    {
+        $connection = $this->connection($target->connection);
+
+        return $connection->transaction(function () use ($connection, $target, $key, $callback): mixed {
+            if ($target->lockFirst !== null) {
+                [$parentTable, $parentColumn] = $target->lockFirst;
+                $parent = $connection->table($target->table)->where($target->keyColumn, $key)->value($parentColumn);
+
+                if ($parent !== null) {
+                    $connection->table($parentTable)->where('id', $parent)->lockForUpdate()->first(['id']);
+                }
             }
 
-            $disk->delete($path);
-            $counts['reencrypted']++;
-        }
+            return $callback($connection->table($target->table)->where($target->keyColumn, $key)->lockForUpdate());
+        });
+    }
+
+    /**
+     * Record (or clear) the file being re-encrypted. Counts and position stay as the last finished chunk left them;
+     * a target without a checkpoint yet resumes from its start.
+     *
+     * @param  array{key: int|string, column: string, old: string, new: string}|null  $pending
+     */
+    private function pending(string $name, ?array $pending): void
+    {
+        $checkpoint = ReencryptionCheckpoint::query()->firstOrNew(['target' => $name], ['key_fingerprint' => $this->fingerprint, 'counts' => self::emptyCounts()]);
+        $checkpoint->pending = $pending;
+        $checkpoint->save();
     }
 
     /**
@@ -283,12 +348,17 @@ class Reencryptor
         return DB::connection($name);
     }
 
-    private function checkpoint(string $name): ?ReencryptionCheckpoint
+    private function checkpoint(string $name, EncryptedColumn|EncryptedFiles $target, bool $restart): ?ReencryptionCheckpoint
     {
         $checkpoint = ReencryptionCheckpoint::query()->where('target', $name)->first();
 
-        if ($checkpoint !== null && ! hash_equals($checkpoint->key_fingerprint, $this->fingerprint)) {
-            $checkpoint->delete(); // written under another key: start this target again
+        if ($checkpoint?->pending !== null && $target instanceof EncryptedFiles) {
+            $this->settle($target, $checkpoint->pending);
+            $checkpoint->update(['pending' => null]);
+        }
+
+        if ($checkpoint !== null && ($restart || ! hash_equals($checkpoint->key_fingerprint, $this->fingerprint))) {
+            $checkpoint->delete(); // --restart, or written under another key: start this target again
 
             return null;
         }
@@ -303,7 +373,7 @@ class Reencryptor
     {
         ReencryptionCheckpoint::query()->updateOrCreate(
             ['target' => $name],
-            ['key_fingerprint' => $this->fingerprint, 'last_key' => $after, 'completed' => $complete, 'counts' => $counts],
+            ['key_fingerprint' => $this->fingerprint, 'last_key' => $after, 'completed' => $complete, 'counts' => $counts, 'pending' => null],
         );
     }
 }

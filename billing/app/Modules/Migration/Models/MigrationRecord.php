@@ -3,6 +3,7 @@
 namespace App\Modules\Migration\Models;
 
 use App\Modules\Core\Models\Client;
+use App\Modules\Core\Support\InstallSecrets;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -55,12 +56,16 @@ class MigrationRecord extends Model
     }
 
     /**
-     * The keyed hash of an email, for duplicate checks and exact search without decrypting rows. The key is derived
-     * from APP_KEY, so the hash means nothing outside this install.
+     * The keyed hash of an email, for duplicate checks, exact search and the email-keyed id map, without decrypting
+     * rows. The key is an install secret (InstallSecrets), so the hash means nothing outside this install and stays the
+     * same when APP_KEY is rotated. It starts as the value earlier versions derived from APP_KEY (from the key just
+     * rotated away, when there is one), so hashes stored before keep matching.
      */
     public static function emailHash(string $email): string
     {
-        return hash_hmac('sha256', mb_strtolower(trim($email)), hash_hmac('sha256', 'migration.email_hash', (string) config('app.key')));
+        $key = app(InstallSecrets::class)->get('migration_email_hash', fn (): string => hash_hmac('sha256', 'migration.email_hash', (string) (config('app.previous_keys')[0] ?? config('app.key'))));
+
+        return hash_hmac('sha256', mb_strtolower(trim($email)), $key);
     }
 
     /**

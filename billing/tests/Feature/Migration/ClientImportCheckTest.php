@@ -192,6 +192,7 @@ test('a row imported from this source before is unchanged when its data is the s
 });
 
 test('checking a chunk issues a fixed number of queries; the company lookup adds one per 200 distinct first words', function () {
+    MigrationRecord::emailHash(''); // the email-hash key is read once per process (InstallSecrets)
     $count = function (int $rows, bool $company): int {
         // Every row has its own email, tax ID and company first word, so no lookup can share work between rows.
         $run = ClientCsv::upload(ClientCsv::file(array_map(fn (int $i): array => [...ClientCsv::row((string) $i, "client{$i}@example.com", company: "Firm{$i} Hosting"), "TAX{$i}"], range(1, $rows)), [...ClientCsv::HEADER, 'Tax ID']));

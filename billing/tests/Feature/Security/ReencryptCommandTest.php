@@ -14,6 +14,7 @@ use App\Modules\Kyc\Models\KycDocument;
 use App\Modules\Services\Models\Server;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Encryption\Encrypter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Facade;
@@ -62,8 +63,7 @@ test('a rotation re-encrypts columns, secret settings, 2FA secrets and identity 
 
     $this->artisan('security:reencrypt')->assertExitCode(0);
 
-    useKeys($this->new); // the old key is gone
-    app(Settings::class)->forgetCached();
+    useKeys($this->new); // the old key is gone; the command itself dropped the cached settings
     $current = onlyKey($this->new);
     $document->refresh();
 
@@ -186,7 +186,43 @@ test('a write by the app during the run wins over the re-encryption', function (
         ->and(ActivityLog::query()->where('event', 'security.reencrypted')->sole()->properties['totals']['changed'])->toBe(1);
 });
 
+test('a real run refuses to start while modules are missing, unless --partial; another run holding the lock is exit 4', function () {
+    Server::factory()->create(['password' => 'p']);
+    useKeys($this->new, [$this->old]);
+    config(['modules.only' => 'Services']);
+
+    $this->artisan('security:reencrypt')->expectsOutputToContain('Modules not loaded: Billing')->assertExitCode(2);
+    $this->artisan('security:reencrypt --dry-run')->assertExitCode(3);
+    $this->artisan('security:reencrypt --partial')->assertExitCode(3);
+    expect(ActivityLog::query()->where('event', 'security.reencrypted')->sole()->properties['skipped_modules'])->toContain('Billing')->not->toContain('Services');
+
+    config(['modules.only' => '']);
+    $lock = Cache::lock('security:reencrypt', 60);
+    $lock->get();
+    $this->artisan('security:reencrypt')->expectsOutputToContain('Another security:reencrypt run is in progress')->assertExitCode(4);
+    $lock->release();
+});
+
 test('invalid options exit with code 2', function () {
     $this->artisan('security:reencrypt', ['--chunk' => 0])->assertExitCode(2);
     $this->artisan('security:reencrypt', ['--only' => ['nope.column']])->assertExitCode(2);
+});
+
+test('a run killed after switching an identity image but before deleting the old file removes it on the next run', function () {
+    $document = KycDocument::factory()->create(['back_path' => null]);
+    $oldPath = $document->front_path;
+    Storage::disk(KycDocument::DISK)->put($oldPath, onlyKey($this->old)->encrypt('scan', false));
+    useKeys($this->new, [$this->old]);
+
+    // The state a run killed right after the switch commits leaves: the row on the new file, the old file still there
+    // and the pending record (written under another key's fingerprint, which settling does not depend on).
+    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+    $newPath = $document->fresh()->front_path;
+    Storage::disk(KycDocument::DISK)->put($oldPath, onlyKey($this->old)->encrypt('scan', false));
+    ReencryptionCheckpoint::query()->create(['target' => 'kyc_documents.files', 'key_fingerprint' => 'x', 'counts' => [], 'pending' => ['key' => $document->id, 'column' => 'front_path', 'old' => $oldPath, 'new' => $newPath]]);
+
+    $this->artisan('security:reencrypt', ['--only' => ['kyc_documents.files']])->assertExitCode(0);
+
+    expect(Storage::disk(KycDocument::DISK)->allFiles())->toBe([$newPath])
+        ->and(onlyKey($this->new)->decrypt(Storage::disk(KycDocument::DISK)->get($newPath), false))->toBe('scan');
 });
