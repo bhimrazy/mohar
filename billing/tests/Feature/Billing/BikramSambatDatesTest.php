@@ -24,7 +24,7 @@ beforeEach(function () {
     Currency::factory()->npr()->create();
 });
 
-function nprInvoice(?Client $client = null): Invoice
+function bsDatesInvoice(?Client $client = null): Invoice
 {
     $client ??= Client::factory()->create(['country' => 'NP', 'currency' => 'NPR', 'email' => 'payer@example.test']);
 
@@ -33,7 +33,7 @@ function nprInvoice(?Client $client = null): Invoice
 
 test('BS dates are off by default: no BS date in pages, the PDF or merge fields', function () {
     billingStaff();
-    $invoice = nprInvoice();
+    $invoice = bsDatesInvoice();
 
     $this->get(route('admin.billing.invoices.show', $invoice))
         ->assertInertia(fn (Assert $page) => $page->where('invoice.issue_date_bs', null)->where('invoice.due_date_bs', null));
@@ -66,7 +66,7 @@ test('staff turn the setting on from Admin → Settings → Billing', function (
 test('with the setting on, the admin invoice page shows both dates', function () {
     billingSettings(['show_bs_dates' => true]);
     billingStaff();
-    $invoice = nprInvoice();
+    $invoice = bsDatesInvoice();
 
     $this->get(route('admin.billing.invoices.show', $invoice))
         ->assertInertia(fn (Assert $page) => $page
@@ -77,7 +77,7 @@ test('with the setting on, the admin invoice page shows both dates', function ()
 test('with the setting on, the client invoice page shows both dates', function () {
     billingSettings(['show_bs_dates' => true]);
     [, $client] = actingAsClient(Client::factory()->create(['country' => 'NP', 'currency' => 'NPR']));
-    $invoice = nprInvoice($client);
+    $invoice = bsDatesInvoice($client);
 
     $this->get(route('client.invoices.show', $invoice->id))
         ->assertInertia(fn (Assert $page) => $page
@@ -87,7 +87,7 @@ test('with the setting on, the client invoice page shows both dates', function (
 });
 
 test('with the setting on, the PDF prints both dates and is cached apart from the AD-only PDF', function () {
-    $invoice = nprInvoice();
+    $invoice = bsDatesInvoice();
     $adOnly = app(InvoicePdf::class)->path($invoice, 'en');
     billingSettings(['show_bs_dates' => true]);
 
@@ -102,7 +102,7 @@ test('with the setting on, invoice emails show both dates; off, only the AD date
     seedEmailTemplates();
     billingSettings(['show_bs_dates' => $on, 'pdf.attach_to_emails' => false]);
     billingStaff();
-    $invoice = nprInvoice();
+    $invoice = bsDatesInvoice();
 
     $this->post(route('admin.billing.invoices.remind', $invoice))->assertRedirect();
 
