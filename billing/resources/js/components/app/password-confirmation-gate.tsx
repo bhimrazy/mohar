@@ -15,12 +15,15 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
+import { STEP_UP_DOWNLOAD_EVENT } from '@/components/app/step-up-download-link';
 import type { HttpMethod } from '@/types/app';
 
 type PendingVisit = {
     url: string;
     method: HttpMethod;
     data: Record<string, unknown>;
+    /** A file: after confirming, the browser navigates to it instead of an Inertia visit. */
+    download?: boolean;
 };
 
 function xsrfToken(): string {
@@ -65,9 +68,23 @@ export function PasswordConfirmationGate() {
             }
         });
 
+        const onDownload = (event: Event) => {
+            event.preventDefault();
+            setPassword('');
+            setError(null);
+            setPending({
+                url: (event as CustomEvent<{ url: string }>).detail.url,
+                method: 'get',
+                data: {},
+                download: true,
+            });
+        };
+        window.addEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
+
         return () => {
             offBefore();
             offError();
+            window.removeEventListener(STEP_UP_DOWNLOAD_EVENT, onDownload);
         };
     }, []);
 
@@ -109,6 +126,13 @@ export function PasswordConfirmationGate() {
 
             const visit = pending;
             setPending(null);
+
+            if (visit.download) {
+                window.location.assign(visit.url);
+
+                return;
+            }
+
             router.visit(visit.url, {
                 method: visit.method,
                 data: visit.data as Record<string, string>,

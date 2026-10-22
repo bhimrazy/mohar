@@ -1,6 +1,7 @@
 <?php
 
 use App\Modules\Core\Models\ActivityLog;
+use App\Modules\Core\Security\Reencryptor;
 use App\Modules\Core\Support\Settings;
 use App\Modules\Kyc\Actions\StoreDocument;
 use App\Modules\Kyc\Enums\DocumentType;
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Testing\AssertableInertia;
 
@@ -136,7 +138,7 @@ test('the audit entry has counts only', function () {
 
     $log = ActivityLog::query()->where('event', 'kyc.images.reencoded')->sole();
     $raw = (string) json_encode($log->properties);
-    expect($log->properties)->toBe(['settled' => 0, 'documents' => 2, 'images' => 3, 'reencoded' => 1, 'flagged' => 1, 'changed' => 0, 'busy' => 0, 'remaining' => 0, 'flagged_total' => 1, 'complete' => true])
+    expect($log->properties)->toBe(['settled' => 0, 'settle_failed' => 0, 'documents' => 2, 'images' => 3, 'reencoded' => 1, 'flagged' => 1, 'changed' => 0, 'busy' => 0, 'failed' => 0, 'remaining' => 0, 'flagged_total' => 1, 'complete' => true])
         ->and($log->subject_id)->toBeNull()
         ->and($raw)->not->toContain('kyc/')->not->toContain($document->fresh()->front_path);
 });
@@ -153,9 +155,10 @@ test('a run stopped by --limit resumes where it stopped', function () {
         ->and(ActivityLog::query()->where('event', 'kyc.images.reencoded')->count())->toBe(2);
 });
 
-test('a run killed around the switch loses no image and leaves no stray file after the next run', function (bool $afterCommit) {
+test('an error or a kill around the switch loses no image, logs no path, and the next run leaves no stray file', function (bool $afterCommit) {
     $document = legacyDocument();
     $old = $document->paths();
+    Log::spy();
 
     app()->bind(StoredImageReencoder::class, fn () => new class(app(ImageSanitiser::class), $afterCommit) extends StoredImageReencoder
     {
@@ -168,20 +171,18 @@ test('a run killed around the switch loses no image and leaves no stray file aft
         {
             $this->afterCommit && parent::switch($documentId, $read, $written, $issue);
 
-            throw new RuntimeException('killed');
+            throw new RuntimeException('Unable to write file at location: '.implode(', ', array_column($written, 'new')));
         }
     });
 
-    expect(fn () => reencodeRun())->toThrow(RuntimeException::class, 'killed');
+    expect(reencodeRun())->toBe(1);
 
-    // Both the old and the new files exist, the row points at one pair, and the rewrite is recorded.
+    // The state a kill leaves too: both the old and the new files, the row on one pair, the rewrites recorded.
     expect(Storage::disk(KycDocument::DISK)->allFiles())->toHaveCount(4)
         ->and(DB::table(StoredImageReencoder::REWRITES)->count())->toBe(2)
-        ->and($document->fresh()->paths() === $old)->toBe(! $afterCommit)
-        ->and(Cache::lock(StoredImageReencoder::RUN_LOCK)->get())->toBeTrue();
-    Cache::lock(StoredImageReencoder::RUN_LOCK)->forceRelease();
+        ->and($document->fresh()->paths() === $old)->toBe(! $afterCommit);
+    Log::shouldHaveReceived('warning')->once()->withArgs(fn (string $message, array $context): bool => $context === ['document_id' => $document->id, 'error' => RuntimeException::class]);
 
-    app()->forgetInstance(StoredImageReencoder::class);
     app()->offsetUnset(StoredImageReencoder::class);
     expect(reencodeRun())->toBe(0);
 
@@ -191,8 +192,58 @@ test('a run killed around the switch loses no image and leaves no stray file aft
         ->and(storedImage($document->front_path))->not->toContain('ReencodeTestPhone')
         ->and(Storage::disk(KycDocument::DISK)->allFiles())->toEqualCanonicalizing($document->paths())
         ->and(DB::table(StoredImageReencoder::REWRITES)->count())->toBe(0)
-        ->and(ActivityLog::query()->where('event', 'kyc.images.reencoded')->sole()->properties['settled'])->toBe(2);
+        ->and(ActivityLog::query()->where('event', 'kyc.images.reencoded')->orderByDesc('id')->first()->properties['settled'])->toBe(2);
 })->with(['before the switch' => false, 'after the switch, before the old files are deleted' => true]);
+
+test('a leftover file that cannot be deleted is logged by document id, kept for the next run, and does not stop the run', function () {
+    if (function_exists('posix_geteuid') && posix_geteuid() === 0) {
+        $this->markTestSkipped('root ignores directory permissions.');
+    }
+
+    $disk = Storage::disk(KycDocument::DISK);
+    $disk->put('kyc/287/old', 'x');
+    $disk->put('kyc/287/new', 'y');
+    DB::table(StoredImageReencoder::REWRITES)->insert(['document_id' => 999999999, 'old_path' => 'kyc/287/old', 'new_path' => 'kyc/287/new', 'created_at' => now(), 'updated_at' => now()]);
+    $document = legacyDocument();
+    $directory = $disk->path('kyc/287');
+    chmod($directory, 0555);
+    Log::spy();
+
+    try {
+        expect(reencodeRun())->toBe(1);
+    } finally {
+        chmod($directory, 0755);
+    }
+
+    expect($document->fresh()->sanitised_at)->not->toBeNull()
+        ->and(DB::table(StoredImageReencoder::REWRITES)->count())->toBe(1);
+    Log::shouldHaveReceived('warning')->once()->withArgs(fn (string $message, array $context): bool => array_keys($context) === ['document_id', 'error']
+        && $context['document_id'] === 999999999 && ! str_contains($message.json_encode($context), 'kyc/'));
+
+    expect(reencodeRun())->toBe(0)
+        ->and(DB::table(StoredImageReencoder::REWRITES)->count())->toBe(0)
+        ->and($disk->exists('kyc/287/old'))->toBeFalse()
+        ->and($disk->exists('kyc/287/new'))->toBeFalse();
+});
+
+test('--limit equal to the documents left finishes with exit 0', function () {
+    legacyDocument();
+    legacyDocument();
+
+    expect(reencodeRun(['--limit' => 2]))->toBe(0);
+});
+
+test('the run refuses to start while security:reencrypt holds its lock', function () {
+    $document = legacyDocument();
+    $lock = Cache::lock(Reencryptor::RUN_LOCK, 60);
+    $lock->get();
+
+    test()->artisan('kyc:reencode-images', ['--pause' => 0])->expectsOutputToContain('security:reencrypt is running')->assertExitCode(4);
+    $lock->release();
+
+    expect($document->fresh()->sanitised_at)->toBeNull()
+        ->and(Cache::lock(StoredImageReencoder::RUN_LOCK)->get())->toBeTrue();
+});
 
 test('a document the client replaces during the run is not brought back and the new upload is not overwritten', function () {
     [, $client] = actingAsClient();
@@ -216,8 +267,8 @@ test('a document the client replaces during the run is not brought back and the 
     });
 
     test()->artisan('kyc:reencode-images', ['--pause' => 0])->expectsTable(
-        ['Documents', 'Re-encoded', 'Images', 'Flagged', 'Changed during the run', 'Waited too long', 'Left to do'],
-        [[1, 0, 0, 0, 1, 0, 0]],
+        ['Documents', 'Re-encoded', 'Images', 'Flagged', 'Changed during the run', 'Waited too long', 'Failed', 'Left to do'],
+        [[1, 0, 0, 0, 1, 0, 0, 0]],
     )->assertExitCode(0);
 
     expect($replacement)->toBeInstanceOf(KycDocument::class)

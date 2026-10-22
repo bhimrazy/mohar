@@ -19,7 +19,7 @@ test('V2: a void-named XML element keeps its content masked when a child element
 test('V2 guard: HTML void elements with a secret name still leave the markup after them alone', function (string $html) {
     expect((new Redactor)->maskValues($html, []))->toBe($html);
 })->with([
-    'forgot password' => ['<input type="password" name="password" value=""><p>Forgot your password?</p>'],
+    'forgot password' => ['<!DOCTYPE html><html><body><input type="password" name="password" value=""><p>Forgot your password?</p>'],
     'self-closed input' => ['<input name="password" /> Enter it here <b>now</b>'],
     'non-secret param' => ['<param name="domain">a.com.np</param><br>ok'],
 ]);

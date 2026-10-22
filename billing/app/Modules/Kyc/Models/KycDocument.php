@@ -35,7 +35,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $superseded_at
  * @property CarbonImmutable|null $delete_after
  * @property CarbonImmutable|null $sanitised_at the images were re-encoded (ImageSanitiser), at upload or by kyc:reencode-images
- * @property string|null $sanitise_issue why kyc:reencode-images left the images as stored (self::ISSUES)
+ * @property string|null $sanitise_issue why kyc:reencode-images left an image as stored (self::ISSUES)
  * @property CarbonImmutable|null $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Client $client
@@ -50,7 +50,7 @@ class KycDocument extends Model
 
     public const DISK = 'objects';
 
-    /** Why kyc:reencode-images left a document's images as stored: unreadable (missing or no key decrypts it), refused (GD cannot decode it, or over the limits). */
+    /** Why kyc:reencode-images left an image as stored: unreadable (missing, or no key decrypts it), refused (GD cannot decode it, or over the limits). */
     public const ISSUES = ['unreadable', 'refused'];
 
     protected function casts(): array

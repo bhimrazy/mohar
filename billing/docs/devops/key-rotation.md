@@ -100,6 +100,8 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
     - A server: `php artisan optimize` (the cached configuration holds the key), restart php-fpm, then
       `php artisan queue:restart` and any `schedule:work` process. The `schedule:run` cron job picks up the change by
       itself.
+    - Either way, stop a running `kyc:reencode-images` before the restart (Ctrl+C; it resumes) and start it again only
+      after this step: it encrypts with the key it started with ([kyc-images.md](kyc-images.md)).
 5. **Re-encrypt.** Docker: `docker compose -f deploy/compose.prod.yaml --profile <live colour> exec -T app-<live colour>
    php artisan security:reencrypt`. A server: `php artisan security:reencrypt`. The command reads each table in chunks
    (`--chunk`, 500 by default) and saves a checkpoint after each one. If it is interrupted, run it again and it
@@ -109,8 +111,9 @@ key encrypts everything written from the restart on, the old key stays in `APP_P
    one chunk is held in memory. A value the app writes during the run is left as the app wrote it. An identity image
    is written under a new name, recorded in the checkpoint, and the old file is deleted once the row points at the new
    one; a run killed in between finishes that on the next run. `kyc:reencode-images` ([kyc-images.md](kyc-images.md))
-   switches identity images the same way; the two commands can run at the same time, and a file one of them moved is
-   left to the other's next run. A real run needs every module loaded, so no module's
+   switches identity images the same way. It refuses to start while `security:reencrypt` holds its lock; the two
+   may overlap only when both started after the restart in step 4, and then a file one of them moved is left to the
+   other's next run. A real run needs every module loaded, so no module's
    data stays on the old key: it refuses to start (exit 2) when `MODULES` leaves modules out, unless you pass
    `--partial`, which names the skipped modules in the summary and the audit entry and ends with exit 3. The command
    writes one audit-log entry ("Stored secrets were re-encrypted …", event `security.reencrypted`) with the counts

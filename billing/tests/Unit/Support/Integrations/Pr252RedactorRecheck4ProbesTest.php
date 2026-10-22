@@ -39,12 +39,12 @@ test('residual L4: a next-line value that ends in a colon is masked, as on devel
     'token' => ["token:\nQWxhZGRpbjpvcGVu:\n", 'QWxhZGRpbjpvcGVu'],
 ]);
 
-test('residual L5: an unclosed void-named container masks its child content (develop and 08cbcd95 leak it too)', function (string $text, string $secret) {
+test('residual L5: an unclosed void-named container masks its child content (#278)', function (string $text, string $secret) {
     expect((new Redactor)->maskValues($text, []))->not->toContain($secret);
 })->with([
     'truncated rpc' => ["<methodCall><params>\n<param name=\"password\">\n  <value><string>TRUNC1SECRET", 'TRUNC1SECRET'],
     'after the last end tag' => ['<param name="password"><value>B1</value></param> <param name="password"><value>B2SECRET</value>', 'B2SECRET'],
-])->skip('L5 is not fixed in #252: tracked in #278 (develop leaks it too)');
+]);
 
 test('M1 parity: the readable-on-purpose skip does not hide a value after key= outside a tag', function (string $input, string $token) {
     expect(redactorParityReadableOnPurpose($input, $token))->toBeFalse();

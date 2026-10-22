@@ -9,9 +9,13 @@ uploaded before that upgrade still hold the original bytes. `php artisan kyc:ree
 
 1. Check what it will do: `php artisan kyc:reencode-images --dry-run`. It prints the documents and images left to
    re-encode, those already done and those flagged, and changes nothing. It exits 3 while there is work.
-2. Run it **off-peak**. Docker: `docker compose -f deploy/compose.prod.yaml --profile <live colour> exec -T
+2. Not during a key change: start it only after every PHP process runs on the current `APP_KEY` (step 4 of
+   [key-rotation.md](key-rotation.md)), and stop a running one before that restart (Ctrl+C; it resumes). The run
+   encrypts with the key it started with, so a file it writes after `security:reencrypt` has passed that document would
+   stay on the old key. It refuses to start while `security:reencrypt` holds its lock (exit 4).
+3. Run it **off-peak**. Docker: `docker compose -f deploy/compose.prod.yaml --profile <live colour> exec -T
    app-<live colour> php artisan kyc:reencode-images`. A server: `php artisan kyc:reencode-images`.
-3. Run it again until it exits 0 (or 1 with only flagged documents left, below).
+4. Run it again until it exits 0 (or 1 with only flagged documents left, below).
 
 Each image is decoded under the same lock (`kyc:image-decode`) and caps as an upload, one image at a time, so the run
 never adds a second decode to the container: the peak is one upload's (about 290–325 MB of the 512 MB limit, measured
@@ -28,6 +32,14 @@ run: the file the row points at is kept and the other deleted, so no image is lo
 that a client or staff replaces or deletes during the run keeps what that change left; the run deletes its own new
 files. A staff member reviewing a document while it is re-encoded is asked to reload before deciding, because the
 images changed.
+
+A storage or database error on one document (or on a leftover file from an earlier run) is logged with the document id
+and the exception class only, never the path; that document is left unchanged and retried on the next run, and the run
+carries on with the others. It then ends with exit 1.
+
+The run lock (`kyc:reencode-images`, 6 hours) is released when the process ends, also after a fatal error. If a run is
+killed (`kill -9`, a container restart) the next one gets exit 4 until the lock expires; to start sooner, delete the
+lock from the cache store (`cache_locks` with the database store).
 
 The run writes one audit-log entry (event `kyc.images.reencoded`) with counts only: documents looked at, re-encoded,
 images, flagged, changed during the run, waited too long, and documents left.
@@ -48,4 +60,5 @@ is still re-encoded. The command lists flagged documents by id on every run and 
 note on the document in Admin → Clients → Identity verification. Ask the client to upload the document again: the
 replaced document is deleted with its images by the existing replace and retention paths, and the flag goes with it.
 `--retry-flagged` tries flagged documents again, for example after restoring a missing file or adding an old key to
-`APP_PREVIOUS_KEYS`.
+`APP_PREVIOUS_KEYS`. It encodes both images again, so the one already re-encoded goes through a second lossy encode
+(JPEG or WebP at quality 90).

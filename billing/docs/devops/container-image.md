@@ -54,7 +54,7 @@ Every `FROM` and `COPY --from=` image is `<name>:<tag>@sha256:<digest>` and at l
 | worker            | `php artisan queue:work --queue=<pool> --tries=3 --timeout=200 --max-time=3600`                            |
 | automation worker | `php artisan queue:work automation --queue=automation --tries=1 --timeout=3600` (Run now, `install.md` §6) |
 | scheduler         | `php artisan schedule:work`                                                                                |
-| migrate           | `php artisan migrate --force && php artisan app:install --no-interaction`                                  |
+| migrate           | `php artisan migrate --isolated=1 --force && php artisan app:install --no-interaction` (cache table first) |
 
 PHP settings are `php.ini-production` plus `deploy/php/app.ini` (upload limits for ticket attachments, matched by
 the Caddyfile's `request_body` limit) and `deploy/php/opcache.ini` (`validate_timestamps=0`: code never changes in

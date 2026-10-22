@@ -9,10 +9,12 @@ use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
+use Throwable;
 
 /**
  * Re-encodes the images of documents stored before #286 (`kyc:reencode-images`, #287), one image at a time through
@@ -24,6 +26,9 @@ use RuntimeException;
  * when it still points at the files that were read; a document replaced, deleted or moved meanwhile keeps what it has
  * and the new files are deleted. The old files are deleted after the commit. A run killed in between is finished by
  * settle() at the start of the next run, which keeps the file the row points at and deletes the other.
+ *
+ * A storage or database error on one document or record is logged with the document id and the exception class only
+ * (storage messages carry the path, spec §5), counted as failed, and retried on the next run; the run carries on.
  */
 class StoredImageReencoder
 {
@@ -61,45 +66,67 @@ class StoredImageReencoder
     }
 
     /**
-     * Finish the rewrites a killed run left: under the document's lock, delete whichever of the two files the row does
-     * not point at (both when the row is gone). Call it only while holding RUN_LOCK. Returns how many it settled.
+     * Finish the rewrites a killed run left: under the document's lock, find whichever of the two files the row does not
+     * point at (both when the row is gone), then delete them after the commit and the record last. Call it only while
+     * holding RUN_LOCK: only this command switches a row to those names, so neither can become the row's again. A record
+     * that fails (a storage error) is logged by document id, kept for the next run, and skipped.
+     *
+     * @return array{settled: int, failed: int}
      */
-    public function settle(): int
+    public function settle(): array
     {
-        $settled = 0;
+        $counts = ['settled' => 0, 'failed' => 0];
 
         foreach (DB::table(self::REWRITES)->orderBy('id')->get() as $rewrite) {
-            DB::transaction(function () use ($rewrite): void {
-                $current = $this->lockDocument((int) $rewrite->document_id)?->paths() ?? [];
+            try {
+                $unused = DB::transaction(fn (): array => array_values(array_diff(
+                    [(string) $rewrite->old_path, (string) $rewrite->new_path],
+                    $this->lockDocument((int) $rewrite->document_id)?->paths() ?? [],
+                )));
 
-                foreach ([(string) $rewrite->old_path, (string) $rewrite->new_path] as $path) {
-                    if (! in_array($path, $current, true)) {
-                        Storage::disk(KycDocument::DISK)->delete($path);
-                    }
-                }
+                $this->delete($unused);
 
                 DB::table(self::REWRITES)->where('id', $rewrite->id)->delete();
-            });
-            $settled++;
+                $counts['settled']++;
+            } catch (Throwable $exception) {
+                $this->report('A half-finished identity image rewrite could not be settled; the next run retries it.', (int) $rewrite->document_id, $exception);
+                $counts['failed']++;
+            }
         }
 
-        return $settled;
+        return $counts;
     }
 
     /**
-     * Re-encode one document's images. Returns the outcome and the number of images switched:
-     * - reencoded: every image was re-encoded and the row now points at the new files (sanitised_at set);
-     * - flagged: at least one image could not be read or re-encoded and was left as stored (sanitise_issue set); the
-     *   others were re-encoded;
-     * - changed: the row was deleted or given other files during the run, so nothing was switched;
-     * - busy: an upload held the decode lock for kyc.reencode_decode_wait_seconds; nothing was switched, the next run retries it.
+     * Re-encode one document's images. Returns the outcome
+     * and the number of images switched:
+     * - reencoded: every image is re-encoded and the row points at the new files (sanitised_at set);
+     * - flagged: an image could not be read or re-encoded and was left as stored (sanitise_issue names why); the other
+     *   image was re-encoded (with --retry-flagged it is encoded once more, at the same quality steps);
+     * - changed: the row was deleted, given other files or marked done during the run, so nothing was switched;
+     * - busy: an upload held the decode lock for kyc.reencode_decode_wait_seconds; nothing was switched;
+     * - failed: a storage or database error; logged by document id, its rewrite records are left for settle().
      *
      * Must run outside a transaction: the decode lock lives in the cache store, and on PostgreSQL a contended database
      * lock inside a transaction aborts it (StoreDocument has the same rule).
      *
-     * @return array{outcome: 'reencoded'|'flagged'|'changed'|'busy', images: int}
+     * @return array{outcome: 'reencoded'|'flagged'|'changed'|'busy'|'failed', images: int}
      */
     public function reencode(KycDocument $document): array
+    {
+        try {
+            return $this->reencodeSides($document);
+        } catch (Throwable $exception) {
+            $this->report('An identity document could not be re-encoded; the next run retries it.', $document->id, $exception);
+
+            return ['outcome' => 'failed', 'images' => 0];
+        }
+    }
+
+    /**
+     * @return array{outcome: 'reencoded'|'flagged'|'changed'|'busy', images: int}
+     */
+    private function reencodeSides(KycDocument $document): array
     {
         $disk = Storage::disk(KycDocument::DISK);
         /** @var array<string, array{old: string, new: string, mime_column: string, mime: string}> $written */
@@ -150,8 +177,8 @@ class StoredImageReencoder
 
     /**
      * The re-encoded image, or why it is left as stored: unreadable (the file is missing or no key decrypts it) or
-     * refused (GD cannot decode it, or it is over the limits). Storage errors other than a missing file propagate: they
-     * stop the run, which resumes on the next.
+     * refused (GD cannot decode it, or it is over the limits). Other storage errors propagate to reencode(), which logs
+     * them by document id only.
      *
      * @return array{bytes: string, mime: string}|'unreadable'|'refused'
      *
@@ -209,7 +236,9 @@ class StoredImageReencoder
             $changes = $issue === null ? ['sanitised_at' => now(), 'sanitise_issue' => null] : ['sanitise_issue' => $issue];
 
             foreach ($written as $column => $file) {
-                // The new file was removed meanwhile (an overlapping run's settle): keep the old one.
+                // The new file was removed meanwhile (an overlapping run's settle after the run lock expired): keep the old
+                // one. This and settle() call the object store under the row locks: one request each, and the check must
+                // see the same state the switch writes.
                 if (! Storage::disk(KycDocument::DISK)->exists($file['new'])) {
                     return null;
                 }
@@ -232,11 +261,30 @@ class StoredImageReencoder
      */
     private function finish(int $documentId, array $paths): void
     {
-        foreach ($paths as $path) {
-            Storage::disk(KycDocument::DISK)->delete($path);
-        }
-
+        $this->delete($paths);
         DB::table(self::REWRITES)->where('document_id', $documentId)->delete();
+    }
+
+    /**
+     * Delete files, failing loudly also on a disk configured not to throw, so a rewrite record is kept until they are gone.
+     *
+     * @param  list<string>  $paths
+     */
+    private function delete(array $paths): void
+    {
+        foreach ($paths as $path) {
+            if (! Storage::disk(KycDocument::DISK)->delete($path)) {
+                throw new RuntimeException('An identity image file could not be deleted.');
+            }
+        }
+    }
+
+    /**
+     * Only the id and the exception class: storage messages carry the path (spec §5), as in DocumentVault.
+     */
+    private function report(string $message, int $documentId, Throwable $exception): void
+    {
+        Log::warning($message, ['document_id' => $documentId, 'error' => $exception::class]);
     }
 
     /**
