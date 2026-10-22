@@ -10,17 +10,25 @@ Sources:
 - the GitHub runner run of 2026-10-21, [actions/runs/39472898451](https://github.com/bhimrazy/mohar/actions/runs/39472898451),
   reported in the [results comment on PR #108](https://github.com/bhimrazy/mohar/pull/108#issuecomment-6308776905);
 - the codespace re-measure of 2026-10-20, reported in the
-  [earlier comment on PR #108](https://github.com/bhimrazy/mohar/pull/108#issuecomment-6297654724).
+  [earlier comment on PR #108](https://github.com/bhimrazy/mohar/pull/108#issuecomment-6297654724);
+- the restore drill of 2026-10-22 (production.md, "Restore drill"), which ran the full production stack, including a
+  blue-green deploy, on a Docker Desktop VM with 3.6 GB.
 
 ## Short answer
 
-| Host                                  | Clients      | What the measurements say                                                                                                                                                                                                    |
-| ------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Small: 2 vCPU, 4 GB** (the profile) | under 2,000  | Enough, with a wide margin (inference). The small profile was measured at 50,000 clients, 25 times this volume, with 40 active users: median 41 ms per request, no errors.                                                   |
-| Small: 2 vCPU, 4 GB                   | 2,000–20,000 | Enough for the pages and the billing day (inference from the 50,000-client run, which is the larger data set). The tail at 40 active users (sign-in, dashboards) is the thing to watch; see "Where the small host runs out". |
-| Small: 2 vCPU, 4 GB                   | 50,000       | Measured. Median 41 ms over all pages; p95 under 200 ms on the searches and lists, p95 of 3–5 s on the dashboards, the storefront and sign-in at 40 active users; billing day 284.5 s.                                       |
-| Medium: 4 vCPU, 8 GB                  | any          | Not measured. The next step when the small host's tail latency matters: 8 PHP threads instead of 4. It fits the public repository's runner and can be run from Actions.                                                      |
-| Large: 8 vCPU, 16 GB                  | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                        |
+**Minimum and recommended: 2 vCPU and 4 GB**, for the whole production stack on one host
+([production.md](production.md)), up to the 50,000 clients measured. Memory is not what limits it (see "Memory"
+below); the tail latency at 40 active users is, and the first step when that matters is more vCPU (the medium
+profile, 4 vCPU and 8 GB, which has not been measured). Every doc states these numbers: production.md,
+[install.md](install.md), [deployment-options.md](deployment-options.md) and the docs site's requirements page.
+
+| Host                                          | Clients      | What the measurements say                                                                                                                                                                                                    |
+| --------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Small: 2 vCPU, 4 GB** (the profile)         | under 2,000  | Enough, with a wide margin (inference). The small profile was measured at 50,000 clients, 25 times this volume, with 40 active users: median 41 ms per request, no errors.                                                   |
+| Small: 2 vCPU, 4 GB                           | 2,000–20,000 | Enough for the pages and the billing day (inference from the 50,000-client run, which is the larger data set). The tail at 40 active users (sign-in, dashboards) is the thing to watch; see "Where the small host runs out". |
+| Small: 2 vCPU, 4 GB (minimum and recommended) | 50,000       | Measured. Median 41 ms over all pages; p95 under 200 ms on the searches and lists, p95 of 3–5 s on the dashboards, the storefront and sign-in at 40 active users; billing day 284.5 s.                                       |
+| Medium: 4 vCPU, 8 GB                          | any          | Not measured. The next step when the small host's tail latency matters: 8 PHP threads instead of 4. It fits the public repository's runner and can be run from Actions.                                                      |
+| Large: 8 vCPU, 16 GB                          | above 50,000 | Not measured. The large profile needs 8 vCPU and the standard GitHub runner has 4, so it needs a larger or self-hosted runner (`loadtest/README.md`).                                                                        |
 
 "Active users" are k6 virtual users: each one loads a page, waits 1–3 seconds, loads the next, so one virtual user is
 roughly one person clicking through the site. 40 virtual users produced 17.7 requests per second.
@@ -89,6 +97,36 @@ A dash means the comment did not report that figure.
 | Invoice PDF (dompdf, one process) | p50 104 ms, p95 115 ms, 9.5 renders per second                                 |
 | Slowest automation query          | the `email_messages` insert: 11,461 calls, 4.2 s in total                      |
 | Renewals loop                     | about 1.1 s per 10,000 updates on each of services, invoices and invoice items |
+
+## Memory
+
+The 8 GB that production.md used to give as the minimum came from adding up the compose memory limits (5,888 MB at
+the peak of a deploy). Limits are ceilings; the measurements say what the stack uses.
+
+| Run                                                                                                                                  | Total memory of all containers (without k6)                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Runner, small profile, 50,000 clients, one colour (artifact `load-test-small-large-39472898451`, `docker-stats.ndjson`, 218 samples) | peak 857 MB (PDF phase); 790 MB at 40 users; 764 MB during the billing day; 790 MB during the queue drain |
+| Drill, full production stack, demo data (956 invoices), `deploy/bin/deploy` blue then green, VM of 3.6 GB (3,665 MB by `free -m`)    | peak 691 MiB with both colours' web containers and pools running, sampled every 3 s                       |
+
+Per service on the runner, the highest values over the phases: PostgreSQL 340 MB (`shared_buffers=256MB`), the
+scheduler 179 MB during the billing day, the web container 111 MB, the three pools and the automation worker 44–74 MB
+each, RustFS 80 MB, Caddy 27 MB. The kernel and page cache come on top of that, which is why 4 GB, not 1 GB, is the minimum.
+
+So a 4 GB host runs the stack in steady state with room to spare, and the drill's deploy fitted a 3.6 GB VM although
+the limits then added up to more than the VM had. What these two runs do not cover, and so what a 4 GB host has not
+been shown to survive: a deploy on the 50,000-client database (the drill's database was 29 MB; the runner's 867 MB
+was never deployed over), a deploy that waits for a billing day in progress (both colours' schedulers and automation
+workers overlap briefly), the `--memory=256` import jobs of up to 192 MB, and swap behaviour. Until someone runs a
+deploy at the large volume, treat deploys on a 4 GB host with a database of that size as unproven and watch
+`free -m` during one.
+
+## When to grow
+
+| Sign                                                                                                         | What to do                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in and dashboards have a multi-second p95 while the median is fine (measured at 40 active users: 3–5 s) | More vCPU first, and the PHP thread count that goes with it: the medium profile (4 vCPU, 8 GB, 8 threads), not yet measured |
+| Available memory under about 1 GB during a deploy (`free -m`; a guide, not a measurement)                    | Run `deploy/bin/deploy retire` after each deploy, then move to 8 GB                                                         |
+| Over 50,000 clients, or more than 40 people in the admin and client area at once                             | Not measured; run the medium or large profile from Actions → Load test before sizing                                        |
 
 ## Where the small host runs out
 

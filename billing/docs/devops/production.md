@@ -40,13 +40,17 @@ The scheduler gets the same 3,660 s: the daily automation pipeline runs inside i
 testing), and `schedule:work` waits for a run in progress when it is stopped. An idle scheduler still stops in well
 under a second. Its 512 MB covers `schedule:work`, `schedule:run` and the pipeline, which PHP allows up to 256 MB.
 
-**Sizing.** Between deploys the memory limits add up to 4,736 MB: the live colour (2,560 MB), the previous colour's
-web container kept for a rollback (512 MB), Caddy, PostgreSQL and RustFS. During a deploy the old colour still runs
-while the new web container (it replaces the idle previous one) and pools start: 5,888 MB at the peak; `migrate`
-(512 MB) runs before that, not at the same time. Limits are ceilings, not reservations, but a host whose containers
-can together claim more memory than it has gets OOM-killed before any limit applies. So **8 GB is the minimum**;
-`deploy/bin/deploy retire` frees the previous web container when memory is tight. CPU limits may exceed the host's
-cores (2 vCPU works): busy containers then share the CPU and run slower, nothing is killed.
+**Sizing.** The minimum is **2 vCPU and 4 GB**, the same host [sizing.md](sizing.md) measured: at 50,000 clients on that
+host (one colour, the load-test profile) all containers together used at most 857 MB, and the p95 over all pages
+was 424 ms at 40 active users. A full blue-green deploy, with both colours' web containers and pools running, also
+ran on a 3.6 GB Docker VM (peak 691 MiB in total; demo data, not 50,000 clients: see the restore drill below).
+The memory limits in the table are ceilings, not what is used: they add up to 4,736 MB between deploys and 5,888 MB at the peak of a deploy
+(the live colour, the previous colour's web container, the new one and its pools; `migrate` runs before that), more than a 4 GB host has.
+Nothing in the measurements came near them, but a host whose containers together claimed more than its memory would
+be OOM-killed before a limit applied, so watch `free -m` during a deploy and run `deploy/bin/deploy retire` to free the
+previous web container when memory is tight. CPU limits may exceed the host's cores: busy containers then share the
+CPU and run slower, nothing is killed. Not measured: a deploy at 50,000 clients, a deploy during the billing day, and
+hosts with more than 2 vCPU (sizing.md says when to grow).
 
 **Networks.** Only Caddy publishes ports (80, 443 and 443/udp for HTTP/3). `edge` connects Caddy and the app on a
 fixed range (`EDGE_SUBNET`), which is what `TRUSTED_PROXIES` names, so only Caddy may set the client IP and scheme.
@@ -65,7 +69,7 @@ driver rotates at 10 MB × 5 files per container. Read them with
 ## Requirements
 
 - A Linux host with Docker Engine and the Compose v2 plugin (the smoke test runs on GitHub's `ubuntu-24.04`
-  runner; Compose 5.5 was used locally). 2 vCPU and 8 GB of memory as a minimum (see Sizing).
+  runner; Compose 5.5 was used locally). 2 vCPU and 4 GB of memory as a minimum (see Sizing and [sizing.md](sizing.md)).
 - DNS `A`/`AAAA` records for `APP_DOMAIN` pointing at the host, and ports 80 and 443 (TCP, plus 443/UDP) open. Caddy
   obtains the certificate on first start from Let's Encrypt. Set `CADDY_GLOBAL_OPTIONS="email <your address>"` (Let's Encrypt refuses `example.com`): Caddy
   then also uses ZeroSSL as a fallback issuer (without an email it uses Let's Encrypt only) and you get expiry notices.
@@ -210,6 +214,13 @@ backup taken before the update.
 What to back up, as in [install.md](install.md#backups): the database and the objects bucket. `APP_KEY` is kept in
 a secrets store, apart from both; host and file backups exclude `deploy/.env` ([key-rotation.md](key-rotation.md)).
 
+> **Keep the key with your backups, in a different place.** A dump and a bucket copy are not restorable without the
+> `APP_KEY` they were written under: the gateway, registrar and server credentials and the identity images (KYC) are
+> encrypted with it. Read with another key, an encrypted value fails with a
+> `DecryptException` (the restore drill below did that on purpose with an identity image). So for every backup you keep, keep the key it
+> was written under (and the earlier ones in `APP_PREVIOUS_KEYS` for dumps from before a rotation), in a password
+> manager or secrets store that survives the loss of this host. Never in the same file, folder or bucket as the dumps.
+
 - **Database**, nightly and before every update, from the host's crontab (`crontab -e` as a user in the `docker`
   group), before the 03:00 automation run. Cron turns `%` into a newline, hence `\%`; `umask 077` keeps the dump
   readable by its owner only:
@@ -241,7 +252,17 @@ Copy the files off the host, and test a restore every quarter.
 
 ## Restoring
 
-Into an empty stack (a new host, or after `down -v`):
+Into an empty stack (a new host, or after removing the volumes). You need `deploy/.env` with the same `APP_KEY` as the
+backup (from your password manager, see above); on a new host also clone the repository at the release you run.
+
+To empty a stack you want to restore over, remove it with both colours' profiles, or the app and worker containers of
+the colours stay running with their volumes in use (`down -v` alone removes only `postgres`, `rustfs` and `caddy`, and
+`--remove-orphans` does not help):
+
+```bash
+docker compose -f deploy/compose.prod.yaml --profile blue --profile green down -v
+rm -rf deploy/state     # the live colour of the old stack
+```
 
 ```bash
 docker compose -f deploy/compose.prod.yaml up -d --wait postgres rustfs
@@ -254,9 +275,40 @@ docker compose -f deploy/compose.prod.yaml start rustfs
 deploy/bin/deploy
 ```
 
-`deploy/bin/deploy` does the rest: it finds nothing to migrate, starts a colour, writes Caddy's upstream and starts
-Caddy, then the workers and the scheduler (a plain `up` would start no app colour, and Caddy refuses to start without
-an upstream). Use the same `APP_KEY` as the backup, then sign in and open an invoice PDF to confirm the bucket.
+`deploy/bin/deploy` does the rest: it builds the image if the host has none, finds nothing to migrate, starts a colour,
+writes Caddy's upstream and starts Caddy, then the workers and the scheduler (a plain `up` would start no app colour,
+and Caddy refuses to start without an upstream).
+
+**Check the result**, in this order:
+
+1. Row counts: `select count(*)` of the tables that matter (`clients`, `invoices`, `payments`, `services`) against the
+   same query on the old database, if you still have it.
+2. Sign in as an administrator.
+3. Open an invoice PDF. It comes from the bucket, or is rendered again and stored, so it alone does not prove the bucket.
+4. If you use KYC, open an identity document in the review queue. Only the right key decrypts the image and nothing
+   regenerates it: it is the proof that the bucket and the key both came back.
+
+### Restore drill, 2026-10-22
+
+Run once, end to end, as the steps above read, on Docker Desktop (macOS, Compose 5.5) with a scratch project name
+and generated secrets: the demo seed (956 invoices, 22 clients), one invoice PDF rendered into the bucket and one
+identity image encrypted onto it, then the backup, `down -v`, the restore into a fresh stack and the checks.
+
+| Measure                                                                                     | Result                                                                             |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Database                                                                                    | 117 tables, 6,217 rows, 29 MB on disk; the dump is 1.0 MB (`--format=custom`)      |
+| Objects                                                                                     | 28 files in the archive (invoice PDF, KYC image, ticket attachment); 0.8 MB        |
+| Backup time                                                                                 | dump under 1 s; objects archive, including stopping and starting RustFS, under 1 s |
+| Restore time, from an empty host to the checks passing (image already built, layers cached) | 42 s                                                                               |
+| Row counts, all 117 tables, before the backup against after the restore                     | identical                                                                          |
+| Administrator and client sign-in                                                            | 302 to the dashboard in both                                                       |
+| Invoice PDF                                                                                 | 200, `application/pdf`, 879,110 bytes, same SHA-256 as before                      |
+| KYC image                                                                                   | decrypts, same SHA-256 and the same document number                                |
+| KYC image with another `APP_KEY`                                                            | `DecryptException`                                                                 |
+
+Not covered: a database or bucket of a real size (the dump and restore times grow with it; no restore at 50,000
+clients has been timed), a restore from a managed bucket or from the `rclone` copy, a dump taken before a key rotation,
+and a different `DB_PASSWORD` or `OBJECTS_*` pair on the new host.
 
 ## Troubleshooting
 

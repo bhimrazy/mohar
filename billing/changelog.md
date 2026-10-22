@@ -10,6 +10,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 - **Identity photos shrink in the browser before upload (#288).** On the verification page a photo whose long edge is over 2,800 px, or whose file is over 1 MB, is scaled down (never enlarged) and saved as JPEG at quality 85 before it is sent; the EXIF orientation is applied, and an image with transparency stays PNG. A preview shows the old and new file size, and the client can choose another photo. A file that is not a JPEG, PNG or WebP (for example HEIC) is refused at once with a plain message; if the browser cannot shrink a valid photo, the original is uploaded and the server decides. The two file fields no longer overflow the card on desktop. The server checks and limits are unchanged. No schema, permission or setting change.
 
+### Changed
+
+- **Sizing and restore docs (CEO review 2026-10-22).** Every doc now gives 2 vCPU and 4 GB as the minimum for the
+  production stack (it said 8 GB in `production.md` and the docs site), with the measured memory and when to grow
+  (`sizing.md`). The backup and restore steps were run end to end once; the restore section now says how to remove a
+  stack (`down -v` needs both colours' profiles), asks you to keep the `APP_KEY` of every backup, and has a checklist
+  and the drill's timings. `deploy/bin/deploy` no longer needs GNU `realpath` (it stopped on macOS). No schema,
+  permission or setting change.
+
 ### Upgrade notes
 
 - **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
