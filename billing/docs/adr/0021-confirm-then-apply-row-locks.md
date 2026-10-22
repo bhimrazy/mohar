@@ -74,7 +74,8 @@ Dry runs read without locks and write nothing (ADR 0019).
   `PlaceOrder`, which refuses the order when the locked row's currency differs from the one its gateways, fraud total
   and price overrides were worked out in), `FOR SHARE` otherwise (`IssueInvoice` without credit, `SaveDraftInvoice`,
   `Quotes::save`, `ImportServerAccounts::handle`, which checks the client's status and currency again under that lock
-  for each account and reports the account as not imported when the currency changed since the review). `SaveDraftInvoice` locks an existing draft, and `Quotes::save` an existing quote, before the client
+  for each account and reports the account as not imported when the currency changed since the review).
+  `SaveDraftInvoice` locks an existing draft, and `Quotes::save` an existing quote, before the client
   (quote, then client, the order `Quotes::convert` and `accept` take through `IssueInvoice`); each checks the row's
   state again under its lock. `CreditLedgerService::post` refuses an amount in another currency than the client row it
   locks. Rows copied from a service or order (addons, service changes, order invoices) need no client lock: those

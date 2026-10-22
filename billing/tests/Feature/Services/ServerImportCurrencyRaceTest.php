@@ -56,7 +56,7 @@ test('a currency change between the unlocked check and the insert is caught by t
 
     expect($changed)->toBeTrue()
         ->and($line)->toMatchArray(['imported' => false, 'service_id' => null,
-            'message' => 'The client\'s currency changed from NPR to USD since the review, so it was not imported in USD. Review the account again.'])
+            'message' => 'The client\'s currency changed from NPR to USD since the review, and the account was priced in NPR. Review the account again.'])
         ->and(Service::query()->exists())->toBeFalse()
         ->and(DB::table('server_account_import_report_lines')->where('server_account_import_id', $import->id)->sole())->imported->toBeFalsy()
         ->and($import->fresh()->not_imported_count)->toBe(1);
@@ -83,7 +83,7 @@ describe('a currency change racing a server account import (PostgreSQL)', functi
 
         expect($results['change']['status'])->toBe('changed')
             ->and($results['import']['status'])->toBe('not_imported')
-            ->and($results['import']['message'])->toBe('The client\'s currency changed from NPR to USD since the review, so it was not imported in USD. Review the account again.')
+            ->and($results['import']['message'])->toBe('The client\'s currency changed from NPR to USD since the review, and the account was priced in NPR. Review the account again.')
             ->and($client->fresh()->currency)->toBe('USD')
             ->and(Service::query()->where('client_id', $client->id)->exists())->toBeFalse();
     });

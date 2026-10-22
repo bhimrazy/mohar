@@ -226,7 +226,7 @@ class ImportServerAccounts
     {
         return match (true) {
             $client === null || $client->status !== 'active' => AccountImportMatcher::text('The client is no longer active.'),
-            $client->currency !== $currency => AccountImportMatcher::text('The client\'s currency changed from :reviewed to :current since the review, so it was not imported in :current. Review the account again.', ['reviewed' => $currency, 'current' => $client->currency]),
+            $client->currency !== $currency => AccountImportMatcher::text('The client\'s currency changed from :reviewed to :current since the review, and the account was priced in :reviewed. Review the account again.', ['reviewed' => $currency, 'current' => $client->currency]),
             default => null,
         };
     }
