@@ -31,6 +31,15 @@ test('remembering the same record again replaces it, and its secret is stored en
         ->and($refs->find('opensrs', 'profile', 'client', 7)?->secret)->toBe('Profile-Pass-2');
 });
 
+test('remembering a record again without a secret erases the stored one, as the contract documents', function () {
+    $refs = app(RegistrarRefs::class);
+    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'p-1', secret: 'Profile-Pass-1'));
+    $refs->remember(new RegistrarRef('opensrs', 'profile', 'client', 7, 'p-1'));
+
+    expect($refs->find('opensrs', 'profile', 'client', 7)?->secret)->toBeNull()
+        ->and(DB::table('registrar_refs')->sole()->secret)->toBeNull();
+});
+
 // Adopted from review/pr-262-probes (#265): a value longer than its column is refused the same way on SQLite and
 // PostgreSQL, instead of being stored on one and raising a QueryException on the other.
 test('an over-long ref value is refused the same way on every database', function (RegistrarRef $ref) {

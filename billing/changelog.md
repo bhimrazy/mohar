@@ -16,12 +16,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Changed
 
+- **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
+  at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second
+  levels such as `asha.np`, is never sent to a registrar, even when staff created it with a registrar key. It stays
+  Pending with the reason shown on the domain and in Needs attention, a staff task is logged and the
+  registrar-failure alert is raised; staff cancel it or set its status. The `RegistrarRefs` contract now documents
+  that recording a ref without a secret erases the stored one. No schema, permission or setting change.
 - **Sizing and restore docs (CEO review 2026-10-22).** Every doc now gives 2 vCPU and 4 GB as the minimum for the
   production stack (it said 8 GB in `production.md` and the docs site), with the measured memory and when to grow
   (`sizing.md`). The backup and restore steps were run end to end once; the restore section now says how to remove a
   stack (`down -v` needs both colours' profiles), asks you to keep the `APP_KEY` of every backup, and has a checklist
   and the drill's timings. `deploy/bin/deploy` no longer needs GNU `realpath` (it stopped on macOS). No schema,
   permission or setting change.
+- **Two time-boundary tests no longer fail on a second tick (#310, #322).** The auth throttle test and the KYC unlock-seconds test now freeze time, so Retry-After and the seconds left are measured from one instant. Tests only; no product, schema or permission change.
 
 ### Upgrade notes
 
