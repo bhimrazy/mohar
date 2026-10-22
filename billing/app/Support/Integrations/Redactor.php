@@ -43,7 +43,7 @@ final class Redactor
     private const SENSITIVE_WORDS = [
         'password', 'passwd', 'pass', 'passphrase', 'secret', 'token', 'auth', 'authorization', 'signature', 'hash',
         'hmac', 'session', 'sessions', 'cookie', 'cookies', 'credential', 'credentials', 'epp', 'otp', 'apikey', 'cvc',
-        'cvv', 'cvv2', 'pan', 'dv',
+        'cvv', 'cvv2', 'pan', 'dv', 'pw',
     ];
 
     /** ...or when two adjacent words are one of these pairs. */
@@ -54,7 +54,7 @@ final class Redactor
     ];
 
     /** ...or when the key, lowercased and with separators removed, contains one of these run-together spellings. */
-    private const RUN_TOGETHER = '/password|passwd|secret|token|apikey|signature|authorization|credential|eppcode|authcode|authinfo|authkey|accesshash|accesskey|privatekey|secretkey|hash|datavalidation/';
+    private const RUN_TOGETHER = '/password|passwd|secret|token|apikey|signature|authorization|credential|eppcode|authcode|authinfo|authkey|accesshash|accesskey|privatekey|secretkey|hash|datavalidation|session/';
 
     /** Payment payload keys (develop's gateway rule, plus `authorization`, `dv` and `dataValidation`, payments-nepal.md §4). */
     private const PAYMENT_KEYS = '/card|pan|number|cvc|cvv|token|secret|signature|password|exp|authorization|datavalidation|^dv$/i';
@@ -80,19 +80,20 @@ final class Redactor
     /** Stripe client secrets (`pi_…_secret_…`): the object id before `_secret_` stays readable. */
     private const CLIENT_SECRET_PATTERN = '/\b((?:pi|seti|src)_[A-Za-z0-9]{8,}+_secret_)[A-Za-z0-9]{8,}+/';
 
-    /** URL userinfo (`https://user:pass@host`): the whole userinfo is masked, scheme and host stay. */
-    private const URL_USERINFO_PATTERN = '/\b([A-Za-z][A-Za-z0-9+.\-]{0,15}+:\/\/)[^\s\/?#@"\'<>]++@/';
+    /** URL userinfo (`https://user:pass@host`, up to the last `@` before the path): the whole userinfo is masked, scheme and host stay. */
+    private const URL_USERINFO_PATTERN = '/\b([A-Za-z][A-Za-z0-9+.\-]{0,15}+:\/\/)[^\s\/?#"\'<>]*@/';
 
     /** A `name=value` pair inside a percent-encoded URL (a login link passed as another parameter's value). */
     private const ENCODED_PAIR_PATTERN = '/((?:%3F|%26|%3B)([A-Za-z][A-Za-z0-9_.\-]{0,63}+)%3D)((?:(?!%26)[^&\s"\'#])++)/i';
 
     /**
      * One token of the text pass: an XML start or end tag (1 slash, 2 qualified name, 3 local name, 4 attributes), or a
-     * pair's name (5) and separator (6): `name=`, `name: `, `"name":`, `\"name\":`, `'name' =>`. Only the name and
+     * pair's name (5) and separator (6): `name=`, `name: `, `"name":`, `\"name\":`, `'name' =>`, print_r's
+     * `[name] =>`, HTML-escaped `&quot;name&quot;:`; the value may start on the next line (pretty-printed JSON). Only the name and
      * separator are consumed, so the value is read by valueEnd() when the name is secret and scanned again when not.
      * Every repeat is possessive or bounded, so no input backtracks more than a constant per position.
      */
-    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.\[\]])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,63}+)((?:\\\\?["\'])?[ \t]{0,16}+(?:=>?|:)[ \t]*+)(?!\/\/)/';
+    private const TOKEN_PATTERN = '/<(\/?)((?:[A-Za-z_][\w.\-]*+:)?([A-Za-z_][\w.\-]*+))([^<>]*+)>|(?<![A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_.\-\[\]]{0,254}+)((?:\\\\?["\']|&quot;)?[ \t]{0,16}+(?:=>?|:)\s*+)(?!\/\/)/';
 
     /** An authorization scheme in front of a credential (`Authorization: Key …` is Khalti, `whm`/`cpanel` are WHM). */
     private const AUTH_SCHEME_PATTERN = '/\G(?:Bearer|Basic|Digest|Token|Key|whm|cpanel|OAuth|HMAC)[ \t]++/i';
@@ -100,11 +101,26 @@ final class Redactor
     /** XML attributes: 1 name, 2 separator, 3 value. */
     private const ATTRIBUTE_PATTERN = '/([A-Za-z_:][\w:.\-]*+)([ \t\r\n]*+=[ \t\r\n]*+)("[^"]*+"|\'[^\']*+\'|[^\s"\'>]++)/';
 
+    /** An `&` ends an unquoted value when the next pair, an entity, a space or the end follows (eSewa secrets hold `&`). */
+    private const AMPERSAND_END = '/\G&(?:amp;|#|[A-Za-z_][A-Za-z0-9_.\-\[\]%]{0,254}+=|\s|$)/';
+
+    /** Labels whose value is a reference in free text (`Session: cs_live_… expired`, `hash: …`), not a credential. */
+    private const REFERENCE_LABELS = ['session', 'hash'];
+
+    /** Header names whose whole line is secret: every cookie on it (`Cookie: theme=dark; cpsession=…`). */
+    private const WHOLE_LINE_KEYS = ['cookie', 'set-cookie'];
+
+    /** `curl -u user:password` and the proxy form: the credentials after the flag. */
+    private const CLI_CREDENTIAL_PATTERN = '/(?<![^\s])((?:-u|-U|--user|--proxy-user)(?:[ \t]++|=))[^\s"\':]*+:[^\s"\']++/';
+
+    /** End tags looked at after a secret start tag before it counts as unclosed; keeps the element search linear. */
+    private const END_TAG_LOOKAHEAD = 64;
+
     /** Attributes that name the element's field (OpenSRS `<item key="…">`, `<param name="…">`) rather than hold a value. */
     private const LABEL_ATTRIBUTES = ['key', 'name'];
 
-    /** An unquoted value ends at one of these... */
-    private const VALUE_HARD_END = " \t\r\n\f\v&\"<>";
+    /** An unquoted value ends at one of these, or at an `&` that starts the next pair (see AMPERSAND_END)... */
+    private const VALUE_HARD_END = " \t\r\n\f\v\"<>";
 
     /** ...or at one of these when it is followed by a space, a quote, another end character or the end of the text. */
     private const VALUE_SOFT_END = ',;)]}\'';
@@ -290,7 +306,10 @@ final class Redactor
             $decoded = json_decode($value, true);
 
             if (is_array($decoded)) {
-                return (string) json_encode($this->redactWith($decoded, $variants, $sensitiveKeys, $depth + 1), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                $redacted = $this->redactWith($decoded, $variants, $sensitiveKeys, $depth + 1);
+
+                // Nothing secret: keep the provider's own formatting rather than re-encoding it.
+                return $redacted === $decoded ? $value : (string) json_encode($redacted, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
             }
         }
 
@@ -301,6 +320,7 @@ final class Redactor
         $value = (string) preg_replace(self::SENSITIVE_VALUE_PATTERNS, self::MASK, $value);
         $value = (string) preg_replace(self::CLIENT_SECRET_PATTERN, '$1'.self::MASK, $value);
         $value = (string) preg_replace(self::URL_USERINFO_PATTERN, '$1'.self::MASK.'@', $value);
+        $value = (string) preg_replace(self::CLI_CREDENTIAL_PATTERN, '$1'.self::MASK, $value);
 
         if (stripos($value, '%3D') !== false) {
             $value = (string) preg_replace_callback(
@@ -326,8 +346,9 @@ final class Redactor
         $length = strlen($value);
         $position = 0;
         $output = '';
-        /** @var array<string, true> $unclosed elements with no end tag after some point, so none after a later one either */
-        $unclosed = [];
+        /** @var list<int>|null $endTags offsets of every `</`, found once when the first secret element needs them */
+        $endTags = null;
+        $endTagCursor = 0;
 
         while ($position < $length && preg_match(self::TOKEN_PATTERN, $value, $match, PREG_OFFSET_CAPTURE | PREG_UNMATCHED_AS_NULL, $position) === 1) {
             $start = $match[0][1];
@@ -338,8 +359,10 @@ final class Redactor
             if ($match[5][0] !== null) {
                 $output .= $match[0][0];
 
-                if ($this->isSensitiveKey(rtrim($match[5][0], '[]'), $sensitiveKeys)) {
-                    $valueEnd = $this->valueEnd($value, $end);
+                if ($this->isSecretPair((string) $match[5][0], (string) $match[6][0], $sensitiveKeys)) {
+                    $valueEnd = in_array(strtolower((string) $match[5][0]), self::WHOLE_LINE_KEYS, true)
+                        ? $end + strcspn($value, "\r\n", $end)
+                        : $this->valueEnd($value, $end);
                     $output .= $this->maskSpan(substr($value, $end, $valueEnd - $end));
                     $position = $valueEnd;
                 }
@@ -358,13 +381,25 @@ final class Redactor
                 continue;
             }
 
-            $closeTag = '</'.$match[2][0];
-            $contentEnd = isset($unclosed[strtolower($closeTag)]) ? false : stripos($value, $closeTag, $end);
+            // The scan only moves forward, so one cursor over the end-tag offsets serves every element: linear overall.
+            $endTags ??= $this->endTagOffsets($value);
+            $endTagCount = count($endTags);
 
-            if ($contentEnd === false) {
-                $unclosed[strtolower($closeTag)] = true;
-                $contentEnd = $this->unclosedContentEnd($value, $end);
+            while ($endTagCursor < $endTagCount && $endTags[$endTagCursor] < $end) {
+                $endTagCursor++;
             }
+
+            $contentEnd = null;
+
+            for ($index = $endTagCursor; $index < min($endTagCount, $endTagCursor + self::END_TAG_LOOKAHEAD); $index++) {
+                if ($this->endTagCloses($value, $endTags[$index], (string) $match[2][0])) {
+                    $contentEnd = $endTags[$index];
+
+                    break;
+                }
+            }
+
+            $contentEnd ??= $this->unclosedContentEnd($value, $end);
 
             $content = substr($value, $end, $contentEnd - $end);
             $output .= trim($content) === '' ? $content : self::MASK;
@@ -372,6 +407,48 @@ final class Redactor
         }
 
         return $output.substr($value, $position);
+    }
+
+    /**
+     * Whether a pair's value is secret. `Session:` and `hash:` written as a label in free text (unquoted name, a colon
+     * and a space) introduce a reference such as a Stripe Checkout Session id; as `session=` or a quoted key they stay
+     * secret.
+     *
+     * @param  list<string>  $sensitiveKeys
+     */
+    private function isSecretPair(string $name, string $separator, array $sensitiveKeys): bool
+    {
+        $name = rtrim($name, '[]');
+
+        if (in_array(strtolower($name), self::REFERENCE_LABELS, true) && preg_match('/^[ \t]*:\s/', $separator) === 1) {
+            return false;
+        }
+
+        return $this->isSensitiveKey($name, $sensitiveKeys);
+    }
+
+    /**
+     * Offsets of every `</` in the text, in order.
+     *
+     * @return list<int>
+     */
+    private function endTagOffsets(string $value): array
+    {
+        $offsets = [];
+
+        for ($offset = strpos($value, '</'); $offset !== false; $offset = strpos($value, '</', $offset + 2)) {
+            $offsets[] = $offset;
+        }
+
+        return $offsets;
+    }
+
+    /** Whether the `</` at $offset ends the element $name (case-insensitive, followed by `>` or a space). */
+    private function endTagCloses(string $value, int $offset, string $name): bool
+    {
+        $after = $value[$offset + 2 + strlen($name)] ?? '';
+
+        return ($after === '>' || ctype_space($after)) && substr_compare($value, $name, $offset + 2, strlen($name), true) === 0;
     }
 
     /**
@@ -403,10 +480,24 @@ final class Redactor
             return $this->bracketEnd($value, $start);
         }
 
-        $stops = self::VALUE_HARD_END.self::VALUE_SOFT_END;
+        if (substr_compare($value, '&quot;', $start, 6) === 0) {
+            $close = strpos($value, '&quot;', $start + 6);
+
+            return $close === false ? $length : $close + 6;
+        }
+
+        $stops = self::VALUE_HARD_END.self::VALUE_SOFT_END.'&';
 
         for ($index = $start; ; $index++) {
             $index += strcspn($value, $stops, $index);
+
+            if ($index < $length && $value[$index] === '&') {
+                if (preg_match(self::AMPERSAND_END, $value, $ampersand, 0, $index) === 1) {
+                    return $index;
+                }
+
+                continue;
+            }
 
             if ($index >= $length || ! str_contains(self::VALUE_SOFT_END, $value[$index])) {
                 return min($index, $length);
@@ -491,7 +582,7 @@ final class Redactor
             return $span;
         }
 
-        foreach (['\\"', "\\'", '"', "'"] as $quote) {
+        foreach (['&quot;', '\\"', "\\'", '"', "'"] as $quote) {
             if (str_starts_with($span, $quote)) {
                 $inner = substr($span, strlen($quote));
                 $closed = strlen($inner) >= strlen($quote) && str_ends_with($inner, $quote);

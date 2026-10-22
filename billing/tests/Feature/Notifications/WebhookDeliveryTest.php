@@ -217,3 +217,20 @@ it('stores the receiver answer and transport errors with secrets masked (#190)',
     app(WebhookPublisher::class)->publishEvent(new InvoicePaid(8, 1, []));
     expect(WebhookDelivery::query()->sole()->error)->toContain('token=[redacted]&id=5');
 });
+
+it('cuts a large receiver answer to its stored size before masking it (#252 B1)', function () {
+    $body = '';
+
+    for ($index = 0; strlen($body) < 1024 * 1024; $index++) {
+        $body .= '<password'.$index.'>x';
+    }
+
+    Http::fake(['hooks.example.com/*' => Http::response($body, 500)]);
+    $started = hrtime(true);
+
+    app(WebhookPublisher::class)->publishEvent(new InvoicePaid(7, 1, []));
+
+    expect((hrtime(true) - $started) / 1e9)->toBeLessThan(1.0)
+        ->and(strlen((string) WebhookDelivery::query()->sole()->response_body))->toBeLessThanOrEqual(2048)
+        ->and(WebhookDelivery::query()->sole()->response_body)->toStartWith('<password0>[redacted]<password1>[redacted]');
+});

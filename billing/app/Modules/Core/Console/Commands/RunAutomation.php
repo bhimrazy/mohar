@@ -37,7 +37,7 @@ class RunAutomation extends Command
         return false;
     }
 
-    public function handle(Automation $automation): int
+    public function handle(Automation $automation, Redactor $redactor): int
     {
         $lock = Cache::lock(self::LOCK, Queues::AUTOMATION_TIMEOUT_SECONDS);
 
@@ -48,13 +48,13 @@ class RunAutomation extends Command
         }
 
         try {
-            return $this->runPipeline($automation);
+            return $this->runPipeline($automation, $redactor);
         } finally {
             $lock->release();
         }
     }
 
-    private function runPipeline(Automation $automation): int
+    private function runPipeline(Automation $automation, Redactor $redactor): int
     {
         $date = $this->option('date') ? CarbonImmutable::parse((string) $this->option('date'))->startOfDay() : CarbonImmutable::today();
         $failed = false;
@@ -82,7 +82,7 @@ class RunAutomation extends Command
             } catch (Throwable $exception) {
                 report($exception);
                 $failed = true;
-                $message = app(Redactor::class)->maskValues($exception->getMessage(), []);
+                $message = $redactor->maskValues($exception->getMessage(), []);
                 $run->fill(['status' => 'failed', 'summary' => $message]);
                 $this->components->twoColumnDetail($key, '<fg=red>failed: '.$message.'</>');
             }

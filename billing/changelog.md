@@ -355,12 +355,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   secret keys, webhook secrets and client secrets, Khalti secret keys, and the `Key`, `whm` and `cpanel` authorization
   schemes. A secret pair behind any number of labels or long values is found (before, past two labels or 4 KB the
   value was kept). Ids, amounts and references stay readable (Stripe ids, Khalti `pidx`, eSewa `transaction_uuid`,
-  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`). Text is read in one pass: a 1 MB adversarial
-  string is masked in well under a second.
+  ResellerClub `auth-userid`, OpenSRS `order_id`, Namecheap `DomainID`, and a Stripe Checkout Session id after a
+  `Session:` label). Also masked: EPP `<newPW>`, cPanel and WHM session cookies (`cpsession`, `whostmgrsession`) and
+  every cookie on a `Cookie:` line, `print_r` dumps (`[password] => …`), pretty-printed JSON with the value on the next
+  line, HTML-escaped JSON, an `&` inside an unquoted secret, field names up to 255 characters, `curl -u` credentials
+  and a raw `@` in a URL password. Text is read in one linear pass: a 1 MB adversarial string, including many
+  distinct unclosed secret elements, is masked in under half a second.
 - Registrar errors re-thrown by the gateway keep their exception class, retry flag and `previous` chain; the message
   of every exception in the chain is masked. Webhook delivery errors and receiver answers, failed automation run
   summaries, usage-sync errors reported to the log, and the provider answer stored on a card capture's transaction
-  are now masked too.
+  are now masked too. A webhook receiver's answer is cut to its stored 2 KB before it is masked, so a large answer
+  costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
+  re-encoded (whitespace can differ).
 
 ### Identity verification (KYC)
 

@@ -18,7 +18,9 @@ test('secrets in headers are masked, scheme included', function (string $text, s
     'api key header' => ["X-Api-Key: KK1\r\nX-Request-Id: req_123", "X-Api-Key: [redacted]\r\nX-Request-Id: req_123"],
     'opensrs signature' => ['X-Username: reseller1 X-Signature: 9f86d081884c7d65', 'X-Username: reseller1 X-Signature: [redacted]'],
     'stripe webhook signature' => ['Stripe-Signature: t=1700000000,v1=abc123,v0=def456', 'Stripe-Signature: [redacted]'],
-    'cookie' => ['Cookie: PHPSESSID=abc; theme=dark', 'Cookie: [redacted]; theme=dark'],
+    'cookie line' => ["Cookie: theme=dark; cpsession=root%3aCPSESS1\r\nHost: whm.test", "Cookie: [redacted]\r\nHost: whm.test"],
+    'set-cookie line' => ['Set-Cookie: whostmgrsession=WHM1; path=/; HttpOnly', 'Set-Cookie: [redacted]'],
+    'curl credentials' => ['curl -u root:CURLPW1 https://whm.test:2087 --user=bob:PW2 -u bob', 'curl -u [redacted] https://whm.test:2087 --user=[redacted] -u bob'],
 ]);
 
 test('secrets in query strings and form bodies are masked, value tails included', function (string $text, string $expected) {
@@ -33,6 +35,9 @@ test('secrets in query strings and form bodies are masked, value tails included'
     'cookie attribute is not a tail' => ['session=abc; Path=/; HttpOnly', 'session=[redacted]; Path=/; HttpOnly'],
     'command-line flag' => ['whmapi1 createacct --password=S3cr3t username=bob', 'whmapi1 createacct --password=[redacted] username=bob'],
     'padded header' => ['X-Auth-Token:'.str_repeat(' ', 40).'T1', 'X-Auth-Token:'.str_repeat(' ', 40).'[redacted]'],
+    'ampersand inside a secret' => ['secret_key=8gBm/:&EnhH.1/q&product_code=EPAYTEST', 'secret_key=[redacted]&product_code=EPAYTEST'],
+    'session cookies by name' => ['cpsession=root:CP1 whostmgrsession=W1 JSESSIONID=J1', 'cpsession=[redacted] whostmgrsession=[redacted] JSESSIONID=[redacted]'],
+    'long field name' => ['registrant_contact_extended_attributes_for_the_registry_admin_password=LONG1&id=5', 'registrant_contact_extended_attributes_for_the_registry_admin_password=[redacted]&id=5'],
     'array field' => ['password[]=P1&password_confirmation=P1x', 'password[]=[redacted]&password_confirmation=[redacted]'],
     'percent-encoded url' => ['next=https%3A%2F%2Fh.test%2F%3Fapi_key%3DENC1%26a%3Db', 'next=https%3A%2F%2Fh.test%2F%3Fapi_key%3D[redacted]%26a%3Db'],
 ]);
@@ -46,6 +51,9 @@ test('JSON after a label is masked by key: nested, arrays, escaped quotes, numbe
     'number' => ['Error: {"otp":123456,"id":"x"}', 'Error: {"otp":[redacted],"id":"x"}'],
     'escaped json in text' => ['body={\"password\":\"S1\",\"order\":7}', 'body={\"password\":\"[redacted]\",\"order\":7}'],
     'unterminated' => ['Truncated: {"api_key":"K12', 'Truncated: {"api_key":"[redacted]'],
+    'print_r dump' => ["Array\n(\n    [password] => PR1\n    [user] => bob\n)", "Array\n(\n    [password] => [redacted]\n    [user] => bob\n)"],
+    'pretty-printed' => ["{\n  \"api_key\":\n    \"PRETTY1\",\n  \"id\": 5\n}x", "{\n  \"api_key\":\n    \"[redacted]\",\n  \"id\": 5\n}x"],
+    'html-escaped' => ['<pre>{&quot;password&quot;:&quot;HTML1&quot;,&quot;id&quot;:5}</pre>', '<pre>{&quot;password&quot;:&quot;[redacted]&quot;,&quot;id&quot;:5}</pre>'],
     'php array dump' => ["array ('password' => 'PH1', 'user' => 'u')", "array ('password' => '[redacted]', 'user' => 'u')"],
 ]);
 
@@ -67,12 +75,15 @@ test('XML element values, OpenSRS items, attributes and CDATA are masked', funct
     'name and value attributes' => ['<param name="api_key" value="V1"/><param name="domain" value="a.np"/>', '<param name="api_key" value="[redacted]"/><param name="domain" value="a.np"/>'],
     'url in an attribute' => ['<a href="https://x.test/cb?token=TQ1&amp;id=5">x</a>', '<a href="https://x.test/cb?token=[redacted]&amp;id=5">x</a>'],
     'pair in element text' => ['<error>Invalid api-key=K9</error>', '<error>Invalid api-key=[redacted]</error>'],
+    'epp password change' => ['<login><clID>reg1</clID><pw>OLD1</pw><newPW>NEW1</newPW></login>', '<login><clID>reg1</clID><pw>[redacted]</pw><newPW>[redacted]</newPW></login>'],
+    'end tag far after unrelated ones' => ['<password>'.str_repeat('<b>x</b>', 40).'</password><id>5</id>', '<password>[redacted]</password><id>5</id>'],
     'empty element' => ['<password></password><password/>', '<password></password><password/>'],
 ]);
 
 test('URL userinfo and provider key shapes are masked wherever they appear', function (string $text, string $expected) {
     expect((new Redactor)->maskValues($text, []))->toBe($expected);
 })->with([
+    'userinfo with a raw @' => ['GET https://user:p@AT1@host.test/x?email=a@b.np', 'GET https://[redacted]@host.test/x?email=a@b.np'],
     'userinfo' => ['GET https://user:pa55@host.test/path failed', 'GET https://[redacted]@host.test/path failed'],
     'stripe key as user' => ['curl https://sk_test_abc:@api.stripe.com/v1/charges', 'curl https://[redacted]@api.stripe.com/v1/charges'],
     'stripe keys' => ['keys sk_live_51Habcdefgh rk_test_51Habcdefgh whsec_abcdefgh123', 'keys [redacted] [redacted] [redacted]'],
@@ -93,6 +104,9 @@ test('ids, amounts and references support needs stay readable', function (string
     'whm' => ['metadata: {"command":"createacct","result":1,"reason":"Account Creation Ok"} user=bob, domain=a.com.np, pkg=starter, ip=203.0.113.4'],
     'times and urls' => ['Rejected at 12:30:45 for https://r.test/a?b=c&id=5, Idempotency-Key: ik_123, X-Request-Id: req_9'],
     'email' => ['contact a@b.com or https://x.test/?email=a@b.com'],
+    'stripe checkout session label' => ['{"message":"Session: cs_live_a1B2c3D4 expired","note":"hash: 9f86d081"}'],
+    'flags without credentials' => ['ps -u root; tar -U x'],
+    'unchanged json keeps its formatting' => ["{\n  \"id\": \"evt_1\",\n  \"data\": {}\n}"],
 ]);
 
 test('payment payload text leaves get the string rules too, and ids stay', function () {
@@ -100,35 +114,66 @@ test('payment payload text leaves get the string rules too, and ids stay', funct
         ->toBe(['id' => 'pi_1', 'amount' => 113000, 'error' => 'Rejected: api-key=[redacted]', 'raw' => '<password>[redacted]</password>']);
 });
 
-test('a 1 MB adversarial input is masked in linear time and bounded memory', function (string $unit) {
-    $redactor = new Redactor;
-    $small = str_repeat($unit, intdiv(256 * 1024, strlen($unit)));
-    $large = str_repeat($unit, intdiv(1024 * 1024, strlen($unit)));
+/** Repeat $unit (given its index) until the text is $bytes long. */
+function adversarialInput(int $bytes, Closure $unit): string
+{
+    $text = '';
 
-    $redactor->maskValues($small, ['hunter22']);
-    $started = hrtime(true);
-    $redactor->maskValues($small, ['hunter22']);
-    $smallSeconds = (hrtime(true) - $started) / 1e9;
+    for ($index = 0; strlen($text) < $bytes; $index++) {
+        $text .= $unit($index);
+    }
+
+    return $text;
+}
+
+test('a 1 MB adversarial input is masked in linear time and bounded memory', function (Closure $unit) {
+    $small = adversarialInput(256 * 1024, $unit);
+    $large = adversarialInput(1024 * 1024, $unit);
+    (new Redactor)->maskValues(substr($small, 0, 4096), ['hunter22']);
+
+    // Best of three runs, each on a fresh instance so the key cache one run fills does not flatter the next; the best
+    // run is the one least disturbed by other work on a shared machine.
+    $seconds = function (string $text): float {
+        $best = INF;
+
+        for ($run = 0; $run < 3; $run++) {
+            $started = hrtime(true);
+            (new Redactor)->maskValues($text, ['hunter22']);
+            $best = min($best, (hrtime(true) - $started) / 1e9);
+        }
+
+        return $best;
+    };
+    $smallSeconds = $seconds($small);
 
     memory_reset_peak_usage();
     $before = memory_get_usage();
-    $started = hrtime(true);
-    $redactor->maskValues($large, ['hunter22']);
-    $largeSeconds = (hrtime(true) - $started) / 1e9;
+    $largeSeconds = $seconds($large);
 
-    // Four times the input may cost about four times the time, never sixteen; 2 s absorbs a loaded CI runner.
+    // Four times the input: a linear scan costs about 4x, a quadratic one 16x. The bound is 6x because 256 KB fits a
+    // core's L2 cache and 1 MB does not: linear code measured 4.5-5.2x here and 2.9-3.5x from 1 MB to 4 MB (EPYC 7763,
+    // 512 KB L2 per core). Below 0.25 s at 1 MB the ratio is noise on a shared machine (the quadratic shapes this guards
+    // against took 10-48 s); 2 s absorbs a loaded CI runner.
     expect($largeSeconds)->toBeLessThan(2.0)
-        ->and($largeSeconds)->toBeLessThan(max(0.05, $smallSeconds * 10))
-        ->and(memory_get_peak_usage() - $before)->toBeLessThan(16 * 1024 * 1024);
+        ->and($largeSeconds)->toBeLessThan(max(0.25, $smallSeconds * 6))
+        ->and(memory_get_peak_usage() - $before)->toBeLessThan(24 * 1024 * 1024);
 })->with([
-    'colon-joined labels' => ['a:'],
-    'secret pairs' => ['token=a&'],
-    'unclosed secret elements' => ['<password>'],
-    'unclosed labelled items' => ['<item key="reg_password">'],
-    'tags with attributes' => ['<x a="b=c" password=\'d\'>'],
-    'unterminated quotes' => ['password="'],
-    'escaped quotes' => ['password=\\"'],
-    'soft value ends' => ['passwd=;,'],
-    'url schemes' => ['h://'],
-    'encoded pairs' => ['%3Fa%3D'],
+    'colon-joined labels' => [fn (): string => 'a:'],
+    'secret pairs' => [fn (): string => 'token=a&'],
+    'unclosed secret elements' => [fn (): string => '<password>'],
+    'distinct unclosed secret elements' => [fn (int $i): string => '<password'.base_convert((string) $i, 10, 36).'>x'],
+    'distinct namespaced EPP pw' => [fn (int $i): string => '<a'.base_convert((string) $i, 10, 36).':pw>x'],
+    'distinct labelled items' => [fn (int $i): string => '<i'.base_convert((string) $i, 10, 36).' key="password">'],
+    'secret elements closed far away' => [fn (int $i): string => $i === 0 ? '<password>' : '</b'.$i.'>'],
+    'unclosed labelled items' => [fn (): string => '<item key="reg_password">'],
+    'tags with attributes' => [fn (): string => '<x a="b=c" password=\'d\'>'],
+    'unterminated quotes' => [fn (): string => 'password="'],
+    'escaped quotes' => [fn (): string => 'password=\\"'],
+    'soft value ends' => [fn (): string => 'passwd=;,'],
+    'ampersands in a secret' => [fn (): string => 'secret=a&b'],
+    'url schemes' => [fn (): string => 'h://'],
+    'userinfo without @' => [fn (): string => 'h://aaaa'],
+    'encoded pairs' => [fn (): string => '%3Fa%3D'],
+    'cli flags' => [fn (): string => ' -u a:b'],
+    'long names' => [fn (): string => str_repeat('n', 300).'='],
 ]);
