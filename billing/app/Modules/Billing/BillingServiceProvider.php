@@ -315,6 +315,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $list('reminders.overdue_days', 'Overdue reminder days', 'Comma-separated, e.g. 1, 4, 7'),
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
+            new SettingDefinition('billing.gateways.lookups_per_run', 'Hosted payments: status lookups per run', 'integer', 'At most this many open payments are looked up every five minutes (1 to 1,000); the least recently checked go first.', rules: ['min:1', 'max:'.PaymentReconciler::MAX_LOOKUPS_PER_RUN]),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
             new SettingDefinition('billing.gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours)', 'integer', 'Hourly, up to 168 hours after the payment started. 0 turns it off.', rules: ['min:0', 'max:'.PaymentReconciler::MAX_LATE_LOOKUP_HOURS]),
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),

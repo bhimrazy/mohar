@@ -86,7 +86,10 @@ $connection = config('database.default');
 config(["database.connections.$connection.database" => $database]);
 DB::purge($connection);
 
-$print = fn (array $result) => fwrite(STDOUT, (string) json_encode(['label' => $label, ...$result]));
+// Every result names the database the worker wrote to and its open transaction level, so runRaceWorkers() can check
+// that the work landed, committed, in the database the test reads (#256 review N3).
+$print = fn (array $result) => fwrite(STDOUT, (string) json_encode(['label' => $label, ...$result,
+    'database' => DB::connection()->getDatabaseName(), 'transaction_level' => DB::transactionLevel()]));
 
 if ($mode === 'checkout') {
     app()->instance(PriceBook::class, (new FakePriceBook)->addProduct(1, 'Starter Hosting', ['monthly' => [(int) $amount, 0]]));
