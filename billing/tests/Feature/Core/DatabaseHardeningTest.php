@@ -71,6 +71,26 @@ test('an existing index of the same name is reused only with the same table, col
     'unique' => ['automation_runs', ['status'], true],
 ]);
 
+test('an existing partial index is reused when the predicate differs only in case, spacing and quoting', function () {
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: "status in ('pending', 'failed') and duration_ms > 0", allowLocking: true);
+
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: "( \"status\" IN ('pending','failed')  AND DURATION_MS>0 )", allowLocking: true);
+
+    expect(Schema::hasIndex('automation_runs', 'automation_runs_probe_index'))->toBeTrue();
+});
+
+test('an existing index of the same name is never reused with another predicate', function (?string $existing, ?string $expected) {
+    OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: $existing, allowLocking: true);
+
+    expect(fn () => OnlineIndex::create('automation_runs', ['run_date', 'id'], 'automation_runs_probe_index', where: $expected, allowLocking: true))
+        ->toThrow(LogicException::class, 'already exists with a different predicate');
+})->with([
+    'not partial, expected partial' => [null, "status = 'failed'"],
+    'partial, expected not partial' => ["status = 'failed'", null],
+    'other condition' => ["status = 'failed'", "status = 'pending'"],
+    'literal differs in case' => ["status = 'failed'", "status = 'Failed'"],
+]);
+
 test('dropping an index by name refuses an index of another table', function () {
     OnlineIndex::create('automation_runs', ['status'], 'automation_runs_probe_index', allowLocking: true);
 

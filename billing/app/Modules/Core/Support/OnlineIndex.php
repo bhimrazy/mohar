@@ -2,6 +2,7 @@
 
 namespace App\Modules\Core\Support;
 
+use Closure;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -12,8 +13,14 @@ use LogicException;
  * run inside a transaction, so the calling migration must set `public $withinTransaction = false;`; inside a
  * transaction this throws instead of silently taking a write-blocking lock (pass `allowLocking: true` only for a
  * table known to be small, or in tests). An existing index of the same name is reused only if it is on the same
- * table with the same columns and uniqueness; anything else throws. An INVALID index left by an interrupted
- * concurrent build is dropped and rebuilt. SQLite gets the same statements without CONCURRENTLY.
+ * table with the same columns, uniqueness and partial-index predicate (WHERE); anything else throws. An INVALID
+ * index left by an interrupted concurrent build is dropped and rebuilt. SQLite gets the same statements without
+ * CONCURRENTLY.
+ *
+ * Every build and drop runs under LockTimeout. A concurrent build waits for every transaction older than itself,
+ * on any table, so it gets the longer `database.migrations.concurrent_lock_timeout` (60s: ordinary transactions
+ * finish, a stuck one fails the build instead of hanging the deploy). A lock timeout there leaves an INVALID index,
+ * which the next attempt drops first.
  *
  *   OnlineIndex::create('orders', ['client_id', 'id']);                                  // orders_client_id_id_index
  *   OnlineIndex::create('tld_prices', ['tld_id', 'currency', 'years'], 'tld_prices_default_price_unique', unique: true, where: 'client_group_id is null');
@@ -24,6 +31,11 @@ final class OnlineIndex
 {
     /** PostgreSQL truncates longer identifiers, after which lookups by the full name no longer find the index. */
     public const MAX_NAME_LENGTH = 63;
+
+    public const CONCURRENT_ATTEMPTS = 3;
+
+    /** A temporary copy of the table's columns, used to have PostgreSQL write a predicate in its own form. */
+    private const PREDICATE_PROBE = 'online_index_predicate_probe';
 
     /**
      * @param  list<literal-string>  $columns  column names written in code; ignored when $expression is given
@@ -43,39 +55,33 @@ final class OnlineIndex
 
         $concurrently = self::concurrently($name, $allowLocking);
 
-        if ($driver === 'pgsql') {
-            self::dropIfInvalid($name, $concurrently);
-        }
-
-        $existing = self::existing($name);
-
-        if ($existing !== null) {
-            $expected = ['table' => $table, 'columns' => $expression !== null ? null : $columns, 'unique' => $unique];
-
-            if ($existing['table'] !== $table || $existing['unique'] !== $unique || ($expected['columns'] !== null && $existing['columns'] !== $columns)) {
-                throw new LogicException(sprintf(
-                    'Index %s already exists with a different definition (%s%s (%s)); expected %s%s (%s).',
-                    $name, $existing['unique'] ? 'unique on ' : 'on ', $existing['table'], implode(', ', $existing['columns']),
-                    $unique ? 'unique on ' : 'on ', $table, $expression ?? implode(', ', $columns),
-                ));
+        self::underLockTimeout($table, $concurrently, function () use ($table, $columns, $name, $unique, $where, $expression, $using, $driver, $concurrently): void {
+            if ($driver === 'pgsql') {
+                self::dropIfInvalid($name, $concurrently);
             }
 
-            return;
-        }
+            $existing = self::existing($name);
 
-        $grammar = DB::connection()->getQueryGrammar();
-        $target = $expression ?? implode(', ', array_map(fn (string $column): string => $grammar->wrap($column), $columns));
+            if ($existing !== null) {
+                self::assertSameDefinition($existing, $table, $columns, $name, $unique, $where, $expression);
 
-        DB::statement(sprintf(
-            'create %sindex%s %s on %s%s (%s)%s',
-            $unique ? 'unique ' : '',
-            $concurrently ? ' concurrently' : '',
-            $grammar->wrap($name),
-            $grammar->wrapTable($table),
-            $using !== null ? ' using '.$using : '',
-            $target,
-            $where !== null ? ' where '.$where : '',
-        ));
+                return;
+            }
+
+            $grammar = DB::connection()->getQueryGrammar();
+            $target = $expression ?? implode(', ', array_map(fn (string $column): string => $grammar->wrap($column), $columns));
+
+            DB::statement(sprintf(
+                'create %sindex%s %s on %s%s (%s)%s',
+                $unique ? 'unique ' : '',
+                $concurrently ? ' concurrently' : '',
+                $grammar->wrap($name),
+                $grammar->wrapTable($table),
+                $using !== null ? ' using '.$using : '',
+                $target,
+                $where !== null ? ' where '.$where : '',
+            ));
+        });
     }
 
     /**
@@ -117,7 +123,7 @@ final class OnlineIndex
         }
 
         $concurrently = self::concurrently($name, $allowLocking);
-        DB::statement(sprintf('drop index%s %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name)));
+        self::underLockTimeout($table, $concurrently, fn () => DB::statement(sprintf('drop index%s %s', $concurrently ? ' concurrently' : '', DB::connection()->getQueryGrammar()->wrap($name))));
     }
 
     /**
@@ -169,7 +175,7 @@ final class OnlineIndex
     }
 
     /**
-     * @return array{table: string, columns: list<string>, unique: bool}|null
+     * @return array{table: string, columns: list<string>, unique: bool, predicate: string|null}|null
      */
     private static function existing(string $name): ?array
     {
@@ -177,16 +183,22 @@ final class OnlineIndex
             $row = DB::selectOne(
                 'select t.relname as table_name, i.indisunique as is_unique,
                     array_to_string(array(select coalesce(a.attname, \'\') from unnest(i.indkey) with ordinality k(attnum, n)
-                        left join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum order by k.n), \',\') as columns
+                        left join pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum order by k.n), \',\') as columns,
+                    pg_get_expr(i.indpred, i.indrelid) as predicate
                  from pg_index i join pg_class c on c.oid = i.indexrelid join pg_class t on t.oid = i.indrelid
                  where c.relname = ? and pg_table_is_visible(c.oid)',
                 [$name],
             );
 
-            return $row === null ? null : ['table' => (string) $row->table_name, 'columns' => self::columnList((string) $row->columns), 'unique' => (bool) $row->is_unique];
+            return $row === null ? null : [
+                'table' => (string) $row->table_name,
+                'columns' => self::columnList((string) $row->columns),
+                'unique' => (bool) $row->is_unique,
+                'predicate' => $row->predicate !== null ? (string) $row->predicate : null,
+            ];
         }
 
-        $row = DB::selectOne("select tbl_name from sqlite_master where type = 'index' and name = ?", [$name]);
+        $row = DB::selectOne("select tbl_name, sql from sqlite_master where type = 'index' and name = ?", [$name]);
 
         if ($row === null) {
             return null;
@@ -197,7 +209,165 @@ final class OnlineIndex
         $flags = DB::selectOne('select "unique" as is_unique from pragma_index_list(?) where name = ?', [$table, $name]);
         $unique = $flags !== null && (bool) $flags->is_unique;
 
-        return ['table' => $table, 'columns' => array_values($columns), 'unique' => $unique];
+        // sqlite_master keeps the CREATE INDEX statement as written; indexes behind a UNIQUE constraint have none.
+        $predicate = $row->sql !== null ? self::sqliteWhere((string) $row->sql) : null;
+
+        return ['table' => $table, 'columns' => array_values($columns), 'unique' => $unique, 'predicate' => $predicate];
+    }
+
+    /**
+     * @param  Closure(): mixed  $ddl
+     */
+    private static function underLockTimeout(string $table, bool $concurrently, Closure $ddl): void
+    {
+        if ($concurrently) {
+            LockTimeout::run($table, $ddl, (string) config('database.migrations.concurrent_lock_timeout', '60s'), self::CONCURRENT_ATTEMPTS, transaction: false);
+
+            return;
+        }
+
+        LockTimeout::run($table, $ddl);
+    }
+
+    /**
+     * @param  array{table: string, columns: list<string>, unique: bool, predicate: string|null}  $existing
+     * @param  list<string>  $columns
+     */
+    private static function assertSameDefinition(array $existing, string $table, array $columns, string $name, bool $unique, ?string $where, ?string $expression): void
+    {
+        if ($existing['table'] !== $table || $existing['unique'] !== $unique || ($expression === null && $existing['columns'] !== $columns)) {
+            throw new LogicException(sprintf(
+                'Index %s already exists with a different definition (%s%s (%s)); expected %s%s (%s).',
+                $name, $existing['unique'] ? 'unique on ' : 'on ', $existing['table'], implode(', ', $existing['columns']),
+                $unique ? 'unique on ' : 'on ', $table, $expression ?? implode(', ', $columns),
+            ));
+        }
+
+        if (! self::samePredicate($table, $existing['predicate'], $where)) {
+            throw new LogicException(sprintf(
+                'Index %s already exists with a different predicate (%s); expected %s. An index is never reused with another WHERE: drop it in a migration of its own, or pick another name.',
+                $name,
+                $existing['predicate'] !== null ? 'where '.$existing['predicate'] : 'not partial',
+                $where !== null ? 'where '.$where : 'not partial',
+            ));
+        }
+    }
+
+    private static function samePredicate(string $table, ?string $existing, ?string $expected): bool
+    {
+        if ($existing === null || $expected === null) {
+            return $existing === $expected;
+        }
+
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            return self::pgsqlPredicate($table, $expected) === $existing;
+        }
+
+        return self::normalise($existing) === self::normalise($expected);
+    }
+
+    /**
+     * The predicate as PostgreSQL stores it (casts added, IN turned into = ANY), so it compares with pg_get_expr()
+     * exactly: build the same partial index on a temporary, empty copy of the table's columns and read it back.
+     */
+    private static function pgsqlPredicate(string $table, string $where): string
+    {
+        $probe = self::PREDICATE_PROBE;
+        DB::statement("drop table if exists pg_temp.{$probe}");
+        DB::statement(sprintf('create temporary table %s (like %s)', $probe, DB::connection()->getQueryGrammar()->wrapTable($table)));
+        DB::statement("create index {$probe}_index on pg_temp.{$probe} ((1)) where {$where}");
+        $row = DB::selectOne("select pg_get_expr(i.indpred, i.indrelid) as predicate from pg_index i where i.indexrelid = 'pg_temp.{$probe}_index'::regclass");
+        DB::statement("drop table pg_temp.{$probe}");
+
+        return (string) $row?->predicate;
+    }
+
+    /**
+     * The WHERE of a CREATE INDEX statement: the first "where" outside quotes and parentheses.
+     */
+    private static function sqliteWhere(string $sql): ?string
+    {
+        $depth = 0;
+        $quote = null;
+        $length = strlen($sql);
+
+        for ($i = 0; $i < $length; $i++) {
+            $character = $sql[$i];
+
+            if ($quote !== null) {
+                $quote = $character === $quote ? null : $quote;
+
+                continue;
+            }
+
+            if (in_array($character, ["'", '"', '`', '['], true)) {
+                $quote = $character === '[' ? ']' : $character;
+            } elseif ($character === '(') {
+                $depth++;
+            } elseif ($character === ')') {
+                $depth--;
+            } elseif ($depth === 0 && $i > 0 && ctype_space($sql[$i - 1]) && preg_match('/\Gwhere\b/i', $sql, $match, 0, $i) === 1) {
+                return trim(substr($sql, $i + 5));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Case, spacing, identifier quotes and enclosing parentheses do not change a predicate; string literals keep
+     * their case.
+     */
+    private static function normalise(string $predicate): string
+    {
+        $parts = preg_split("/('(?:[^']|'')*')/", $predicate, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$predicate];
+
+        foreach ($parts as $index => $part) {
+            if ($index % 2 === 0) {
+                $part = strtolower(str_replace(['"', '`'], '', $part));
+                $part = (string) preg_replace('/\s+/', ' ', $part);
+                $parts[$index] = (string) preg_replace('/\s*([(),=<>!+*\/-])\s*/', '$1', $part);
+            }
+        }
+
+        $normalised = trim(implode('', $parts));
+
+        while (str_starts_with($normalised, '(') && str_ends_with($normalised, ')') && self::enclosed($normalised)) {
+            $normalised = trim(substr($normalised, 1, -1));
+        }
+
+        return str_replace('!=', '<>', $normalised);
+    }
+
+    /**
+     * Whether the opening parenthesis at the start closes only at the very end, as in "(a or b)" but not "(a) or (b)".
+     */
+    private static function enclosed(string $predicate): bool
+    {
+        $depth = 0;
+        $quoted = false;
+        $last = strlen($predicate) - 1;
+
+        for ($i = 0; $i <= $last; $i++) {
+            $character = $predicate[$i];
+            $quoted = $character === "'" ? ! $quoted : $quoted;
+
+            if ($quoted) {
+                continue;
+            }
+
+            $depth += match ($character) {
+                '(' => 1,
+                ')' => -1,
+                default => 0,
+            };
+
+            if ($depth === 0 && $i < $last) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
