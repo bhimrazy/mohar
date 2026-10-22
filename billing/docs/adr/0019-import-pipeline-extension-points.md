@@ -67,6 +67,29 @@ Each run event lands with the code that dispatches it, and implements `ShouldDis
 Run events are kernel events from their first dispatch, an exception to ADR 0008's promote-on-consume rule, because
 their consumers (Notifications, webhooks, packages) are outside Migration.
 
+## Addendum (2026-10-22, importer B2b, #259): undo and outcomes per entity
+
+Accepted on merge of #259.
+
+- **`App\Contracts\Migration\RevertsImport extends RecordImporter`**, with
+  `revert(ImportRecord $record, ImportOutcome $applied, ImportContext $context): ImportOutcome`. `$record` is what was
+  written, and `$applied` is the importer's own stored outcome (action, target, changes and `before`), so an importer
+  can restore a field only while it still holds the imported value and can tell a created target from an updated one.
+  `revert()` opens its own transaction and locks what it writes; a dry run writes nothing.
+- **Outcomes of `revert()`:** `ImportAction::Reverted` (new case of the open enum) when the write was taken back,
+  `Skipped` with the reason in the issues when it was kept, `Unchanged` when there was nothing of this run's to take
+  back. `MigrationRunUndone(reverted, kept)` counts `Reverted` and `Skipped`.
+- **Outcomes are stored per entity.** A record that several importers write (the client, its owner login, its opening
+  balance) keeps one outcome and one snapshot per entity: `migration_records.entities` holds
+  `{entity: {action, target_id, changes}}` and `migration_records.before` (encrypted) holds `{entity: snapshot}`. The
+  record's `outcome` and `changes` stay the combined view for the review and report. Every entity a row wrote, except
+  logins (reached through their client), has its own id-map row, and `MigrationRunCompleted` counts every entity.
+  Runs applied before #259 stored the client's snapshot as a flat map; undo reads a flat map as the client's.
+- **Undo order across runs.** Undo takes back a run only when no later run wrote to the same id-map entries
+  (`last_run_id` is that run); otherwise it refuses with the later run named, so staff undo the later run first.
+  Within a run, entities are reverted in the reverse of `ImportRegistry::ordered()` (opening balances and logins
+  before the client), each in its own transaction.
+
 ## Open questions
 
 - Whether the cPanel account import moves onto these contracts. It needs `SourceConnector` in the kernel, an

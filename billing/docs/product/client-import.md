@@ -403,10 +403,20 @@ data. WHMCS supports time-based tokens, Duo and YubiKey for clients (WHMCS docs,
 
 ### 6.12 Credit balance
 
-A credit column in the client's currency, parsed from the decimal string into minor units without floats. Negative values
-are errors. On create, Billing's importer posts one ledger entry (`CreditReason::Import`, "Opening balance from
-<source>"). On a re-run with a different value, it posts the difference as a new entry (never edits history) when the
-client has no other ledger activity since the import; otherwise the row needs a decision. Phase 2c, which imports
+A credit column in the client's currency, parsed from the decimal string into minor units without floats: plain
+digits, western grouping (1,234,567) or lakh grouping (12,34,567), with an optional point and one or two decimals.
+Anything else (a decimal comma such as "250,50", loose grouping such as "1,2,3") and negative values are row errors.
+A credit in a currency other than the client's is a row error (§17). Billing's importer posts automatically in two
+cases only (CTO decision, 2026-10-22):
+
+- the client is created by this run: one ledger entry (`CreditReason::Import`, "Opening balance from <source>");
+- a re-run, while the client's credit has not moved since its last import entry: the difference, as a new entry
+  ("changed by a later import"); history is never edited.
+
+In every other case (an existing client matched for the first time, or credit that moved since the last import) the
+balance is kept, nothing is posted, and the row says "Existing credit kept; post the opening balance manually if it is
+still owed." The review asks Billing (a dry run) what apply would do, so it lists the balance as a change only when it
+would be posted, and a re-run that would post nothing comes out unchanged. Phase 2c, which imports
 WHMCS's full credit log with invoices, reverses the opening entry and reconciles to the source balance
 (`migration.md` §5.2).
 

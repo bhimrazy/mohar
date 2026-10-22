@@ -41,6 +41,10 @@ final readonly class CallbackEvent
      *                                        callbacks more than 5 minutes old (replay protection)
      * @param  string|null  $reference  our own reference: the payment attempt (ATTEMPT_UPDATED), or the refund
      *                                  transaction a REFUND was started from (RefundRequest::$reference)
+     * @param  bool  $fundsReinstated  DISPUTE_WON only: the provider's own record shows the disputed money both
+     *                                 withdrawn and reinstated, so the win is final there. A win for which no
+     *                                 chargeback was booked is then acknowledged with nothing to record (#232),
+     *                                 instead of being refused until a chargeback that will never come
      */
     public function __construct(
         public string $type,
@@ -53,6 +57,7 @@ final readonly class CallbackEvent
         public array $raw = [],
         public ?CarbonImmutable $sentAt = null,
         public ?string $reference = null,
+        public bool $fundsReinstated = false,
     ) {}
 
     /**

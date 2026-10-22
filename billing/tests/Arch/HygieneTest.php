@@ -13,4 +13,8 @@ arch('controllers do not query other modules or the DB facade directly')
     ->expect('App\Modules\*\Http\Controllers')
     ->not->toUse(['Illuminate\Support\Facades\DB']);
 
+test('every arch target in this file matches at least one class', function () {
+    expect(archTargetsWithoutClasses(['App\Modules\*\Http\Controllers']))->toBe([]);
+});
+
 afterAll(fn () => releaseArchCache());

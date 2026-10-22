@@ -16,8 +16,6 @@ use App\Support\Security\EncryptedStorage;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -37,13 +35,6 @@ class MigrationServiceProvider extends ModuleServiceProvider
         $encrypted->register('migration_runs', new EncryptedModel(MigrationRun::class));
         $encrypted->register('migration_records', new EncryptedModel(MigrationRecord::class));
         $this->app->make(InstallSecrets::class)->define(MigrationRecord::EMAIL_HASH_SECRET, MigrationRecord::emailHashKey(...));
-
-        // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', RequirePassword::class);
-        }
 
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',
