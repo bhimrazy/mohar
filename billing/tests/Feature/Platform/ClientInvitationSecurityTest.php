@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientInvitation;
+use App\Modules\Core\Support\Settings;
 use App\Modules\Notifications\Mail\TemplatedMail;
 use App\Modules\Notifications\Services\TemplateCatalog;
 use App\Modules\Platform\Actions\Clients\AcceptClientInvitation;
@@ -180,4 +181,15 @@ it('serialises concurrent accepts on PostgreSQL: the second waits for the lock a
         $other->table('users')->where('id', $userId)->delete();
         $other->disconnect();
     }
+});
+
+it('does not record an invitation as sent while email is switched off, and tells staff', function () {
+    app(Settings::class)->set('notifications.mail_disabled', true);
+
+    expect(fn () => app(ManageClientLogins::class)->invite($this->client, 'helper@example.test', 'Hari Helper', ['billing']))
+        ->toThrow(ValidationException::class, 'email is switched off');
+
+    Mail::assertNothingSent();
+    expect(ClientInvitation::query()->count())->toBe(0)
+        ->and(User::query()->where('email', 'helper@example.test')->exists())->toBeTrue();
 });

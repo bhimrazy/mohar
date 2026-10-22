@@ -13,6 +13,7 @@ use App\Modules\Billing\Exceptions\BillingException;
 use App\Modules\Billing\Models\Invoice;
 use App\Modules\Billing\Models\PayMethod;
 use App\Modules\Billing\Services\GatewayCharger;
+use App\Modules\Billing\Services\GatewayLogger;
 use App\Modules\Billing\Support\BillingSettings;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Cache;
@@ -85,7 +86,7 @@ class CaptureInvoice
                 gatewayTxnId: $result->txnId,
                 fee: $result->fee,
                 payMethodId: $payMethod?->id,
-                raw: $result->raw,
+                raw: GatewayLogger::redact($result->raw),
                 createdBy: $userId,
                 gatewayAmount: $rate !== null ? $charge->amount : null,
                 gatewayCurrency: $rate !== null ? $charge->currency : null,

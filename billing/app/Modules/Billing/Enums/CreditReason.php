@@ -12,4 +12,6 @@ enum CreditReason: string
     case Manual = 'manual';
     case Downgrade = 'downgrade';
     case Reversal = 'reversal';
+    /** An opening balance carried over by a client import, a correction from a later run, or its undo. */
+    case Import = 'import';
 }

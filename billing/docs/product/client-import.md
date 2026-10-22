@@ -245,6 +245,9 @@ A crashed chunk is retried; rows already applied are recorded and skipped, so a 
   (`migration.invite_per_hour`, default 500, as in `migration.md` §9). It goes through a kernel contract to Platform's
   invitation flow (§16, C3), with the editable template `client.migration_invitation` ("We have moved to a new client
   area. Set your password to sign in."). Logins of closed clients are never invited.
+  **As built (importer B2a):** the contract is `App\Contracts\Auth\ClientLoginInvitations` (C3); the throttle is install-wide and counts invitations sent in the last hour; an open
+  invitation is not replaced in bulk (staff send a new link from the client's logins); the 2FA line in the mail
+  (§6.10) waits for a source of the flag, which only the gap reader (Q1) would provide.
 - **Undo (within `migration.undo_days`, default 7):** a queued run that reverses what is still safe to reverse:
     - a created client is deleted only when nothing else refers to it: the client-merge participants (`ClientMergeRegistry`)
       report no rows apart from the import's own, no login signed in or accepted an invitation, and the client was not
@@ -403,10 +406,20 @@ data. WHMCS supports time-based tokens, Duo and YubiKey for clients (WHMCS docs,
 
 ### 6.12 Credit balance
 
-A credit column in the client's currency, parsed from the decimal string into minor units without floats. Negative values
-are errors. On create, Billing's importer posts one ledger entry (`CreditReason::Import`, "Opening balance from
-<source>"). On a re-run with a different value, it posts the difference as a new entry (never edits history) when the
-client has no other ledger activity since the import; otherwise the row needs a decision. Phase 2c, which imports
+A credit column in the client's currency, parsed from the decimal string into minor units without floats: plain
+digits, western grouping (1,234,567) or lakh grouping (12,34,567), with an optional point and one or two decimals.
+Anything else (a decimal comma such as "250,50", loose grouping such as "1,2,3") and negative values are row errors.
+A credit in a currency other than the client's is a row error (§17). Billing's importer posts automatically in two
+cases only (CTO decision, 2026-10-22):
+
+- the client is created by this run: one ledger entry (`CreditReason::Import`, "Opening balance from <source>");
+- a re-run, while the client's credit has not moved since its last import entry: the difference, as a new entry
+  ("changed by a later import"); history is never edited.
+
+In every other case (an existing client matched for the first time, or credit that moved since the last import) the
+balance is kept, nothing is posted, and the row says "Existing credit kept; post the opening balance manually if it is
+still owed." The review asks Billing (a dry run) what apply would do, so it lists the balance as a change only when it
+would be posted, and a re-run that would post nothing comes out unchanged. Phase 2c, which imports
 WHMCS's full credit log with invoices, reverses the opening entry and reconciles to the source balance
 (`migration.md` §5.2).
 
@@ -553,7 +566,7 @@ Platform owns invitations, so Migration reaches them through a contract.
 | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
 | C1  | Kernel `App\Contracts\Migration\{RecordImporter, ImportIdResolver}`, the final registry `App\Support\Migration\ImportRegistry` (ADR 0012, keys `client`, `client_group`, `user`), `App\Data\Migration\{ImportRecord, ImportContext, ImportOutcome, ImportIssue}`, enums `ImportAction` (open), `ImportSeverity`, with `ImportOutcome::$changes` and `ImportContext::$actorId` as trailing defaulted fields (as built in #160; ADR 0019) | First consumer; A8                  |
 | C2  | `App\Support\Queues::IMPORTS = 'imports'`, in the dev worker after `default`, worked by the default pool (ADR 0014 amendment)                                                                                                                                                                                                                                                                                                           | A1; keeps 50k imports off `default` |
-| C3  | `App\Contracts\Core\ClientLoginInvitations::invite(int $clientId, int $userId): InvitationOutcome` (Sent, Skipped, Refused, Unavailable). Core null default returns Unavailable; Platform binds its invitation flow                                                                                                                                                                                                                     | Migration cannot import Platform    |
+| C3  | `App\Contracts\Auth\ClientLoginInvitations::invite(int $clientId, int $userId, InvitationPurpose $purpose, ?int $actorId): InvitationOutcome` (Sent, Skipped, Refused, Held, Unavailable) and `problem(): ?string`. Core null default: Unavailable, "not installed"; Platform binds its invitation flow (as built in #255)                                                                                                              | Migration cannot import Platform    |
 | C4  | Events `Migration\MigrationRunCompleted`, `MigrationRunUndone`, `MigrationRunPaused`, each added with the code that dispatches it (ADR 0019 shapes)                                                                                                                                                                                                                                                                                     | §15                                 |
 | C5  | Core schema: `clients.imported_at`, `clients.imported_fields`, `client_marketing_consents`; `users.password_imported_at` only if Q2                                                                                                                                                                                                                                                                                                     | §4                                  |
 | C6  | Core-internal: shared client validation rules (form and importer), `ActivityLogger::logMany()`                                                                                                                                                                                                                                                                                                                                          | §5.4, §11                           |

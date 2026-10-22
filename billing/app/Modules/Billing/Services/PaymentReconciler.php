@@ -7,14 +7,13 @@ use App\Modules\Billing\Actions\SettlePaymentAttempt;
 use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Support\BillingSettings;
-use Illuminate\Support\Collection;
 use Throwable;
 
 /**
  * Reconciliation poller for hosted attempts whose customer never came back (no Nepali gateway pushes webhooks).
  *
  * - run(): pending and ambiguous attempts, looked up at most once per interval, with a backoff for long-open ones
- *   (every five minutes).
+ *   (every five minutes), bounded by a per-run cap and a deadline.
  * - runLate(): closed attempts (expired, failed) still inside the late window, looked up at most once an hour, so a
  *   payment the provider completes late is still booked (#130). Hourly, on its own lock, and bounded: a per-run
  *   cap, a deadline, and a per-gateway breaker after the first error answer.
@@ -40,6 +39,19 @@ class PaymentReconciler
      */
     public const LATE_SLACK_MINUTES = 10;
 
+    /**
+     * Slack on the open interval (#230), the same reasoning as LATE_SLACK_MINUTES for the five-minute poller: a lookup
+     * stamped up to this long into the previous run still counts as one interval ago. Capped at half the interval, so
+     * two lookups of one attempt stay at least half an interval apart even when runs are started by hand.
+     */
+    public const OPEN_SLACK_SECONDS = 60;
+
+    /** The open poller stops starting lookups after this many seconds, inside its five-minute cadence. */
+    public const OPEN_DEADLINE_SECONDS = 240;
+
+    /** Upper bound for `gateways.lookups_per_run` (open poller) and `gateways.late_lookups_per_run`. */
+    public const MAX_LOOKUPS_PER_RUN = 1000;
+
     public function __construct(
         private SettlePaymentAttempt $settle,
         private BillingSettings $settings,
@@ -48,28 +60,44 @@ class PaymentReconciler
     public function run(): int
     {
         $interval = max(1, $this->settings->int('gateways.lookup_interval_minutes', 5));
+        $cap = min(self::MAX_LOOKUPS_PER_RUN, max(1, $this->settings->int('gateways.lookups_per_run', 200)));
+        $deadline = microtime(true) + self::OPEN_DEADLINE_SECONDS;
         $checked = 0;
 
-        PaymentAttempt::query()
-            ->whereIn('status', [AttemptStatus::Pending, AttemptStatus::Ambiguous])
-            ->where('created_at', '>=', now()->subDays(14))
-            ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere('last_lookup_at', '<=', now()->subMinutes($interval)))
-            ->orderBy('id')
-            ->chunkById(100, function (Collection $attempts) use ($interval, &$checked): void {
-                foreach ($attempts as $attempt) {
-                    // Back off: after 12 lookups, check at most once per 6 intervals.
-                    if ($attempt->lookup_count >= 12 && $attempt->last_lookup_at !== null && $attempt->last_lookup_at->gt(now()->subMinutes($interval * 6))) {
-                        continue;
-                    }
+        // Cut-offs are taken once, when the run starts: lookups are stamped as they finish, so a cut-off read per
+        // attempt, or without slack, skips the attempt on the next run and doubles the real interval (#230).
+        $slack = min(self::OPEN_SLACK_SECONDS, intdiv($interval * 60, 2));
+        $start = now()->toImmutable();
+        $lookedUpBefore = $start->subMinutes($interval)->addSeconds($slack);
+        // Back off: after 12 lookups, an attempt is looked up at most once per 6 intervals.
+        $backedOffBefore = $start->subMinutes($interval * 6)->addSeconds($slack);
 
-                    try {
-                        $this->settle->handle($attempt);
-                        $checked++;
-                    } catch (Throwable $exception) {
-                        report($exception);
-                    }
-                }
-            });
+        // Bounded per run (#256 review): at most `gateways.lookups_per_run` lookups, the least recently looked up first
+        // (never looked up before all others), and none started after the deadline; the rest wait for the next run.
+        // Served by payment_attempts_status_last_lookup_at_index (status, last_lookup_at).
+        $attempts = PaymentAttempt::query()
+            ->whereIn('status', [AttemptStatus::Pending, AttemptStatus::Ambiguous])
+            ->where('created_at', '>=', $start->subDays(14))
+            ->where(fn ($query) => $query->whereNull('last_lookup_at')->orWhere(fn ($query) => $query->where('last_lookup_at', '<=', $lookedUpBefore)
+                ->where(fn ($query) => $query->where('lookup_count', '<', 12)->orWhere('last_lookup_at', '<=', $backedOffBefore))))
+            ->orderByRaw('case when last_lookup_at is null then 0 else 1 end')
+            ->orderBy('last_lookup_at')
+            ->orderBy('id')
+            ->limit($cap)
+            ->get();
+
+        foreach ($attempts as $attempt) {
+            if (microtime(true) >= $deadline) {
+                break;
+            }
+
+            try {
+                $this->settle->handle($attempt);
+                $checked++;
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
 
         return $checked;
     }
@@ -82,7 +110,7 @@ class PaymentReconciler
             return 0;
         }
 
-        $cap = min(1000, max(1, $this->settings->int('gateways.late_lookups_per_run', 100)));
+        $cap = min(self::MAX_LOOKUPS_PER_RUN, max(1, $this->settings->int('gateways.late_lookups_per_run', 100)));
         $lookedUpBefore = now()->subMinutes(self::LATE_INTERVAL_MINUTES - self::LATE_SLACK_MINUTES);
         $deadline = microtime(true) + self::LATE_DEADLINE_SECONDS;
         /** @var array<string, true> $tripped gateways that errored in this run */

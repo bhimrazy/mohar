@@ -65,6 +65,7 @@ class TemplatedSystemMailer implements SystemMailer
         return match (true) {
             $message === null => SystemMailOutcome::Unavailable,
             $message->status === EmailStatus::Failed => SystemMailOutcome::Refused,
+            $message->status === EmailStatus::Suppressed => SystemMailOutcome::Suppressed,
             default => SystemMailOutcome::Taken,
         };
     }

@@ -143,7 +143,9 @@ release working against the new schema.
   ([install.md](install.md#backups)).
 - **Files:** `~/billing/storage` (and `storage/app/objects` with `OBJECTS_DRIVER=local`) in the cPanel account
   backup, or the bucket's own versioning or replication.
-- **`.env`** with `APP_KEY` in a secrets store, never next to the dumps.
+- **`.env`** is not part of any backup. Keep `APP_KEY` (and earlier keys, for older dumps) in a secrets store, never
+  next to the dumps. cPanel's account backup includes the home directory, so exclude the key: list `billing/.env` and
+  `billing/bootstrap/cache/config.php` in `~/cpbackup-exclude.conf`. Rotation: [key-rotation.md](key-rotation.md).
 
 ## How cron mode is tested
 

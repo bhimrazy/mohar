@@ -9,11 +9,13 @@ import {
     HelpCircle,
     Pencil,
     Receipt,
+    Send,
 } from 'lucide-react';
 import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
+import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import { SelectField } from '@/components/app/select-field';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -38,6 +40,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ClientImportController from '@/actions/App/Modules/Migration/Http/Controllers/Admin/ClientImportController';
+import ImportInvitationController from '@/actions/App/Modules/Migration/Http/Controllers/Admin/ImportInvitationController';
 import ClientController from '@/actions/App/Modules/Core/Http/Controllers/Admin/ClientController';
 import { cn } from '@/lib/utils';
 import type { LaravelPaginated } from '@/types/app';
@@ -65,6 +68,7 @@ type Row = {
     link_login: boolean | null;
     outcome: Outcome | null;
     client_href: string | null;
+    credit: { amount: number; currency: string } | null;
 };
 
 type Choice = 'create' | 'link' | 'no_link' | 'update' | 'skip';
@@ -181,6 +185,15 @@ const columns = (
                 <span className="text-xs break-all text-muted-foreground">
                     {row.email ?? 'No email'}
                 </span>
+                {row.credit && (
+                    <span className="text-xs text-muted-foreground">
+                        Opening credit{' '}
+                        <Money
+                            amount={row.credit.amount}
+                            currency={row.credit.currency}
+                        />
+                    </span>
+                )}
             </span>
         ),
     },
@@ -434,6 +447,18 @@ export default function ImportCheck({
                                 </div>
                             ))}
                         </dl>
+                        {run.status === 'completed' && (
+                            <Button variant="outline" className="mt-4" asChild>
+                                <Link
+                                    href={ImportInvitationController.index(
+                                        run.id,
+                                    )}
+                                >
+                                    <Send />
+                                    Send invitations
+                                </Link>
+                            </Button>
+                        )}
                     </SectionCard>
                 )}
 
