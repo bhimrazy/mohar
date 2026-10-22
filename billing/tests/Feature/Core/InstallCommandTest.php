@@ -518,6 +518,7 @@ test('a chosen password is accepted when the breach API cannot be reached', func
 });
 
 test('in production the pre-flight warns when staff two-factor authentication is not required', function () {
+    config(['cache.default' => 'database']);
     app(Settings::class)->set('security.staff_2fa_required', false);
     app()->detectEnvironment(fn (): string => 'production');
 

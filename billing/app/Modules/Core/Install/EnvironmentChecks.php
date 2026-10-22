@@ -41,6 +41,7 @@ final class EnvironmentChecks
             $database,
             $migrations,
             $this->queue(),
+            $this->lockStore(),
             $this->queueTimeouts(),
             $migrations->failed() || $migrations->status === CheckStatus::Skipped
                 ? new EnvironmentCheck('Scheduler', CheckStatus::Skipped, 'Needs a migrated database.')
@@ -136,6 +137,21 @@ final class EnvironmentChecks
         }
 
         return new EnvironmentCheck('Queue', CheckStatus::Ok, "{$connection} ({$driver}). Workers must be running: see the next steps.");
+    }
+
+    /**
+     * The cache lock store must be shared (CacheLockStore). A store that cannot exclude other processes stops a first
+     * production install; on a re-run after an upgrade, in development and in tests it warns, so a deploy is not blocked.
+     */
+    private function lockStore(): EnvironmentCheck
+    {
+        $result = (new CacheLockStore)->assess();
+
+        if ($result['status'] === CheckStatus::Failed && ! (app()->isProduction() && $this->firstInstall())) {
+            return new EnvironmentCheck('Cache lock store', CheckStatus::Warning, $result['detail']);
+        }
+
+        return new EnvironmentCheck('Cache lock store', $result['status'], $result['detail']);
     }
 
     private function queueTimeouts(): EnvironmentCheck

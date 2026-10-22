@@ -3,6 +3,8 @@
 namespace App\Modules\Platform\Support;
 
 use App\Models\User;
+use App\Modules\Core\Install\CacheLockStore;
+use App\Modules\Core\Install\CheckStatus;
 use App\Modules\Core\Install\PhpSecurityRelease;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\AutomationRun;
@@ -65,6 +67,28 @@ class PlatformDashboard
         $dashboard->health('admin', 'platform.queue', fn (): array => $this->queueHealth(), 'core.automation.view', 12);
         $this->registerIntegrationEndpoints($dashboard);
         $this->registerPhpRuntime($dashboard);
+        $this->registerCacheLockStore($dashboard);
+    }
+
+    /**
+     * The cache lock store (CacheLockStore), a health check in production only while locks cannot exclude other
+     * processes: red for a per-process store, amber for a single-host one.
+     */
+    public function registerCacheLockStore(Dashboard $dashboard): void
+    {
+        $result = (new CacheLockStore)->assess();
+
+        if ($result['status'] === CheckStatus::Ok || ! app()->isProduction()) {
+            return;
+        }
+
+        $dashboard->health('admin', 'platform.cache_lock_store', fn (): array => [
+            'label' => 'Cache lock store',
+            'detail' => $result['detail'],
+            'value' => $result['status'] === CheckStatus::Failed ? 'Use a shared store' : 'Single host only',
+            'tone' => $result['status'] === CheckStatus::Failed ? 'danger' : 'warning',
+            'icon' => 'ShieldAlert',
+        ], 'core.settings.view', 14);
     }
 
     /**
