@@ -1,5 +1,6 @@
 <?php
 
+use App\Modules\Core\Support\OnlineIndex;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -9,17 +10,29 @@ use Illuminate\Support\Facades\Schema;
  * #286, and by `kyc:reencode-images` for documents stored before it. `sanitise_issue` flags a document whose images
  * could not be re-encoded (left as stored, for staff). `kyc_image_rewrites` records an image file written but not yet
  * switched to, so a run killed in between leaves no stray file; it holds paths only, no image data.
+ *
+ * The index is partial (`where sanitised_at is null`, built concurrently on PostgreSQL): it serves the command's keyset
+ * query in id order and shrinks to the documents still to do.
  */
 return new class extends Migration
 {
+    public $withinTransaction = false;
+
     public function up(): void
     {
-        Schema::table('kyc_documents', function (Blueprint $table): void {
-            $table->timestamp('sanitised_at')->nullable();
-            $table->string('sanitise_issue', 20)->nullable();
+        // Outside a transaction (the concurrent index), so each step can be repeated after a failed run.
+        if (! Schema::hasColumn('kyc_documents', 'sanitised_at')) {
+            Schema::table('kyc_documents', function (Blueprint $table): void {
+                $table->timestamp('sanitised_at')->nullable();
+                $table->string('sanitise_issue', 20)->nullable();
+            });
+        }
 
-            $table->index(['sanitised_at', 'sanitise_issue', 'id'], 'kyc_documents_unsanitised_index');
-        });
+        OnlineIndex::create('kyc_documents', ['id'], 'kyc_documents_unsanitised_index', where: 'sanitised_at is null');
+
+        if (Schema::hasTable('kyc_image_rewrites')) {
+            return;
+        }
 
         Schema::create('kyc_image_rewrites', function (Blueprint $table): void {
             $table->id();
@@ -35,8 +48,9 @@ return new class extends Migration
     {
         Schema::dropIfExists('kyc_image_rewrites');
 
+        OnlineIndex::drop('kyc_documents', 'kyc_documents_unsanitised_index');
+
         Schema::table('kyc_documents', function (Blueprint $table): void {
-            $table->dropIndex('kyc_documents_unsanitised_index');
             $table->dropColumn(['sanitised_at', 'sanitise_issue']);
         });
     }

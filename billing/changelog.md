@@ -13,8 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   as uploads, so their EXIF, GPS and device details are removed; new uploads are marked and skipped. It works in
   chunks, resumes after an interruption, never overlaps a second run, and writes one audit entry with counts only
   (event `kyc.images.reencoded`). An image it cannot read or re-encode is left as stored, flagged for staff and listed
-  by id (exit 1). Runbook: `docs/devops/kyc-images.md`. Migration `2026_10_22_770200` (expand only): nullable columns
-  `kyc_documents.sanitised_at` and `sanitise_issue` with index `kyc_documents_unsanitised_index`, and table
+  by id (exit 1). Start it only after an `APP_KEY` restart is complete; it refuses to start while `security:reencrypt`
+  runs. Runbook: `docs/devops/kyc-images.md`. Migration `2026_10_22_770300` (expand only): nullable columns
+  `kyc_documents.sanitised_at` and `sanitise_issue` with the partial index `kyc_documents_unsanitised_index` (`id` where
+  `sanitised_at` is null, built concurrently on PostgreSQL), and table
   `kyc_image_rewrites` (paths of files being switched). New setting `kyc.reencode_decode_wait_seconds` (30). No
   permission change.
 - **Bikram Sambat dates on invoices (#207).** New billing setting `billing.show_bs_dates`, off by default; no schema or
