@@ -1,15 +1,16 @@
 <?php
 
+use App\Data\Domains\Registrar\RegistrarConfig;
 use App\Modules\Core\Models\Client;
 use App\Modules\Core\Models\ClientGroup;
 use App\Modules\Core\Models\Currency;
 use App\Modules\Domains\Drivers\Registrars\LogRegistrar;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Enums\DomainStatus;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Models\RegistrarAccount;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Models\TldPrice;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Support\Facades\File;
 use Inertia\Testing\AssertableInertia as Assert;
 use Tests\Fakes\Domains\DomainFixtures;
@@ -118,13 +119,13 @@ test('successful lookups are not written to the command log; failures are', func
     $this->assertDatabaseCount('registrar_command_log', 0);
 
     RegistrarAccount::query()->create(['key' => 'log', 'settings' => ['simulate' => 'none']]);
-    app(RegistrarManager::class)->extend('log', fn () => new class extends LogRegistrar
+    app(RegistrarDriverRegistry::class)->register('log', fn () => new class extends LogRegistrar
     {
-        public function checkAvailability(string $sld, array $tlds): array
+        public function checkAvailability(RegistrarConfig $config, string $sld, array $tlds): array
         {
             throw new RuntimeException('registry offline');
         }
-    });
+    }, replace: true);
 
     $this->getJson(route('domains.lookup', ['q' => 'loud.com']))->assertOk()->assertJsonPath('results.0.status', 'unknown');
     $this->assertDatabaseHas('registrar_command_log', ['domain_id' => null, 'command' => 'availability', 'success' => false]);

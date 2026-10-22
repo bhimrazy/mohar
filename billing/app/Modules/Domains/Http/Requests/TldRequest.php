@@ -2,9 +2,9 @@
 
 namespace App\Modules\Domains\Http\Requests;
 
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\Tld;
 use App\Modules\Domains\Support\DomainName;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -45,7 +45,7 @@ class TldRequest extends FormRequest
                         $fail('Enter an extension such as .com or .co.uk.');
                     }
                 }],
-            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarManager::class)->keys())],
+            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarDriverRegistry::class)->keys())],
             'auto_register' => ['required', 'boolean'],
             'epp_required' => ['required', 'boolean'],
             'min_years' => ['required', 'integer', 'min:1', 'max:10'],

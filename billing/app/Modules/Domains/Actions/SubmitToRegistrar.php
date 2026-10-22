@@ -2,6 +2,15 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ManagesLock;
+use App\Contracts\Domains\Registrar\ReconcilesSubmissions;
+use App\Contracts\Domains\Registrar\RegistrarDriver;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\DomainInfo;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
+use App\Data\Domains\Registrar\RegistrationRequest;
+use App\Data\Domains\Registrar\SubmissionLookup;
 use App\Data\Services\ProvisionResult;
 use App\Enums\ReconcileStatus;
 use App\Events\Domains\DomainRegistered;
@@ -9,14 +18,7 @@ use App\Events\Domains\DomainTransferInitiated;
 use App\Events\Domains\RegistrarActionFailed;
 use App\Modules\Core\Support\ActivityLogger;
 use App\Modules\Core\Support\Settings;
-use App\Modules\Domains\Drivers\Registrars\Data\DomainInfo;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrationRequest;
-use App\Modules\Domains\Drivers\Registrars\Data\SubmissionLookup;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\RegistrarException;
-use App\Modules\Domains\Exceptions\RegistrarTimeout;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
@@ -24,6 +26,8 @@ use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Support\Nameservers;
 use App\Modules\Domains\Support\RemoteIds;
+use App\Support\Domains\RegistrarException;
+use App\Support\Domains\RegistrarTimeout;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Throwable;
@@ -72,7 +76,7 @@ class SubmitToRegistrar
 
         $capability = $domain->type === 'transfer' ? 'transfer' : 'register';
         $request = new RegistrationRequest(
-            domain: $domain,
+            domain: $domain->toRef(),
             years: $domain->type === 'transfer' ? 1 : $domain->period_years,
             nameservers: Nameservers::normalise($domain->nameservers ?? []),
             contacts: $this->contacts->contactSet($domain),
@@ -81,13 +85,9 @@ class SubmitToRegistrar
         );
 
         try {
-            $result = $this->gateway->forDomain(
-                $domain,
-                $capability,
-                fn (Registrar $registrar): RegistrarResult => $capability === 'transfer' ? $registrar->transfer($request) : $registrar->register($request),
-                $request->toArray(),
-                $staffId,
-            );
+            $result = $capability === 'transfer'
+                ? $this->gateway->forDomain($domain, 'transfer', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): RegistrarResult => $registrar->transfer($config, $request), $request->toArray(), $staffId, $request->secrets())
+                : $this->gateway->forDomain($domain, 'register', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): RegistrarResult => $registrar->register($config, $request), $request->toArray(), $staffId, $request->secrets());
         } catch (RegistrarTimeout $timeout) {
             return $this->unknownOutcome($domain, $timeout->getMessage());
         } catch (RegistrarException $exception) {
@@ -189,9 +189,9 @@ class SubmitToRegistrar
             };
         }
 
-        if ($domain->type === 'register' && $this->gateway->supports($domain, 'info')) {
+        if ($domain->type === 'register') {
             try {
-                $info = $this->gateway->forDomain($domain, 'info', fn (Registrar $registrar): DomainInfo => $registrar->info($domain), staffId: $staffId);
+                $info = $this->gateway->forDomain($domain, 'info', RegistrarDriver::class, fn (RegistrarDriver $registrar, RegistrarConfig $config): DomainInfo => $registrar->info($config, $domain->toRef()), staffId: $staffId);
 
                 if ($info->status === 'active') {
                     return $this->succeeded($domain, new RegistrarResult('completed', $info->expiryDate, 'Found at the registrar; not re-submitted.', remote: $info->remote), $staffId);
@@ -213,7 +213,8 @@ class SubmitToRegistrar
             return $this->gateway->forDomain(
                 $domain,
                 'reconcile',
-                fn (Registrar $registrar): SubmissionLookup => $registrar->findSubmission($domain, $command, $submittedAt),
+                ReconcilesSubmissions::class,
+                fn (ReconcilesSubmissions $registrar, RegistrarConfig $config): SubmissionLookup => $registrar->findSubmission($config, $domain->toRef(), $command, $submittedAt),
                 ['command' => $command, 'submitted_at' => $submittedAt->toIso8601String()],
                 $staffId,
             );
@@ -283,7 +284,7 @@ class SubmitToRegistrar
         }
 
         try {
-            $this->gateway->forDomain($domain, 'lock', fn (Registrar $registrar): RegistrarResult => $registrar->setLock($domain, true), ['locked' => true], $staffId);
+            $this->gateway->forDomain($domain, 'lock', ManagesLock::class, fn (ManagesLock $registrar, RegistrarConfig $config): RegistrarResult => $registrar->setLock($config, $domain->toRef(), true), ['locked' => true], $staffId);
             $domain->forceFill(['registrar_lock' => true])->save();
         } catch (RegistrarException) {
             // Locking is best effort; the registration itself succeeded.

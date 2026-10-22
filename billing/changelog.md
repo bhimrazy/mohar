@@ -941,6 +941,23 @@ a time: medians of three runs before and three after, on the same database, on a
 
 ### Domains
 
+- Registrar refs store (registrars.md C4, ADR 0009 PR C3): a new `registrar_refs` table (migration `500600`, expand
+  only) behind the kernel `RegistrarRefs` contract, where registrar drivers keep the remote customers, contacts and
+  profiles they create for local records; a profile credential is encrypted at rest. Nothing uses it until the first
+  API registrar driver; no permission change. Upgrade note for driver authors: the unused module registrar interface
+  and its DTOs and exceptions are deleted (see the kernel changelog).
+- Registrar drivers run on the kernel registrar contracts (ADR 0009, PR C2), so a package can ship a registrar
+  driver without the Domains module's code. Admin → Domains → Registrars and the domain pages list the same
+  capabilities as before, plus "Connection test" for drivers that offer one; for a driver without it the "Test
+  connection" button is disabled with "This registrar has no connection test." The connection test is now written to
+  the registrar command log and still runs while the registrar is disabled, so new credentials can be checked before
+  enabling it; the account's credentials are masked in what staff see. Every message a registrar driver returns (and
+  a transfer's EPP code, if a driver echoes it) is masked before it is stored or shown: command log, last error,
+  activity log, the "registrar action failed" event and mail. No schema or permission change. Upgrade note for driver
+  authors: `RegistrarManager::extend()` is removed, and the module interface
+  `App\Modules\Domains\Drivers\Registrars\Registrar` and its `Data` DTOs are no longer used (deleted in #265);
+  implement `App\Contracts\Domains\Registrar\RegistrarDriver` and register it with
+  `RegistrarDriverRegistry::register()` (see the kernel changelog).
 - `.np` self-registration flow (registrars.md §9). TLDs can be marked "registered by the client at the registry" (on
   by default for `.np` and its second levels). Domain search explains that the client registers these names at the
   registry, links to "How to register", and offers "I already have it", which opens the store with "Use a domain I own"

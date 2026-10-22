@@ -2,6 +2,7 @@
 
 namespace App\Modules\Domains\Models;
 
+use App\Data\Domains\Registrar\DomainRef;
 use App\Modules\Core\Models\Client;
 use App\Modules\Domains\Database\Factories\DomainFactory;
 use App\Modules\Domains\Enums\DomainStatus;
@@ -179,6 +180,30 @@ class Domain extends Model
     public function isFree(): bool
     {
         return $this->recurring_amount === 0;
+    }
+
+    /**
+     * The snapshot a registrar driver receives in place of this record (ADR 0009 §2).
+     */
+    public function toRef(): DomainRef
+    {
+        $remote = is_array($this->registrar_meta['remote'] ?? null) ? $this->registrar_meta['remote'] : [];
+
+        return new DomainRef(
+            id: $this->id,
+            clientId: $this->client_id,
+            name: $this->name,
+            sld: $this->sld,
+            tld: $this->tld,
+            status: $this->status->value,
+            expiryDate: $this->expiry_date,
+            registrarKey: (string) $this->registrar_key,
+            remote: array_filter($remote, fn (mixed $value, int|string $key): bool => is_string($key) && (is_int($value) || is_string($value)), ARRAY_FILTER_USE_BOTH),
+            nameservers: $this->nameservers ?? [],
+            locked: $this->registrar_lock,
+            idProtection: $this->id_protection,
+            periodYears: $this->period_years,
+        );
     }
 
     /**

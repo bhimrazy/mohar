@@ -2,10 +2,11 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\ManagesNameservers;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\RegistrarResult;
 use App\Events\Domains\DomainNameserversUpdated;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\RegistrarResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainEvents;
 use App\Modules\Domains\Services\RegistrarGateway;
@@ -27,7 +28,7 @@ class UpdateNameservers
         $nameservers = Nameservers::normalise($nameservers);
 
         if ($domain->registrar_key !== null) {
-            $this->gateway->forDomain($domain, 'nameservers', fn (Registrar $registrar): RegistrarResult => $registrar->setNameservers($domain, $nameservers), ['nameservers' => $nameservers]);
+            $this->gateway->forDomain($domain, 'nameservers', ManagesNameservers::class, fn (ManagesNameservers $registrar, RegistrarConfig $config): RegistrarResult => $registrar->setNameservers($config, $domain->toRef(), $nameservers), ['nameservers' => $nameservers]);
         } else {
             $this->activity->log("Staff task: set nameservers of {$domain->name} at the registrar", $domain, $domain->client_id);
         }

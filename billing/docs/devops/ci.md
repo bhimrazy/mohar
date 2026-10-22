@@ -160,3 +160,31 @@ Both use the standard Linux runner: 4 CPUs and 16 GB for a public repository (2 
 The repository is public, so the runner fits the small and medium profiles; `load-test.yml` skips the large profile
 (8 vCPU) there unless asked, because the runner is smaller than it is. Results and the guidance drawn from them are in
 `docs/devops/sizing.md`.
+
+## Local merge gate
+
+When Actions is unavailable (private repository, minutes used up), `scripts/merge-gate.sh <pr> <head-sha>` stands in
+for the main CI job, on macOS or Linux. It fetches exactly `<head-sha>` (refusing if the PR head differs), merges it
+into `origin/develop` in a throwaway worktree and applies CI's change detection (docs-only fast path, audits only on
+dependency or workflow changes). As in CI, the policy checks (postgres pin, lockfiles, audits, cooldown) run before
+any dependency is installed; the cooldown checker is develop's copy, run against the PR's lockfiles. Then it installs
+and runs the remaining steps in CI's order through `scripts/heavy.sh` (at most 2 PHP processes), and prints a
+PASS/FAIL/SKIP table with test counts, times and the gated head. A copy goes to `$GATE_ROOT/gate-<pr>.log`. The
+worktree and the gate's own PostgreSQL databases are removed on exit; it never runs `pg.sh --prune`. A run fails if
+the PR head moves while it runs, and only one run per PR is allowed at a time.
+
+- After the policy checks it runs the PR's code as you (environment, gh token, SSH agent): read the diff first and
+  pass its head sha. Fork PRs need `GATE_ALLOW_FORK=1`.
+- On macOS the Linux-only tests (the `Simulator framework` suite needs `setsid` and `/proc`; tests that run a `deploy/` or `loadtest/` script
+  need GNU `realpath -m`) move to a "Linux only" suite in a gate-only `phpunit.gate.xml`, which runs once through
+  `scripts/linux.sh` in the production base image, on SQLite. The E2E simulators job and the PostgreSQL tuning step are not reproduced (the
+  shared `mohar-pg` server is not reconfigured).
+- `vendor/` is copied from the main checkout when `composer.lock` matches and `vendor/composer/installed.json`
+  lists the same packages and versions (`node_modules/`: its `.package-lock.json` must agree with the lock). Otherwise the gate runs `composer install`. A symlinked `vendor/` breaks
+  Pest and the arch tests. `node_modules/` is linked when `package-lock.json` matches, otherwise `npm ci`.
+- Settings: `GATE_CONTINUE=1` runs every step after a failure (still exits non-zero); `GATE_PROCESSES`, `GATE_ROOT`,
+  `MAIN_CHECKOUT`, `GATE_REPO` and `GATE_SCRIPTS` (where `heavy.sh`, `pg.sh` and `linux.sh` live) override the defaults.
+- To merge: post the summary with `gh pr comment <pr> --body-file $GATE_ROOT/gate-<pr>.log`, then `gh pr ready <pr>`
+  and the `gh pr merge ... --match-head-commit <head>` line the summary prints.
+- Known flake: the simulator `ProcessesTest` can fail with `Address already in use` when other runs share the
+  machine (#182).

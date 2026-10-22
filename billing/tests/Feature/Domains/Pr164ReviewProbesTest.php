@@ -5,16 +5,19 @@
  * finding it covers; "fails at 508acbc4" marks a probe that reproduced a finding before its fix.
  */
 
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
+use App\Data\Integrations\SettingField;
+use App\Enums\FieldType;
 use App\Modules\Domains\Jobs\RegisterDomain;
 use App\Modules\Domains\Jobs\RenewDomain;
 use App\Modules\Domains\Jobs\SyncRegistrars;
 use App\Modules\Domains\Jobs\TransferDomain;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Support\Domains\RegistrarDriverRegistry;
 use App\Support\Queues;
 use Illuminate\Foundation\DevCommands;
 use Symfony\Component\Yaml\Yaml;
 use Tests\Fakes\Domains\FakeRegistrar;
+use Tests\Fakes\Domains\FakeRegistrarDriver;
 
 /** @return list<object> one instance of every registrar job */
 function pr164RegistrarJobs(): array
@@ -71,18 +74,18 @@ test('registrar jobs fit the production worker that reads their queue', function
 // Verifies the claim "integer fields are validated and stored as numbers, select values are limited to their
 // options" (no test in the PR; np_manual in #168 depends on it).
 test('registrar settings: integers are validated and stored as numbers, selects keep to their options', function () {
-    $fake = new class extends FakeRegistrar
+    $fake = new class(new FakeRegistrar, 'probe') extends FakeRegistrarDriver
     {
-        public function settingsSchema(): array
+        public function settingsFields(): array
         {
             return [
-                ['key' => 'api_key', 'label' => 'API key', 'type' => 'password'],
-                ['key' => 'sla_days', 'label' => 'SLA', 'type' => 'integer', 'default' => 4],
-                ['key' => 'mode', 'label' => 'Mode', 'type' => 'select', 'options' => ['live' => 'Live', 'test' => 'Test']],
+                new SettingField('api_key', 'API key', FieldType::Secret),
+                new SettingField('sla_days', 'SLA', FieldType::Number, default: 4),
+                new SettingField('mode', 'Mode', FieldType::Select, options: ['live' => 'Live', 'test' => 'Test']),
             ];
         }
     };
-    app(RegistrarManager::class)->extend('probe', fn () => $fake);
+    app(RegistrarDriverRegistry::class)->register('probe', fn () => $fake);
     actingAsStaff(['domains.registrars.manage']);
     confirmPassword();
     $route = route('admin.domains.registrars.update', 'probe');

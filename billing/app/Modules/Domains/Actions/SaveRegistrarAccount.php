@@ -4,15 +4,15 @@ namespace App\Modules\Domains\Actions;
 
 use App\Enums\FieldType;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
 use App\Modules\Domains\Models\RegistrarAccount;
+use App\Support\Domains\RegistrarDriverRegistry;
 
 /**
  * Configure a registrar driver account. Blank secret fields keep the stored secret; numbers are stored as integers.
  */
 class SaveRegistrarAccount
 {
-    public function __construct(private RegistrarManager $registrars, private ActivityLogger $activity) {}
+    public function __construct(private RegistrarDriverRegistry $registrars, private ActivityLogger $activity) {}
 
     /**
      * @param  array<string, mixed>  $settings

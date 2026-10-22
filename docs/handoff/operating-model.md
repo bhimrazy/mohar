@@ -119,8 +119,9 @@ The owner switches the repository (`bhimrazy/mohar`) between public and private 
   changes a manifest, lockfile, `.npmrc` or workflow file. No nightly audit while `main` is the default branch and a
   landing page (owner, 2026-10-21): run `composer deps:check` before cutting a release.
 - **Private:** minutes are capped (3,000 a month, reached 90% on 2026-10-20). Merges are then gated locally by
-  `scripts/merge-gate.sh <pr>` (#188, the same steps as CI on the PR merged into `develop`), PR heads merge with a
-  `[skip ci]` commit naming the gate result, and smoke, load and E2E workflows stay off.
+  `scripts/merge-gate.sh <pr> <head-sha>` (#188, the same steps as CI on the PR merged into `develop`). The gate's
+  summary is posted as a PR comment, the PR merges with `gh pr merge --match-head-commit <gated head>` (no extra
+  commit), and smoke, load and E2E workflows stay off.
 - Mechanics: a PR with merge conflicts gets no workflow run; a `[skip ci]` head also blocks label-triggered runs;
   adding a label from the codespace token does not start a run until the next push.
 - `main` is a readme-and-licence landing page (all rights reserved) until the first release is cut.

@@ -2,7 +2,7 @@
 
 namespace App\Modules\Domains\Http\Requests;
 
-use App\Modules\Domains\Drivers\Registrars\RegistrarManager;
+use App\Support\Domains\RegistrarDriverRegistry;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -27,7 +27,7 @@ class UpdateDomainRequest extends FormRequest
             'period_years' => ['required', 'integer', 'min:1', 'max:10'],
             'first_payment_amount' => ['required', 'integer', 'min:0'],
             'recurring_amount' => ['required', 'integer', 'min:0'],
-            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarManager::class)->keys())],
+            'registrar_key' => ['nullable', 'string', Rule::in(app(RegistrarDriverRegistry::class)->keys())],
             'linked_service_id' => ['nullable', 'integer', 'min:1'],
             'auto_renew' => ['required', 'boolean'],
             'id_protection' => ['required', 'boolean'],
