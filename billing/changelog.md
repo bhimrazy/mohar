@@ -8,16 +8,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
+- **Continue payment for Khalti (#251).** A client whose Khalti payment is still open (for example after closing the Khalti tab) sees **Continue payment** on the invoice, as with Stripe, and goes back to the same Khalti payment page. The hint beside it no longer mentions "use another method" when the gateway offers no such button (Khalti). It is offered only while the invoice still has a balance and Khalti's lookup says the session is `Initiated`. An expired, cancelled, completed or bank-pending session is never reopened: the attempt is settled from that one lookup, and the client is told the next step (for a bank-pending payment, that it is being confirmed). The page URL from Khalti is kept on the payment attempt, encrypted with `APP_KEY` (covered by `security:reencrypt`), dropped once the attempt is no longer pending, and never logged or sent to the browser before the click. For every gateway, Continue payment now refuses an invoice that no longer has anything to pay, and when the provider can't be reached it suggests another method only where that button exists. eSewa stays without Continue payment. Schema: new nullable column `payment_attempts.resume_url` (expand only). No permission or setting change.
+
+- **Khalti and eSewa simulators (#208, ADR 0016 S5).** Developers and CI can run Khalti KPG-2 checkout (initiate, the hosted page, the return and the lookup, and refunds) and eSewa ePay v2 (the signed form, the payment page, the signed return and the status check) as local TLS simulators: `php artisan simulate:start khalti` or `esewa`. Control actions cover success, cancel, pending then completed or expired, amount mismatch, forged or badly signed returns, duplicate returns, lookup timeouts, and refunded or partly refunded payments. The drivers are tested against them in NPR with paisa. `simulate:e2e` and the opt-in `E2E simulators` CI job now also run the hosting lifecycle in NPR through eSewa and through Khalti. The Khalti and eSewa drivers take their endpoints from `INTEGRATION_ENDPOINTS` in `local` and `testing` only, like Stripe; with no override nothing changes. eSewa's Test connection now succeeds only on a redirect to `esewa.com.np` or one of its subdomains; a look-alike host such as `esewa.com.np.evil.example` used to pass. No schema, permission or setting change.
+
 - **Identity photos shrink in the browser before upload (#288).** On the verification page a photo whose long edge is over 2,800 px, or whose file is over 1 MB, is scaled down (never enlarged) and saved as JPEG at quality 85 before it is sent; the EXIF orientation is applied, and an image with transparency stays PNG. A preview shows the old and new file size, and the client can choose another photo. A file that is not a JPEG, PNG or WebP (for example HEIC) is refused at once with a plain message; if the browser cannot shrink a valid photo, the original is uploaded and the server decides. The two file fields no longer overflow the card on desktop. The server checks and limits are unchanged. No schema, permission or setting change.
 
 ### Changed
 
+- **Simulator scenarios pick ports below the ephemeral range, per test worker (#209).** The simulators (dev-only) chose
+  ports with `:0`, which the kernel takes from the range outgoing connections use, so a port could vanish before the
+  simulator bound it and `PortRetryTest` failed under parallel runs. Ports now come from 20000 up to the kernel's
+  ephemeral range, each probed by binding, in a slice per parallel worker. No schema or setting change.
+- **Registrar submission refuses `.np` domains (#280).** A pending domain under a TLD marked "Registered by the client
+  at the registry" (on by default for `.np` and its second levels), or a `.np` name outside the registry's second
+  levels such as `asha.np`, is never sent to a registrar, even when staff created it with a registrar key. It stays
+  Pending with the reason shown on the domain and in Needs attention, a staff task is logged and the
+  registrar-failure alert is raised; staff cancel it or set its status. The `RegistrarRefs` contract now documents
+  that recording a ref without a secret erases the stored one. No schema, permission or setting change.
 - **Sizing and restore docs (CEO review 2026-10-22).** Every doc now gives 2 vCPU and 4 GB as the minimum for the
   production stack (it said 8 GB in `production.md` and the docs site), with the measured memory and when to grow
   (`sizing.md`). The backup and restore steps were run end to end once; the restore section now says how to remove a
   stack (`down -v` needs both colours' profiles), asks you to keep the `APP_KEY` of every backup, and has a checklist
   and the drill's timings. `deploy/bin/deploy` no longer needs GNU `realpath` (it stopped on macOS). No schema,
   permission or setting change.
+- **Two time-boundary tests no longer fail on a second tick (#310, #322).** The auth throttle test and the KYC unlock-seconds test now freeze time, so Retry-After and the seconds left are measured from one instant. Tests only; no product, schema or permission change.
 
 ### Upgrade notes
 

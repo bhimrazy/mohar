@@ -41,6 +41,7 @@ test('probe P3: registrations from one IP are throttled after ten an hour', func
 });
 
 test('registrations for one address are throttled across IPs, the same for a known and an unknown address', function () {
+    $this->freezeTime();
     User::factory()->create(['email' => 'known@example.com']);
 
     foreach (range(1, 5) as $attempt) {

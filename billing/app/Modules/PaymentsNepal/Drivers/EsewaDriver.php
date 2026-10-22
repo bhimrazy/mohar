@@ -131,7 +131,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         ];
         $fields['signature'] = self::signature($fields, self::REQUEST_SIGNED_FIELDS, $secret);
 
-        return new FormPost(ProviderHttp::endpoint($gateway, 'esewa.form'), $fields);
+        return new FormPost(ProviderHttp::endpoint($gateway, 'esewa.form')->baseUrl, $fields);
     }
 
     /**
@@ -170,7 +170,8 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
     {
         try {
             [$productCode] = $this->credentials($gateway);
-            $response = $this->http->lookup($attempt->interactive)->get(ProviderHttp::endpoint($gateway, 'esewa.status'), [
+            $endpoint = ProviderHttp::endpoint($gateway, 'esewa.status');
+            $response = $this->http->lookup($attempt->interactive)->withOptions($endpoint->options)->get($endpoint->baseUrl, [
                 'product_code' => $productCode,
                 'total_amount' => NprAmount::toRupees($attempt->amount->amount),
                 'transaction_uuid' => $attempt->reference,
@@ -245,7 +246,7 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         try {
             $mode = ProviderHttp::mode($gateway);
             [$productCode, $secret] = $this->credentials($gateway);
-            $action = ProviderHttp::endpoint($gateway, 'esewa.form');
+            $form = ProviderHttp::endpoint($gateway, 'esewa.form');
         } catch (ProviderException $exception) {
             return new ConnectionCheck(false, $exception->getMessage());
         }
@@ -259,18 +260,19 @@ final class EsewaDriver extends AbstractGatewayDriver implements ConnectionTeste
         $fields['signature'] = self::signature($fields, self::REQUEST_SIGNED_FIELDS, $secret);
 
         try {
-            $response = $this->http->request()->asForm()->withoutRedirecting()->post($action, $fields);
+            $response = $this->http->request()->withOptions($form->options)->asForm()->withoutRedirecting()->post($form->baseUrl, $fields);
         } catch (ConnectionException) {
             return new ConnectionCheck(false, __('Couldn\'t reach eSewa (:mode). Check the server\'s outbound connection.', ['mode' => $mode]));
         }
 
-        $location = (string) $response->header('Location');
+        // eSewa's login page: on its domain, or on the form endpoint's host (ADR 0016 §3).
+        $location = strtolower((string) parse_url((string) $response->header('Location'), PHP_URL_HOST));
         $body = $response->json();
 
         // ES104 is eSewa's signature refusal; other 400s (e.g. {"error_message":"Duplicate transaction UUID.","code":0})
         // say nothing about the credentials.
         return match (true) {
-            $response->redirect() && str_contains((string) parse_url($location, PHP_URL_HOST), 'esewa.com.np') => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
+            $response->redirect() && ($location === parse_url($form->baseUrl, PHP_URL_HOST) || $location === 'esewa.com.np' || str_ends_with($location, '.esewa.com.np')) => new ConnectionCheck(true, __('eSewa accepted the product code and secret key (:mode mode).', ['mode' => $mode])),
             $response->status() === 400 && is_array($body) && ($body['code'] ?? null) === 'ES104' => new ConnectionCheck(false, __('eSewa rejected the product code or secret key (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body)])),
             $response->status() === 400 => new ConnectionCheck(false, __('eSewa refused the test booking (:mode mode): :reason', ['mode' => $mode, 'reason' => ProviderHttp::summary($body) ?: 'HTTP 400'])),
             default => new ConnectionCheck(false, __('eSewa answered with HTTP :status. Try again later.', ['status' => $response->status()])),

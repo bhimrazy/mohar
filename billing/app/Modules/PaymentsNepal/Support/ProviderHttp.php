@@ -3,8 +3,10 @@
 namespace App\Modules\PaymentsNepal\Support;
 
 use App\Data\Billing\GatewayConfig;
+use App\Data\Integrations\Endpoint;
 use App\Modules\Core\Support\Settings;
 use App\Support\Billing\SandboxPolicy;
+use App\Support\Integrations\Endpoints;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
@@ -43,9 +45,10 @@ final class ProviderHttp
     }
 
     /**
-     * Pinned endpoint from config for the gateway's mode, e.g. endpoint($gateway, 'khalti.api').
+     * Pinned endpoint from config for the gateway's mode, e.g. endpoint($gateway, 'khalti.api'), with the request
+     * options its destination needs (Endpoints::for(), ADR 0016 §3): [] for the provider's own host.
      */
-    public static function endpoint(GatewayConfig $gateway, string $key): string
+    public static function endpoint(GatewayConfig $gateway, string $key): Endpoint
     {
         $url = config('payments_nepal.'.$key.'.'.self::mode($gateway));
 
@@ -53,7 +56,7 @@ final class ProviderHttp
             throw new ProviderException("Endpoint payments_nepal.{$key} is not configured.");
         }
 
-        return $url;
+        return Endpoints::for($key, $url);
     }
 
     /** Single-shot request (initiate, refund, connection test): never retried, so nothing is sent twice. */
