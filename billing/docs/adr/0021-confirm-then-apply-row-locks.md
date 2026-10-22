@@ -68,6 +68,15 @@ Dry runs read without locks and write nothing (ADR 0019).
   `FOR UPDATE`, locks the client before the insert: `IssueInvoice` when the invoice may take credit, and `PlaceOrder`
   for an existing client before the order row. This does not contradict the money order: the new invoice is not yet
   visible, so no other transaction can hold it.
+- **Client currency (#218):** a currency change (`Client::updateDetails`, the admin client edit) locks the client
+  `FOR UPDATE`, then asks `ClientCurrencyUsage` and writes, all under that lock. A row that copies the client's currency
+  reads the client under a lock first: `FOR UPDATE` where the path above already takes it (`IssueInvoice` with credit,
+  `PlaceOrder`, which refuses the order when the locked row's currency differs from the one its gateways, fraud total
+  and price overrides were worked out in), `FOR SHARE` otherwise (`IssueInvoice` without credit, `SaveDraftInvoice`,
+  `Quotes::save`). `SaveDraftInvoice` locks an existing draft, and `Quotes::save` an existing quote, before the client
+  (quote, then client, the order `Quotes::convert` and `accept` take through `IssueInvoice`); each checks the row's
+  state again under its lock. `CreditLedgerService::post` refuses an amount in another currency than the client row it
+  locks. Tests: `ClientCurrencyChangeRaceTest`, `ClientCurrencyLockProbeTest`, `CreditCurrencyGuardTest`.
 - **Multi-invoice payments (#224):** a payment of several invoices in one transaction (`PaymentBatches::settle`,
   `RecordManualTransaction`) locks all of them up front, in id order, before any client lock. `ApplyPayment` locks the
   client after the invoice, before its row is inserted, only when it will post credit (overpayment, a deposit paid in
@@ -102,4 +111,7 @@ A PR that adds a multi-row lock path, or changes an order above, ships a two-pro
     - the claim's lock set grows with every purged `failed` run; one install-wide row would bound it;
     - `CheckRun` writes the digest in a second save after the `ready` transition;
     - service and domain creation do not lock the client, so a service created at the same instant as an apply can
-      miss the currency check. This is accepted for imports.
+      miss the currency check. This is accepted for imports. Services and domains created by a checkout are covered
+      by `PlaceOrder`'s client lock (#218). A manual payment without invoices (`RecordManualTransaction`) reads the
+      client's currency without a lock, but its credit is refused by `CreditLedgerService::post` when the currency
+      changed in between. The server account import (`ImportServerAccounts`) still reads it without a lock (#239).

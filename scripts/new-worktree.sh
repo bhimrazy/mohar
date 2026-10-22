@@ -14,7 +14,7 @@ cp -al "$root/billing/node_modules" . 2>/dev/null || cp -a "$root/billing/node_m
 cp "$root/billing/.env" .
 touch database/database.sqlite
 export XDEBUG_MODE=off
-"$HOME/.local/bin/composer" dump-autoload -q
+composer dump-autoload -q
 php artisan migrate:fresh --seed --no-interaction -q
 php artisan wayfinder:generate --with-form > /dev/null
 echo "Worktree ready: $wt/billing (branch feature/$slug)"
