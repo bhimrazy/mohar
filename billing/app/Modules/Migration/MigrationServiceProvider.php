@@ -13,8 +13,6 @@ use App\Support\Permissions\PermissionRegistry;
 use App\Support\Settings\SettingDefinition;
 use App\Support\Settings\SettingsRegistry;
 use Carbon\CarbonImmutable;
-use Illuminate\Auth\Middleware\RequirePassword;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -29,13 +27,6 @@ class MigrationServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        // Step-up is Platform's middleware; without Platform, fall back to the framework's password confirmation.
-        $router = $this->app->make(Router::class);
-
-        if (! array_key_exists('password.recent', $router->getMiddleware())) {
-            $router->aliasMiddleware('password.recent', RequirePassword::class);
-        }
-
         $this->app->make(PermissionRegistry::class)->register('Migration', [
             'migration.runs.view' => 'See client imports and their checks',
             'migration.runs.execute' => 'Upload client files, map, check and apply them, and send invitations to imported logins (reads client data)',

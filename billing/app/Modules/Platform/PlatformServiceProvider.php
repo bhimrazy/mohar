@@ -15,7 +15,6 @@ use App\Modules\Platform\Http\Middleware\EnforceLoginLockout;
 use App\Modules\Platform\Http\Middleware\EnforceStaffSecurity;
 use App\Modules\Platform\Http\Middleware\EnsureActiveUser;
 use App\Modules\Platform\Http\Middleware\HandleImpersonation;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Jobs\ConvertPricesAfterRateChange;
 use App\Modules\Platform\Listeners\RecordAuthenticationActivity;
 use App\Modules\Platform\Models\ExchangeRateReview;
@@ -46,7 +45,6 @@ use Illuminate\Auth\Events\Logout;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\DevCommands;
-use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -67,8 +65,6 @@ class PlatformServiceProvider extends ModuleServiceProvider
 
     protected function bootModule(): void
     {
-        $this->app->make(Router::class)->aliasMiddleware('password.recent', RequireRecentPasswordConfirmation::class);
-
         $kernel = $this->app->make(Kernel::class);
         $kernel->appendMiddlewareToGroup('web', EnsureActiveUser::class);
         $kernel->appendMiddlewareToGroup('web', EnforceLoginLockout::class);

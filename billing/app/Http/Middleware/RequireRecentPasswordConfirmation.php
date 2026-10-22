@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Modules\Platform\Http\Middleware;
+namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
@@ -8,8 +8,10 @@ use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Step-up authentication for sensitive mutations ("password.recent" middleware): the staff member must
- * have confirmed their password (Fortify confirm-password) within platform.password_confirmation_seconds.
+ * Step-up authentication for sensitive mutations ("password.recent" middleware, ADR 0018 §4): the user must have
+ * confirmed their password (Fortify confirm-password, which sets auth.password_confirmed_at) within
+ * auth.step_up_seconds. It lives in the kernel and is aliased in bootstrap/app.php, so every module's sensitive
+ * routes resolve whichever modules are installed (#81).
  *
  * Unlike Laravel's RequirePassword (which redirects, and so cannot resume a POST), this rejects the request:
  * JSON clients get 423, Inertia gets a "password_confirmation" validation error that the UI turns into a
@@ -44,6 +46,6 @@ class RequireRecentPasswordConfirmation
 
     public static function timeout(): int
     {
-        return (int) config('platform.password_confirmation_seconds', 900);
+        return (int) config('auth.step_up_seconds', 900);
     }
 }

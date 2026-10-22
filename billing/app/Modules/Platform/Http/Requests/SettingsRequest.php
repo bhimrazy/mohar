@@ -2,7 +2,7 @@
 
 namespace App\Modules\Platform\Http\Requests;
 
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;

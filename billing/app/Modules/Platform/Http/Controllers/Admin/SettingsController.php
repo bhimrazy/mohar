@@ -3,8 +3,8 @@
 namespace App\Modules\Platform\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Actions\Settings\UpdateSettings;
-use App\Modules\Platform\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Platform\Http\Requests\SettingsRequest;
 use App\Modules\Platform\Services\SettingsCatalog;
 use Illuminate\Http\RedirectResponse;
