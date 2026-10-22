@@ -2,12 +2,17 @@
 
 use App\Enums\BillingCycle;
 use App\Models\User;
+use App\Modules\Billing\Enums\AttemptStatus;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Enums\TransactionType;
+use App\Modules\Billing\Models\CreditLedgerEntry;
 use App\Modules\Billing\Models\Invoice;
+use App\Modules\Billing\Models\PaymentAttempt;
 use App\Modules\Billing\Models\Transaction;
 use App\Modules\Catalog\Models\Product;
 use App\Modules\Notifications\Models\EmailMessage;
+use App\Modules\PaymentsNepal\Drivers\EsewaDriver;
+use App\Modules\PaymentsNepal\Drivers\KhaltiDriver;
 use App\Modules\Services\Enums\ServiceStatus;
 use App\Modules\Services\Models\ModuleQueueItem;
 use App\Modules\Services\Models\Server;
@@ -16,12 +21,16 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\URL;
 use Mohar\Simulators\Kernel\Fault;
+use Mohar\Simulators\Providers\Esewa\EsewaApi;
+use Mohar\Simulators\Providers\Esewa\EsewaSimulator;
+use Mohar\Simulators\Providers\Khalti\KhaltiSimulator;
 use Mohar\Simulators\Providers\Stripe\StripeSimulator;
 use Mohar\Simulators\Providers\Whm\WhmSimulator;
 use Tests\Simulators\SimulatorHarness;
 use Tests\TestCase;
 
 require_once dirname(__DIR__).'/Feature/PaymentsStripe/helpers.php';
+require_once dirname(__DIR__).'/Feature/PaymentsNepal/helpers.php';
 
 uses(TestCase::class, SimulatorHarness::class);
 
@@ -75,9 +84,10 @@ function step(string $what): void
  * package, and Stripe against its simulator. Returns the product.
  *
  * Fixtures, not staff routes: the server row, the product and the gateway row are created directly (factories and
- * stripeGateway()); the trust flow, the password change, the step-up and the refund go through the routes.
+ * stripeGateway() or nepalGateway()); the trust flow, the password change, the step-up and the refund go through the
+ * routes. $gateway is the payment method: stripe, khalti or esewa, each against its simulator.
  */
-function installAndConfigure(): Product
+function installAndConfigure(string $gateway = 'stripe'): Product
 {
     $test = test();
     step('app:install without demo data, keeping the install default currency (NPR)');
@@ -100,9 +110,13 @@ function installAndConfigure(): Product
     $test->post(route('admin.services.servers.test', $server));
     expect(app('session.store')->get('inertia.flash_data.connectionCheck.ok'))->toBeTrue();
 
-    step('an NPR product (1,500.00 a month) on the WHM package root_basic, and Stripe in test mode against its simulator');
-    $product = Product::factory()->withPrice('NPR', BillingCycle::Monthly, 150_000)->create(['name' => 'Shared Basic', 'provisioning_driver' => 'cpanel', 'driver_config' => ['package' => 'root_basic']]);
-    stripeGateway(['secret_key' => StripeSimulator::SECRET_KEY, 'webhook_secret' => StripeSimulator::WEBHOOK_SECRET]);
+    step("an NPR product (1,500.50 a month) on the WHM package root_basic, and {$gateway} in test mode against its simulator");
+    $product = Product::factory()->withPrice('NPR', BillingCycle::Monthly, 150_050)->create(['name' => 'Shared Basic', 'provisioning_driver' => 'cpanel', 'driver_config' => ['package' => 'root_basic']]);
+    match ($gateway) {
+        'stripe' => stripeGateway(['secret_key' => StripeSimulator::SECRET_KEY, 'webhook_secret' => StripeSimulator::WEBHOOK_SECRET]),
+        KhaltiDriver::KEY => nepalGateway(KhaltiDriver::KEY, ['sandbox' => '1', 'secret_key' => KhaltiSimulator::SECRET_KEY]),
+        EsewaDriver::KEY => nepalGateway(EsewaDriver::KEY, ['sandbox' => '1', 'product_code' => EsewaSimulator::PRODUCT_CODE, 'secret_key' => EsewaSimulator::SECRET_KEY]),
+    };
     app('auth')->guard('web')->logout();
 
     return $product;
@@ -112,7 +126,7 @@ function installAndConfigure(): Product
  * A customer registers, verifies the address, orders the product for their domain and is sent to pay. Returns the
  * invoice.
  */
-function registerAndOrder(Product $product): Invoice
+function registerAndOrder(Product $product, string $gateway = 'stripe'): Invoice
 {
     $test = test();
     step('a customer registers, verifies the email address and orders');
@@ -121,7 +135,7 @@ function registerAndOrder(Product $product): Invoice
     $test->get(URL::temporarySignedRoute('verification.verify', now()->addHour(), ['id' => $customer->id, 'hash' => sha1($customer->email)]))->assertRedirect();
     expect($customer->refresh()->hasVerifiedEmail())->toBeTrue();
     $test->post(route('store.cart.products.store', $product), ['cycle' => 'monthly', 'domain_mode' => 'existing', 'domain_name' => 'example-shop.com'])->assertSessionHasNoErrors();
-    $test->post(route('store.checkout.store'), ['payment_gateway' => 'stripe', 'accept_tos' => true, 'idempotency_key' => 'e2e-'.uniqid()])->assertSessionHasNoErrors();
+    $test->post(route('store.checkout.store'), ['payment_gateway' => $gateway, 'accept_tos' => true, 'idempotency_key' => 'e2e-'.uniqid()])->assertSessionHasNoErrors();
 
     $invoice = Invoice::query()->latest('id')->firstOrFail();
     expect($invoice->currency)->toBe('NPR');
@@ -223,3 +237,61 @@ test('a create that commits and then times out is adopted by the verify sweep, w
     expect($service->refresh()->status)->toBe(ServiceStatus::Active)
         ->and($this->whm->log()->count('createacct'))->toBe(1);
 });
+
+test('in NPR through a Nepal wallet: order, pay, provision, suspend when overdue, pay and unsuspend, cancel', function (string $gateway) {
+    $product = installAndConfigure($gateway);
+    $invoice = registerAndOrder($product, $gateway);
+
+    if ($gateway === EsewaDriver::KEY) {
+        step('a forged eSewa return claiming COMPLETE is not trusted; the status check finds nothing paid');
+        $form = $this->get((string) $this->post(route('client.invoices.pay', $invoice->id), ['gateway' => $gateway])->headers->get('Location'))->inertiaProps('form');
+        expect($this->browser($this->esewa)->asForm()->post($form['action'], (array) $form['fields'])->status())->toBe(302);
+        $reference = PaymentAttempt::query()->where('invoice_id', $invoice->id)->sole()->reference;
+        $forged = ['transaction_code' => '000FAKE', 'status' => 'COMPLETE', 'total_amount' => '1,500.5', 'transaction_uuid' => $reference, 'product_code' => EsewaSimulator::PRODUCT_CODE, 'signed_field_names' => EsewaApi::RETURN_SIGNED_FIELDS];
+        $forged['signature'] = EsewaApi::signature($forged, EsewaApi::RETURN_SIGNED_FIELDS, 'guessed-secret');
+        $this->get(route('billing.gateways.return', [$gateway, 'data' => base64_encode((string) json_encode($forged))]));
+        expect($invoice->fresh()->status)->toBe(InvoiceStatus::Unpaid);
+        // That attempt is still open at eSewa; the customer starts again once it has expired there.
+        $this->esewa->simulator()->actions()['settle'](['transaction_uuid' => $reference, 'status' => 'EXPIRED'], $this->esewa);
+        $this->travel(8)->minutes();
+        $this->artisan('billing:reconcile-payments', ['--only' => 'open'])->assertSuccessful();
+        expect(PaymentAttempt::query()->where('reference', $reference)->sole()->status)->toBe(AttemptStatus::Expired);
+    }
+
+    step("the customer pays on the {$gateway} page; the return and the lookup settle it, and a replayed return books nothing");
+    $return = $this->payWithWallet($invoice, $gateway);
+    $this->get($return);
+    $service = Service::query()->sole();
+    expect($invoice->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and(Transaction::query()->where('type', TransactionType::Payment)->sole())->amount_in->toBe($invoice->fresh()->total)->gateway->toBe($gateway)
+        ->and(CreditLedgerEntry::query()->count())->toBe(0)
+        ->and($service->status)->toBe(ServiceStatus::Active)
+        ->and($this->whmAccount((string) $service->username))->toMatchArray(['domain' => 'example-shop.com', 'plan' => 'root_basic', 'suspended' => 0]);
+
+    step('overdue, then suspended in WHM; the renewal paid through the wallet unsuspends it');
+    $due = CarbonImmutable::today()->subDays(8);
+    $service->update(['next_due_date' => $due, 'next_invoice_date' => $due]);
+    $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.renewals', '--force' => true])->assertSuccessful();
+    $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.suspensions', '--force' => true])->assertSuccessful();
+    expect($service->refresh()->status)->toBe(ServiceStatus::Suspended)->and($this->whmAccount((string) $service->username)['suspended'])->toBe(1);
+    $renewal = Invoice::query()->where('id', '!=', $invoice->id)->latest('id')->firstOrFail();
+    $this->payWithWallet($renewal, $gateway);
+    expect($renewal->fresh()->status)->toBe(InvoiceStatus::Paid)
+        ->and($service->refresh()->status)->toBe(ServiceStatus::Active)
+        ->and($this->whmAccount((string) $service->username)['suspended'])->toBe(0);
+
+    step('the customer cancels; the account is removed from WHM');
+    $this->post(route('client.services.cancel', $service->id), ['type' => 'immediate', 'reason' => 'Moving the site elsewhere.'])->assertSessionHasNoErrors();
+    $this->artisan('automation:run', ['--date' => CarbonImmutable::today()->toDateString(), '--only' => 'services.cancellations', '--force' => true])->assertSuccessful();
+    expect($service->refresh()->status)->toBe(ServiceStatus::Cancelled)->and($this->whmAccount((string) $service->username))->toBeNull();
+
+    if ($gateway === KhaltiDriver::KEY) {
+        step('staff refund the renewal in full; the driver sends it to Khalti once');
+        $paid = Transaction::query()->where('type', TransactionType::Payment)->where('invoice_id', $renewal->id)->sole();
+        asOwner();
+        $this->post(route('admin.billing.transactions.refund', $paid), ['amount' => number_format($paid->amount_in / 100, 2, '.', ''), 'mode' => 'gateway', 'reverse_effects' => false, 'description' => 'Refund on cancellation'])->assertSessionHasNoErrors();
+        expect(Transaction::query()->where('type', TransactionType::Refund)->count())->toBe(1)
+            ->and($this->khalti->log()->count('refund'))->toBe(1)
+            ->and($this->khalti->state()->get('payments', PaymentAttempt::query()->where('invoice_id', $renewal->id)->sole()->provider_ref)['status'])->toBe('Refunded');
+    }
+})->with([EsewaDriver::KEY, KhaltiDriver::KEY]);

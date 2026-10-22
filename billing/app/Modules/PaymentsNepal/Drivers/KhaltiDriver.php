@@ -4,6 +4,7 @@ namespace App\Modules\PaymentsNepal\Drivers;
 
 use App\Contracts\Billing\ConnectionTester;
 use App\Contracts\Billing\HostedPaymentDriver;
+use App\Contracts\Billing\ResumesHostedPayment;
 use App\Contracts\Integrations\ProvidesLogo;
 use App\Data\Billing\AmountLimits;
 use App\Data\Billing\ChargeResult;
@@ -15,10 +16,13 @@ use App\Data\Billing\RedirectInstruction;
 use App\Data\Billing\RefundRequest;
 use App\Data\Billing\ReturnHint;
 use App\Data\Integrations\ConnectionCheck;
+use App\Data\Integrations\Endpoint;
 use App\Data\Integrations\IntegrationLogo;
 use App\Modules\PaymentsNepal\Support\ProviderException;
 use App\Modules\PaymentsNepal\Support\ProviderHttp;
 use App\Support\Billing\AbstractGatewayDriver;
+use App\Support\Integrations\Endpoints;
+use App\Support\Integrations\OutboundAddressRefused;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterval;
 use Illuminate\Http\Client\ConnectionException;
@@ -33,10 +37,25 @@ use Throwable;
  * initiate() asks Khalti for a payment session (pidx) and sends the customer to its payment_url. Khalti's
  * browser return is unsigned, so it is a hint only: lookup() of the pidx stored on the attempt is the only
  * source of truth, and only "Completed" counts as paid. Refunds (full or partial) go through Khalti's API.
+ *
+ * "Continue payment" (#251): the lookup doesn't return the payment_url and Khalti doesn't document building it from
+ * the pidx, so initiate() asks Billing to keep it (encrypted, on the attempt). resumeUrl() hands it back only while a
+ * lookup says the session is still Initiated.
  */
-final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo
+final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTester, HostedPaymentDriver, ProvidesLogo, ResumesHostedPayment
 {
     public const KEY = 'khalti';
+
+    /** How long resumeUrl()'s lookup answer may stand in for the lookup Billing makes right after a refused resume. */
+    private const RESUME_ANSWER_SECONDS = 15;
+
+    /**
+     * The answer behind a refused resumeUrl(), handed once to the next lookup() of the same pidx: Billing settles a
+     * refused resume from it, so a click costs one provider call.
+     *
+     * @var array{pidx: string, at: float, result: LookupResult}|null
+     */
+    private ?array $resumeAnswer = null;
 
     public function __construct(private ProviderHttp $http) {}
 
@@ -101,7 +120,8 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             'phone' => $intent->customerPhone,
         ], fn (?string $value): bool => $value !== null && $value !== '');
 
-        $response = $this->client($gateway)->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/initiate/', array_filter([
+        $api = ProviderHttp::endpoint($gateway, 'khalti.api');
+        $response = $this->client($gateway, $api)->post($api->url('epayment/initiate/'), array_filter([
             'return_url' => $intent->returnUrl,
             'website_url' => (string) config('app.url'),
             'amount' => $intent->amount->amount,
@@ -117,7 +137,35 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             throw new ProviderException('Khalti initiate failed (HTTP '.$response->status().') '.ProviderHttp::summary($response->json()));
         }
 
-        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')));
+        return new RedirectInstruction($paymentUrl, $pidx, self::sessionExpiry($response->json('expires_at'), $response->json('expires_in')), keepForResume: true);
+    }
+
+    /**
+     * The payment_url kept from initiate(), only while Khalti's lookup of the stored pidx says Initiated (its page is
+     * served then; Pending means the payer already paid and the bank hasn't confirmed). Expired, cancelled, completed,
+     * unreachable or any other answer gives null, as does a kept URL that fails the Khalti host check or names another
+     * pidx; those two are refused before Khalti is asked.
+     */
+    public function resumeUrl(GatewayConfig $gateway, PaymentAttemptRef $attempt): ?string
+    {
+        if ($attempt->resumeUrl === null || $attempt->providerRef === null || ! $this->isKhaltiUrl($attempt->resumeUrl)
+            || self::urlPidx($attempt->resumeUrl) !== $attempt->providerRef
+            || ($attempt->expiresAt !== null && ! $attempt->expiresAt->isFuture())) {
+            return null;
+        }
+
+        $this->resumeAnswer = null; // always a fresh answer here, never one left by an earlier click
+        $result = $this->lookup($gateway, $attempt);
+        $status = $result->raw['status'] ?? null;
+
+        if ($result->status === LookupResult::PENDING && ! $result->retryable && is_string($status) && mb_strtolower(trim($status)) === 'initiated') {
+            return $attempt->resumeUrl;
+        }
+
+        // Refused: Billing settles from this answer next. Never kept on a reopen, where the payer acts on the page next.
+        $this->resumeAnswer = ['pidx' => $attempt->providerRef, 'at' => microtime(true), 'result' => $result];
+
+        return null;
     }
 
     /**
@@ -174,11 +222,20 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             return new LookupResult(LookupResult::NOT_FOUND, raw: ['error' => 'no pidx stored for this attempt']);
         }
 
+        $answer = $this->resumeAnswer;
+        $this->resumeAnswer = null;
+
+        if ($answer !== null && $answer['pidx'] === $attempt->providerRef && microtime(true) - $answer['at'] < self::RESUME_ANSWER_SECONDS) {
+            return $answer['result'];
+        }
+
         try {
+            $api = ProviderHttp::endpoint($gateway, 'khalti.api');
             $response = $this->http->lookup($attempt->interactive)
+                ->withOptions($api->options)
                 ->withHeaders(['Authorization' => 'Key '.self::secret($gateway)])
                 ->asJson()
-                ->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/lookup/', ['pidx' => $attempt->providerRef]);
+                ->post($api->url('epayment/lookup/'), ['pidx' => $attempt->providerRef]);
         } catch (ConnectionException) {
             return new LookupResult(LookupResult::PENDING, raw: ['error' => 'Khalti unreachable'], retryable: true);
         } catch (ProviderException $exception) {
@@ -205,10 +262,10 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'partial refunds through Khalti are turned off');
         }
 
-        $url = ProviderHttp::endpoint($gateway, 'khalti.refund').rawurlencode($request->providerTxnId).'/refund/';
+        $endpoint = ProviderHttp::endpoint($gateway, 'khalti.refund');
 
         try {
-            $response = $this->client($gateway)->post($url, $request->isPartial() ? ['amount' => $request->amount->amount] : []);
+            $response = $this->client($gateway, $endpoint)->post($endpoint->url(rawurlencode($request->providerTxnId).'/refund/'), $request->isPartial() ? ['amount' => $request->amount->amount] : []);
         } catch (ConnectionException) {
             // The refund may still have gone through: staff must check the portal before retrying.
             return new ChargeResult(ChargeResult::ERROR, declineReason: 'no answer from Khalti; check the Khalti portal before retrying', raw: ['transaction_id' => $request->providerTxnId]);
@@ -239,7 +296,8 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         }
 
         try {
-            $response = $this->client($gateway)->post(ProviderHttp::endpoint($gateway, 'khalti.api').'epayment/lookup/', ['pidx' => 'MoharConnectionTest']);
+            $api = ProviderHttp::endpoint($gateway, 'khalti.api');
+            $response = $this->client($gateway, $api)->post($api->url('epayment/lookup/'), ['pidx' => 'MoharConnectionTest']);
         } catch (ConnectionException) {
             return new ConnectionCheck(false, __('Couldn\'t reach Khalti (:mode). Check the server\'s outbound connection.', ['mode' => $mode]));
         }
@@ -304,15 +362,16 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
         );
     }
 
-    private function client(GatewayConfig $gateway): PendingRequest
+    private function client(GatewayConfig $gateway, Endpoint $endpoint): PendingRequest
     {
-        return $this->http->request()->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
+        return $this->http->request()->withOptions($endpoint->options)->asJson()->withHeaders(['Authorization' => 'Key '.self::secret($gateway)]);
     }
 
     /**
-     * The redirect target must be https on khalti.com or a subdomain. Anything PHP and browsers might parse
-     * differently is refused outright: backslashes (browsers read them as "/"), whitespace and control characters,
-     * userinfo, explicit ports, and hosts that aren't plain DNS names (compared in lowercase).
+     * The redirect target must be https on khalti.com or a subdomain, or exactly the host and port of the `khalti.pay`
+     * endpoint (khalti.com itself unless overridden, ADR 0016 §3). Anything PHP and browsers might parse differently is
+     * refused outright: backslashes (browsers read them as "/"), whitespace and control characters, userinfo, other
+     * explicit ports, and hosts that aren't plain DNS names (compared in lowercase).
      */
     private function isKhaltiUrl(string $url): bool
     {
@@ -322,18 +381,36 @@ final class KhaltiDriver extends AbstractGatewayDriver implements ConnectionTest
 
         $parts = parse_url($url);
 
-        if ($parts === false || ($parts['scheme'] ?? null) !== 'https' || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])) {
+        if ($parts === false || ($parts['scheme'] ?? null) !== 'https' || isset($parts['user']) || isset($parts['pass'])) {
             return false;
         }
 
         $host = strtolower((string) ($parts['host'] ?? ''));
         $domain = strtolower((string) config('payments_nepal.khalti.payment_domain', 'khalti.com'));
+        // An override the outbound policy refuses matches nothing; the khalti.com rule below still applies.
+        try {
+            $page = parse_url(Endpoints::for('khalti.pay', 'https://'.$domain)->baseUrl);
+        } catch (OutboundAddressRefused) {
+            $page = false;
+        }
 
-        if (preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) !== 1) {
+        if (is_array($page) && $host === strtolower((string) ($page['host'] ?? '')) && ($parts['port'] ?? null) === ($page['port'] ?? null)) {
+            return true;
+        }
+
+        if (isset($parts['port']) || preg_match('/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/', $host) !== 1) {
             return false;
         }
 
         return $host === $domain || str_ends_with($host, '.'.$domain);
+    }
+
+    /** The pidx query value of a kept payment_url (Khalti's own format: `https://…/?pidx=<pidx>`). */
+    private static function urlPidx(string $url): ?string
+    {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return is_string($query['pidx'] ?? null) ? $query['pidx'] : null;
     }
 
     private static function partialRefunds(): bool

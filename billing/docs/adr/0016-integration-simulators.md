@@ -299,7 +299,7 @@ conformance tests. That is a data file, not running code, but it still goes thro
 | A dispute before its payment is answered 409, and booked on Stripe's retry (#124) | `StripeDriverAgainstSimulatorTest` "#124"; `tools/simulators/tests/Stripe/StripeReReviewProbesTest.php` (the outbox's `drain()` against the real app); `tests/Feature/PaymentsStripe/StripeWebhookTest.php`. The e2e scenario's dispute arrives after its payment, so its harness never retries |
 | A rotated WHM certificate is refused                                              | `CpanelDriverAgainstWhmTest` "a rotated certificate is refused before anything is sent…"                                                                                                                                                                                                        |
 | A refused loopback with `OUTBOUND_ALLOW_LOOPBACK=false` (§5 guarantee 2)          | Unit level: `tests/Feature/Integrations/EndpointsTest.php` "an override to loopback is refused unless the install policy allows loopback"; not end to end                                                                                                                                       |
-| A tampered eSewa return (NPR variant)                                             | **Not covered yet**; it comes with S5                                                                                                                                                                                                                                                           |
+| A tampered eSewa return (NPR variant)                                             | `HostingLifecycleTest` NPR eSewa run (a forged return pays nothing); `tools/simulators/tests/Esewa/EsewaDriverAgainstSimulatorTest.php` (wrong-secret, tampered and unsigned returns, and a form changed in the browser, ES104) (S5)                                                            |
 
 - **The runner.** `php artisan simulate:e2e`:
     - creates `billing_e2e_<random>` on PostgreSQL (or a temporary SQLite file);
@@ -313,6 +313,23 @@ conformance tests. That is a data file, not running code, but it still goes thro
     - it has its own PostgreSQL service and `timeout-minutes: 10`, about 2 billable minutes a run;
     - it is not a required check.
     - The main job never runs `tests/Simulators`, which is in no testsuite.
+
+### S5 as delivered
+
+- **The simulators.** `khalti` (`tools/simulators/src/Providers/Khalti`) and `esewa` (`tools/simulators/src/Providers/Esewa`), stateful, with a hosted page each and control actions for every outcome the drivers must handle: success, user cancel, pending then completed, pending then expired, amount mismatch, forged or badly signed returns, duplicate returns, and refunded or partially refunded payments. A lookup timeout uses the framework's `commit_then_hang`. Their behaviour is in `tools/simulators/README.md`.
+- **Driver change** (the only product change): `ProviderHttp::endpoint()` returns `Endpoints::for()` for `khalti.api`, `khalti.refund`, `esewa.form` and `esewa.status`, and every request carries its options.
+    - Khalti's `payment_url` check also accepts exactly the host and port of `khalti.pay` (khalti.com unless overridden).
+    - eSewa's Test connection also accepts a redirect to the form endpoint's host.
+    - Without an override both are the hosts they were, and the existing PaymentsNepal tests pass unchanged.
+- **Tests.** `tools/simulators/tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tools/simulators/tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes, in NPR with paisa (1,130.55). A duplicate return books one payment and no credit. An amount mismatch goes to staff review for Khalti. For eSewa, the status check matches on the amount, so a payment settled for another amount answers `NOT_FOUND` for ours: the attempt is abandoned after 5 minutes with nothing booked and no review, even after a signed `COMPLETE` return (#323 asks whether that should go to review). The eSewa status answers are checked against the UAT captures in `tests/Fixtures/Esewa`.
+- **End to end.** `tests/Simulators/HostingLifecycleTest.php` runs the NPR lifecycle (order, pay, provision, overdue suspension, renewal paid, unsuspension, cancellation) through eSewa and through Khalti, beside the Stripe lifecycle. The eSewa run starts with a forged return, and the Khalti run ends with a staff refund that the driver sends once. The harness starts all four simulators and trusts the three payment CAs through one bundle; scenario CAs are now named per scenario, so such a bundle can tell them apart.
+- **Sources and open questions.** eSewa follows the 2026-10-21 UAT captures. Khalti follows docs.khalti.com only; the sandbox capture proposed in #208 has not been made. Where the docs are ambiguous, the simulator chose:
+    - the Khalti session lifetime (1,800 s, from the docs' examples) and its fee (3%; Khalti publishes no API-level rate);
+    - Khalti's error wording (ours) and the shape of a refund answer (`detail` only);
+    - the Khalti refund `amount` unit (paisa; the driver keeps partial refunds off until a sandbox proves it, spec §8.2);
+    - eSewa's answer for an expired booking (`NOT_FOUND`, like a cancelled one), and where a PENDING customer is sent (the failure URL).
+    - The Khalti return parameters are those the docs list; nothing in them is trusted.
+- **Khalti's `ResumesHostedPayment`** (#251) came in a later PR and is tested against this simulator, which keeps `payment_url` stable per pidx and serves the page while the session is `Initiated`.
 
 ## Limits: what simulators cannot prove
 
