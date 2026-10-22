@@ -104,7 +104,7 @@ function DocumentUpload({
             options={{ preserveScroll: true }}
             resetOnSuccess
             onSuccess={onDone}
-            className="grid gap-4 sm:grid-cols-2"
+            className="grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2"
         >
             {({ errors, processing }) => (
                 <>

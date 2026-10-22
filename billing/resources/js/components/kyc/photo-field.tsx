@@ -20,15 +20,18 @@ type Props = {
 type State =
     | { kind: 'empty' }
     | { kind: 'working' }
+    | { kind: 'refused'; name: string }
     | { kind: 'ready'; result: ResizeResult; previewUrl: string };
 
 const KEPT: Record<string, string> = {
-    small: 'Small enough, uploaded as it is.',
-    'not-smaller': 'Already compact, uploaded as it is.',
+    small: 'This photo is small enough, so it is sent as it is.',
+    'not-smaller': 'This photo is already small, so it is sent as it is.',
     unsupported:
-        'Your browser could not shrink this photo, so it is uploaded as it is. Our server will check it.',
-    failed: 'Your browser could not shrink this photo, so it is uploaded as it is. Our server will check it.',
+        'We could not make this photo smaller here. It is sent as it is and checked when you upload.',
+    failed: 'We could not make this photo smaller here. It is sent as it is and checked when you upload.',
 };
+
+const IMAGE_TYPE = /^image\/(jpeg|png|webp)$/;
 
 /**
  * File input with a browser-side resize and a preview. The resized file replaces the chosen one inside the same
@@ -84,6 +87,17 @@ export function PhotoField({
             return;
         }
 
+        if (!IMAGE_TYPE.test(file.type)) {
+            // Not a JPEG, PNG or WebP photo (a HEIC from an iPhone, a PDF): the server would refuse it after the wait.
+            if (input.current) {
+                input.current.value = '';
+            }
+
+            setState({ kind: 'refused', name: file.name });
+
+            return;
+        }
+
         setState({ kind: 'working' });
 
         const result = await resizeImage(file);
@@ -117,7 +131,13 @@ export function PhotoField({
     }
 
     return (
-        <Field htmlFor={id} label={label} hint={hint} error={error}>
+        <Field
+            htmlFor={id}
+            label={label}
+            hint={hint}
+            error={error}
+            className="min-w-0 grid-cols-[minmax(0,1fr)]"
+        >
             <Input
                 ref={input}
                 id={id}
@@ -132,6 +152,14 @@ export function PhotoField({
                 {state.kind === 'working' && (
                     <p className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Spinner /> Preparing your photo…
+                    </p>
+                )}
+                {state.kind === 'refused' && (
+                    <p className="text-sm text-danger-text">
+                        {state.name} is not a JPEG, PNG or WebP photo. Choose
+                        another file. If it is a HEIC photo from an iPhone,
+                        change the camera setting to Most Compatible, or share
+                        it as a JPEG.
                     </p>
                 )}
                 {state.kind === 'ready' && (
@@ -153,7 +181,7 @@ export function PhotoField({
                             </p>
                             <p className="text-muted-foreground">
                                 {state.result.resized
-                                    ? `Reduced from ${formatBytes(state.result.original.bytes)} (${state.result.original.width} × ${state.result.original.height}) to ${formatBytes(state.result.output.bytes)} (${state.result.output.width} × ${state.result.output.height}).`
+                                    ? `Made smaller: ${formatBytes(state.result.original.bytes)} to ${formatBytes(state.result.output.bytes)}, ready to upload.`
                                     : `${formatBytes(state.result.file.size)}. ${KEPT[state.result.reason ?? 'failed']}`}
                             </p>
                             <div>
@@ -164,7 +192,7 @@ export function PhotoField({
                                     onClick={remove}
                                 >
                                     <X aria-hidden="true" />
-                                    Remove and choose another
+                                    Choose another photo
                                 </Button>
                             </div>
                         </div>

@@ -64,8 +64,9 @@ admin review routes stay available, so staff can finish the queue after the feat
   Maximum 5 MB per image.
 - The browser shrinks a photo before upload (#288): over 2,800 px on the long edge or over 1 MB, it is scaled to at most
   2,800 px (never enlarged), orientation applied, and saved as JPEG at quality 85 (transparent images stay PNG). The
-  client sees a preview with the old and new size and can choose another photo. When the browser cannot do it, the
-  original is sent. This only saves bandwidth; every server check below still applies.
+  client sees a preview with the old and new file size in KB or MB (no pixel sizes) and can choose another photo. A file
+  that is not a JPEG, PNG or WebP (for example HEIC) is refused on the spot with a plain message and the field is
+  cleared. When the browser cannot shrink a valid photo, the original is sent. This only saves bandwidth; every server check below still applies.
 - Stored on the private `objects` disk, encrypted with the application key (`Crypt::encryptString`) under a random
   path. The document number is encrypted at rest too. Neither the bytes, the number nor the path ever appear in an
   Inertia prop, a log line or an audit entry; clients see the last 4 characters of the number only.
