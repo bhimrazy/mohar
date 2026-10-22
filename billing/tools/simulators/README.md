@@ -128,6 +128,26 @@ The control plane answers only requests that carry `X-Sim-Token`:
 - **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`esewa.form`, `esewa.status`), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the eSewa gateway in sandbox mode with product code `EPAYTEST` and `EsewaSimulator::SECRET_KEY`.
 - **Shapes.** The UAT captures of 2026-10-21 (`tests/Fixtures/Esewa`) are the expected shapes; `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` checks the status answers against them.
 
+### `resellerclub`: ResellerClub (LogicBoxes) HTTP API, for the registrar driver
+
+- **API (`/api/…json`).** Every call carries `auth-userid` (`ResellerClubSimulator::RESELLER_ID`) and `api-key` (`API_KEY`); anything else, or any call while `ip_allowed` is off, is refused "Access Denied. You are not allowed to perform this action." Reads must be GET and changes POST.
+    - Refusals are HTTP 500 with `{"status": "ERROR", "message": …}` and change nothing. There are no error codes, so the driver classifies by text; the wording is ours. Field checks answer one message as a map, `{telnocc=…, country=…}`.
+    - Lists are repeated names without brackets (`ns=a&ns=b`, `tlds=com&tlds=net`, `options=OrderDetails&options=NsDetails`), read with `Request::values()`. Extra order details are numbered pairs (`attr-name1`, `attr-value1`).
+    - Values come back as strings, times as epoch seconds. Calls that return one value (signup, contact add, order id, validate-transfer, submit-auth-code) answer a bare JSON value.
+- **Account.** `customers/v2/signup` (username is an email, unique), `customers/details?username=`, `contacts/add` (a contact belongs to one customer and is never edited), `contacts/details`.
+- **Orders.** `domains/register`, `transfer`, `transfer/submit-auth-code`, `validate-transfer`, `renew` (`exp-date` must equal the current expiry, so a second renewal with the old date is refused), `restore` (only from Pending Delete Restorable), `details-by-name` (option groups `All`, `OrderDetails` with `domsecret`, `ContactIds`, `NsDetails`, `DomainStatus`), `orderid`, `search` (`no-of-records` 10–500, `page-no`; rows `"1"`, `"2"`, … with dotted columns), `modify-ns`, `enable-`/`disable-theft-protection`, `locks`, `modify-privacy-protection` (refused for extensions without privacy, such as `.in`), `modify-contact` (a gTLD registrant change adds `sixtydaylock`).
+    - Mutating calls answer `entityid`, `eaqid`, `actionstatus` (`Success`, or `PendingExecution` while the registry has not answered) and `actionstatusdesc`. With `invoice-option=NoInvoice` the price comes off the reseller balance (US cents in state) and no invoice fields are returned.
+    - Orders are InActive, Active, Suspended, Pending Delete Restorable, Deleted or Archived.
+- **Scenarios.**
+    - Availability: `available`, `regthroughus` (an order in this account), `regthroughothers` (held at another registrar: `FOREIGN_DOMAIN` and `example.com` are seeded), `unknown` (an extension the registry does not sell, or one set `registry_down`). An SLD starting `premium-` is a premium name with a `costHash`; registering it needs the attribute `premium=true`.
+    - An SLD starting `slow-` registers asynchronously (`PendingExecution`, InActive) until `settle_order`.
+    - A transfer without its auth code waits (`"status": "NoError"`, `PendingExecution`) for `submit-auth-code`, then for the registry (`settle_order`). `.ca` and `.com.au` need the code with the order.
+    - `.com.au` needs `id-type`, `id`, `policyReason` and `isAUWarranty=true`; `.dev` needs `tnc=y`. `.co.uk` has no admin, tech or billing contact and `.ca` no billing contact: those take `-1`.
+    - Insufficient funds: `set_balance` below the price. A timeout after commit and a rate limit are the framework faults `commit_then_hang` and `rate_limit` on any operation.
+- **Control actions.** `settle_order` {domain, outcome `active`|`failed`}, `set_status` {domain, status}, `add_foreign_domain` {domain, auth_code, expires_in_days}, `set_balance` {cents}, `registry_down` {tld, down}, `ip_allowed` {allowed}, and `reset`, which wipes the account and reseeds it as the demo account is wiped daily.
+- **Using it from the app.** Set the printed `INTEGRATION_ENDPOINTS` (`resellerclub.api` and `resellerclub.check`, both this port), `INTEGRATION_CA_BUNDLE` and `OUTBOUND_ALLOW_LOOPBACK=true`. Use the ResellerClub registrar in test mode with the demo reseller id and API key.
+- **Shapes.** Written from the public HTTP API reference only (no demo-account capture); `tests/ResellerClub/ResellerClubSimulatorTest.php` covers each scenario over the TLS port.
+
 ### Wallet scenarios and where each is proved
 
 `tests/Khalti/KhaltiDriverAgainstSimulatorTest.php` and `tests/Esewa/EsewaDriverAgainstSimulatorTest.php` run the unchanged drivers through the app's routes:
