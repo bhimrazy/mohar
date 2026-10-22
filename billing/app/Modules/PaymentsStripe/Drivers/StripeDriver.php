@@ -341,7 +341,8 @@ final class StripeDriver extends AbstractGatewayDriver implements CancelsHostedP
         // says nothing about the original request, so it stays unknown; the list after 24 hours or staff settle it.
         $http = $result->raw['http_status'] ?? null;
         $failed = is_int($http) && $http >= 200 && $http < 300
-            && is_string($result->txnId) && str_starts_with($result->txnId, 're_');
+            && is_string($result->txnId) && str_starts_with($result->txnId, 're_')
+            && in_array($result->raw['status'] ?? null, ['failed', 'canceled'], true);
 
         return $failed
             ? $result
