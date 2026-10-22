@@ -69,6 +69,7 @@ export function PasswordConfirmationGate() {
         });
 
         const onDownload = (event: Event) => {
+            event.preventDefault();
             setPassword('');
             setError(null);
             setPending({

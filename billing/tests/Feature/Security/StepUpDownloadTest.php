@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\RequireRecentPasswordConfirmation;
 use App\Modules\Core\Models\ActivityLog;
 use App\Modules\Core\Models\Currency;
 use Illuminate\Support\Facades\Storage;
@@ -39,6 +40,16 @@ test('a stale confirmation counts as none, and a wrong password does not unlock 
     $this->get($this->url)->assertRedirect(route('password.confirm'));
 });
 
+test('the confirm page says it is for a download, and a dialog confirm forgets the remembered file', function () {
+    $this->withSession(['auth.password_confirmed_at' => 0]);
+    $this->get($this->url)->assertRedirect(route('password.confirm'));
+
+    $this->get(route('password.confirm'))->assertInertia(fn ($page) => $page->component('auth/confirm-password')->where('download', true));
+
+    $this->postJson(route('password.confirm.store'), ['password' => 'password'])->assertCreated();
+    expect(session('url.intended'))->toBeNull()->and(session('step_up_download'))->toBeNull();
+});
+
 test('a probe says whether the file may be fetched and never reaches the controller', function () {
     $this->withSession(['auth.password_confirmed_at' => 0]);
     $this->get($this->url, ['X-Step-Up-Check' => '1'])->assertStatus(423);
@@ -68,7 +79,7 @@ test('a mutation without a recent password is still refused with the validation 
 
 test('every GET route behind step-up is a download this fix covers', function () {
     $routes = collect(app('router')->getRoutes()->getRoutes())
-        ->filter(fn ($route) => in_array('GET', $route->methods(), true) && in_array('password.recent', $route->gatherMiddleware(), true))
+        ->filter(fn ($route) => in_array('GET', $route->methods(), true) && collect($route->gatherMiddleware())->contains(fn ($middleware) => is_string($middleware) && (str_starts_with($middleware, 'password.recent') || str_starts_with($middleware, RequireRecentPasswordConfirmation::class))))
         ->map(fn ($route) => $route->getName())->sort()->values()->all();
 
     expect($routes)->toBe(['admin.migration.imports.errors']);

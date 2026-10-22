@@ -1,7 +1,25 @@
 import type { AnchorHTMLAttributes, MouseEvent } from 'react';
+import { useState } from 'react';
 
-/** Fired on `window` when a download needs a recent password; `PasswordConfirmationGate` listens for it. */
+/**
+ * Fired on `window` (cancelable) when a download needs a recent password. `PasswordConfirmationGate` listens for it
+ * and cancels it; a layout without a gate leaves it uncancelled, and the link then navigates to the file so the
+ * server sends the user to the confirm-password page.
+ */
 export const STEP_UP_DOWNLOAD_EVENT = 'step-up:download';
+
+/** Ask a mounted gate to confirm the password for a download; false when nothing handled the event. */
+export function requestStepUpDownload(
+    target: EventTarget,
+    url: string,
+): boolean {
+    return !target.dispatchEvent(
+        new CustomEvent(STEP_UP_DOWNLOAD_EVENT, {
+            cancelable: true,
+            detail: { url },
+        }),
+    );
+}
 
 /**
  * A link to a file behind the `password.recent` middleware. A plain click asks the server (a probe that never
@@ -14,6 +32,8 @@ export function StepUpDownloadLink({
     onClick,
     ...props
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+    const [checking, setChecking] = useState(false);
+
     const open = async (event: MouseEvent<HTMLAnchorElement>) => {
         onClick?.(event);
 
@@ -29,6 +49,7 @@ export function StepUpDownloadLink({
         }
 
         event.preventDefault();
+        setChecking(true);
 
         try {
             const response = await fetch(href, {
@@ -41,20 +62,28 @@ export function StepUpDownloadLink({
             });
 
             if (response.status === 423) {
-                window.dispatchEvent(
-                    new CustomEvent(STEP_UP_DOWNLOAD_EVENT, {
-                        detail: { url: href },
-                    }),
-                );
+                const handled = requestStepUpDownload(window, href);
 
-                return;
+                if (handled) {
+                    return;
+                }
             }
         } catch {
             // Offline or blocked: let the browser try the link itself.
+        } finally {
+            setChecking(false);
         }
 
         window.location.assign(href);
     };
 
-    return <a href={href} onClick={open} {...props} />;
+    return (
+        <a
+            href={href}
+            onClick={open}
+            aria-busy={checking}
+            className={checking ? 'opacity-60' : undefined}
+            {...props}
+        />
+    );
 }
