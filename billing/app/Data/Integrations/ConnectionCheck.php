@@ -28,7 +28,7 @@ final readonly class ConnectionCheck
      *
      * @param  Closure(string): string  $mask
      */
-    public function mapText(Closure $mask): self
+    public function mapText(Closure $mask): static
     {
         return new self(
             $this->ok,
