@@ -10,6 +10,8 @@ use App\Events\Billing\InvoicePaid;
 use App\Events\Billing\InvoiceRefunded;
 use App\Events\Billing\PaymentFailed;
 use App\Events\Billing\PaymentReceived;
+use App\Events\Billing\PaymentReinstated;
+use App\Events\Billing\PaymentReversed;
 use App\Events\Billing\QuoteAccepted;
 use App\Events\Core\ClientRegistered;
 use App\Events\Core\ClientUpdated;
@@ -53,6 +55,8 @@ final class WebhookEventTypes
         InvoiceRefunded::class => ['invoice.refunded', 'invoice', 'invoiceId'],
         PaymentReceived::class => ['payment.received', 'transaction', 'transactionId'],
         PaymentFailed::class => ['payment.failed', 'invoice', 'invoiceId'],
+        PaymentReversed::class => ['payment.reversed', 'transaction', 'transactionId'],
+        PaymentReinstated::class => ['payment.reinstated', 'transaction', 'transactionId'],
         QuoteAccepted::class => ['quote.accepted', 'quote', 'quoteId'],
         ServiceActivated::class => ['service.activated', 'service', 'serviceId'],
         ServiceSuspended::class => ['service.suspended', 'service', 'serviceId'],

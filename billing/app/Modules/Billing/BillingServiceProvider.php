@@ -8,6 +8,7 @@ use App\Contracts\Billing\GatewayRegistry;
 use App\Contracts\Billing\InvoiceQueries;
 use App\Contracts\Billing\Invoicer;
 use App\Contracts\Billing\TaxCalculator;
+use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Notifications\MergeFieldRegistry;
 use App\Enums\BillableType;
 use App\Events\Orders\OrderAccepted;
@@ -18,6 +19,7 @@ use App\Modules\Billing\Drivers\Gateways\ManualDriver;
 use App\Modules\Billing\Drivers\Gateways\SandboxCardDriver;
 use App\Modules\Billing\Enums\InvoiceStatus;
 use App\Modules\Billing\Http\Middleware\ConfirmPasswordForAction;
+use App\Modules\Billing\Import\OpeningBalanceImporter;
 use App\Modules\Billing\Install\RegionalTaxDefaults;
 use App\Modules\Billing\Listeners\RecordAcceptedOrder;
 use App\Modules\Billing\Models\Invoice;
@@ -29,6 +31,7 @@ use App\Modules\Billing\Services\BillingDirectory;
 use App\Modules\Billing\Services\CreditLedgerService;
 use App\Modules\Billing\Services\InvoiceService;
 use App\Modules\Billing\Services\PaymentReconciler;
+use App\Modules\Billing\Services\Tax\BillingTaxIdRules;
 use App\Modules\Billing\Services\Tax\TaxEngine;
 use App\Modules\Billing\Support\BillingDashboard;
 use App\Modules\Billing\Support\BillingSettings;
@@ -40,6 +43,7 @@ use App\Support\Clients\ClientCurrencyUsage;
 use App\Support\Currencies\MoneyFormatter;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
+use App\Support\Migration\ImportRegistry;
 use App\Support\Modules\ModuleServiceProvider;
 use App\Support\Money;
 use App\Support\Navigation\Navigation;
@@ -72,6 +76,7 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->bind(Invoicer::class, InvoiceService::class);
         $this->app->bind(TaxCalculator::class, TaxEngine::class);
         $this->app->bind(CreditLedger::class, CreditLedgerService::class);
+        $this->app->bind(TaxIdRules::class, BillingTaxIdRules::class);
         $this->app->bind(GatewayDirectory::class, BillingDirectory::class);
         $this->app->bind(InvoiceQueries::class, BillingDirectory::class);
 
@@ -93,6 +98,9 @@ class BillingServiceProvider extends ModuleServiceProvider
         $this->app->make(ReferenceDataRegistry::class)->register(RegionalTaxDefaults::KEY, RegionalTaxDefaults::class, order: 110);
 
         Event::listen(OrderAccepted::class, RecordAcceptedOrder::class);
+
+        // Opening credit balances of imported clients (client-import spec §6.12).
+        $this->app->make(ImportRegistry::class)->register('credit_balance', OpeningBalanceImporter::class, dependsOn: ['client']);
 
         // Invoices, quotes, payments and credit are stored in the client's currency (client-import spec §6.4).
         $this->app->make(ClientCurrencyUsage::class)->register('billing', fn (array $clientIds): array => $this->app->make(BillingDirectory::class)->clientsWithDocuments($clientIds));
@@ -307,6 +315,7 @@ class BillingServiceProvider extends ModuleServiceProvider
             $list('reminders.overdue_days', 'Overdue reminder days', 'Comma-separated, e.g. 1, 4, 7'),
             $int('auto_cancel.days_overdue', 'Auto-cancel after days overdue (0 = off)'),
             $int('gateways.lookup_interval_minutes', 'Hosted payments: minutes between status lookups'),
+            new SettingDefinition('billing.gateways.lookups_per_run', 'Hosted payments: status lookups per run', 'integer', 'At most this many open payments are looked up every five minutes (1 to 1,000); the least recently checked go first.', rules: ['min:1', 'max:'.PaymentReconciler::MAX_LOOKUPS_PER_RUN]),
             $int('gateways.lookup_grace_minutes', 'Hosted payments: grace after expiry before giving up (minutes)'),
             new SettingDefinition('billing.gateways.late_lookup_hours', 'Hosted payments: keep checking closed payments for late success (hours)', 'integer', 'Hourly, up to 168 hours after the payment started. 0 turns it off.', rules: ['min:0', 'max:'.PaymentReconciler::MAX_LATE_LOOKUP_HOURS]),
             new SettingDefinition('billing.gateways.late_lookups_per_run', 'Hosted payments: late checks per hourly run', 'integer', 'At most this many closed payments are looked up each hour (1 to 1,000).', rules: ['min:1', 'max:1000']),

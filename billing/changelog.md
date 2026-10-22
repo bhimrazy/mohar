@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Upgrade notes
 
+- **Cache lock store check.** `php artisan app:install` reports a new "Cache lock store" check. `CACHE_STORE=array`
+  or `null` (or a `failover` list containing one) stops a first production install and warns on an existing installation; `file`, `apc` and `octane` warn that they are safe on a
+  single host only; `database` and `redis` pass. In production the admin dashboard's System health card shows the same
+  finding. Operators with more than one server or container: use `database` or `redis` (`docs/devops/install.md`).
+
 - **A currency's code can no longer be changed after it is created (#238).** Clients, invoices, quotes,
   transactions, prices and rate history store the code, so renaming it left them pointing at a currency that no
   longer existed. Admin → Currencies → Edit shows the code read-only with the reason; an update request that sends a
@@ -35,6 +40,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Invitations while "Stop sending email" is on.** Adding a new login to a client now answers "the invitation was not
   sent: email is switched off…" instead of reporting it sent, and leaves no open invitation; send it again once mail
   is on.
+- **Client import opening balances.** Account-credit entries gain the reason `import`; an import's entries carry the
+  reference `import` / `run:<run>:client:<client>` in the existing unique (`gateway`, `external_ref`) pair. Migration
+  `980310` adds `migration_records.entities` (expand only); applied rows now keep their undo snapshot per entity
+  (`{client: …, credit_balance: …}`). GSTINs with the codes 97 (Other Territory) and 99 (Centre Jurisdiction) are now
+  valid. No permission change. Kernel: `App\Contracts\Migration\RevertsImport`, `ImportAction::Reverted`,
+  `App\Contracts\Billing\TaxIdRules` with `App\Data\Billing\TaxIdNote` (Core binds a null default, Billing its rules).
 - **A client's currency is fixed once the client has records in it (#218).** Staff can no longer change the currency
   on Admin → Clients → Edit when the client has invoices, quotes, payments, account credit, services, orders or
   domains (deleted services and domains count). The form shows the currency disabled with the reason, for example
@@ -62,6 +73,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   old key in `APP_PREVIOUS_KEYS` when rotating, or stored images can no longer be read. `php artisan app:install`
   (or the upgrade's reference-data step) adds the new client email template `kyc.document_decided`; existing
   templates are untouched. Kernel: new event `App\Events\Kyc\DocumentDecided(clientId, documentId)`.
+- **Payment follow-ups (#232, #230, #221).**
+    - **A won Stripe dispute that was never booked as a chargeback is acknowledged (#232).** On a Stripe webhook
+      destination without `charge.dispute.funds_withdrawn`, an inquiry that escalated and was then won reached its
+      `charge.dispute.closed` with no chargeback booked, and Billing answered 409 until Stripe stopped retrying. When the
+      dispute's balance transactions show both the withdrawal and the reinstatement, Billing now answers 200 and moves
+      no money, with the gateway log result "dispute won with no chargeback booked; funds reinstated at the provider,
+      no money moved". It records the win as a zero-amount `chargeback_reversal` transaction ("Dispute won at the
+      provider before a chargeback was booked here. No money moved."), written under the payment's lock: a chargeback
+      for that dispute delivered later (a `funds_withdrawn` read before the win) is then answered "dispute already won;
+      nothing booked", and one that commits while the win waits for the lock is reversed as usual. The zero row is not
+      shown to the client (invoice page, PDF, account credit page), is never refundable and adds no ledger line or
+      income; staff see it on Billing → Transactions. A `charge.dispute.created` or `funds_withdrawn` retrieved after
+      the win is also ignored by the Stripe driver. The inquiry's to-do stays on "Disputes to review" for staff
+      to mark reviewed. Failed deliveries from before the upgrade are not replayed: resend them from the Stripe
+      Dashboard if you want them in the log.
+    - **The open-payment poller looks up every five minutes (#230).** As with the late sweep (#222), each lookup is
+      stamped when it finishes, so the next five-minute run skipped the attempt and pending hosted payments (eSewa,
+      Khalti) were looked up every ten minutes. A time-travel test showed the 10:05 run skipping it. The cut-off is
+      now taken once, when the run starts, with up to 60 seconds of slack (half the interval when
+      `billing.gateways.lookup_interval_minutes` is 1); the back-off after 12 lookups (every sixth interval) uses the
+      same cut-off. Each run is now bounded: at most `billing.gateways.lookups_per_run` lookups (new setting, default
+      200, 1 to 1,000), never-checked and least recently checked attempts first, and none
+      started after 4 minutes; the rest wait for the next run.
+    - **New outgoing webhooks `payment.reinstated` and `payment.reversed` (#221).** A won dispute fires the new event
+      `PaymentReinstated` once for each `PaymentReversed` its chargeback fired, with the same invoice and amount: one
+      per invoice for a combined charge, none for a dispute that took back only account credit (which fired no
+      `PaymentReversed` either). It fires also when the invoice still owes more or the money went to staff review
+      (`invoice.paid` still follows only when the win settles the invoice). Webhook endpoints can subscribe to
+      `payment.reinstated` (the `chargeback_reversal` transaction) and to `payment.reversed` (the chargeback, or a
+      refund with "reverse effects"), which was not offered before. An endpoint subscribed to all events (`*`) receives
+      both from the upgrade on; others only once staff add them on the endpoint's form (Admin → Webhooks).
+    - No migration and no permission change; one new setting (`billing.gateways.lookups_per_run`). Kernel: new event
+      `App\Events\Billing\PaymentReinstated`; new `CallbackEvent::$fundsReinstated`.
+
 - **Go-live payment fixes (#223, #212, #222, #224).**
     - **A refunded deposit takes its credit back (#223).** A provider refund (and a staff refund in any mode) of an
       add-funds payment now takes back the account credit the deposit placed: the refunded amount, after any
@@ -352,6 +397,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   before the upgrade were password-reset links and expire as before; those logins have no open invitation, so staff
   use the new "Send a password reset" action for them instead of "Send a new invitation".
 
+### Hosted payments: continue or pay another way (#123)
+
+- After a declined card on Stripe Checkout, the client invoice now offers **Continue payment**, which reopens the same
+  Stripe page (its address is read from Stripe at the click, only for the client's own open payment, and only on
+  Stripe's checkout host), and **Use another method**. The second asks for confirmation, expires the session at Stripe
+  first and frees the invoice only when Stripe's status confirms it can no longer be paid. If Stripe reports it paid,
+  the payment is recorded instead. A double click closes it once.
+- **Use another method** is offered only by methods that can close their payment page at the provider (Stripe
+  today). eSewa and Khalti don't offer it, and a direct request to close one of their payments is refused without a
+  status check or any change: their "not found" or "initiated" answer doesn't mean the customer's other tab can no
+  longer pay. If Stripe still holds the session or can't be reached, the client sees why, for example "The payment
+  page is still open, so the payment could still be made there". Each close sends Stripe a new idempotency key, so a
+  transient Stripe error is not replayed on the next click.
+- After a cancel on eSewa, the invoice now keeps a "Payment not completed" card with **Pay a different way** and
+  the "Don't pay again" warning until the eSewa session time is over. A late success is still booked as before.
+- Operators: no migration, no setting and no permission change. Two new client routes,
+  `invoices/{invoice}/payments/{reference}/continue` and `…/close`, are throttled like Pay. Closing uses
+  `Cache::lock` and so needs the shared lock store (#64). Kernel: `ResumesHostedPayment`, `CancelsHostedPayment`,
+  `HostedSessionCancel`.
+
 ### Identity verification (KYC)
 
 - Clients can verify their identity in the client area (Identity verification): confirm the account email, save a
@@ -454,6 +519,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   needs a cache store shared by every worker (database or Redis). While email is switched off ("Stop sending email")
   or the template is turned off, the sender holds: no link is issued, the logins stay "Waiting to send", the page says
   why, and "Continue sending" sends them once mail is on.
+- **Opening credit balances** (client-import spec §6.12): a column mapped to **Opening credit balance** (suggested for
+  headers such as Credit or Opening balance) is read as an amount in the client's currency, never as a float: plain
+  digits, western grouping (1,234,567) or lakh grouping (1,25,000), with at most two decimals after a point. A decimal
+  comma ("250,50"), loose grouping ("1,2,3"), a negative amount or a credit in another currency than the client's is a
+  row error. Billing posts the balance automatically only for a client the import creates ("Opening balance from
+  <source>", reason `import`, in the client's currency, under the client's row lock), and on a later run of the same
+  client only the difference, while its credit has not moved since the last import. Otherwise (an existing client
+  matched for the first time, or credit that moved) nothing is posted and the row says "Existing credit kept; post the
+  opening balance manually if it is still owed." The review asks Billing what apply would do, so a balance shows as a
+  change only when it would be posted, and the same file again comes out unchanged. Each run posts at most one entry
+  per client. Undo, when it is built (spec PR 5), takes back exactly what a run posted while the balance still covers
+  it. Without the Billing module the review warns that balances will not be imported.
+- **Tax-number notes** (client-import spec §6.6): Nepal PAN/VAT numbers that are not 9 digits, Indian GSTINs that are not
+  valid, and GSTINs registered in another state than the address (place of supply follows the GSTIN) are warnings
+  in the review; a Nepal business without a PAN gets a note, and an EU VAT ID that makes invoices reverse charge gets a
+  note. None of them blocks a row. Numbers are stored as invoices use them (spaces removed, uppercase, for Nepal, India
+  and the EU).
 - The client profile shows the columns an import kept, under **Imported fields**, with the import date and source.
 - Uploads that are never applied lose their rows after 7 days (`migration.staging_days`, housekeeping task "Purge
   expired client imports"); their counts stay. Applied imports keep row details for 7 days (`migration.undo_days`); an

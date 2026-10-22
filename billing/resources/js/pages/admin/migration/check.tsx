@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { ConfirmDialog } from '@/components/app/confirm-dialog';
 import { DataTable } from '@/components/app/data-table';
 import { DateTime } from '@/components/app/date';
+import { Money } from '@/components/app/money';
 import { SectionCard } from '@/components/app/section-card';
 import { SelectField } from '@/components/app/select-field';
 import type { DataTableColumn } from '@/components/app/data-table';
@@ -67,6 +68,7 @@ type Row = {
     link_login: boolean | null;
     outcome: Outcome | null;
     client_href: string | null;
+    credit: { amount: number; currency: string } | null;
 };
 
 type Choice = 'create' | 'link' | 'no_link' | 'update' | 'skip';
@@ -183,6 +185,15 @@ const columns = (
                 <span className="text-xs break-all text-muted-foreground">
                     {row.email ?? 'No email'}
                 </span>
+                {row.credit && (
+                    <span className="text-xs text-muted-foreground">
+                        Opening credit{' '}
+                        <Money
+                            amount={row.credit.amount}
+                            currency={row.credit.currency}
+                        />
+                    </span>
+                )}
             </span>
         ),
     },

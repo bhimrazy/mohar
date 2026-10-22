@@ -6,6 +6,7 @@ use App\Contracts\Auth\AuthMailer;
 use App\Contracts\Auth\ClientLoginInvitations;
 use App\Contracts\Billing\GatewayDirectory;
 use App\Contracts\Billing\InvoiceQueries;
+use App\Contracts\Billing\TaxIdRules;
 use App\Contracts\Branding\BrandProvider;
 use App\Contracts\Currencies\CurrencyDirectory;
 use App\Contracts\Notifications\EmailTemplates;
@@ -47,6 +48,7 @@ use App\Modules\Core\Support\NullProvisioningDrivers;
 use App\Modules\Core\Support\NullPublicHelpDirectory;
 use App\Modules\Core\Support\NullShopperSession;
 use App\Modules\Core\Support\NullSystemMailer;
+use App\Modules\Core\Support\NullTaxIdRules;
 use App\Modules\Core\Support\Settings;
 use App\Support\Dashboard\Dashboard;
 use App\Support\Install\ReferenceDataRegistry;
@@ -95,6 +97,7 @@ class CoreServiceProvider extends ModuleServiceProvider
         $this->app->bindIf(AuthMailer::class, LaravelAuthMailer::class);
         $this->app->bindIf(SystemMailer::class, NullSystemMailer::class);
         $this->app->bindIf(ClientLoginInvitations::class, NullClientLoginInvitations::class);
+        $this->app->bindIf(TaxIdRules::class, NullTaxIdRules::class);
         $this->app->bindIf(ShopperSession::class, NullShopperSession::class);
         $this->app->bindIf(PublicHelpDirectory::class, NullPublicHelpDirectory::class);
     }
