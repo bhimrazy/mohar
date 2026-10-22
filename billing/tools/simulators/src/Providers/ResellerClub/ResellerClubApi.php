@@ -24,18 +24,21 @@ final class ResellerClubApi
     /** Order states the API reports in currentstatus. */
     public const STATUSES = ['InActive', 'Active', 'Suspended', 'Pending Delete Restorable', 'Deleted', 'Archived'];
 
-    /** Extensions this registry sells: prices in US cents, privacy, auth code needed with the order, roles it lacks. */
+    /**
+     * Extensions this registry sells: the LogicBoxes product key (from the public Product Keys list; `.dev` is not on it,
+     * so `dotdev` is assumed), prices in US cents, privacy, auth code needed with the order, roles it lacks.
+     */
     public const TLDS = [
-        'com' => ['price' => 1_050, 'privacy' => true],
-        'net' => ['price' => 1_250, 'privacy' => true],
-        'org' => ['price' => 1_150, 'privacy' => true],
-        'xyz' => ['price' => 300, 'privacy' => true],
-        'in' => ['price' => 800, 'privacy' => false],
-        'co.in' => ['price' => 600, 'privacy' => false],
-        'dev' => ['price' => 1_400, 'privacy' => true, 'attributes' => ['tnc' => '/^[yY]$/']],
-        'com.au' => ['price' => 1_300, 'privacy' => false, 'auth_code_upfront' => true, 'attributes' => ['id-type' => '/^(ACN|ABN|TM|Other)$/', 'id' => '/^\S.{0,63}$/', 'policyReason' => '/^[12]$/', 'isAUWarranty' => '/^true$/']],
-        'co.uk' => ['price' => 700, 'privacy' => false, 'absent_roles' => ['admin', 'tech', 'billing']],
-        'ca' => ['price' => 1_200, 'privacy' => false, 'auth_code_upfront' => true, 'absent_roles' => ['billing']],
+        'com' => ['key' => 'domcno', 'price' => 1_050, 'privacy' => true],
+        'net' => ['key' => 'dotnet', 'price' => 1_250, 'privacy' => true],
+        'org' => ['key' => 'domorg', 'price' => 1_150, 'privacy' => true],
+        'xyz' => ['key' => 'dotxyz', 'price' => 300, 'privacy' => true],
+        'in' => ['key' => 'dotin', 'price' => 800, 'privacy' => false],
+        'co.in' => ['key' => 'thirdleveldotin', 'price' => 600, 'privacy' => false],
+        'dev' => ['key' => 'dotdev', 'price' => 1_400, 'privacy' => true, 'attributes' => ['tnc' => '/^[yY]$/']],
+        'com.au' => ['key' => 'thirdleveldotau', 'price' => 1_300, 'privacy' => false, 'auth_code_upfront' => true, 'attributes' => ['id-type' => '/^(ACN|ABN|TM|Other)$/', 'id' => '/^\S.{0,63}$/', 'policyReason' => '/^[12]$/', 'isAUWarranty' => '/^true$/']],
+        'co.uk' => ['key' => 'thirdleveldotuk', 'price' => 700, 'privacy' => false, 'absent_roles' => ['admin', 'tech', 'billing']],
+        'ca' => ['key' => 'dotca', 'price' => 1_200, 'privacy' => false, 'auth_code_upfront' => true, 'absent_roles' => ['billing']],
     ];
 
     public const PREMIUM_PRICE = 12_000;
@@ -57,7 +60,7 @@ final class ResellerClubApi
                 $name = strtolower($sld.'.'.$tld);
 
                 if (! isset(self::TLDS[$tld]) || in_array($tld, $down, true)) {
-                    $answer[$name] = ['status' => 'unknown', 'classkey' => 'dot'.str_replace('.', '', $tld)];
+                    $answer[$name] = ['status' => 'unknown', 'classkey' => self::TLDS[$tld]['key'] ?? 'unknown'];
 
                     continue;
                 }
@@ -68,7 +71,7 @@ final class ResellerClubApi
                     $this->foreign($name) !== null => 'regthroughothers',
                     default => 'available',
                 };
-                $answer[$name] = ['status' => $status, 'classkey' => 'dot'.str_replace('.', '', $tld)];
+                $answer[$name] = ['status' => $status, 'classkey' => self::TLDS[$tld]['key']];
 
                 if ($status === 'available' && self::premium($name)) {
                     $answer[$name]['costHash'] = ['create' => self::dollars(self::PREMIUM_PRICE), 'renew' => self::dollars(self::PREMIUM_PRICE), 'transfer' => self::dollars(self::PREMIUM_PRICE), 'sellingcurrencysymbol' => 'USD'];
@@ -239,13 +242,15 @@ final class ResellerClubApi
                 return self::error($name.' is a premium domain name; send the premium attribute to accept its price.');
             }
 
-            if (($funds = $this->charge(($premium ? self::PREMIUM_PRICE : self::TLDS[$tld]['price']) * $years)) !== null) {
+            $price = ($premium ? self::PREMIUM_PRICE : self::TLDS[$tld]['price']) * $years;
+
+            if (($funds = $this->charge($price)) !== null) {
                 return $funds;
             }
 
             $async = str_starts_with($name, 'slow-');
             $order = $this->newOrder($request, $name, $tld, 'register', $async ? 'InActive' : 'Active', $async ? null : self::years(time(), $years));
-            $order = [...$order, 'years' => $years, 'attributes' => $attributes];
+            $order = [...$order, 'years' => $years, 'attributes' => $attributes, 'charged' => $price];
             $this->saveOrder($order);
 
             return $this->action($order, 'AddNewDomain', 'Registration of '.$name.' for '.$years.' '.($years === 1 ? 'year' : 'years'), $async ? 'PendingExecution' : 'Success', $async ? 'The registry has not confirmed the registration yet.' : 'Domain registration completed successfully.');
@@ -302,7 +307,7 @@ final class ResellerClubApi
                 return $funds;
             }
 
-            $order = [...$this->newOrder($request, $name, $tld, 'transfer', 'InActive', null), 'transfer_stage' => $code === '' ? 'awaiting_auth_code' : 'awaiting_registry'];
+            $order = [...$this->newOrder($request, $name, $tld, 'transfer', 'InActive', null), 'transfer_stage' => $code === '' ? 'awaiting_auth_code' : 'awaiting_registry', 'charged' => self::TLDS[$tld]['price']];
             $this->saveOrder($order);
             $waiting = $code === '' ? 'Waiting for the authorization code.' : 'Waiting for the current registrar to release the domain.';
 
@@ -343,7 +348,10 @@ final class ResellerClubApi
     {
         $name = strtolower((string) ($input['domain-name'] ?? ''));
 
-        return self::value($this->foreign($name) !== null && $this->orderByName($name) === null);
+        $order = $this->orderByName($name);
+
+        // The same test transfer() applies: held elsewhere, and no order here that still holds the name.
+        return self::value($this->foreign($name) !== null && ($order === null || in_array($order['currentstatus'], ['Deleted', 'Archived'], true)));
     }
 
     /**
@@ -435,7 +443,7 @@ final class ResellerClubApi
         if ($all || in_array('OrderDetails', $options, true)) {
             $answer += [
                 'orderstatus' => $order['transferlock'] ? ['transferlock'] : [],
-                'productkey' => 'dot'.str_replace('.', '', $order['tld']),
+                'productkey' => self::TLDS[$order['tld']]['key'],
                 'creationtime' => $order['creationtime'], 'endtime' => $order['endtime'], 'customerid' => $order['customerid'],
                 'isImmediateReseller' => 'true', 'domsecret' => $order['domsecret'], 'isprivacyprotected' => $order['privacy'] ? 'true' : 'false',
                 'recurring' => 'false',
@@ -504,7 +512,7 @@ final class ResellerClubApi
             $answer[(string) ($index + 1)] = [
                 'entity.description' => $order['domainname'], 'orders.orderid' => $order['orderid'], 'entity.customerid' => $order['customerid'],
                 'orders.creationdt' => $order['creationdt'], 'orders.creationtime' => $order['creationtime'], 'orders.endtime' => $order['endtime'],
-                'entity.currentstatus' => $order['currentstatus'], 'entitytype.entitytypekey' => 'dot'.str_replace('.', '', $order['tld']),
+                'entity.currentstatus' => $order['currentstatus'], 'entitytype.entitytypekey' => self::TLDS[$order['tld']]['key'],
                 'orders.transferlock' => $order['transferlock'] ? '1' : '0', 'orders.privacyprotection' => $order['privacy'] ? '1' : '0',
             ];
             $answer['recsonpage'] = (string) ($index + 1);
@@ -614,9 +622,18 @@ final class ResellerClubApi
             $expiry = $order['kind'] === 'transfer'
                 ? self::years((int) ($this->foreign($name)['endtime'] ?? time()), 1)
                 : self::years(time(), (int) ($order['years'] ?? 1));
+            if (! in_array($outcome, ['active', 'failed'], true)) {
+                throw new \InvalidArgumentException("Unknown outcome {$outcome}; use active or failed.");
+            }
+
+            if ($outcome === 'failed') {
+                // The registry refused it: the order ends and its charge goes back to the reseller balance.
+                $this->scenario->state()->put('config', 'balance', (int) $this->scenario->state()->get('config', 'balance', 0) + (int) ($order['charged'] ?? 0));
+            }
+
             $order = $outcome === 'active'
                 ? [...$order, 'currentstatus' => 'Active', 'creationtime' => (string) time(), 'endtime' => (string) $expiry, 'transfer_stage' => null]
-                : [...$order, 'currentstatus' => 'Deleted', 'transfer_stage' => null];
+                : [...$order, 'currentstatus' => 'Deleted', 'transfer_stage' => null, 'charged' => 0];
             $this->saveOrder($order);
 
             if ($outcome === 'active' && $order['kind'] === 'transfer') {
@@ -785,9 +802,16 @@ final class ResellerClubApi
      */
     private function action(array $order, string $type, string $description, string $status, string $statusDescription, array $extra = []): Response
     {
+        // A status set with `next_actionstatus` replaces the next answer's (the call itself runs as usual).
+        $override = $this->scenario->state()->get('config', 'next_actionstatus');
+
+        if (is_string($override)) {
+            $this->scenario->state()->delete('config', 'next_actionstatus');
+        }
+
         return Response::json([...$extra,
             'description' => $order['domainname'], 'entityid' => $order['orderid'], 'actiontype' => $type, 'actiontypedesc' => $description,
-            'eaqid' => (string) (70_000_000 + $this->scenario->state()->increment('ids', 'action')), 'actionstatus' => $status, 'actionstatusdesc' => $statusDescription,
+            'eaqid' => (string) (70_000_000 + $this->scenario->state()->increment('ids', 'action')), 'actionstatus' => is_string($override) ? $override : $status, 'actionstatusdesc' => $statusDescription,
         ]);
     }
 

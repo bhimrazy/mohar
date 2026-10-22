@@ -51,23 +51,39 @@ final readonly class Request
     }
 
     /**
-     * Every value sent under $name, in the query string and then a form body, in order: for APIs that send a list by
-     * repeating the name without brackets (`ns=a&ns=b`), which fields() reads as its last value only.
+     * Every value sent under $name, in order, for APIs that send a list by repeating the name without brackets
+     * (`ns=a&ns=b`), which fields() reads as its last value only. A name in a form body is read from the body alone
+     * (the body wins, as in input()), otherwise from the query string. A body is read as a form unless it is a JSON
+     * object or list, so `123` is a form body; a multipart body is refused, since no API simulated here takes one.
      *
      * @return list<string>
+     *
+     * @throws \InvalidArgumentException for a multipart body
      */
     public function values(string $name): array
     {
+        if (str_starts_with(strtolower((string) $this->header('content-type')), 'multipart/')) {
+            throw new \InvalidArgumentException('Multipart bodies are not read by values().');
+        }
+
+        $form = is_array(json_decode($this->body, true)) ? '' : $this->body;
+        $fromBody = self::pairs($form, $name);
+
+        return $fromBody !== [] ? $fromBody : self::pairs($this->rawQuery, $name);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function pairs(string $encoded, string $name): array
+    {
         $values = [];
-        $form = json_decode($this->body) === null ? $this->body : '';
 
-        foreach ([$this->rawQuery, $form] as $encoded) {
-            foreach (explode('&', $encoded) as $pair) {
-                [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
+        foreach (explode('&', $encoded) as $pair) {
+            [$key, $value] = array_pad(explode('=', $pair, 2), 2, '');
 
-                if ($pair !== '' && urldecode($key) === $name) {
-                    $values[] = urldecode($value);
-                }
+            if ($pair !== '' && urldecode($key) === $name) {
+                $values[] = urldecode($value);
             }
         }
 

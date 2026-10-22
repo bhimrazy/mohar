@@ -51,6 +51,10 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
     public function routes(): array
     {
         $api = fn (string $method, string $path, string $operation, \Closure $handler): Route => new Route('*', '/api/'.$path, $operation, function (Request $request, Scenario $scenario) use ($method, $handler): Response {
+            if (str_starts_with(strtolower((string) $request->header('content-type')), 'multipart/')) {
+                return ResellerClubApi::error('Send parameters as a query string or a URL-encoded form, not multipart.');
+            }
+
             $input = $request->input();
 
             if ($scenario->state()->get('config', 'ip_allowed', true) !== true
@@ -114,7 +118,10 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
                 'INTEGRATION_ENDPOINTS' => (string) json_encode(['resellerclub.api' => $api.'/api', 'resellerclub.check' => $api.'/api'], JSON_UNESCAPED_SLASHES),
                 'OUTBOUND_ALLOW_LOOPBACK' => 'true',
             ],
-            'notes' => ['ResellerClub registrar: test mode on, demo reseller id '.self::RESELLER_ID.', demo API key '.self::API_KEY.'.'],
+            'notes' => [
+                'ResellerClub registrar: test mode on, demo reseller id '.self::RESELLER_ID.', demo API key '.self::API_KEY.'.',
+                'The resellerclub.api and resellerclub.check endpoint keys are read by the ResellerClub driver, which arrives in the next PR (#280).',
+            ],
         ];
     }
 
@@ -126,17 +133,27 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
      * - `set_balance` {cents}: the reseller balance (0 for the insufficient-funds case);
      * - `registry_down` {tld, down}: availability answers `unknown` for that extension;
      * - `ip_allowed` {allowed}: false answers every call "Access Denied", as before the allow-list applies;
-     * - `reset`: wipe the account and reseed it, as the demo account is wiped daily.
+     * - `next_actionstatus` {value}: the next change answers this actionstatus (an unknown one, say) and still runs;
+     * - `reset`: wipe the account, its id counters and the fault plan, and reseed it, as the demo account is wiped daily.
      */
     public function actions(): array
     {
-        return [
-            'settle_order' => fn (array $input, Scenario $scenario): array => ['status' => (new ResellerClubApi($scenario))->settle(strtolower((string) $input['domain']), (string) ($input['outcome'] ?? 'active'))],
-            'set_status' => fn (array $input, Scenario $scenario): array => ['status' => (new ResellerClubApi($scenario))->setStatus(strtolower((string) $input['domain']), (string) $input['status'])],
-            'add_foreign_domain' => function (array $input, Scenario $scenario): array {
-                $scenario->state()->put('registry', strtolower((string) $input['domain']), ['auth_code' => (string) $input['auth_code'], 'endtime' => time() + (int) ($input['expires_in_days'] ?? 200) * 86_400]);
+        $domain = fn (array $input): string => is_string($input['domain'] ?? null) && $input['domain'] !== ''
+            ? strtolower($input['domain'])
+            : throw new \InvalidArgumentException('Give the domain name as `domain`.');
 
-                return ['domain' => strtolower((string) $input['domain'])];
+        return [
+            'settle_order' => fn (array $input, Scenario $scenario): array => ['status' => (new ResellerClubApi($scenario))->settle($domain($input), (string) ($input['outcome'] ?? 'active'))],
+            'set_status' => fn (array $input, Scenario $scenario): array => ['status' => (new ResellerClubApi($scenario))->setStatus($domain($input), (string) ($input['status'] ?? ''))],
+            'next_actionstatus' => function (array $input, Scenario $scenario): array {
+                $scenario->state()->put('config', 'next_actionstatus', (string) ($input['value'] ?? ''));
+
+                return ['next_actionstatus' => (string) ($input['value'] ?? '')];
+            },
+            'add_foreign_domain' => function (array $input, Scenario $scenario) use ($domain): array {
+                $scenario->state()->put('registry', $domain($input), ['auth_code' => (string) ($input['auth_code'] ?? ''), 'endtime' => time() + (int) ($input['expires_in_days'] ?? 200) * 86_400]);
+
+                return ['domain' => $domain($input)];
             },
             'set_balance' => function (array $input, Scenario $scenario): array {
                 $scenario->state()->put('config', 'balance', (int) $input['cents']);
@@ -156,12 +173,13 @@ final class ResellerClubSimulator implements HasControlActions, Simulator
             },
             'reset' => function (array $input, Scenario $scenario): array {
                 $scenario->state()->transaction(function () use ($scenario): void {
-                    foreach (['customers', 'contacts', 'orders', 'names', 'registry'] as $namespace) {
+                    foreach (['customers', 'contacts', 'orders', 'names', 'registry', 'ids', 'calls', 'config'] as $namespace) {
                         foreach (array_keys($scenario->state()->all($namespace)) as $key) {
                             $scenario->state()->delete($namespace, (string) $key);
                         }
                     }
 
+                    $scenario->faults()->clear();
                     $this->seed($scenario);
                 });
 

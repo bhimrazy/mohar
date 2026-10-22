@@ -271,17 +271,110 @@ test('name servers, the theft lock, privacy, contacts and restore change the ord
         ->and(rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'asha-sim.com', 'options' => 'OrderDetails'])->json('currentstatus'))->toBe('Active');
 });
 
-test('a registration that commits and then hangs is in the account when the client gives up, and a retry is refused', function () {
+test('a registration that commits and then hangs is in the account when the client gives up', function () {
     [$customer, $contact] = rcCustomer();
-    $this->scenario->faults()->add('register', Fault::commitThenHang(4), nth: 1);
+    // The client gives up after 2 s; the answer is held for 30 s, so the order exists long before either ends.
+    $this->scenario->faults()->add('register', Fault::commitThenHang(30), nth: 1);
 
-    expect(fn () => Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->timeout(1)
+    expect(fn () => Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->timeout(2)
         ->withBody(http_build_query(['auth-userid' => ResellerClubSimulator::RESELLER_ID, 'api-key' => ResellerClubSimulator::API_KEY, ...rcOrder('asha-sim.com', $customer, $contact, ['ns' => 'ns1.host.example.test'])]), 'application/x-www-form-urlencoded')
         ->post($this->scenario->apiUrl().'/api/domains/register.json'))->toThrow(ConnectionException::class);
 
+    $orderId = rcCall('GET', 'domains/orderid.json', ['domain-name' => 'asha-sim.com'])->json();
+
     expect($this->scenario->log()->count('register'))->toBe(1)
-        ->and(rcCall('GET', 'domains/search.json', ['no-of-records' => 10, 'page-no' => 1, 'domain-name' => 'asha-sim.com'])->json('recsindb'))->toBe('1')
-        ->and(rcCall('POST', 'domains/register.json', rcOrder('asha-sim.com', $customer, $contact))->json('message'))->toContain('already registered');
+        ->and($orderId)->toBeInt()
+        ->and(rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'asha-sim.com', 'options' => 'OrderDetails'])->json('orderid'))->toBe((string) $orderId)
+        ->and(rcCall('GET', 'domains/available.json', ['domain-name' => 'asha-sim', 'tlds' => 'com'])->json()['asha-sim.com']['status'])->toBe('regthroughus');
+});
+
+test('a failed slow registration and a failed transfer refund their charge and leave the name free to order again', function () {
+    [$customer, $contact] = rcCustomer();
+    rcCall('POST', 'domains/register.json', rcOrder('slow-asha.com', $customer, $contact));
+    rcCall('POST', 'domains/transfer.json', rcOrder(ResellerClubSimulator::FOREIGN_DOMAIN, $customer, $contact, ['ns' => [], 'auth-code' => ResellerClubSimulator::FOREIGN_AUTH_CODE]));
+    expect($this->scenario->state()->get('config', 'balance'))->toBe(ResellerClubSimulator::BALANCE - 2_100);
+
+    $this->scenario->simulator()->actions()['settle_order'](['domain' => 'slow-asha.com', 'outcome' => 'failed'], $this->scenario);
+    $this->scenario->simulator()->actions()['settle_order'](['domain' => ResellerClubSimulator::FOREIGN_DOMAIN, 'outcome' => 'failed'], $this->scenario);
+
+    expect($this->scenario->state()->get('config', 'balance'))->toBe(ResellerClubSimulator::BALANCE)
+        ->and(rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'slow-asha.com', 'options' => 'OrderDetails'])->json('currentstatus'))->toBe('Deleted')
+        ->and(rcCall('GET', 'domains/available.json', ['domain-name' => 'slow-asha', 'tlds' => 'com'])->json()['slow-asha.com']['status'])->toBe('available')
+        ->and(rcCall('GET', 'domains/validate-transfer.json', ['domain-name' => ResellerClubSimulator::FOREIGN_DOMAIN])->json())->toBeTrue()
+        ->and(rcCall('POST', 'domains/register.json', rcOrder('slow-asha.com', $customer, $contact))->json('actionstatus'))->toBe('PendingExecution')
+        ->and(rcCall('POST', 'domains/transfer.json', rcOrder(ResellerClubSimulator::FOREIGN_DOMAIN, $customer, $contact, ['ns' => []]))->json('actionstatus'))->toBe('PendingExecution');
+});
+
+test('validate-transfer agrees with transfer: false while an order here holds the name, true once it is deleted', function () {
+    [$customer, $contact] = rcCustomer();
+    rcCall('POST', 'domains/transfer.json', rcOrder(ResellerClubSimulator::FOREIGN_DOMAIN, $customer, $contact, ['ns' => []]));
+
+    expect(rcCall('GET', 'domains/validate-transfer.json', ['domain-name' => ResellerClubSimulator::FOREIGN_DOMAIN])->json())->toBeFalse()
+        ->and(rcCall('POST', 'domains/transfer.json', rcOrder(ResellerClubSimulator::FOREIGN_DOMAIN, $customer, $contact, ['ns' => []]))->json('message'))->toContain('already exists');
+
+    $this->scenario->simulator()->actions()['set_status'](['domain' => ResellerClubSimulator::FOREIGN_DOMAIN, 'status' => 'Deleted'], $this->scenario);
+
+    expect(rcCall('GET', 'domains/validate-transfer.json', ['domain-name' => ResellerClubSimulator::FOREIGN_DOMAIN])->json())->toBeTrue()
+        ->and(rcCall('POST', 'domains/transfer.json', rcOrder(ResellerClubSimulator::FOREIGN_DOMAIN, $customer, $contact, ['ns' => []]))->json('actionstatus'))->toBe('PendingExecution')
+        ->and(rcCall('GET', 'domains/validate-transfer.json', ['domain-name' => 'never-registered.com'])->json())->toBeFalse();
+});
+
+test('an unknown actionstatus is answered once, and the order it belongs to is carried out', function () {
+    [$customer, $contact] = rcCustomer();
+    $this->scenario->simulator()->actions()['next_actionstatus'](['value' => 'InvoicePaid'], $this->scenario);
+
+    $odd = rcCall('POST', 'domains/register.json', rcOrder('asha-sim.com', $customer, $contact))->json();
+    $next = rcCall('POST', 'domains/register.json', rcOrder('asha-sim.net', $customer, $contact))->json();
+
+    expect($odd['actionstatus'])->toBe('InvoicePaid')
+        ->and(rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'asha-sim.com', 'options' => 'OrderDetails'])->json('currentstatus'))->toBe('Active')
+        ->and($next['actionstatus'])->toBe('Success');
+});
+
+test('search filters by name, customer, status and creation date, and pages', function () {
+    [$customer, $contact] = rcCustomer();
+    [$other, $otherContact] = rcCustomer('bikash@example.test');
+    $before = time() - 1;
+
+    foreach (range(1, 12) as $n) {
+        rcCall('POST', 'domains/register.json', rcOrder("asha-{$n}.xyz", $customer, $contact));
+    }
+
+    rcCall('POST', 'domains/register.json', rcOrder('bikash-sim.com', $other, $otherContact));
+    $this->scenario->simulator()->actions()['set_status'](['domain' => 'asha-3.xyz', 'status' => 'Suspended'], $this->scenario);
+    $page = fn (array $filters, int $page = 1): array => rcCall('GET', 'domains/search.json', ['no-of-records' => 10, 'page-no' => $page, ...$filters])->json();
+
+    expect($page(['customer-id' => $customer])['recsindb'])->toBe('12')
+        ->and($page(['customer-id' => $customer])['recsonpage'])->toBe('10')
+        ->and($page(['customer-id' => $customer], 2)['recsonpage'])->toBe('2')
+        ->and($page(['customer-id' => $customer], 2)['2']['entity.description'])->toBe('asha-12.xyz')
+        ->and($page(['customer-id' => $other])['1']['entity.description'])->toBe('bikash-sim.com')
+        ->and($page(['customer-id' => $other])['1']['entitytype.entitytypekey'])->toBe('domcno')
+        ->and($page(['status' => 'Suspended'])['1']['entity.description'])->toBe('asha-3.xyz')
+        ->and($page(['domain-name' => 'asha-1.xyz'])['recsindb'])->toBe('1')
+        ->and($page(['creation-date-start' => (string) $before])['recsindb'])->toBe('13')
+        ->and($page(['creation-date-start' => (string) (time() + 60)])['recsindb'])->toBe('0')
+        ->and(rcCall('GET', 'domains/search.json', ['no-of-records' => 5, 'page-no' => 1])->json('message'))->toContain('no-of-records');
+});
+
+test('refusals for a foreign contact, invalid options, unknown statuses and a multipart body change nothing', function () {
+    [$customer, $contact] = rcCustomer();
+    [, $otherContact] = rcCustomer('bikash@example.test');
+    $order = rcCall('POST', 'domains/register.json', rcOrder('asha-sim.com', $customer, $contact))->json('entityid');
+
+    $foreign = rcCall('POST', 'domains/modify-contact.json', ['order-id' => $order, 'reg-contact-id' => $otherContact, 'admin-contact-id' => $contact, 'tech-contact-id' => $contact, 'billing-contact-id' => $contact]);
+    $options = rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'asha-sim.com', 'options' => 'orderdetails']);
+    $multipart = Http::withOptions(['verify' => $this->scenario->ca()->bundlePath()])->asMultipart()
+        ->post($this->scenario->apiUrl().'/api/domains/modify-ns.json', [['name' => 'auth-userid', 'contents' => ResellerClubSimulator::RESELLER_ID], ['name' => 'api-key', 'contents' => ResellerClubSimulator::API_KEY]]);
+    $control = Http::withHeaders(['X-Sim-Token' => $this->scenario->token()])->post($this->scenario->controlUrl().'/__sim/actions/set_status', ['domain' => 'asha-sim.com', 'status' => 'Expired']);
+
+    expect($foreign->json('message'))->toContain('does not belong to customer')
+        ->and($options->json('message'))->toContain('options=')
+        ->and($multipart->json('message'))->toContain('not multipart')
+        ->and($control->status())->toBe(400)
+        ->and($control->json('error'))->toBe('Unknown order status Expired.')
+        ->and(rcCall('GET', 'domains/details-by-name.json', ['domain-name' => 'asha-sim.com', 'options' => 'All'])->json())
+        ->toMatchArray(['currentstatus' => 'Active', 'registrantcontactid' => $contact, 'productkey' => 'domcno']);
 });
 
 test('a rate limit refuses the call before it runs', function () {
@@ -300,18 +393,29 @@ test('a reset wipes the account like the daily demo reset, and keeps the seeded 
     [$customer, $contact] = rcCustomer();
     rcCall('POST', 'domains/register.json', rcOrder('asha-sim.com', $customer, $contact));
 
+    $this->scenario->faults()->add('register', Fault::rateLimit(30));
+    $this->scenario->simulator()->actions()['reset']([], $this->scenario);
+    [$customer, $contact] = rcCustomer();
+
+    expect(rcCall('POST', 'domains/register.json', rcOrder('asha-sim.com', $customer, $contact))->json('entityid'))->toBe('80000001')
+        ->and($customer)->toBe('14000001');
+
     $this->scenario->simulator()->actions()['reset']([], $this->scenario);
 
     expect($this->scenario->state()->all('orders'))->toBe([])
         ->and($this->scenario->state()->all('customers'))->toBe([])
         ->and(rcCall('GET', 'domains/available.json', ['domain-name' => ['asha-sim', 'taken-elsewhere'], 'tlds' => 'com'])->json())
-        ->toMatchArray(['asha-sim.com' => ['status' => 'available', 'classkey' => 'dotcom'], 'taken-elsewhere.com' => ['status' => 'regthroughothers', 'classkey' => 'dotcom']]);
+        ->toMatchArray(['asha-sim.com' => ['status' => 'available', 'classkey' => 'domcno'], 'taken-elsewhere.com' => ['status' => 'regthroughothers', 'classkey' => 'domcno']]);
 });
 
-test('values() reads a list sent as repeated names from the query and a form body', function () {
-    $request = new Request('POST', '/api/domains/register.json', [], [], 'ns=a.example.test&ns=b.example.test&years=1', rawQuery: 'tlds=com&tlds=net');
+test('values() reads a list sent as repeated names, from the body when it has them, never twice, and refuses multipart', function () {
+    $both = new Request('POST', '/api/domains/register.json', [], [], 'ns=a.example.test&ns=b.example.test&years=1', rawQuery: 'tlds=com&tlds=net&ns=query.example.test');
+    $number = new Request('POST', '/api/domains/renew.json', [], [], '123', rawQuery: '123=x');
 
-    expect($request->values('ns'))->toBe(['a.example.test', 'b.example.test'])
-        ->and($request->values('tlds'))->toBe(['com', 'net'])
-        ->and($request->values('missing'))->toBe([]);
+    expect($both->values('ns'))->toBe(['a.example.test', 'b.example.test'])
+        ->and($both->values('tlds'))->toBe(['com', 'net'])
+        ->and($both->values('missing'))->toBe([])
+        ->and($number->values('123'))->toBe([''])
+        ->and((new Request('POST', '/', [], [], '123=y'))->values('123'))->toBe(['y'])
+        ->and(fn () => (new Request('POST', '/', [], ['content-type' => 'multipart/form-data; boundary=x'], '--x'))->values('ns'))->toThrow(InvalidArgumentException::class);
 });
