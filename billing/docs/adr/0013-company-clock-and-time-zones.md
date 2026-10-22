@@ -99,7 +99,7 @@ numbers fiscal documents on the UTC calendar.
    key. Issue #85 keeps the general drift in settings ownership.
 2. **Contract.** `App\Contracts\Core\CompanyClock` keeps the shape in §3. Core implements it by turning
    `BusinessCalendar` into `CoreCompanyClock` and binds it in `CoreServiceProvider`. Orders' `CompanyClock` and
-   `MailClock` delegate to the contract and are deleted once their callers have moved. `sqlZoneArgument()` and
+   `MailClock` delegate to the contract and are deleted once their callers have moved, in a follow-up PR (decision 5). `sqlZoneArgument()` and
    `sqlLocalDate()` stay as Core-internal helpers until the two dashboards query with `dayBounds()`, and then they go.
    The contract gets no BS method: the Bikram Sambat date is computed in Billing from the company date (ADR 0024 §2).
 3. **Fiscal-document call sites switch first.** Billing step 4 of the rollout comes before any other module and
@@ -114,11 +114,29 @@ numbers fiscal documents on the UTC calendar.
     - the scheduler: `automation:run` uses `->dailyAt($time)->timezone($clock->timezone())`, the command's default date
       becomes `CompanyClock::today()` (`RunAutomation.php:59`), and the help text for `core.automation_time` says
       "company time". The exchange-rate schedule (`PlatformServiceProvider.php:137`) does the same.
-4. **Tests.** Time is frozen with `Carbon::setTestNow()` (or `travelTo()`) at a **UTC instant**, never at a local
-   time, and `inCompanyTimezone('Asia/Kathmandu')` sets the setting. There is no fake clock class, because the real
-   clock derived from a frozen `now()` is what production runs. Every document test that touches a date also runs at
-   18:20 UTC, which is 00:05 the next day in Kathmandu. The Billing arch scan for `::today(` lands in the same PR, so
-   later code cannot regress.
+    - new fiscal reads from ADR 0024. They take the company date from the clock, never from an instant:
+        - a note's `issue_date` and BS fields;
+        - the check that `enabled_from` is today or later;
+        - the company date of `created_at` in the enable-time refusal;
+        - the register's default period ("last closed BS month");
+        - the "printed at" time on PDFs.
+4. **Tests.**
+    - Time is frozen with `Carbon::setTestNow()` (or `travelTo()`) at a **UTC instant**, never at a local time.
+      `inCompanyTimezone('Asia/Kathmandu')` sets the setting.
+    - There is no fake clock class, because a real clock reading a frozen `now()` is what production runs.
+    - Every document test that touches a date runs at the boundary pair **18:14:59 and 18:15:00 UTC** (23:59:59 and
+      00:00:00 in Kathmandu). It also runs on **1 Baisakh** (the BS year start) and **1 Shrawan** (the fiscal-year start),
+      where a day's error changes the year.
+    - The arch scan lands in the same PR. Over `app/Modules/Billing` it rejects `::today(`, a bare `today()`,
+      `now()->toDateString()`, `->startOfDay()->toDateString()` and `date('Y-m-d'`. The other modules join the scan
+      as each one moves.
+5. **Scope of the prerequisite PR (0a).** PR 0a contains:
+    - the contract and Core's implementation;
+    - Billing's fiscal call sites (decision 3) and the scheduler change;
+    - the tests and the scan.
+
+    Orders, Kyc, Platform, Notifications, Services and Domains move in follow-up PRs, one module each, as in the
+    Rollout above. The local clocks are deleted only after their last caller has moved.
 
 ### Migration of existing data
 
@@ -137,8 +155,8 @@ numbers fiscal documents on the UTC calendar.
 
 - One clock everywhere. Documents and their BS periods agree with the Kathmandu calendar at the day boundary.
 - `DocumentNumbers::next()` changes signature inside Billing. This is module code, not kernel API.
-- Three local clocks are removed, which is a small cross-module PR led by Core. Kyc, Platform and Notifications move in
-  the same PR, because they only call `today()` and `timezone()`.
+- Three local clocks are removed in the follow-up PRs, not in PR 0a. Until then they delegate to the contract, so
+  every module already reads one company time zone.
 
 ### Alternatives considered
 

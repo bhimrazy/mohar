@@ -87,10 +87,13 @@ a second one.
 - **PDF.** A kernel view (`resources/views/reports/pdf.blade.php`), rendered through the dompdf dependency already
   installed. A4 landscape. It shows the header block, page totals and grand totals, "Printed by <staff> at <company
   time>", and the brand from `BrandProvider`. `ProvidesPdfView` replaces only the table part of the page.
-- **Sync or queued.**
+- **Sync now, queued later.**
     - Up to `reports.sync_export_max_rows` (5,000 by default, from `count()`), the export is streamed in the response
-      from a lazy cursor.
-    - Above that, `ExportReportJob` runs on the `default` queue. It is `ShouldBeUnique` on the export id, and its
+      from a lazy cursor. This is the only delivery path in PR 0c (CTO decision 7).
+    - Until queued delivery exists, a larger export is refused with the row count and a request to narrow the
+      filters. A monthly VAT register is far below the limit.
+    - **Deferred to the Reports workstream.** The queued path below is decided now, so that it fits without changing
+      the contract, but it is built with the Reports module. `ExportReportJob` runs on the `default` queue. It is `ShouldBeUnique` on the export id, and its
       timeout is the default pool's. A dedicated queue would require amending ADR 0014.
     - The job writes the file to the `objects` disk under `exports/<id>`, and records it in `report_exports`, a Core
       table: id, key, user, filters, format, rows, path, `expires_at`.
@@ -132,9 +135,15 @@ reports ("Report modules" in `billing/docs/parity/developer-architecture.md`).
 
 ## Consequences
 
-- The register is built with PR 0 of the #327 split: the kernel seam, `SafeCsv`, and the move out of Migration. Each
-  later report reuses it, and the Reports module becomes a UI module rather than an owner of queries.
-- Core gains one table and one cleanup task. The kernel gains one PDF view.
+- PR 0c of the build order (ADR 0024 §10) ships, just before the register screens:
+    - the registry and the DTOs;
+    - `SafeCsv`, with `ErrorsCsv` moved onto it;
+    - the synchronous CSV and PDF writers.
+
+    Each later report reuses it, and the Reports module becomes a UI module rather than an owner of queries.
+
+- The kernel gains one PDF view. The `report_exports` table, the job, the signed links and the cleanup task come
+  with the Reports module.
 - The spec's permission keys change to `reports.vat_register.*`. The spec author adopts this in #327.
 
 ## Alternatives considered
