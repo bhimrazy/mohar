@@ -615,7 +615,7 @@ final class Redactor
      * instructions and other declarations are skipped whole, and a tag's attributes are skipped with quoted values
      * honoured, so a marker inside them is not found. An unterminated construct runs to the end of the text. `<head`
      * and `<body` are not markers (SOAP has a `<Body>`). Only a marker that starts before $before is looked for. $from becomes
-     * where the search resumes (it stays set when the walk stopped at $before), or null when the text has no more.
+     * where the search resumes (it is the `<` where the walk stopped at $before, so a later call does not rescan), or null when the text has no more.
      */
     private function nextHtmlMarker(string $value, ?int &$from, int $before): ?int
     {
@@ -624,7 +624,7 @@ final class Redactor
 
         while (($open = strpos($value, '<', $position)) !== false) {
             if ($open >= $before) {
-                $from = $position;
+                $from = $open;
 
                 return null;
             }
@@ -659,6 +659,13 @@ final class Redactor
             }
 
             $nameLength = ctype_alpha($next) || $next === '_' ? strspn($value, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.:-', $open + 1) : 0;
+
+            if ($nameLength === 0 && $next !== '/') {
+                $position = $open + 1; // a `<` that starts no tag is text
+
+                continue;
+            }
+
             $position = $this->skipTag($value, $open + 1 + $nameLength);
 
             if ($nameLength === 4 && strcasecmp(substr($value, $open + 1, 4), 'html') === 0) {
