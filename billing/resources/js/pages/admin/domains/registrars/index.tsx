@@ -74,19 +74,40 @@ function RegistrarCard({ registrar }: { registrar: Registrar }) {
                 }
                 description={`${registrar.tlds_count} TLDs · ${registrar.domains_count} domains`}
                 actions={
-                    <ConfirmDialog
-                        trigger={
-                            <Button type="button" variant="ghost" size="sm">
+                    registrar.capabilities.includes('test_connection') ? (
+                        <ConfirmDialog
+                            trigger={
+                                <Button type="button" variant="ghost" size="sm">
+                                    <PlugZap />
+                                    Test connection
+                                </Button>
+                            }
+                            title={`Test the connection to ${registrar.name}?`}
+                            description="Uses the saved settings. Save first if you changed anything."
+                            confirmLabel="Test connection"
+                            destructive={false}
+                            action={RegistrarController.test(registrar.key)}
+                        />
+                    ) : (
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                disabled
+                                aria-describedby={`${registrar.key}-no-test`}
+                            >
                                 <PlugZap />
                                 Test connection
                             </Button>
-                        }
-                        title={`Test the connection to ${registrar.name}?`}
-                        description="Uses the saved settings. Save first if you changed anything."
-                        confirmLabel="Test connection"
-                        destructive={false}
-                        action={RegistrarController.test(registrar.key)}
-                    />
+                            <span
+                                id={`${registrar.key}-no-test`}
+                                className="text-xs text-muted-foreground"
+                            >
+                                This registrar has no connection test.
+                            </span>
+                        </span>
+                    )
                 }
                 footer={
                     <Button

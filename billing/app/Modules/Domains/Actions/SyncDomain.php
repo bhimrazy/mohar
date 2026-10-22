@@ -2,17 +2,17 @@
 
 namespace App\Modules\Domains\Actions;
 
+use App\Contracts\Domains\Registrar\SyncsDomains;
+use App\Contracts\Domains\Registrar\TransfersDomains;
+use App\Data\Domains\Registrar\RegistrarConfig;
+use App\Data\Domains\Registrar\SyncResult;
+use App\Data\Domains\Registrar\TransferSyncResult;
 use App\Enums\BillableType;
 use App\Events\Domains\DomainRegistered;
 use App\Events\Domains\DomainTransferFailed;
 use App\Events\Domains\DomainTransferred;
 use App\Modules\Core\Support\ActivityLogger;
-use App\Modules\Domains\Drivers\Registrars\Data\SyncResult;
-use App\Modules\Domains\Drivers\Registrars\Data\TransferSyncResult;
-use App\Modules\Domains\Drivers\Registrars\Registrar;
 use App\Modules\Domains\Enums\DomainStatus;
-use App\Modules\Domains\Exceptions\CapabilityNotSupported;
-use App\Modules\Domains\Exceptions\RegistrarException;
 use App\Modules\Domains\Models\Domain;
 use App\Modules\Domains\Services\DomainDates;
 use App\Modules\Domains\Services\DomainEvents;
@@ -20,6 +20,8 @@ use App\Modules\Domains\Services\DomainStateMachine;
 use App\Modules\Domains\Services\RegistrarGateway;
 use App\Modules\Domains\Services\RenewalInvoices;
 use App\Modules\Domains\Support\RemoteIds;
+use App\Support\Domains\CapabilityNotSupported;
+use App\Support\Domains\RegistrarException;
 use Carbon\CarbonImmutable;
 
 /**
@@ -69,7 +71,7 @@ class SyncDomain
      */
     private function transferSync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
-        $result = $this->gateway->forDomain($domain, 'transfer_sync', fn (Registrar $registrar): TransferSyncResult => $registrar->transferSync($domain), staffId: $staffId);
+        $result = $this->gateway->forDomain($domain, 'transfer_sync', TransfersDomains::class, fn (TransfersDomains $registrar, RegistrarConfig $config): TransferSyncResult => $registrar->transferSync($config, $domain->toRef()), staffId: $staffId);
         $this->rememberRemote($domain, $result->remote, $notifyOnly);
 
         if ($result->completed) {
@@ -113,7 +115,7 @@ class SyncDomain
      */
     private function sync(Domain $domain, bool $notifyOnly, ?int $staffId): array
     {
-        $result = $this->gateway->forDomain($domain, 'sync', fn (Registrar $registrar): SyncResult => $registrar->sync($domain), staffId: $staffId);
+        $result = $this->gateway->forDomain($domain, 'sync', SyncsDomains::class, fn (SyncsDomains $registrar, RegistrarConfig $config): SyncResult => $registrar->sync($config, $domain->toRef()), staffId: $staffId);
         $apply = ! $notifyOnly;
         $this->rememberRemote($domain, $result->remote, $notifyOnly);
 

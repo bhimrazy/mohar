@@ -20,6 +20,31 @@ arch('nothing uses the removed module-internal provisioning SPI (ADR 0009)')
         'App\Modules\Services\Support\Redactor',
     ]);
 
+// Removed from use in PR C2; the files stay on disk until PR C3 (#265) deletes them. Until then they may use only
+// each other. (`ignoring()` would also skip them as dependencies, so it cannot express this.)
+$deadRegistrarSpi = [
+    'App\Modules\Domains\Drivers\Registrars\Registrar',
+    'App\Modules\Domains\Drivers\Registrars\Data',
+    'App\Modules\Domains\Exceptions\RegistrarException',
+    'App\Modules\Domains\Exceptions\RegistrarTimeout',
+    'App\Modules\Domains\Exceptions\CapabilityNotSupported',
+];
+
+foreach ($deadRegistrarSpi as $removed) {
+    arch("{$removed} (the removed registrar SPI) is used by nothing else (ADR 0009)")
+        ->expect($removed)
+        ->toOnlyBeUsedIn($deadRegistrarSpi);
+}
+
+arch('nothing uses the removed module RegistrarManager (ADR 0009)')
+    ->expect('App')
+    ->not->toUse('App\Modules\Domains\Drivers\Registrars\RegistrarManager');
+
+arch('App\Modules\Domains\Drivers\Registrars sees snapshots only: no models, no database')
+    ->expect('App\Modules\Domains\Drivers\Registrars')
+    ->not->toUse(['Illuminate\Database\Eloquent\Model', 'Illuminate\Support\Facades\DB', 'App\Modules\Domains\Models', 'App\Models'])
+    ->ignoring($deadRegistrarSpi);
+
 // One target per rule: a not->toUse() over several targets passes when any one of them is clean (issue #275).
 foreach (['App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar'] as $registrarKernel) {
     arch("{$registrarKernel} uses no model and no module (ADR 0009 \"Verification\")")
@@ -72,7 +97,7 @@ test('the record-importer rule refuses an importer that dispatches an event', fu
 test('every arch target in this file matches at least one class', function () use ($importerNamespaces) {
     expect($importerNamespaces)->not->toBe([])
         ->and(archTargetsWithoutClasses([
-            'App', 'App\Modules', 'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
+            'App', 'App\Modules', 'App\Contracts\Domains\Registrar', 'App\Data\Domains\Registrar', 'App\Modules\Domains\Drivers\Registrars', 'App\Modules\Services\Drivers\Provisioning', 'Tests\Fixtures\Extensions', ...$importerNamespaces,
         ]))->toBe([]);
 });
 
