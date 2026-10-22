@@ -48,6 +48,12 @@ class BillingDashboard
 
     public function __construct(private BillingSettings $settings, private CoreCompanyClock $calendar) {}
 
+    /** The company date as a date value (00:00 UTC), like the date columns the widgets compare it with. */
+    private function companyDate(): CarbonImmutable
+    {
+        return $this->calendar->today()->shiftTimezone('UTC');
+    }
+
     public function register(Dashboard $dashboard): void
     {
         $dashboard->card('admin', 'billing.income', fn (?User $user): array => $this->incomeCard(), 'billing.transactions.view', 2);
@@ -62,7 +68,7 @@ class BillingDashboard
 
         $dashboard->todo('admin', 'billing.due_today', fn (?User $user): array => [
             'label' => 'Unpaid invoices due today',
-            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', $this->calendar->today()->toDateString())->count(),
+            'count' => Invoice::query()->where('status', InvoiceStatus::Unpaid)->whereDate('due_date', $this->companyDate()->toDateString())->count(),
             'href' => route('admin.billing.invoices.index', ['status' => 'unpaid']),
             'tone' => 'warning',
             'icon' => 'CalendarClock',
@@ -121,7 +127,7 @@ class BillingDashboard
     private function incomeCard(): array
     {
         $data = $this->dataset();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
         $monthStart = $today->startOfMonth();
         $previousStart = $monthStart->subMonth();
         $previousEnd = $previousStart->day(min($today->day, $previousStart->daysInMonth));
@@ -180,7 +186,7 @@ class BillingDashboard
         $data = $this->dataset();
 
         $view = function (array $book): array {
-            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays($this->calendar->today());
+            $oldest = $book['oldest_due'] === null ? null : (int) CarbonImmutable::parse($book['oldest_due'])->diffInDays($this->companyDate());
 
             return [
                 'trend' => Trend::percent($book['overdue'], $book['overdue_month_ago'], upIsGood: false),
@@ -215,7 +221,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
 
         $view = function (array $daily, string $currency) use ($today): array {
             $months = $this->monthlyComparison($daily, $today, $currency);
@@ -255,7 +261,7 @@ class BillingDashboard
     {
         $data = $this->dataset();
         $rollup = $this->rollup();
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
         $amounts = [];
 
         foreach ($data['income'] as $code => $daily) {
@@ -574,7 +580,7 @@ class BillingDashboard
      */
     private function dataset(): array
     {
-        $today = $this->calendar->today();
+        $today = $this->companyDate();
 
         /** @var array{income: array<string, array<string, int>>, receivables: array<string, array<string, mixed>>, tax: list<array{label: string, money: array{amount: int, currency: string}}>} */
         // The dataset is the same for every user (permissions apply per widget); the key follows the local day.
