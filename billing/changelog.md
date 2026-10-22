@@ -463,6 +463,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   costs nothing to mask; a JSON answer with nothing secret is stored as received, and one with a secret is stored
   re-encoded (whitespace can differ).
 
+### Stripe smoke command without Billing (#269)
+
+- `php artisan payments:stripe-smoke` stops with an error before asking for a key when the `billing.gateways.return`
+  route is not registered (PaymentsStripe loaded without Billing). It used to fail with an exception. No schema,
+  permission or configuration change.
+
 ### Architecture tests check every target (#275)
 
 - The architecture rules in `tests/Arch` with several targets (kernel → module imports, Eloquent models in DTOs and
