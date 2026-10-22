@@ -282,7 +282,7 @@ MD.$signOff),
 |---|---|
 {% if service.domain %}| Domain | {{ service.domain }} |
 {% endif %}{% if invoice.number %}| Overdue invoice | {{ invoice.number }} |
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 {% endif %}
 
 Your files and data are kept safe while the service is paused.
@@ -335,8 +335,8 @@ Here's your new invoice. Please pay it by {{ invoice.due_date | date }} to keep 
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Need a different billing address or a purchase order number on this invoice? Reply and we'll reissue it.
 MD.$signOff),
@@ -349,8 +349,8 @@ We'll charge your saved payment method on {{ invoice.due_date | date }}. There's
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Charge date | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Charge date | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 MD.$signOff),
     $client('invoice.payment_reminder', 'invoice', 'Payment reminder', 'Reminder: invoice {{ invoice.number }} ({{ invoice.balance }}) is due {{ invoice.due_date | date }}', <<<'MD'
 # Payment due soon
@@ -361,8 +361,8 @@ A friendly reminder that invoice {{ invoice.number }} is due on {{ invoice.due_d
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Already paid? Reply to this email and we'll check.
 MD.$signOff),
@@ -375,8 +375,8 @@ We haven't received payment for invoice {{ invoice.number }}, which was due on {
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Issued | {{ invoice.issue_date | date }} |
-| Was due | {{ invoice.due_date | date }} |
+| Issued | {{ invoice.issue_date | date }}{% if invoice.issue_date_bs %} ({{ invoice.issue_date_bs }}){% endif %} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 
 Already paid? Bank transfers can take up to two working days to reach us. Reply with your payment reference and we'll check.
 
@@ -391,7 +391,7 @@ Invoice {{ invoice.number }} is now {{ invoice.days_overdue }} days overdue. Ple
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Days overdue | {{ invoice.days_overdue }} |
 
 Need more time? Reply to this email and we'll work it out with you.
@@ -405,7 +405,7 @@ Invoice {{ invoice.number }} is {{ invoice.days_overdue }} days overdue. If it s
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Was due | {{ invoice.due_date | date }} |
+| Was due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Days overdue | {{ invoice.days_overdue }} |
 
 Already paid? Reply to this email and we'll check.
@@ -431,7 +431,7 @@ We couldn't charge your saved payment method for invoice {{ invoice.number }}. P
 
 | Invoice | {{ invoice.number }} |
 |---|---|
-| Due | {{ invoice.due_date | date }} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 | Reason | {{ payment.failure_reason | default('Declined by the payment provider') }} |
 MD.$signOff),
     $client('invoice.refunded', 'invoice', 'Refund issued', 'Your refund from {{ company.name }}: {{ refund.amount }} for invoice {{ invoice.number }}', <<<'MD'
@@ -455,7 +455,7 @@ We've changed this invoice. {{ invoice.balance }} is now due by {{ invoice.due_d
 | Invoice | {{ invoice.number }} |
 |---|---|
 | New total | {{ invoice.total }} |
-| Due | {{ invoice.due_date | date }} |
+| Due | {{ invoice.due_date | date }}{% if invoice.due_date_bs %} ({{ invoice.due_date_bs }}){% endif %} |
 MD.$signOff),
     $client('payment_method.expiring', 'invoice', 'Payment method expiring', 'Your {{ company.name }} payment method expires soon', <<<'MD'
 # Your payment method expires soon
