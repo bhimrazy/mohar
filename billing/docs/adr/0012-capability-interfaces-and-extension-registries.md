@@ -126,4 +126,3 @@ answers for its own configuration (for example, `AccountLinks::problem()` for in
 contract and never test the class of a binding (`instanceof Null…`): a package's own unavailable binding, or a
 decorator around the null one, must answer the same way. Examples: `GatewayDirectory::available()`,
 `ClientLoginInvitations::problem()` (#255).
-
